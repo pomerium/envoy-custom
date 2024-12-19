@@ -1,0 +1,8 @@
+flags:
+  --cpu=darwin_x86_64
+  --apple_platform_type=macos
+    @envoy//bazel:macos_x86_64
+
+  --cpu=darwin_arm64
+  --apple_platform_type=macos
+    @envoy//bazel:macos_arm64

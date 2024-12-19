@@ -1,0 +1,6 @@
+bazel-*
+clang.bazelrc
+user.bazelrc
+compile_commands.json
+.vscode
+user.bazelrc
