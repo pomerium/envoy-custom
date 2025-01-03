@@ -1,6 +1,7 @@
 load(
     "@envoy//bazel:envoy_build_system.bzl",
     "envoy_cc_library",
+    "envoy_cc_test",
 )
 
 package(default_visibility = ["//visibility:public"])
@@ -35,4 +36,18 @@ cc_proto_library(
 proto_library(
     name = "trace_context_proto",
     srcs = ["trace_context.proto"],
+)
+
+envoy_cc_test(
+    name = "trace_context_test",
+    srcs = ["trace_context_test.cc"],
+    repository = "@envoy",
+    deps = [
+        ":pomerium_trace_context",
+        ":trace_context_cc_proto",
+        "@envoy//source/common/common:random_generator_lib",
+        "@envoy//test/mocks/runtime:runtime_mocks",
+        "@envoy//test/mocks/stream_info:stream_info_mocks",
+        "@envoy//test/test_common:logging_lib",
+    ],
 )

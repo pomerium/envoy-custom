@@ -9,6 +9,7 @@ envoy_cc_binary(
     name = "envoy",
     features = ["fully_static_link"],
     repository = "@envoy",
+    stamped = True,
     deps = [
         "//source/extensions/http/early_header_mutation/trace_context:pomerium_trace_context",
         "//source/extensions/request_id/uuidx:pomerium_uuidx",

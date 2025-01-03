@@ -2,6 +2,8 @@ workspace(name = "pomerium_envoy")
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
+envoy_version = "1.32.2"
+
 http_archive(
     name = "envoy",
     patch_args = [
@@ -11,8 +13,8 @@ http_archive(
     patches = [
         "//:patches/0001-fix-otel-grpc-trace-exporter.patch",
     ],
-    strip_prefix = "envoy-1.32.2",
-    url = "https://github.com/envoyproxy/envoy/archive/refs/tags/v1.32.2.zip",
+    strip_prefix = "envoy-" + envoy_version,
+    url = "https://github.com/envoyproxy/envoy/archive/refs/tags/v" + envoy_version + ".zip",
 )
 
 load("@envoy//bazel:api_binding.bzl", "envoy_api_binding")

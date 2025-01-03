@@ -1,6 +1,7 @@
 load(
     "@envoy//bazel:envoy_build_system.bzl",
     "envoy_cc_library",
+    "envoy_cc_test",
 )
 
 package(default_visibility = ["//visibility:public"])
@@ -40,5 +41,18 @@ proto_library(
     srcs = ["uuidx.proto"],
     deps = [
         "@com_google_protobuf//:wrappers_proto",
+    ],
+)
+
+envoy_cc_test(
+    name = "uuidx_test",
+    srcs = ["uuidx_test.cc"],
+    repository = "@envoy",
+    deps = [
+        ":pomerium_uuidx",
+        ":uuidx_cc_proto",
+        "@envoy//source/common/common:random_generator_lib",
+        "@envoy//test/mocks/runtime:runtime_mocks",
+        "@envoy//test/test_common:logging_lib",
     ],
 )
