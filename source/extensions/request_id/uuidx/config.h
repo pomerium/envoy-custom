@@ -36,6 +36,8 @@ private:
     }
     return base_config;
   }
+
+  Envoy::Http::LowerCaseString pomerium_sampling_decision_header{"x-pomerium-sampling-decision"};
 };
 
 DECLARE_FACTORY(UUIDxRequestIDExtensionFactory);

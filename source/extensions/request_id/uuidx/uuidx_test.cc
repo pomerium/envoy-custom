@@ -7,7 +7,7 @@
 
 namespace Envoy::Extensions::RequestId {
 
-TEST(UUIDxRequestIDExtensionTest, TraceDecisionHeader) {
+TEST(UUIDxRequestIDExtensionTest, SamplingDecisionHeader) {
   Random::RandomGeneratorImpl random;
   UUIDxRequestIDExtension ext(pomerium::extensions::UuidxRequestIdConfig(), random);
   {
@@ -16,13 +16,13 @@ TEST(UUIDxRequestIDExtensionTest, TraceDecisionHeader) {
     EXPECT_EQ(Tracing::Reason::NotTraceable, ext.getTraceReason(request_headers));
   }
   {
-    Http::TestRequestHeaderMapImpl request_headers{{"x-pomerium-internal-trace-decision", "1"}};
+    Http::TestRequestHeaderMapImpl request_headers{{"x-pomerium-sampling-decision", "1"}};
     request_headers.setRequestId(random.uuid());
     EXPECT_EQ(Tracing::Reason::ServiceForced, ext.getTraceReason(request_headers));
     EXPECT_EQ('4', request_headers.getRequestIdValue()[14]);
   }
   {
-    Http::TestRequestHeaderMapImpl request_headers{{"x-pomerium-internal-trace-decision", "0"}};
+    Http::TestRequestHeaderMapImpl request_headers{{"x-pomerium-sampling-decision", "0"}};
     auto id = random.uuid();
     id[14] = '9';
     request_headers.setRequestId(id);
@@ -30,7 +30,7 @@ TEST(UUIDxRequestIDExtensionTest, TraceDecisionHeader) {
     EXPECT_EQ('9', request_headers.getRequestIdValue()[14]);
   }
   {
-    Http::TestRequestHeaderMapImpl request_headers{{"x-pomerium-internal-trace-decision", "0"}};
+    Http::TestRequestHeaderMapImpl request_headers{{"x-pomerium-sampling-decision", "0"}};
     request_headers.setRequestId(random.uuid());
     EXPECT_EQ('4', request_headers.getRequestIdValue()[14]); // 4 = not sampled
     EXPECT_EQ(Tracing::Reason::NotTraceable, ext.getTraceReason(request_headers));

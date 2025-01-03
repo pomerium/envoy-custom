@@ -1,8 +1,6 @@
 #include "source/extensions/request_id/uuidx/config.h"
 
 namespace Envoy::Extensions::RequestId {
-constexpr auto pomerium_trace_decision = "x-pomerium-internal-trace-decision";
-
 Tracing::Reason
 UUIDxRequestIDExtension::getTraceReason(const Envoy::Http::RequestHeaderMap& request_headers) {
   return getInternalReason(request_headers)
@@ -17,9 +15,8 @@ void UUIDxRequestIDExtension::setTraceReason(Envoy::Http::RequestHeaderMap& requ
 
 absl::optional<Tracing::Reason>
 UUIDxRequestIDExtension::getInternalReason(const Envoy::Http::RequestHeaderMap& request_headers) {
-  static const auto trace_decision_header = Envoy::Http::LowerCaseString(pomerium_trace_decision);
-  if (auto&& value = request_headers.get(trace_decision_header); !value.empty()) {
-    if (auto&& str = value[0]->value().getStringView(); str.size() == 1) {
+  if (const auto& value = request_headers.get(pomerium_sampling_decision_header); !value.empty()) {
+    if (auto str = value[0]->value().getStringView(); str.size() == 1) {
       switch (str.at(0)) {
       case '0':
         return Tracing::Reason::NotTraceable;
