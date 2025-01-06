@@ -2,7 +2,7 @@ workspace(name = "pomerium_envoy")
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
-envoy_version = "1.32.2"
+envoy_version = "1.32.3"
 
 http_archive(
     name = "envoy",
