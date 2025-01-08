@@ -12,6 +12,7 @@ http_archive(
     patch_tool = "patch",
     patches = [
         "//:patches/0001-fix-otel-grpc-trace-exporter.patch",
+        "//:patches/0002-opentelemetry-tracer-lib-visibility.patch",
     ],
     strip_prefix = "envoy-" + envoy_version,
     url = "https://github.com/envoyproxy/envoy/archive/refs/tags/v" + envoy_version + ".zip",

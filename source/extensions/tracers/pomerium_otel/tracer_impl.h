@@ -3,13 +3,10 @@
 #include "envoy/tracing/trace_driver.h"
 #include "source/extensions/tracers/opentelemetry/opentelemetry_tracer_impl.h"
 
-namespace Envoy {
-namespace Extensions {
-namespace Tracers {
-namespace OpenTelemetry {
+namespace Envoy::Extensions::Tracers::OpenTelemetry {
 
 /**
- * OpenTelemetry tracing driver.
+ * Pomerium custom OpenTelemetry tracing driver.
  */
 class PomeriumDriver : public Driver {
 public:
@@ -20,11 +17,6 @@ public:
                              const StreamInfo::StreamInfo& stream_info,
                              const std::string& operation_name,
                              Tracing::Decision tracing_decision) override;
-
-private:
 };
 
-} // namespace OpenTelemetry
-} // namespace Tracers
-} // namespace Extensions
-} // namespace Envoy
+} // namespace Envoy::Extensions::Tracers::OpenTelemetry

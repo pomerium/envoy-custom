@@ -1,8 +1,6 @@
 #pragma once
 #include "envoy/tracing/trace_driver.h"
 #include "source/extensions/tracers/opentelemetry/opentelemetry_tracer_impl.h"
-#include "absl/strings/str_replace.h"
-#include "source/common/common/assert.h"
 
 namespace Envoy::Extensions::Tracers::OpenTelemetry {
 

@@ -4,9 +4,11 @@
 #include "envoy/config/trace/v3/opentelemetry.pb.validate.h"
 #include "source/extensions/tracers/pomerium_otel/pomerium_otel.pb.h"
 
-inline envoy::config::trace::v3::OpenTelemetryConfig
-toBaseConfig(const ::pomerium::extensions::OpenTelemetryConfig& proto_config) {
-  envoy::config::trace::v3::OpenTelemetryConfig base;
+namespace pomerium::extensions {
+
+inline ::envoy::config::trace::v3::OpenTelemetryConfig
+toBaseConfig(const OpenTelemetryConfig& proto_config) {
+  ::envoy::config::trace::v3::OpenTelemetryConfig base;
   if (proto_config.has_grpc_service()) {
     *base.mutable_grpc_service() = proto_config.grpc_service();
   }
@@ -21,9 +23,8 @@ toBaseConfig(const ::pomerium::extensions::OpenTelemetryConfig& proto_config) {
   return base;
 }
 
-namespace pomerium::extensions {
-inline bool Validate(const ::pomerium::extensions::OpenTelemetryConfig& m,
-                     pgv::ValidationMsg* err) {
+inline bool Validate(const OpenTelemetryConfig& m, pgv::ValidationMsg* err) {
   return Validate(toBaseConfig(m), err);
 }
+
 } // namespace pomerium::extensions

@@ -1,4 +1,6 @@
 #include "source/extensions/tracers/pomerium_otel/span.h"
+#include "absl/strings/str_replace.h"
+#include "source/common/common/assert.h"
 
 namespace Envoy::Extensions::Tracers::OpenTelemetry {
 
