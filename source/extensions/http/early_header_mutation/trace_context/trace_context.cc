@@ -1,5 +1,6 @@
 #include "source/extensions/http/early_header_mutation/trace_context/trace_context.h"
 #include "source/common/common/logger.h"
+#include "source/common/common/base64.h"
 
 namespace Envoy::Extensions::Http::EarlyHeaderMutation {
 
@@ -37,7 +38,27 @@ bool TraceContext::mutate(Envoy::Http::RequestHeaderMap& headers,
       if (auto traceparent = values[0]->value().getStringView(); traceparent.size() == 55) {
         headers.setCopy(pomerium_external_parent_header, traceparent.substr(36, 16));
       }
+    } else if (headers.getPathValue().starts_with("/oauth2/callback")) {
+      // oauth2 callback is a special case, we can't encode the traceparent in the usual way since
+      // the query parameters are standard and managed by oauth2 clients
+      const auto state = params.getFirstValue(Envoy::Http::LowerCaseString("state"));
+      if (state.has_value()) {
+        const std::string stateDecoded =
+            Base64Url::decode(StringUtil::removeTrailingCharacters(state.value(), '='));
+        const std::vector<absl::string_view> segments =
+            absl::StrSplit(stateDecoded, absl::MaxSplits('|', 3));
+        if (segments.size() == 4) {
+          const auto traceidDecoded = Base64Url::decode(segments[2]);
+          if (traceidDecoded.size() == 17) { // 16 byte trace ID + 1 byte flags
+            const auto traceID = traceidDecoded.substr(0, 16);
+            const auto flags = traceidDecoded.at(16);
+            headers.setCopy(pomerium_traceid_header, absl::BytesToHexString(traceID));
+            headers.setCopy(pomerium_sampling_decision_header, (flags & 1) == 1 ? "1" : "0");
+          }
+        }
+      }
     }
+
     return true;
   }
 
@@ -56,12 +77,8 @@ bool TraceContext::mutate(Envoy::Http::RequestHeaderMap& headers,
   auto flags = absl::HexStringToBytes(flags_hex).front();
   if (flags & 1) { // sampled
     headers.setCopy(pomerium_sampling_decision_header, "1");
-    ENVOY_LOG(debug, "pomerium_traceparent={}, forcing trace decision (on)",
-              pomerium_traceparent.value());
   } else { // not sampled
     headers.setCopy(pomerium_sampling_decision_header, "0");
-    ENVOY_LOG(debug, "pomerium_traceparent={}, forcing sampling decision (off)",
-              pomerium_traceparent.value());
   }
 
   headers.setCopy(pomerium_traceparent_header, pomerium_traceparent.value());

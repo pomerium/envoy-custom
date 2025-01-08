@@ -23,6 +23,7 @@ envoy_cc_library(
         ":trace_context_cc_proto",
         "@envoy//envoy/http:early_header_mutation_interface",
         "@envoy//envoy/registry",
+        "@envoy//source/common/common:base64_lib",
         "@envoy//source/common/common:logger_lib",
         "@envoy//source/common/http:header_mutation_lib",
     ],

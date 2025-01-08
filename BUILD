@@ -13,6 +13,7 @@ envoy_cc_binary(
     deps = [
         "//source/extensions/http/early_header_mutation/trace_context:pomerium_trace_context",
         "//source/extensions/request_id/uuidx:pomerium_uuidx",
+        "//source/extensions/tracers/pomerium_otel",
         "@envoy//source/exe:envoy_main_entry_lib",
     ],
 )
