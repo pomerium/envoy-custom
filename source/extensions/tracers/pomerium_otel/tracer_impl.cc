@@ -43,22 +43,30 @@ Tracing::SpanPtr PomeriumDriver::startSpan(const Tracing::Config& config,
       Driver::startSpan(config, trace_context, stream_info, operation_name, tracing_decision),
       name_substitutions);
 
+  // a valid trace context is a 55-character string containing four hex-encoded segments separated
+  // by '-' characters (see https://www.w3.org/TR/trace-context/#trace-context-http-headers-format)
   if (auto tp = pomeriumTraceParentHeader().get(trace_context);
       tp.has_value() && tp->size() == 55) {
-    auto new_trace_id = tp.value().substr(3, 32);
+    // trace ID is the second segment in the context, and is 32 bytes long (16 bytes, hex encoded)
+    auto new_trace_id_hex = tp.value().substr(3, 32);
     ENVOY_LOG_TO_LOGGER(logger(), trace, "rewriting trace ID {} => {}", span->getTraceId(),
-                        new_trace_id);
-    span->setTraceId(new_trace_id);
+                        new_trace_id_hex);
+    span->setTraceId(new_trace_id_hex);
   } else if (auto tid = pomeriumTraceIDHeader().get(trace_context);
              tid.has_value() && tid.value().size() == 32) {
-    auto new_trace_id = tid.value();
+    // alternate header containing only the trace ID, used when the complete trace context is not
+    // available (currently, when handling /oauth2/callback)
+    auto new_trace_id_hex = tid.value();
     ENVOY_LOG_TO_LOGGER(logger(), trace, "rewriting trace ID (alt) {} => {}", span->getTraceId(),
-                        new_trace_id);
-    span->setTraceId(new_trace_id);
+                        new_trace_id_hex);
+    span->setTraceId(new_trace_id_hex);
   }
+
+  // the sampling decision header will be set if either x-pomerium-traceparent or x-pomerium-traceid
+  // is also set.
   if (auto decision = pomeriumSamplingDecisionHeader().get(trace_context); decision.has_value()) {
     ENVOY_LOG_TO_LOGGER(logger(), trace, "forcing sampling decision: {}", decision.value());
-    span->setSampled(decision.value() == "1");
+    span->setSampled(decision.value() == "1"); // value will be "0" or "1"
   }
 
   return Tracing::SpanPtr(static_cast<Tracing::Span*>(span));

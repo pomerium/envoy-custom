@@ -24,7 +24,8 @@ bool TraceContext::mutate(Envoy::Http::RequestHeaderMap& headers,
    *
    * If the x-pomerium-traceparent header is present, the sampling decision will
    * be set in the x-pomerium-sampling-decision header. This header is then read
-   * by the uuidx extension to force the desired trace decision if necessary.
+   * by the uuidx extension to ensure consistency in request IDs, and by the
+   * pomerium_otel extension to force a sampling decision in newly created spans.
    */
 
   headers.remove(pomerium_external_parent_header);
@@ -43,8 +44,14 @@ bool TraceContext::mutate(Envoy::Http::RequestHeaderMap& headers,
       // the query parameters are standard and managed by oauth2 clients
       const auto state = params.getFirstValue(Envoy::Http::LowerCaseString("state"));
       if (state.has_value()) {
+        // The Pomerium state format looks like:
+        // nonce|timestamp|trace_id+flags|encrypted_data(redirect_url)+mac(nonce,ts)
+        // The trace ID segment can be empty if this request was not traced. If so, the delimiter
+        // is still present (e.g. the state will be "nonce|timestamp||encrypted_data").
         const std::string stateDecoded =
             Base64Url::decode(StringUtil::removeTrailingCharacters(state.value(), '='));
+        // The encrypted data is not base64-encoded like the other fields, so read only up to the
+        // third delimiter, instead of trying to split the entire string.
         const std::vector<absl::string_view> segments =
             absl::StrSplit(stateDecoded, absl::MaxSplits('|', 3));
         if (segments.size() == 4) {

@@ -13,8 +13,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
-// constexpr auto traceid_unsampled = "00-11111111111111111111111111111111-2222222222222222-00";
-constexpr std::string_view traceid_sampled =
+constexpr std::string_view example_traceid =
     "00-11111111111111111111111111111111-2222222222222222-01";
 
 namespace Envoy::Extensions::Tracers::OpenTelemetry {
@@ -90,10 +89,10 @@ TEST_F(PomeriumOtelTest, StartSpanWithTraceparent) {
       context.server_factory_context_.api_.random_;
   ON_CALL(mock_random_generator_, random()).WillByDefault(Return(0xDEADBEEFDEADBEEF));
 
-  trace_context.set("x-pomerium-traceparent", traceid_sampled);
+  trace_context.set("x-pomerium-traceparent", example_traceid);
   Tracing::SpanPtr tracing_span = driver->startSpan(config, trace_context, stream_info, "test",
                                                     {Tracing::Reason::Sampling, true});
-  EXPECT_EQ(tracing_span->getTraceId(), traceid_sampled.substr(3, 32));
+  EXPECT_EQ(tracing_span->getTraceId(), example_traceid.substr(3, 32));
 }
 
 TEST_F(PomeriumOtelTest, StartSpanWithTraceID) {
@@ -101,10 +100,10 @@ TEST_F(PomeriumOtelTest, StartSpanWithTraceID) {
       context.server_factory_context_.api_.random_;
   ON_CALL(mock_random_generator_, random()).WillByDefault(Return(0xDEADBEEFDEADBEEF));
 
-  trace_context.set("x-pomerium-traceid", traceid_sampled.substr(3, 32));
+  trace_context.set("x-pomerium-traceid", example_traceid.substr(3, 32));
   Tracing::SpanPtr tracing_span = driver->startSpan(config, trace_context, stream_info, "test",
                                                     {Tracing::Reason::Sampling, true});
-  EXPECT_EQ(tracing_span->getTraceId(), traceid_sampled.substr(3, 32));
+  EXPECT_EQ(tracing_span->getTraceId(), example_traceid.substr(3, 32));
 }
 
 TEST_F(PomeriumOtelTest, StartSpanWithSamplingDecisionOff) {
