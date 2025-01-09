@@ -13,6 +13,9 @@ void VariableNameSpan::setTraceId(const absl::string_view& trace_id_hex) {
   span_->setTraceId(trace_id_hex);
 }
 
+std::string VariableNameSpan::name() const { return span_->name(); }
+bool VariableNameSpan::sampled() const { return span_->sampled(); }
+
 void VariableNameSpan::setOperation(absl::string_view operation_name) {
   span_->setOperation(absl::StrReplaceAll(operation_name, substitutions_));
 }

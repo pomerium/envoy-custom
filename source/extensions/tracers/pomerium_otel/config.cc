@@ -1,7 +1,6 @@
 #include "source/extensions/tracers/pomerium_otel/config.h"
 
 #include "envoy/registry/registry.h"
-#include "source/extensions/tracers/pomerium_otel/typeutils.h"
 #include "source/extensions/tracers/pomerium_otel/tracer_impl.h"
 
 namespace Envoy::Extensions::Tracers::OpenTelemetry {

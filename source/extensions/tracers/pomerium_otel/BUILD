@@ -45,3 +45,21 @@ proto_library(
         "@envoy_api//envoy/config/core/v3:pkg",
     ],
 )
+
+envoy_cc_test(
+    name = "pomerium_otel_test",
+    srcs = [
+        "pomerium_otel_test.cc",
+    ],
+    repository = "@envoy",
+    deps = [
+        ":pomerium_otel",
+        ":pomerium_otel_cc_proto",
+        "@envoy//test/mocks/server:tracer_factory_context_mocks",
+        "@envoy//test/mocks/stream_info:stream_info_mocks",
+        "@envoy//test/mocks/thread_local:thread_local_mocks",
+        "@envoy//test/mocks/tracing:tracing_mocks",
+        "@envoy//test/mocks/upstream:cluster_manager_mocks",
+        "@envoy//test/test_common:utility_lib",
+    ],
+)

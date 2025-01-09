@@ -14,6 +14,8 @@ public:
   ~VariableNameSpan() override = default;
 
   void setTraceId(const absl::string_view& trace_id_hex);
+  std::string name() const;
+  bool sampled() const;
 
   void setOperation(absl::string_view operation_name) override;
 

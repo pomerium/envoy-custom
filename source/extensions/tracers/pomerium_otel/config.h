@@ -1,6 +1,7 @@
 #pragma once
 
 #include "source/extensions/tracers/pomerium_otel/pomerium_otel.pb.h"
+#include "source/extensions/tracers/pomerium_otel/typeutils.h"
 
 #include "source/extensions/tracers/common/factory_base.h"
 
