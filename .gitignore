@@ -3,4 +3,5 @@ clang.bazelrc
 user.bazelrc
 compile_commands.json
 .vscode
+.cache
 user.bazelrc

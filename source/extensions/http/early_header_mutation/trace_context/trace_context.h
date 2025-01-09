@@ -20,6 +20,7 @@ private:
   Envoy::Http::LowerCaseString pomerium_sampling_decision_header{"x-pomerium-sampling-decision"};
   Envoy::Http::LowerCaseString pomerium_traceparent_header{"x-pomerium-traceparent"};
   Envoy::Http::LowerCaseString pomerium_tracestate_header{"x-pomerium-tracestate"};
+  Envoy::Http::LowerCaseString pomerium_traceid_header{"x-pomerium-traceid"};
   Envoy::Http::LowerCaseString pomerium_external_parent_header{"x-pomerium-external-parent-span"};
   Envoy::Http::LowerCaseString traceparent_header{"traceparent"};
 };

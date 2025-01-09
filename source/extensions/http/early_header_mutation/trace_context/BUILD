@@ -23,6 +23,7 @@ envoy_cc_library(
         ":trace_context_cc_proto",
         "@envoy//envoy/http:early_header_mutation_interface",
         "@envoy//envoy/registry",
+        "@envoy//source/common/common:base64_lib",
         "@envoy//source/common/common:logger_lib",
         "@envoy//source/common/http:header_mutation_lib",
     ],
@@ -45,6 +46,7 @@ envoy_cc_test(
     deps = [
         ":pomerium_trace_context",
         ":trace_context_cc_proto",
+        "@com_google_absl//absl/random",
         "@envoy//source/common/common:random_generator_lib",
         "@envoy//test/mocks/runtime:runtime_mocks",
         "@envoy//test/mocks/stream_info:stream_info_mocks",
