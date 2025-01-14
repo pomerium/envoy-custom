@@ -8,6 +8,8 @@ import "envoy/config/core/v3/http_service.proto";
 import "udpa/annotations/migrate.proto";
 import "udpa/annotations/status.proto";
 
+option go_package = "github.com/pomerium/envoy-custom/api/extensions/tracers/pomerium_otel";
+
 option (udpa.annotations.file_status).package_version_status = ACTIVE;
 
 message OpenTelemetryConfig {

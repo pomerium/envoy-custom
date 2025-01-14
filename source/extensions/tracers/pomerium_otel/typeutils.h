@@ -2,7 +2,7 @@
 
 #include "envoy/config/trace/v3/opentelemetry.pb.h"
 #include "envoy/config/trace/v3/opentelemetry.pb.validate.h"
-#include "source/extensions/tracers/pomerium_otel/pomerium_otel.pb.h"
+#include "api/extensions/tracers/pomerium_otel/pomerium_otel.pb.h"
 
 namespace pomerium::extensions {
 

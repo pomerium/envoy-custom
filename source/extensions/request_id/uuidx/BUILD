@@ -33,15 +33,7 @@ envoy_cc_library(
 
 cc_proto_library(
     name = "uuidx_cc_proto",
-    deps = ["uuidx_proto"],
-)
-
-proto_library(
-    name = "uuidx_proto",
-    srcs = ["uuidx.proto"],
-    deps = [
-        "@com_google_protobuf//:wrappers_proto",
-    ],
+    deps = ["//api/extensions/request_id/uuidx:uuidx_proto"],
 )
 
 envoy_cc_test(

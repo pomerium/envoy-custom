@@ -1,6 +1,6 @@
 #pragma once
 
-#include "source/extensions/request_id/uuidx/uuidx.pb.h"
+#include "api/extensions/request_id/uuidx/uuidx.pb.h"
 
 #include "envoy/extensions/request_id/uuid/v3/uuid.pb.h"
 #include "envoy/extensions/request_id/uuid/v3/uuid.pb.validate.h"

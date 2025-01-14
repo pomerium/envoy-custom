@@ -31,12 +31,7 @@ envoy_cc_library(
 
 cc_proto_library(
     name = "trace_context_cc_proto",
-    deps = ["trace_context_proto"],
-)
-
-proto_library(
-    name = "trace_context_proto",
-    srcs = ["trace_context.proto"],
+    deps = ["//api/extensions/http/early_header_mutation/trace_context:trace_context_proto"],
 )
 
 envoy_cc_test(
