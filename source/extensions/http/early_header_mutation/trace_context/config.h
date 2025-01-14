@@ -1,7 +1,7 @@
 #pragma once
 
 #include "envoy/http/early_header_mutation.h"
-#include "source/extensions/http/early_header_mutation/trace_context/trace_context.pb.h"
+#include "api/extensions/http/early_header_mutation/trace_context/trace_context.pb.h"
 
 namespace Envoy::Extensions::Http::EarlyHeaderMutation {
 

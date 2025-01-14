@@ -32,18 +32,7 @@ envoy_cc_library(
 
 cc_proto_library(
     name = "pomerium_otel_cc_proto",
-    deps = ["pomerium_otel_proto"],
-)
-
-proto_library(
-    name = "pomerium_otel_proto",
-    srcs = ["pomerium_otel.proto"],
-    deps = [
-        "@com_envoyproxy_protoc_gen_validate//validate:validate_proto",
-        "@com_github_cncf_xds//udpa/annotations:pkg",
-        "@envoy_api//envoy/annotations:pkg",
-        "@envoy_api//envoy/config/core/v3:pkg",
-    ],
+    deps = ["//api/extensions/tracers/pomerium_otel:pomerium_otel_proto"],
 )
 
 envoy_cc_test(
