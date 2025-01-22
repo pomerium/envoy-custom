@@ -23,3 +23,4 @@ build:remote --remote_timeout=7200
 
 build --config=libc++20
 build:linux --copt="-Wno-error=thread-safety-reference-return" --copt="-Wno-error=missing-field-initializers"
+# build --@envoy//bazel:uhv_enabled=True

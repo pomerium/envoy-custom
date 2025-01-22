@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package pomerium.extensions;
+
+option go_package = "github.com/pomerium/envoy-custom/api/extensions/filters/network/ssh";
+
+message SshConfig  {}
+
+message SshCodecConfig{}
