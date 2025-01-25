@@ -18,6 +18,11 @@ http_archive(
     url = "https://github.com/envoyproxy/envoy/archive/refs/tags/v" + envoy_version + ".zip",
 )
 
+local_repository(
+    name = "envoy_build_config",
+    path = "bazel/envoy_build_config",
+)
+
 load("@envoy//bazel:api_binding.bzl", "envoy_api_binding")
 
 envoy_api_binding()
