@@ -48,17 +48,24 @@ envoy_dependency_imports()
 load("@envoy_api//bazel:envoy_http_archive.bzl", "envoy_http_archive")
 
 envoy_http_archive(
-    name = "libssh_mirror",
+    name = "openssh_portable",
     build_file_content = """filegroup(name = "all", srcs = glob(["**"]), visibility = ["//visibility:public"])""",
     locations = dict(
-        libssh_mirror = dict(
-            license = "LGPL-2.1",
-            license_url = "https://gitlab.com/libssh/libssh-mirror/-/raw/master/COPYING?inline=false",
-            project_name = "libssh-mirror",
-            sha256 = "b43ef9c91b6c3db64e7ba3db101eb89dbe645db63489c19d4f88cf6f84911ec6",
-            strip_prefix = "libssh-mirror-libssh-0.11.1",
-            urls = ["https://gitlab.com/libssh/libssh-mirror/-/archive/libssh-0.11.1/libssh-mirror-libssh-0.11.1.tar.gz"],
-            version = "0.11.1",
+        openssh_portable = dict(
+            license = "BSD",
+            license_url = "https://github.com/openssh/openssh-portable/blob/master/LICENCE",
+            project_name = "openssh-portable",
+            sha256 = "c58bcdfd89a37002e4c23b31a0f47ea215dbe43b107c7bd850759843bc460126",
+            strip_prefix = "openssh-portable-master",
+            urls = ["https://github.com/openssh/openssh-portable/archive/refs/heads/master.zip"],
+            version = "master",
         ),
     ),
+    patch_args = [
+        "-p1",
+    ],
+    patch_tool = "patch",
+    patches = [
+        "//:patches/0001-openssh-libcrypto-rename.patch",
+    ],
 )

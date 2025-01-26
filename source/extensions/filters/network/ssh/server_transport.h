@@ -1,7 +1,8 @@
 #pragma once
 
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
-#include "messages.h"
+#include "source/extensions/filters/network/ssh/keys.h"
+#include "source/extensions/filters/network/ssh/messages.h"
 #include "source/extensions/filters/network/generic_proxy/codec_callbacks.h"
 #include "validate/validate.h"
 #include <cerrno>
@@ -21,11 +22,17 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 template <typename T> using error_or = std::tuple<T, error>;
 
+struct HostKeyPair {
+  libssh::SshKeyPtr priv;
+  libssh::SshKeyPtr pub;
+};
+
 class Handshaker {
 public:
-  Handshaker(GenericProxy::ServerCodecCallbacks* callbacks, Random::RandomGenerator& rng,
-             Filesystem::Instance& fs)
-      : callbacks_(callbacks), rng_(rng), fs_(fs) {}
+  Handshaker(GenericProxy::ServerCodecCallbacks* callbacks, Filesystem::Instance& fs)
+      : callbacks_(callbacks), fs_(fs) {
+    loadHostKeys();
+  }
   std::tuple<bool, error> decode(Envoy::Buffer::Instance& buffer) noexcept {
     if (!version_exchange_done_) {
       auto err = doVersionExchange(buffer);
@@ -103,37 +110,43 @@ public:
     serverKexInit.mac_algorithms_server_to_client = supportedMACs;
     serverKexInit.compression_algorithms_client_to_server = {"none"};
     serverKexInit.compression_algorithms_server_to_client = {"none"};
-    memcpy(serverKexInit.cookie.data(), reinterpret_cast<char*>(rng_.random()), 8);
-    memcpy(serverKexInit.cookie.data() + 8, reinterpret_cast<char*>(rng_.random()), 8);
+    RAND_bytes(serverKexInit.cookie, sizeof(serverKexInit.cookie));
+    for (const auto& hostKey : host_keys_) {
+      serverKexInit.server_host_key_algorithms.push_back(sshkey_ssh_name(hostKey.priv.get()));
+    }
 
+    Envoy::Buffer::OwnedImpl writeBuf;
+    encodePacket(writeBuf, serverKexInit);
+    callbacks_->writeToConnection(writeBuf);
     return {true, std::nullopt};
   }
 
   void loadHostKeys() {
-    static constexpr auto ed25519Priv = "/etc/ssh/ssh_host_ed25519_key";
-    static constexpr auto ed25519Pub = "/etc/ssh/ssh_host_ed25519_key.pub";
+    static constexpr auto rsaPriv =
+        "source/extensions/filters/network/ssh/testdata/test_host_rsa_key";
+    static constexpr auto rsaPub =
+        "source/extensions/filters/network/ssh/testdata/test_host_rsa_key.pub";
+    // static constexpr auto rsaPriv = "/etc/ssh/ssh_host_rsa_key";
+    // static constexpr auto rsaPub = "/etc/ssh/ssh_host_rsa_key.pub";
+    loadSshKeyPair(rsaPriv, rsaPub);
 
-    if (fs_.fileExists(ed25519Priv) && fs_.fileExists(ed25519Pub)) {
-      auto priv = fs_.fileReadToEnd(ed25519Priv);
-      if (priv.ok()) {
-        bssl::UniquePtr<BIO> bio(BIO_new_mem_buf(priv->data(), priv->size()));
-        bssl::UniquePtr<EVP_PKEY> pkey(
-            PEM_read_bio_PrivateKey(bio.get(), nullptr, nullptr, nullptr));
-        if (pkey == nullptr) {
-          throw EnvoyException("Failed to read private key.");
-        }
-        auto pub = fs_.fileReadToEnd(ed25519Pub);
-        if (pub.ok()) {
-          std::vector<std::string> segments =
-              absl::StrSplit(pub.value(), absl::ByAsciiWhitespace{});
-          if (segments.size() >= 2) {
-            auto type = segments[0];
-            auto encodedKey = segments[1];
-            EVP_PKEY_new_raw_public_key(EVP_PKEY_X25519, nullptr, encodedKey.data(),
-                                        CURVE25519_PUBKEY_SIZE);
-          }
-        }
-      }
+    // static constexpr auto ed25519Priv = "/etc/ssh/ssh_host_ed25519_key";
+    // static constexpr auto ed25519Pub = "/etc/ssh/ssh_host_ed25519_key.pub";
+    static constexpr auto ed25519Priv =
+        "source/extensions/filters/network/ssh/testdata/test_host_ed25519_key";
+    static constexpr auto ed25519Pub =
+        "source/extensions/filters/network/ssh/testdata/test_host_ed25519_key.pub";
+    loadSshKeyPair(ed25519Priv, ed25519Pub);
+  }
+
+  void loadSshKeyPair(const char* privKeyPath, const char* pubKeyPath) {
+    if (fs_.fileExists(privKeyPath) && fs_.fileExists(pubKeyPath)) {
+      auto priv = loadSshPrivateKey(privKeyPath);
+      auto pub = loadSshPublicKey(pubKeyPath);
+      host_keys_.emplace_back(HostKeyPair{
+          .priv = std::move(priv),
+          .pub = std::move(pub),
+      });
     }
   }
 
@@ -142,14 +155,8 @@ private:
   bool initial_kex_done_{};
   std::string their_version_;
   GenericProxy::ServerCodecCallbacks* callbacks_{};
-  Random::RandomGenerator& rng_;
   Filesystem::Instance& fs_;
   std::vector<HostKeyPair> host_keys_;
-};
-
-struct HostKeyPair {
-  bssl::UniquePtr<EVP_PKEY> priv;
-  bssl::UniquePtr<EVP_PKEY> pub;
 };
 
 class SshServerCodec : public Logger::Loggable<Logger::Id::filter>, public ServerCodec {

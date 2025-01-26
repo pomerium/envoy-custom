@@ -11,8 +11,7 @@ void SshServerCodec::decode(Envoy::Buffer::Instance& buffer, bool end_stream) {
   (void)end_stream;
   if (!handshake_done_) {
     if (!handshaker_) {
-      handshaker_ =
-          std::make_unique<Handshaker>(callbacks_, api_.randomGenerator(), api_.fileSystem());
+      handshaker_ = std::make_unique<Handshaker>(callbacks_, api_.fileSystem());
     }
     auto [done, err] = handshaker_->decode(buffer);
     if (err) {

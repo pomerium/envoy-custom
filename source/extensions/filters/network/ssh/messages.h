@@ -5,6 +5,8 @@
 #include <vector>
 #include <string>
 #include "source/common/buffer/buffer_impl.h"
+#include "openssl/rand.h"
+#include "absl/strings/str_join.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -110,12 +112,11 @@ inline size_t readVariableBytes(Envoy::Buffer::Instance& buffer, std::string& ou
   return len;
 }
 
-template <size_t N>
-inline size_t readFixedBytes(Envoy::Buffer::Instance& buffer, std::array<uint8_t, N>& out) {
+template <size_t N> inline size_t readFixedBytes(Envoy::Buffer::Instance& buffer, void* out) {
   if (buffer.length() < N) {
     throw EnvoyException("short read");
   }
-  buffer.copyOut(0, N, out.data());
+  buffer.copyOut(0, N, out);
   buffer.drain(N);
   return N;
 }
@@ -148,17 +149,38 @@ inline size_t readNameList(Envoy::Buffer::Instance& buffer, NameList& out) {
   return nread;
 }
 
+inline size_t writeNameList(Envoy::Buffer::Instance& buffer, NameList& list) {
+  if (list.empty()) {
+    return 0;
+  }
+  uint32_t size = 0;
+  for (const auto& entry : list) {
+    size += entry.length();
+  }
+  size += list.size() - 1; // commas
+  buffer.writeBEInt(size);
+
+  for (size_t i = 0; i < list.size(); i++) {
+    buffer.add(list[i]);
+    if (i < list.size() - 1) {
+      buffer.writeByte(',');
+    }
+  }
+  return sizeof(size) + size;
+}
+
 template <typename T> struct SshPacket {
-  uint32_t size;
-  uint8_t padding_size;
-  T msg;
+  uint32_t packet_length;
+  uint8_t padding_length;
+  T payload;
   std::string padding;
-  std::array<uint8_t, 20> mac;
+  uint8_t mac[20];
 };
 
 struct SshMessage {
   virtual ~SshMessage() = default;
   virtual size_t decode(Envoy::Buffer::Instance&) PURE;
+  virtual size_t encode(Envoy::Buffer::Instance&) PURE;
 };
 
 template <typename T>
@@ -167,21 +189,21 @@ decodePacket(Envoy::Buffer::Instance& buffer, bool require_mac = true) noexcept 
   try {
     SshPacket<T> packet{};
     size_t nread = 0;
-    nread += read(buffer, packet.size);
-    nread += read(buffer, packet.padding_size);
+    nread += read(buffer, packet.packet_length);
+    nread += read(buffer, packet.padding_length);
     {
       T msg{};
       auto n = msg.decode(buffer);
       nread += n;
-      if (n != (packet.size - packet.padding_size - 1)) {
+      if (n != (packet.packet_length - packet.padding_length - 1)) {
         return {{},
                 fmt::format("unexpected packet payload size of {} bytes (expected {})", nread,
-                            packet.size - packet.padding_size - 1)};
+                            packet.packet_length - packet.padding_length - 1)};
       }
     }
-    nread += readVariableBytes(buffer, packet.padding, packet.padding_size);
+    nread += readVariableBytes(buffer, packet.padding, packet.padding_length);
     if (require_mac) {
-      nread += readFixedBytes(buffer, packet.mac);
+      nread += readFixedBytes<sizeof(packet.mac)>(buffer, packet.mac);
     }
     return {packet, std::nullopt};
   } catch (const EnvoyException& e) {
@@ -189,8 +211,30 @@ decodePacket(Envoy::Buffer::Instance& buffer, bool require_mac = true) noexcept 
   }
 }
 
+template <typename T>
+std::enable_if_t<std::is_base_of_v<SshMessage, T>, void> encodePacket(Envoy::Buffer::Instance& out,
+                                                                      T& payload) {
+  Envoy::Buffer::OwnedImpl payloadBytes;
+  size_t payload_length = payload.encode(payloadBytes);
+  SshPacket<T> packet{};
+
+  // RFC4253 § 6
+  constexpr auto cipher_block_size = 8; // TODO
+  auto padding_length =
+      std::max<uint8_t>(4, cipher_block_size - (1 + payload_length) % cipher_block_size);
+  auto packet_length = sizeof(padding_length) + payload_length + padding_length;
+
+  out.writeBEInt(packet_length);
+  out.writeByte(padding_length);
+  out.move(payloadBytes);
+
+  auto paddingSlice = out.reserveSingleSlice(padding_length);
+  RAND_bytes(static_cast<uint8_t*>(paddingSlice.slice().mem_), paddingSlice.slice().len_);
+  paddingSlice.commit(padding_length);
+}
+
 struct KexInitMessage : SshMessage {
-  std::array<uint8_t, 16> cookie;
+  uint8_t cookie[16];
   NameList kex_algorithms;
   NameList server_host_key_algorithms;
   NameList encryption_algorithms_client_to_server;
@@ -211,7 +255,7 @@ struct KexInitMessage : SshMessage {
     }
     size_t nread = 1;
 
-    nread += readFixedBytes(buffer, cookie);
+    nread += readFixedBytes<sizeof(cookie)>(buffer, cookie);
     nread += readNameList(buffer, kex_algorithms);
     nread += readNameList(buffer, server_host_key_algorithms);
     nread += readNameList(buffer, encryption_algorithms_client_to_server);
@@ -226,6 +270,28 @@ struct KexInitMessage : SshMessage {
     nread += read(buffer, reserved);
 
     return nread;
+  }
+
+  size_t encode(Envoy::Buffer::Instance& buffer) override {
+    buffer.writeByte(SshMessageType::KexInit);
+    size_t nwritten = 1;
+    buffer.add(cookie, sizeof(cookie));
+    nwritten += sizeof(cookie);
+    nwritten += writeNameList(buffer, kex_algorithms);
+    nwritten += writeNameList(buffer, server_host_key_algorithms);
+    nwritten += writeNameList(buffer, encryption_algorithms_client_to_server);
+    nwritten += writeNameList(buffer, encryption_algorithms_server_to_client);
+    nwritten += writeNameList(buffer, mac_algorithms_client_to_server);
+    nwritten += writeNameList(buffer, mac_algorithms_server_to_client);
+    nwritten += writeNameList(buffer, compression_algorithms_client_to_server);
+    nwritten += writeNameList(buffer, compression_algorithms_server_to_client);
+    nwritten += writeNameList(buffer, languages_client_to_server);
+    nwritten += writeNameList(buffer, languages_server_to_client);
+    buffer.writeByte(first_kex_packet_follows);
+    nwritten += 1;
+    buffer.writeBEInt(reserved);
+    nwritten += sizeof(reserved);
+    return nwritten;
   }
 };
 

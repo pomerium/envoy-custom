@@ -3,9 +3,9 @@
 #include "envoy/registry/registry.h"
 #include "source/extensions/tracers/pomerium_otel/tracer_impl.h"
 
-#ifndef ENVOY_ENABLE_UHV
-#warning "uhv not enabled"
-#endif
+// #ifndef ENVOY_ENABLE_UHV
+// #warning "uhv not enabled"
+// #endif
 namespace Envoy::Extensions::Tracers::OpenTelemetry {
 
 PomeriumOpenTelemetryTracerFactory::PomeriumOpenTelemetryTracerFactory()
