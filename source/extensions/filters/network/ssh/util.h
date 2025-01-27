@@ -1,11 +1,22 @@
 #pragma once
 
 #include <memory>
+#include <optional>
+#include <vector>
+#include <string>
 
-#include <cstdio>
 extern "C" {
 #include "openssh/sshkey.h"
+#include "openssh/sshbuf.h"
 }
+
+namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
+
+using error = std::optional<std::string>;
+template <typename T> using error_or = std::tuple<T, error>;
+using NameList = std::vector<std::string>;
+
+}; // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
 
 namespace libssh {
 
@@ -18,5 +29,6 @@ struct Deleter {
 template <typename T> using UniquePtr = std::unique_ptr<T, Deleter>;
 
 using SshKeyPtr = UniquePtr<struct sshkey>;
+using SshBufPtr = UniquePtr<struct sshbuf>;
 
 } // namespace libssh

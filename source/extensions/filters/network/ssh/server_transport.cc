@@ -7,23 +7,21 @@ void SshServerCodec::setCodecCallbacks(GenericProxy::ServerCodecCallbacks& callb
   this->callbacks_ = &callbacks;
 }
 
-void SshServerCodec::decode(Envoy::Buffer::Instance& buffer, bool end_stream) {
-  (void)end_stream;
-  if (!handshake_done_) {
-    if (!handshaker_) {
-      handshaker_ = std::make_unique<Handshaker>(callbacks_, api_.fileSystem());
+void SshServerCodec::decode(Envoy::Buffer::Instance& buffer, bool /*end_stream*/) {
+  while (buffer.length() > 0) {
+    if (!handshake_done_) {
+      if (!handshaker_) {
+        handshaker_ = std::make_unique<Handshaker>(callbacks_, api_.fileSystem());
+      }
+      auto [done, err] = handshaker_->decode(buffer);
+      if (err) {
+        ENVOY_LOG(error, "ssh: {}", err.value());
+        callbacks_->onDecodingFailure(fmt::format("ssh: {}", err.value()));
+        return;
+      }
+      handshake_done_ = done;
     }
-    auto [done, err] = handshaker_->decode(buffer);
-    if (err) {
-      ENVOY_LOG(error, "ssh: {}", err.value());
-      callbacks_->onDecodingFailure(fmt::format("ssh: {}", err.value()));
-      return;
-    }
-    handshake_done_ = done;
-    return;
   }
-  buffer.drain(buffer.length());
-  (void)buffer;
 }
 
 GenericProxy::EncodingResult SshServerCodec::encode(const GenericProxy::StreamFrame& frame,

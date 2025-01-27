@@ -31,6 +31,9 @@ configure_make(
         "--with-sandbox=no",
         "--enable-sk=no",
     ],
+    includes = [
+        "openssh",
+    ],
     lib_source = "@openssh_portable//:all",
     out_static_libs = [
         "libssh.a",
@@ -42,7 +45,7 @@ configure_make(
         rm -rf $INSTALLDIR/include/openssh && \
         mkdir -p $INSTALLDIR/include/openssh/openbsd-compat && \
         cp -L *.h $INSTALLDIR/include/openssh && \
-        cp -L openbsd-compat/*.h $INSTALLDIR/include/openssh/openbsd-compat
+        cp -L openbsd-compat/*.h $INSTALLDIR/include/openssh/openbsd-compat &&
     """,
     targets = [
         "",

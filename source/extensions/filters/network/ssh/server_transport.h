@@ -3,6 +3,7 @@
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "source/extensions/filters/network/ssh/keys.h"
 #include "source/extensions/filters/network/ssh/messages.h"
+#include "source/extensions/filters/network/ssh/kex.h"
 #include "source/extensions/filters/network/generic_proxy/codec_callbacks.h"
 #include "validate/validate.h"
 #include <cerrno>
@@ -17,21 +18,15 @@
 #include "source/extensions/filters/network/well_known_names.h"
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
 #include "openssl/curve25519.h"
+#include "envoy/filesystem/filesystem.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
-
-template <typename T> using error_or = std::tuple<T, error>;
-
-struct HostKeyPair {
-  libssh::SshKeyPtr priv;
-  libssh::SshKeyPtr pub;
-};
 
 class Handshaker {
 public:
   Handshaker(GenericProxy::ServerCodecCallbacks* callbacks, Filesystem::Instance& fs)
-      : callbacks_(callbacks), fs_(fs) {
-    loadHostKeys();
+      : kex_(new Kex(callbacks, fs)), callbacks_(callbacks) {
+    kex_->loadHostKeys();
   }
   std::tuple<bool, error> decode(Envoy::Buffer::Instance& buffer) noexcept {
     if (!version_exchange_done_) {
@@ -43,7 +38,7 @@ public:
       return {false, std::nullopt};
     }
     if (!initial_kex_done_) {
-      auto [done, err] = doInitialKex(buffer);
+      auto [done, err] = kex_->doInitialKex(buffer);
       if (err) {
         return {false, err};
       }
@@ -63,6 +58,7 @@ public:
     Envoy::Buffer::OwnedImpl w;
     w.add(server_version);
     callbacks_->writeToConnection(w);
+    kex_->setVersionStrings(server_version, their_version_);
     return {};
   }
 
@@ -97,66 +93,12 @@ public:
     return {};
   }
 
-  std::tuple<bool, error> doInitialKex(Envoy::Buffer::Instance& buffer) noexcept {
-    auto [peerKexInit, err] = decodePacket<KexInitMessage>(buffer, false); // no mac initially
-    if (err) {
-      return {false, err};
-    }
-    KexInitMessage serverKexInit{};
-    serverKexInit.kex_algorithms = preferredKexAlgos;
-    serverKexInit.encryption_algorithms_client_to_server = preferredCiphers;
-    serverKexInit.encryption_algorithms_server_to_client = preferredCiphers;
-    serverKexInit.mac_algorithms_client_to_server = supportedMACs;
-    serverKexInit.mac_algorithms_server_to_client = supportedMACs;
-    serverKexInit.compression_algorithms_client_to_server = {"none"};
-    serverKexInit.compression_algorithms_server_to_client = {"none"};
-    RAND_bytes(serverKexInit.cookie, sizeof(serverKexInit.cookie));
-    for (const auto& hostKey : host_keys_) {
-      serverKexInit.server_host_key_algorithms.push_back(sshkey_ssh_name(hostKey.priv.get()));
-    }
-
-    Envoy::Buffer::OwnedImpl writeBuf;
-    encodePacket(writeBuf, serverKexInit);
-    callbacks_->writeToConnection(writeBuf);
-    return {true, std::nullopt};
-  }
-
-  void loadHostKeys() {
-    static constexpr auto rsaPriv =
-        "source/extensions/filters/network/ssh/testdata/test_host_rsa_key";
-    static constexpr auto rsaPub =
-        "source/extensions/filters/network/ssh/testdata/test_host_rsa_key.pub";
-    // static constexpr auto rsaPriv = "/etc/ssh/ssh_host_rsa_key";
-    // static constexpr auto rsaPub = "/etc/ssh/ssh_host_rsa_key.pub";
-    loadSshKeyPair(rsaPriv, rsaPub);
-
-    // static constexpr auto ed25519Priv = "/etc/ssh/ssh_host_ed25519_key";
-    // static constexpr auto ed25519Pub = "/etc/ssh/ssh_host_ed25519_key.pub";
-    static constexpr auto ed25519Priv =
-        "source/extensions/filters/network/ssh/testdata/test_host_ed25519_key";
-    static constexpr auto ed25519Pub =
-        "source/extensions/filters/network/ssh/testdata/test_host_ed25519_key.pub";
-    loadSshKeyPair(ed25519Priv, ed25519Pub);
-  }
-
-  void loadSshKeyPair(const char* privKeyPath, const char* pubKeyPath) {
-    if (fs_.fileExists(privKeyPath) && fs_.fileExists(pubKeyPath)) {
-      auto priv = loadSshPrivateKey(privKeyPath);
-      auto pub = loadSshPublicKey(pubKeyPath);
-      host_keys_.emplace_back(HostKeyPair{
-          .priv = std::move(priv),
-          .pub = std::move(pub),
-      });
-    }
-  }
-
 private:
   bool version_exchange_done_{};
   bool initial_kex_done_{};
   std::string their_version_;
+  std::unique_ptr<Kex> kex_;
   GenericProxy::ServerCodecCallbacks* callbacks_{};
-  Filesystem::Instance& fs_;
-  std::vector<HostKeyPair> host_keys_;
 };
 
 class SshServerCodec : public Logger::Loggable<Logger::Id::filter>, public ServerCodec {

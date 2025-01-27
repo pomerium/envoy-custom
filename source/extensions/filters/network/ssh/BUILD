@@ -12,12 +12,14 @@ envoy_cc_library(
     name = "pomerium_ssh",
     srcs = [
         "config.cc",
+        "kex.cc",
         "server_transport.cc",
         "ssh-sk-null.cc",
         "util.cc",
     ],
     hdrs = [
         "config.h",
+        "kex.h",
         "keys.h",
         "messages.h",
         "server_transport.h",

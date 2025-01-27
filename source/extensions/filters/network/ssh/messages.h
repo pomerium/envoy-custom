@@ -2,16 +2,12 @@
 
 #include <cstdint>
 #include <type_traits>
-#include <vector>
 #include <string>
 #include "source/common/buffer/buffer_impl.h"
 #include "openssl/rand.h"
-#include "absl/strings/str_join.h"
+#include "source/extensions/filters/network/ssh/util.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
-
-using error = std::optional<std::string>;
-using NameList = std::vector<std::string>;
 
 enum class SshMessageType : uint8_t {
   Disconnect = 1,
@@ -121,13 +117,37 @@ template <size_t N> inline size_t readFixedBytes(Envoy::Buffer::Instance& buffer
   return N;
 }
 
-inline size_t readNameList(Envoy::Buffer::Instance& buffer, NameList& out) {
+inline size_t readString(Envoy::Buffer::Instance& buffer, std::string& out) {
   size_t nread = 0;
   auto size = buffer.drainBEInt<uint32_t>();
   nread += sizeof(size);
   // read up to 'size' bytes
   if (buffer.length() < size) {
     // invalid
+    throw EnvoyException("short read");
+  }
+  out.clear();
+  out.resize(size);
+  buffer.copyOut(0, size, out.data());
+  nread += size;
+  buffer.drain(size);
+  return nread;
+}
+
+inline size_t writeString(Envoy::Buffer::Instance& buffer, const std::string& str) {
+  size_t nwritten = 0;
+  buffer.writeBEInt(str.size());
+  nwritten += sizeof(str.size());
+  buffer.add(str);
+  nwritten += str.size();
+  return nwritten;
+}
+
+inline size_t readNameList(Envoy::Buffer::Instance& buffer, NameList& out) {
+  size_t nread = 0;
+  auto size = buffer.drainBEInt<uint32_t>();
+  nread += sizeof(size);
+  if (buffer.length() < size) {
     throw EnvoyException("short read");
   }
   std::string current;
@@ -149,7 +169,7 @@ inline size_t readNameList(Envoy::Buffer::Instance& buffer, NameList& out) {
   return nread;
 }
 
-inline size_t writeNameList(Envoy::Buffer::Instance& buffer, NameList& list) {
+inline size_t writeNameList(Envoy::Buffer::Instance& buffer, const NameList& list) {
   if (list.empty()) {
     return 0;
   }
@@ -174,26 +194,26 @@ template <typename T> struct SshPacket {
   uint8_t padding_length;
   T payload;
   std::string padding;
-  uint8_t mac[20];
+  // uint8_t mac[20];
 };
 
-struct SshMessage {
+template <typename T, bool = std::is_trivially_move_assignable_v<T>> struct SshMessage {
   virtual ~SshMessage() = default;
   virtual size_t decode(Envoy::Buffer::Instance&) PURE;
-  virtual size_t encode(Envoy::Buffer::Instance&) PURE;
+  virtual size_t encode(Envoy::Buffer::Instance&) const PURE;
 };
 
 template <typename T>
-std::enable_if_t<std::is_base_of_v<SshMessage, T>, std::tuple<SshPacket<T>, error>>
-decodePacket(Envoy::Buffer::Instance& buffer, bool require_mac = true) noexcept {
+std::enable_if_t<std::is_base_of_v<SshMessage<T>, T>, std::tuple<SshPacket<T>, error>>
+readPacket(Envoy::Buffer::Instance& buffer) noexcept {
   try {
     SshPacket<T> packet{};
+    auto bufferSize = buffer.length();
     size_t nread = 0;
     nread += read(buffer, packet.packet_length);
     nread += read(buffer, packet.padding_length);
     {
-      T msg{};
-      auto n = msg.decode(buffer);
+      auto n = packet.payload.decode(buffer);
       nread += n;
       if (n != (packet.packet_length - packet.padding_length - 1)) {
         return {{},
@@ -202,8 +222,11 @@ decodePacket(Envoy::Buffer::Instance& buffer, bool require_mac = true) noexcept 
       }
     }
     nread += readVariableBytes(buffer, packet.padding, packet.padding_length);
-    if (require_mac) {
-      nread += readFixedBytes<sizeof(packet.mac)>(buffer, packet.mac);
+    // if (require_mac) {
+    //   nread += readFixedBytes<sizeof(packet.mac)>(buffer, packet.mac);
+    // }
+    if (nread != bufferSize) {
+      return {{}, fmt::format("bad packet length: {} (expected {})", bufferSize, nread)};
     }
     return {packet, std::nullopt};
   } catch (const EnvoyException& e) {
@@ -212,17 +235,33 @@ decodePacket(Envoy::Buffer::Instance& buffer, bool require_mac = true) noexcept 
 }
 
 template <typename T>
-std::enable_if_t<std::is_base_of_v<SshMessage, T>, void> encodePacket(Envoy::Buffer::Instance& out,
-                                                                      T& payload) {
+std::enable_if_t<std::is_base_of_v<SshMessage<T>, T>, size_t>
+writePacket(Envoy::Buffer::Instance& out, const SshPacket<T>& packet) {
+  size_t nwritten = 0;
+  out.writeBEInt(packet.packet_length);
+  nwritten += sizeof(packet.packet_length);
+  out.writeByte(packet.padding_length);
+  nwritten += sizeof(packet.padding_length);
+  nwritten += packet.payload.encode(out);
+  out.add(packet.padding);
+  nwritten += packet.padding_length;
+  return nwritten;
+}
+
+template <typename T>
+std::enable_if_t<std::is_base_of_v<SshMessage<T>, T>, void>
+encodeAsPacket(Envoy::Buffer::Instance& out, T& payload) {
   Envoy::Buffer::OwnedImpl payloadBytes;
   size_t payload_length = payload.encode(payloadBytes);
-  SshPacket<T> packet{};
 
   // RFC4253 § 6
   constexpr auto cipher_block_size = 8; // TODO
-  auto padding_length =
-      std::max<uint8_t>(4, cipher_block_size - (1 + payload_length) % cipher_block_size);
-  auto packet_length = sizeof(padding_length) + payload_length + padding_length;
+  uint8_t padding_length = cipher_block_size - (1 + payload_length) % cipher_block_size;
+  if (padding_length < 4) {
+    padding_length += cipher_block_size;
+  }
+  // std::max<uint8_t>(4, cipher_block_size - (1 + payload_length) % cipher_block_size);
+  uint32_t packet_length = sizeof(padding_length) + payload_length + padding_length;
 
   out.writeBEInt(packet_length);
   out.writeByte(padding_length);
@@ -233,7 +272,7 @@ std::enable_if_t<std::is_base_of_v<SshMessage, T>, void> encodePacket(Envoy::Buf
   paddingSlice.commit(padding_length);
 }
 
-struct KexInitMessage : SshMessage {
+struct KexInitMessage : SshMessage<KexInitMessage> {
   uint8_t cookie[16];
   NameList kex_algorithms;
   NameList server_host_key_algorithms;
@@ -245,7 +284,7 @@ struct KexInitMessage : SshMessage {
   NameList compression_algorithms_server_to_client;
   NameList languages_client_to_server;
   NameList languages_server_to_client;
-  bool first_kex_packet_follows;
+  uint8_t first_kex_packet_follows;
   uint32_t reserved;
 
   size_t decode(Envoy::Buffer::Instance& buffer) override {
@@ -272,9 +311,10 @@ struct KexInitMessage : SshMessage {
     return nread;
   }
 
-  size_t encode(Envoy::Buffer::Instance& buffer) override {
+  size_t encode(Envoy::Buffer::Instance& buffer) const override {
     buffer.writeByte(SshMessageType::KexInit);
     size_t nwritten = 1;
+
     buffer.add(cookie, sizeof(cookie));
     nwritten += sizeof(cookie);
     nwritten += writeNameList(buffer, kex_algorithms);
@@ -291,6 +331,53 @@ struct KexInitMessage : SshMessage {
     nwritten += 1;
     buffer.writeBEInt(reserved);
     nwritten += sizeof(reserved);
+
+    return nwritten;
+  }
+};
+
+struct KexEcdhInitMessage : SshMessage<KexEcdhInitMessage> {
+  std::string client_pub_key;
+
+  size_t decode(Envoy::Buffer::Instance& buffer) override {
+    auto msgtype = buffer.drainInt<uint8_t>();
+    if (msgtype != static_cast<uint8_t>(SshMessageType::KexECDHInit)) {
+      throw EnvoyException("unexpected message type");
+    }
+    size_t nread = 1;
+    nread += readString(buffer, client_pub_key);
+    return nread;
+  }
+  size_t encode(Envoy::Buffer::Instance& buffer) const override {
+    buffer.writeByte(SshMessageType::KexECDHInit);
+    size_t nwritten = 1;
+    nwritten += writeString(buffer, client_pub_key);
+    return nwritten;
+  }
+};
+
+struct KexEcdhReplyMsg : SshMessage<KexEcdhReplyMsg> {
+  std::string host_key;
+  std::string ephemeral_pub_key;
+  std::string signature;
+
+  size_t decode(Envoy::Buffer::Instance& buffer) override {
+    auto msgtype = buffer.drainInt<uint8_t>();
+    if (msgtype != static_cast<uint8_t>(SshMessageType::KexECDHReply)) {
+      throw EnvoyException("unexpected message type");
+    }
+    size_t nread = 1;
+    nread += readString(buffer, host_key);
+    nread += readString(buffer, ephemeral_pub_key);
+    nread += readString(buffer, signature);
+    return nread;
+  }
+  size_t encode(Envoy::Buffer::Instance& buffer) const override {
+    buffer.writeByte(SshMessageType::KexECDHReply);
+    size_t nwritten = 1;
+    nwritten += writeString(buffer, host_key);
+    nwritten += writeString(buffer, ephemeral_pub_key);
+    nwritten += writeString(buffer, signature);
     return nwritten;
   }
 };
