@@ -49,3 +49,17 @@ cc_proto_library(
     name = "ssh_cc_proto",
     deps = ["//api/extensions/filters/network/ssh:ssh_proto"],
 )
+
+envoy_cc_test(
+    name = "ssh_test",
+    srcs = ["messages_test.cc"],
+    repository = "@envoy",
+    deps = [
+        ":pomerium_ssh",
+        "@com_google_absl//absl/random",
+        "@envoy//source/common/common:random_generator_lib",
+        "@envoy//test/mocks/runtime:runtime_mocks",
+        "@envoy//test/mocks/stream_info:stream_info_mocks",
+        "@envoy//test/test_common:logging_lib",
+    ],
+)

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <type_traits>
 #include <string>
@@ -136,11 +137,20 @@ inline size_t readString(Envoy::Buffer::Instance& buffer, std::string& out) {
 
 inline size_t writeString(Envoy::Buffer::Instance& buffer, const std::string& str) {
   size_t nwritten = 0;
-  buffer.writeBEInt(str.size());
-  nwritten += sizeof(str.size());
+  uint32_t sz = str.size();
+  buffer.writeBEInt(sz);
+  nwritten += sizeof(sz);
   buffer.add(str);
   nwritten += str.size();
   return nwritten;
+}
+
+inline void copyWithLengthPrefix(std::string& dst, const std::string& src) {
+  uint32_t len = htonl(src.length());
+  dst.clear();
+  dst.resize(src.length() + sizeof(len));
+  memcpy(dst.data() + sizeof(len), src.data(), dst.length());
+  memcpy(dst.data(), reinterpret_cast<void*>(&len), sizeof(len));
 }
 
 inline size_t readNameList(Envoy::Buffer::Instance& buffer, NameList& out) {
@@ -170,14 +180,13 @@ inline size_t readNameList(Envoy::Buffer::Instance& buffer, NameList& out) {
 }
 
 inline size_t writeNameList(Envoy::Buffer::Instance& buffer, const NameList& list) {
-  if (list.empty()) {
-    return 0;
-  }
   uint32_t size = 0;
   for (const auto& entry : list) {
     size += entry.length();
   }
-  size += list.size() - 1; // commas
+  if (list.size() > 0) {
+    size += list.size() - 1; // commas
+  }
   buffer.writeBEInt(size);
 
   for (size_t i = 0; i < list.size(); i++) {
@@ -189,46 +198,46 @@ inline size_t writeNameList(Envoy::Buffer::Instance& buffer, const NameList& lis
   return sizeof(size) + size;
 }
 
-template <typename T> struct SshPacket {
-  uint32_t packet_length;
-  uint8_t padding_length;
-  T payload;
-  std::string padding;
-  // uint8_t mac[20];
-};
-
 template <typename T, bool = std::is_trivially_move_assignable_v<T>> struct SshMessage {
   virtual ~SshMessage() = default;
   virtual size_t decode(Envoy::Buffer::Instance&) PURE;
   virtual size_t encode(Envoy::Buffer::Instance&) const PURE;
+
+  std::string toString() const {
+    Envoy::Buffer::OwnedImpl buf;
+    this->encode(buf);
+    auto out = buf.toString();
+    buf.drain(buf.length());
+    return out;
+  }
 };
 
 template <typename T>
-std::enable_if_t<std::is_base_of_v<SshMessage<T>, T>, std::tuple<SshPacket<T>, error>>
+std::enable_if_t<std::is_base_of_v<SshMessage<T>, T>, std::tuple<T, error>>
 readPacket(Envoy::Buffer::Instance& buffer) noexcept {
   try {
-    SshPacket<T> packet{};
     auto bufferSize = buffer.length();
     size_t nread = 0;
-    nread += read(buffer, packet.packet_length);
-    nread += read(buffer, packet.padding_length);
+    uint32_t packet_length{};
+    uint8_t padding_length{};
+    nread += read<uint32_t>(buffer, packet_length);
+    nread += read<uint8_t>(buffer, padding_length);
+    T payload{};
     {
-      auto n = packet.payload.decode(buffer);
+      auto n = payload.decode(buffer);
       nread += n;
-      if (n != (packet.packet_length - packet.padding_length - 1)) {
+      if (n != (packet_length - padding_length - 1)) {
         return {{},
                 fmt::format("unexpected packet payload size of {} bytes (expected {})", nread,
-                            packet.packet_length - packet.padding_length - 1)};
+                            packet_length - padding_length - 1)};
       }
     }
-    nread += readVariableBytes(buffer, packet.padding, packet.padding_length);
-    // if (require_mac) {
-    //   nread += readFixedBytes<sizeof(packet.mac)>(buffer, packet.mac);
-    // }
+    std::string padding;
+    nread += readVariableBytes(buffer, padding, padding_length);
     if (nread != bufferSize) {
       return {{}, fmt::format("bad packet length: {} (expected {})", bufferSize, nread)};
     }
-    return {packet, std::nullopt};
+    return {payload, std::nullopt};
   } catch (const EnvoyException& e) {
     return {{}, fmt::format("error decoding packet: {}", e.what())};
   }
@@ -236,40 +245,36 @@ readPacket(Envoy::Buffer::Instance& buffer) noexcept {
 
 template <typename T>
 std::enable_if_t<std::is_base_of_v<SshMessage<T>, T>, size_t>
-writePacket(Envoy::Buffer::Instance& out, const SshPacket<T>& packet) {
-  size_t nwritten = 0;
-  out.writeBEInt(packet.packet_length);
-  nwritten += sizeof(packet.packet_length);
-  out.writeByte(packet.padding_length);
-  nwritten += sizeof(packet.padding_length);
-  nwritten += packet.payload.encode(out);
-  out.add(packet.padding);
-  nwritten += packet.padding_length;
-  return nwritten;
-}
-
-template <typename T>
-std::enable_if_t<std::is_base_of_v<SshMessage<T>, T>, void>
-encodeAsPacket(Envoy::Buffer::Instance& out, T& payload) {
+writePacket(Envoy::Buffer::Instance& out, const T& msg) {
   Envoy::Buffer::OwnedImpl payloadBytes;
-  size_t payload_length = payload.encode(payloadBytes);
+  size_t payload_length = msg.encode(payloadBytes);
 
   // RFC4253 § 6
   constexpr auto cipher_block_size = 8; // TODO
-  uint8_t padding_length = cipher_block_size - (1 + payload_length) % cipher_block_size;
+  uint8_t padding_length = cipher_block_size - ((5 + payload_length) % cipher_block_size);
   if (padding_length < 4) {
     padding_length += cipher_block_size;
   }
-  // std::max<uint8_t>(4, cipher_block_size - (1 + payload_length) % cipher_block_size);
   uint32_t packet_length = sizeof(padding_length) + payload_length + padding_length;
 
-  out.writeBEInt(packet_length);
-  out.writeByte(padding_length);
+  size_t nwritten = 0;
+  out.writeBEInt<uint32_t>(packet_length);
+  nwritten += sizeof(packet_length);
+  out.writeByte<uint8_t>(padding_length);
+  nwritten += sizeof(padding_length);
   out.move(payloadBytes);
+  nwritten += payload_length;
 
-  auto paddingSlice = out.reserveSingleSlice(padding_length);
-  RAND_bytes(static_cast<uint8_t*>(paddingSlice.slice().mem_), paddingSlice.slice().len_);
-  paddingSlice.commit(padding_length);
+  std::string padding(padding_length, 0);
+  // if (false) {
+  //   RAND_bytes(static_cast<uint8_t*>(paddingSlice.slice().mem_), paddingSlice.slice().len_);
+  // } else {
+  //   bzero(paddingSlice.slice().mem_, paddingSlice.slice().len_);
+  // }
+  // paddingSlice.commit(padding_length);
+  out.add(padding.data(), padding.length());
+  nwritten += padding_length;
+  return nwritten;
 }
 
 struct KexInitMessage : SshMessage<KexInitMessage> {
