@@ -2,7 +2,7 @@ workspace(name = "pomerium_envoy")
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
-envoy_version = "1.32.3"
+envoy_version = "1.33.0"
 
 http_archive(
     name = "envoy",
@@ -11,9 +11,9 @@ http_archive(
     ],
     patch_tool = "patch",
     patches = [
-        "//:patches/0001-fix-otel-grpc-trace-exporter.patch",
         "//:patches/0002-opentelemetry-tracer-lib-visibility.patch",
     ],
+    sha256 = "f9e0d838eff2a3e8ede4273313db592aada4392d85865d7b2ce752fbd9da3591",
     strip_prefix = "envoy-" + envoy_version,
     url = "https://github.com/envoyproxy/envoy/archive/refs/tags/v" + envoy_version + ".zip",
 )
