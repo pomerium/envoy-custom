@@ -8,6 +8,7 @@
 #include <openssl/pem.h>
 #include "source/extensions/filters/network/ssh/util.h"
 #include "source/extensions/filters/network/ssh/messages.h"
+#include "source/extensions/filters/network/ssh/packet_cipher.h"
 #include <netinet/in.h>
 #include "envoy/filesystem/filesystem.h"
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
@@ -25,6 +26,26 @@ static const std::set<std::string> aeadCiphers = {
     cipherAES256GCM,
     cipherChacha20Poly1305,
 };
+
+struct direction_t {
+  std::basic_string<uint8_t> iv_tag;
+  std::basic_string<uint8_t> key_tag;
+  std::basic_string<uint8_t> mac_key_tag;
+};
+
+struct cipher_mode_t {
+  int32_t keySize;
+
+  std::function<std::unique_ptr<PacketCipher>(std::basic_string_view<uint8_t>)> create;
+};
+
+static const direction_t clientKeys{{'A'}, {'C'}, {'E'}};
+static const direction_t serverKeys{{'B'}, {'D'}, {'F'}};
+
+static const std::map<std::string, cipher_mode_t> cipherModes{
+    {cipherChacha20Poly1305, {64, [](std::basic_string_view<uint8_t> key) {
+                                return std::make_unique<Chacha20Poly1305Cipher>(key);
+                              }}}};
 
 struct direction_algorithms_t {
   std::string cipher;
@@ -56,14 +77,15 @@ enum hash_function {
 struct kex_result_t {
   std::string H;
   std::string K;
-  std::string HostKey;
+  std::string HostKeyBlob;
   std::string Signature;
   hash_function Hash;
   std::string SessionID;
   std::string EphemeralPubKey;
+  algorithms_t Algorithms;
 };
 
-class KexAlgorithm {
+class KexAlgorithm : public Logger::Loggable<Logger::Id::filter> {
   friend class Kex;
 
 public:
@@ -74,7 +96,7 @@ public:
 
   virtual error_or<bool> HandleServer(Envoy::Buffer::Instance& buffer) PURE;
   virtual error_or<bool> HandleClient(Envoy::Buffer::Instance& buffer) PURE;
-  virtual std::unique_ptr<kex_result_t> Result() PURE;
+  virtual std::shared_ptr<kex_result_t>&& Result() PURE;
 
 protected:
   const handshake_magics_t* magics_;
@@ -107,12 +129,12 @@ public:
   using KexAlgorithm::KexAlgorithm;
 
   error_or<bool> HandleServer(Envoy::Buffer::Instance& buffer) override;
-  error_or<bool> HandleClient(Envoy::Buffer::Instance& /*buffer*/) override;
+  error_or<bool> HandleClient(Envoy::Buffer::Instance& buffer) override;
 
-  std::unique_ptr<kex_result_t> Result() override;
+  std::shared_ptr<kex_result_t>&& Result() override;
 
 private:
-  kex_result_t* result_;
+  std::shared_ptr<kex_result_t> result_;
 };
 
 struct kex_state_t {
@@ -129,7 +151,7 @@ struct kex_state_t {
   uint32_t flags{};
 
   std::unique_ptr<KexAlgorithm> alg_impl;
-  std::unique_ptr<kex_result_t> kex_result;
+  std::shared_ptr<kex_result_t> kex_result;
 
   bool kex_init_sent{};
   bool kex_init_received{};
@@ -165,9 +187,16 @@ inline NameList algorithmsForKeyFormat(const std::string& keyFormat) {
   return {keyFormat};
 }
 
-class Kex {
+class KexCallbacks {
 public:
-  Kex(GenericProxy::ServerCodecCallbacks* callbacks, Filesystem::Instance& fs);
+  virtual ~KexCallbacks() = default;
+  virtual void setKexResult(std::shared_ptr<kex_result_t> kex_result) PURE;
+};
+
+class Kex : public Logger::Loggable<Logger::Id::filter> {
+public:
+  Kex(GenericProxy::ServerCodecCallbacks* callbacks, KexCallbacks& kexCallbacks,
+      Filesystem::Instance& fs);
 
   void setVersionStrings(const std::string& ours, const std::string& peer);
   std::tuple<bool, error> doInitialKex(Envoy::Buffer::Instance& buffer) noexcept;
@@ -183,6 +212,7 @@ public:
 
 private:
   GenericProxy::ServerCodecCallbacks* callbacks_{};
+  KexCallbacks& kex_callbacks_;
   std::unique_ptr<kex_state_t> state_;
   Filesystem::Instance& fs_;
   bool is_server_;

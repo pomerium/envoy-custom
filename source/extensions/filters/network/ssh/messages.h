@@ -145,12 +145,36 @@ inline size_t writeString(Envoy::Buffer::Instance& buffer, const std::string& st
   return nwritten;
 }
 
-inline void copyWithLengthPrefix(std::string& dst, const std::string& src) {
+template <typename T>
+inline std::enable_if_t<sizeof(T) == 1, void> copyWithLengthPrefix(std::string& dst,
+                                                                   std::basic_string_view<T> src) {
   uint32_t len = htonl(src.length());
   dst.clear();
   dst.resize(src.length() + sizeof(len));
   memcpy(dst.data() + sizeof(len), src.data(), dst.length());
   memcpy(dst.data(), reinterpret_cast<void*>(&len), sizeof(len));
+}
+
+template <typename T>
+inline std::enable_if_t<sizeof(T) == 1, void>
+copyWithLengthPrefixAndType(std::string& dst, uint8_t type, std::basic_string_view<T> src) {
+  uint32_t len = htonl(src.length() + 1); // NB add 1 to len
+  dst.clear();
+  dst.resize(src.length() + sizeof(len) + 1);
+  memcpy(dst.data() + sizeof(len) + 1, src.data(), dst.length());
+  memcpy(dst.data(), reinterpret_cast<void*>(&len), sizeof(len));
+  dst[4] = type;
+}
+
+template <typename T>
+inline std::enable_if_t<sizeof(T) == 1, void> copyWithLengthPrefix(std::string& dst,
+                                                                   std::basic_string<T> src) {
+  return copyWithLengthPrefix(dst, std::string_view(src));
+}
+
+template <typename... Args> inline void copyWithLengthPrefix(std::string& dst, Args&&... args) {
+  using arg0 = std::remove_pointer_t<std::decay_t<std::tuple_element_t<0, std::tuple<Args...>>>>;
+  return copyWithLengthPrefix(dst, std::basic_string_view<arg0>{std::forward<Args>(args)...});
 }
 
 inline size_t readNameList(Envoy::Buffer::Instance& buffer, NameList& out) {
@@ -196,6 +220,21 @@ inline size_t writeNameList(Envoy::Buffer::Instance& buffer, const NameList& lis
     }
   }
   return sizeof(size) + size;
+}
+
+// equivalent to sshbuf_put_bignum2_bytes
+inline void writeBignum(Envoy::Buffer::Instance& buffer, const uint8_t* src, size_t srclen) {
+  std::basic_string_view str{src, srclen};
+  // skip leading zeros
+  str = str.substr(str.find_first_not_of(static_cast<uint8_t>(0)));
+  size_t len = str.length();
+  // prepend a zero byte if the most significant bit is set
+  auto prepend = (len > 0 && (str[0] & 0x80) != 0);
+  buffer.writeBEInt<uint32_t>(prepend ? (len + 1) : len);
+  if (prepend) {
+    buffer.writeByte(0);
+  }
+  buffer.add(str.data(), str.length());
 }
 
 template <typename T, bool = std::is_trivially_move_assignable_v<T>> struct SshMessage {
@@ -266,12 +305,7 @@ writePacket(Envoy::Buffer::Instance& out, const T& msg) {
   nwritten += payload_length;
 
   std::string padding(padding_length, 0);
-  // if (false) {
-  //   RAND_bytes(static_cast<uint8_t*>(paddingSlice.slice().mem_), paddingSlice.slice().len_);
-  // } else {
-  //   bzero(paddingSlice.slice().mem_, paddingSlice.slice().len_);
-  // }
-  // paddingSlice.commit(padding_length);
+  RAND_bytes(reinterpret_cast<uint8_t*>(padding.data()), padding.length());
   out.add(padding.data(), padding.length());
   nwritten += padding_length;
   return nwritten;
@@ -384,6 +418,20 @@ struct KexEcdhReplyMsg : SshMessage<KexEcdhReplyMsg> {
     nwritten += writeString(buffer, ephemeral_pub_key);
     nwritten += writeString(buffer, signature);
     return nwritten;
+  }
+};
+
+template <SshMessageType T> struct EmptyPacket : SshMessage<EmptyPacket<T>> {
+  size_t decode(Envoy::Buffer::Instance& buffer) override {
+    auto msgtype = buffer.drainInt<uint8_t>();
+    if (msgtype != static_cast<uint8_t>(T)) {
+      throw EnvoyException("unexpected message type");
+    }
+    return 1;
+  }
+  size_t encode(Envoy::Buffer::Instance& buffer) const override {
+    buffer.writeByte(T);
+    return 1;
   }
 };
 

@@ -1,4 +1,5 @@
 #include "source/extensions/filters/network/ssh/kex.h"
+#include "messages.h"
 #include "source/common/buffer/buffer_impl.h"
 #include "openssl/curve25519.h"
 #include "source/extensions/filters/network/ssh/keys.h"
@@ -10,6 +11,7 @@ extern "C" {
 #include "openssh/ssherr.h"
 #include "openssh/kex.h"
 #include "openssh/sshbuf.h"
+#include "openssh/digest.h"
 }
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
@@ -36,41 +38,49 @@ error_or<bool> Curve25519Sha256KexAlgorithm::HandleServer(Envoy::Buffer::Instanc
     return {false, "peer's curve25519 public value has wrong order"};
   }
 
-  SHA256_CTX hash;
-  SHA256_Init(&hash);
-  using namespace std::placeholders;
-  magics_->writeTo(std::bind(&SHA256_Update, &hash, _1, _2));
-  SHA256_Update(&hash, signer_->pub->ed25519_pk, 32);
-  SHA256_Update(&hash, client_pub_key, 32);
-  SHA256_Update(&hash, server_keypair.pub, 32);
-  libssh::SshBufPtr bn(sshbuf_new());
-  if (auto err = sshbuf_put_bignum2_bytes(bn.get(), shared_secret, 32); err < 0) {
-    return {false, std::string(ssh_err(err))};
-  }
-  SHA256_Update(&hash, bn.get(), sshbuf_len(bn.get()));
+  result_.reset(new kex_result_t);
+  result_->Algorithms = *algs_;
 
-  uint8_t digest[SHA256_DIGEST_LENGTH];
-  SHA256_Final(digest, &hash);
+  {
+    std::string hostKeyType;
+    copyWithLengthPrefix(hostKeyType, algs_->host_key.c_str());
+    std::string hostKeyData;
+    copyWithLengthPrefix(hostKeyData, signer_->pub->ed25519_pk, static_cast<size_t>(32));
+    result_->HostKeyBlob = hostKeyType + hostKeyData;
+  }
+
+  Envoy::Buffer::OwnedImpl exchangeHash;
+
+  magics_->writeTo([&exchangeHash](const void* p, size_t sz) { exchangeHash.add(p, sz); });
+  exchangeHash.writeBEInt<uint32_t>(result_->HostKeyBlob.length());
+  exchangeHash.add(result_->HostKeyBlob);
+  exchangeHash.writeBEInt<uint32_t>(sizeof(client_pub_key));
+  exchangeHash.add(client_pub_key, sizeof(client_pub_key));
+  exchangeHash.writeBEInt<uint32_t>(sizeof(server_keypair.pub));
+  exchangeHash.add(server_keypair.pub, sizeof(server_keypair.pub));
+  writeBignum(exchangeHash, shared_secret, sizeof(shared_secret));
+
+  uint8_t digest[SSH_DIGEST_MAX_LENGTH];
+  size_t digest_len = sizeof(digest);
+  auto buf = exchangeHash.linearize(exchangeHash.length());
+  auto hash_alg = kex_hash_from_name(algs_->kex.c_str());
+  ssh_digest_memory(hash_alg, buf, exchangeHash.length(), digest, digest_len);
+  digest_len = ssh_digest_bytes(hash_alg);
+  sshbuf_dump_data(buf, exchangeHash.length(), stderr);
+  exchangeHash.drain(exchangeHash.length());
 
   uint8_t* sig;
   size_t sig_len;
-  if (auto err = sshkey_sign(signer_->priv.get(), &sig, &sig_len, digest, sizeof(digest),
+  if (auto err = sshkey_sign(signer_->priv.get(), &sig, &sig_len, digest,
+                             digest_len, // <- NB: not sizeof(digest)
                              algs_->host_key.c_str(), nullptr, nullptr, 0);
       err < 0) {
     return {false, std::string(ssh_err(err))};
   }
-  result_ = new kex_result_t;
-  result_->H.resize(sizeof(digest));
-  memcpy(result_->H.data(), digest, sizeof(digest));
-  result_->K.resize(sizeof(digest));
-  memcpy(result_->K.data(), bn.get(), sshbuf_len(bn.get()));
-
-  std::string keytype;
-  copyWithLengthPrefix(keytype, "ssh-ed25519");
-  std::string hostkeyData;
-  hostkeyData.resize(32);
-  memcpy(hostkeyData.data(), signer_->pub->ed25519_pk, 32);
-  result_->HostKey = keytype + hostkeyData;
+  result_->H.resize(digest_len);
+  memcpy(result_->H.data(), digest, digest_len);
+  result_->K.resize(sizeof(shared_secret));
+  memcpy(result_->K.data(), shared_secret, sizeof(shared_secret));
 
   result_->Signature.resize(sig_len);
   memcpy(result_->Signature.data(), sig, sig_len);
@@ -86,17 +96,14 @@ error_or<bool> Curve25519Sha256KexAlgorithm::HandleClient(Envoy::Buffer::Instanc
   throw std::runtime_error("unsupported");
 }
 
-std::unique_ptr<kex_result_t> Curve25519Sha256KexAlgorithm::Result() {
-  auto p = std::unique_ptr<kex_result_t>(result_);
-  result_ = nullptr;
-  return p;
+std::shared_ptr<kex_result_t>&& Curve25519Sha256KexAlgorithm::Result() {
+  return std::move(result_);
 };
 
-Kex::Kex(GenericProxy::ServerCodecCallbacks* callbacks, Filesystem::Instance& fs)
-    : callbacks_(callbacks), state_(std::make_unique<kex_state_t>()), fs_(fs), is_server_(true) {
-  (void)callbacks_;
-  (void)fs_;
-}
+Kex::Kex(GenericProxy::ServerCodecCallbacks* callbacks, KexCallbacks& kexCallbacks,
+         Filesystem::Instance& fs)
+    : callbacks_(callbacks), kex_callbacks_(kexCallbacks), state_(std::make_unique<kex_state_t>()),
+      fs_(fs), is_server_(true) {}
 
 void Kex::setVersionStrings(const std::string& ours, const std::string& peer) {
   if (is_server_) {
@@ -117,7 +124,7 @@ std::tuple<bool, error> Kex::doInitialKex(Envoy::Buffer::Instance& buffer) noexc
 
     {
       Envoy::Buffer::OwnedImpl tmp;
-      size_t sz = writePacket(tmp, peerKexInit); // no mac initially
+      auto sz = peerKexInit.encode(tmp);
       std::string raw_peer_kex_init(static_cast<char*>(tmp.linearize(sz)), sz);
       tmp.drain(sz);
 
@@ -153,11 +160,10 @@ std::tuple<bool, error> Kex::doInitialKex(Envoy::Buffer::Instance& buffer) noexc
                 std::back_inserter(server_kex_init->server_host_key_algorithms));
     }
 
-    Envoy::Buffer::OwnedImpl writeBuf;
-    writePacket(writeBuf, *server_kex_init);
-
     {
-      std::string raw_kex_init = writeBuf.toString();
+      Envoy::Buffer::OwnedImpl tmp;
+      auto sz = server_kex_init->encode(tmp);
+      std::string raw_kex_init(static_cast<char*>(tmp.linearize(sz)), sz);
       if (is_server_) {
         state_->magics.server_kex_init = std::move(raw_kex_init);
       } else {
@@ -165,6 +171,8 @@ std::tuple<bool, error> Kex::doInitialKex(Envoy::Buffer::Instance& buffer) noexc
       }
     }
 
+    Envoy::Buffer::OwnedImpl writeBuf;
+    writePacket(writeBuf, *server_kex_init);
     callbacks_->writeToConnection(writeBuf);
     state_->kex_init_sent = true;
   }
@@ -209,8 +217,7 @@ std::tuple<bool, error> Kex::doInitialKex(Envoy::Buffer::Instance& buffer) noexc
       done = d;
     }
     if (done) {
-      auto result = state_->alg_impl->Result();
-      state_->kex_result = std::move(result);
+      state_->kex_result = state_->alg_impl->Result();
       state_->alg_impl.reset();
     }
   }
@@ -223,12 +230,14 @@ std::tuple<bool, error> Kex::doInitialKex(Envoy::Buffer::Instance& buffer) noexc
     state_->kex_result->SessionID = state_->session_id.value();
 
     KexEcdhReplyMsg reply;
-    reply.host_key = state_->kex_result->HostKey;
+    reply.host_key = state_->kex_result->HostKeyBlob;
     reply.ephemeral_pub_key = state_->kex_result->EphemeralPubKey;
     reply.signature = state_->kex_result->Signature;
     Envoy::Buffer::OwnedImpl writeBuf;
     writePacket(writeBuf, reply);
     callbacks_->writeToConnection(writeBuf);
+    kex_callbacks_.setKexResult(state_->kex_result);
+    return {true, std::nullopt};
   }
 
   return {false, std::nullopt};
@@ -349,6 +358,7 @@ error_or<algorithms_t> Kex::negotiateAlgorithms() noexcept {
 
   return {result, std::nullopt};
 }
+
 error_or<std::string> Kex::findCommon(std::string_view what, const NameList& client,
                                       const NameList& server) {
   for (const auto& c : client) {
@@ -406,31 +416,48 @@ void Kex::loadHostKeys() {
       "source/extensions/filters/network/ssh/testdata/test_host_ed25519_key.pub";
   loadSshKeyPair(ed25519Priv, ed25519Pub);
 }
+
 void Kex::loadSshKeyPair(const char* privKeyPath, const char* pubKeyPath) {
   if (fs_.fileExists(privKeyPath) && fs_.fileExists(pubKeyPath)) {
-    auto priv = loadSshPrivateKey(privKeyPath);
-    auto pub = loadSshPublicKey(pubKeyPath);
-    host_keys_.emplace_back(host_keypair_t{
-        .priv = std::move(priv),
-        .pub = std::move(pub),
-    });
+    try {
+      auto priv = loadSshPrivateKey(privKeyPath);
+      auto pub = loadSshPublicKey(pubKeyPath);
+      host_keys_.emplace_back(host_keypair_t{
+          .priv = std::move(priv),
+          .pub = std::move(pub),
+      });
+    } catch (const EnvoyException& e) {
+      ENVOY_LOG(error, e.what());
+      return;
+    }
   }
 }
 
 bool kex_state_t::kexHasExtInfoInAuth() const { return (flags & KEX_HAS_EXT_INFO_IN_AUTH) != 0; }
+
 void kex_state_t::setKexHasExtInfoInAuth() { flags |= KEX_HAS_EXT_INFO_IN_AUTH; }
+
 bool kex_state_t::kexRSASHA2256Supported() const {
   return (flags & KEX_RSA_SHA2_256_SUPPORTED) != 0;
 }
+
 void kex_state_t::setKexRSASHA2256Supported() { flags |= KEX_RSA_SHA2_256_SUPPORTED; }
+
 bool kex_state_t::kexRSASHA2512Supported() const {
   return (flags & KEX_RSA_SHA2_512_SUPPORTED) != 0;
 }
+
 void kex_state_t::setKexRSASHA2512Supported() { flags |= KEX_RSA_SHA2_512_SUPPORTED; }
+
 void handshake_magics_t::writeTo(std::function<void(const void* data, size_t len)> writer) const {
-  writer(client_version.data(), client_version.size());
-  writer(server_version.data(), server_version.size());
-  writer(client_kex_init.data(), client_kex_init.size());
-  writer(server_kex_init.data(), server_kex_init.size());
+  std::string buf;
+  copyWithLengthPrefix(buf, client_version);
+  writer(buf.data(), buf.size());
+  copyWithLengthPrefix(buf, server_version);
+  writer(buf.data(), buf.size());
+  copyWithLengthPrefix(buf, client_kex_init);
+  writer(buf.data(), buf.size());
+  copyWithLengthPrefix(buf, server_kex_init);
+  writer(buf.data(), buf.size());
 }
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
