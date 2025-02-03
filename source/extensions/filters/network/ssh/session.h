@@ -8,11 +8,8 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 class Session : public Channel {
 public:
   virtual ~Session() = default;
-  Session(uint32_t channelId) : Channel(channelId) {}
-  error handleRequest(const ChannelRequestMsg& msg) override {
-    (void)msg;
-    return {"unimplemented"};
-  };
+  Session(uint32_t channelId);
+  error handleRequest(const ChannelRequestMsg& msg) override;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
