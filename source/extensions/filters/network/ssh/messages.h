@@ -483,6 +483,159 @@ template <SshMessageType T> struct EmptyMsg : SshMsg<EmptyMsg<T>> {
   }
 };
 
+struct ChannelOpenMsg : SshMsg<ChannelOpenMsg> {
+  std::string channel_type;
+  uint32_t sender_channel;
+  uint32_t initial_window_size;
+  uint32_t max_packet_size;
+  bytearray extra;
+
+  size_t decode(Envoy::Buffer::Instance& buffer, size_t payload_size) override {
+    auto msgtype = buffer.drainInt<SshMessageType>();
+    if (msgtype != SshMessageType::ChannelOpen) {
+      throw EnvoyException("unexpected message type");
+    }
+    size_t nread = 1;
+    nread += readString(buffer, channel_type);
+    nread += read(buffer, sender_channel);
+    nread += read(buffer, initial_window_size);
+    nread += read(buffer, max_packet_size);
+    if (payload_size > nread) {
+      extra.resize(payload_size - nread);
+      buffer.copyOut(0, extra.size(), extra.data());
+      buffer.drain(extra.size());
+      nread += extra.size();
+    }
+    return nread;
+  }
+  size_t encode(Envoy::Buffer::Instance& buffer) const override {
+    buffer.writeByte(SshMessageType::ChannelOpen);
+    size_t nwritten = 1;
+    buffer.add(channel_type.data(), channel_type.size());
+    nwritten += channel_type.size();
+    buffer.writeBEInt(sender_channel);
+    nwritten += sizeof(sender_channel);
+    buffer.writeBEInt(initial_window_size);
+    nwritten += sizeof(initial_window_size);
+    buffer.writeBEInt(max_packet_size);
+    nwritten += sizeof(max_packet_size);
+    buffer.add(extra.data(), extra.size());
+    nwritten += extra.size();
+    return nwritten;
+  }
+};
+
+struct ChannelRequestMsg : SshMsg<ChannelRequestMsg> {
+  uint32_t channel;
+  std::string request_type;
+  bool want_reply;
+  bytearray extra;
+
+  size_t decode(Envoy::Buffer::Instance& buffer, size_t payload_size) override {
+    auto msgtype = buffer.drainInt<SshMessageType>();
+    if (msgtype != SshMessageType::ChannelRequest) {
+      throw EnvoyException("unexpected message type");
+    }
+    size_t nread = 1;
+    nread += read(buffer, channel);
+    nread += readString(buffer, request_type);
+    nread += read(buffer, want_reply);
+    if (payload_size > nread) {
+      extra.resize(payload_size - nread);
+      buffer.copyOut(0, extra.size(), extra.data());
+      buffer.drain(extra.size());
+      nread += extra.size();
+    }
+    return nread;
+  }
+  size_t encode(Envoy::Buffer::Instance& buffer) const override {
+    buffer.writeByte(SshMessageType::ChannelRequest);
+    size_t nwritten = 1;
+    buffer.writeBEInt(channel);
+    nwritten += sizeof(channel);
+    buffer.add(request_type.data(), request_type.size());
+    nwritten += request_type.size();
+    buffer.writeByte(want_reply);
+    nwritten += sizeof(want_reply);
+    buffer.add(extra.data(), extra.size());
+    nwritten += extra.size();
+    return nwritten;
+  }
+};
+
+struct ChannelOpenConfirmationMsg : SshMsg<ChannelOpenConfirmationMsg> {
+  uint32_t recipient_channel;
+  uint32_t sender_channel;
+  uint32_t initial_window_size;
+  uint32_t max_packet_size;
+  bytearray extra;
+
+  size_t decode(Envoy::Buffer::Instance& buffer, size_t payload_size) override {
+    auto msgtype = buffer.drainInt<SshMessageType>();
+    if (msgtype != SshMessageType::ChannelOpenConfirmation) {
+      throw EnvoyException("unexpected message type");
+    }
+    size_t nread = 1;
+    nread += read(buffer, recipient_channel);
+    nread += read(buffer, sender_channel);
+    nread += read(buffer, initial_window_size);
+    nread += read(buffer, max_packet_size);
+    if (payload_size > nread) {
+      extra.resize(payload_size - nread);
+      buffer.copyOut(0, extra.size(), extra.data());
+      buffer.drain(extra.size());
+      nread += extra.size();
+    }
+    return nread;
+  }
+  size_t encode(Envoy::Buffer::Instance& buffer) const override {
+    buffer.writeByte(SshMessageType::ChannelOpenConfirmation);
+    size_t nwritten = 1;
+    buffer.writeBEInt(recipient_channel);
+    nwritten += sizeof(recipient_channel);
+    buffer.writeBEInt(sender_channel);
+    nwritten += sizeof(sender_channel);
+    buffer.writeBEInt(initial_window_size);
+    nwritten += sizeof(initial_window_size);
+    buffer.writeBEInt(max_packet_size);
+    nwritten += sizeof(max_packet_size);
+    buffer.add(extra.data(), extra.size());
+    nwritten += extra.size();
+    return nwritten;
+  }
+};
+
+struct ChannelOpenFailureMsg : SshMsg<ChannelOpenFailureMsg> {
+  uint32_t recipient_channel;
+  uint32_t reason_code;
+  std::string description;
+  std::string language_tag;
+
+  size_t decode(Envoy::Buffer::Instance& buffer, size_t) override {
+    auto msgtype = buffer.drainInt<SshMessageType>();
+    if (msgtype != SshMessageType::ChannelOpenFailure) {
+      throw EnvoyException("unexpected message type");
+    }
+    size_t nread = 1;
+    nread += read(buffer, recipient_channel);
+    nread += read(buffer, reason_code);
+    nread += readString(buffer, description);
+    nread += readString(buffer, language_tag);
+    return nread;
+  }
+  size_t encode(Envoy::Buffer::Instance& buffer) const override {
+    buffer.writeByte(SshMessageType::ChannelOpenFailure);
+    size_t nwritten = 1;
+    buffer.writeBEInt(recipient_channel);
+    nwritten += sizeof(recipient_channel);
+    buffer.writeBEInt(reason_code);
+    nwritten += sizeof(reason_code);
+    buffer.add(description.data(), description.size());
+    buffer.add(language_tag.data(), language_tag.size());
+    return nwritten;
+  }
+};
+
 struct AnyMsg : SshMsg<AnyMsg> {
   SshMessageType msg_type;
   bytearray raw_packet; // includes msg_type

@@ -3,11 +3,14 @@
 #include <cerrno>
 #include <cstddef>
 #include <cstring>
+#include <memory>
 #include <unistd.h>
 
 #include "source/extensions/filters/network/ssh/kex.h"
 #include "source/extensions/filters/network/ssh/messages.h"
 #include "source/extensions/filters/network/ssh/service_userauth.h"
+#include "source/extensions/filters/network/ssh/service_connection.h"
+#include "source/extensions/filters/network/ssh/session.h"
 #include "source/extensions/filters/network/ssh/packet_cipher.h"
 #include "source/extensions/filters/network/generic_proxy/codec_callbacks.h"
 #include "source/common/buffer/buffer_impl.h"
@@ -19,9 +22,13 @@
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 SshServerCodec::SshServerCodec(Api::Api& api) : api_(api) {
-  auto userAuth = std::make_unique<UserAuthService>(callbacks_, api);
+  dsc_.reset(new DownstreamCallbacks(this));
+  auto userAuth = std::make_unique<UserAuthService>(this, api);
+  auto connection = std::make_unique<ConnectionService>(this, api);
   services_[userAuth->name()] = std::move(userAuth);
+  services_[connection->name()] = std::move(connection);
 };
+
 void SshServerCodec::setCodecCallbacks(GenericProxy::ServerCodecCallbacks& callbacks) {
   this->callbacks_ = &callbacks;
 }
@@ -61,7 +68,10 @@ void SshServerCodec::decode(Envoy::Buffer::Instance& buffer, bool /*end_stream*/
           callbacks_->onDecodingFailure(fmt::format("ssh: readPacket: {}", err.value()));
           return;
         }
-        handleTransportMsg(std::move(msg));
+        if (auto err = handleTransportMsg(std::move(msg)); err.has_value()) {
+          ENVOY_LOG(error, "ssh: {}", err.value());
+          callbacks_->onDecodingFailure(fmt::format("ssh: {}", err.value()));
+        }
       }
     }
   }
@@ -180,7 +190,7 @@ error SshServerCodec::handleTransportMsg(AnyMsg&& msg) {
     if (services_.contains(req.service_name)) {
       ServiceAcceptMsg accept;
       accept.service_name = req.service_name;
-      return sendMsgDownstream(accept);
+      return downstream().sendMessage(accept);
     }
     ENVOY_LOG(debug, "received SshMessageType::ServiceRequest");
     break;
@@ -200,11 +210,13 @@ error SshServerCodec::handleTransportMsg(AnyMsg&& msg) {
   default:
     for (const auto& [name, svc] : services_) {
       if (svc->acceptsMessage(msg.msg_type)) {
-        svc->handleMessage(std::move(msg));
+        return svc->handleMessage(std::move(msg));
       }
     }
+    return {fmt::format("unimplemented message type {}", static_cast<uint8_t>(msg.msg_type))};
   }
   return std::nullopt;
 }
 
+DownstreamCallbacks& SshServerCodec::downstream() { return *dsc_; }
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

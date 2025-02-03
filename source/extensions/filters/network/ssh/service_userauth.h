@@ -1,12 +1,13 @@
 #pragma once
+#include "messages.h"
 #include "source/extensions/filters/network/ssh/service.h"
-#include "source/extensions/filters/network/generic_proxy/codec_callbacks.h"
+#include "source/extensions/filters/network/ssh/server_transport.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 class UserAuthService : public Service {
 public:
-  UserAuthService(GenericProxy::ServerCodecCallbacks* callbacks, Api::Api& api)
+  UserAuthService(ServerTransportCallbacks* callbacks, Api::Api& api)
       : callbacks_(callbacks), api_(api) {
     (void)callbacks_;
     (void)api_;
@@ -21,6 +22,8 @@ public:
   error handleMessage(AnyMsg&& msg) override {
     switch (msg.msg_type) {
     case SshMessageType::UserAuthRequest:
+
+      return callbacks_->downstream().sendMessage(EmptyMsg<SshMessageType::UserAuthSuccess>());
       break;
     case SshMessageType::UserAuthFailure:
       break;
@@ -36,7 +39,7 @@ public:
   }
 
 private:
-  GenericProxy::ServerCodecCallbacks* callbacks_{};
+  ServerTransportCallbacks* callbacks_{};
   Api::Api& api_;
 };
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

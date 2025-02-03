@@ -11,6 +11,14 @@
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
+class DownstreamCallbacks;
+
+class ServerTransportCallbacks {
+public:
+  virtual ~ServerTransportCallbacks() = default;
+  virtual DownstreamCallbacks& downstream() PURE;
+};
+
 class Handshaker {
 public:
   Handshaker(GenericProxy::ServerCodecCallbacks* callbacks, KexCallbacks& kexCallbacks,
@@ -40,7 +48,10 @@ struct connection_state_t {
 
 class SshServerCodec : public Logger::Loggable<Logger::Id::filter>,
                        public ServerCodec,
-                       public KexCallbacks {
+                       public KexCallbacks,
+                       public ServerTransportCallbacks {
+  friend class DownstreamCallbacks;
+
 public:
   SshServerCodec(Api::Api& api);
   ~SshServerCodec() { ENVOY_LOG(debug, "destructor"); };
@@ -55,26 +66,9 @@ public:
 
   error handleTransportMsg(AnyMsg&& msg);
 
-private:
-  template <typename T>
-  std::enable_if_t<std::is_base_of_v<SshMsg<T>, T>, error> sendMsgDownstream(const T& msg) {
-    if (!connection_state_) {
-      throw EnvoyException("bug: no connection state ");
-    }
-    Envoy::Buffer::OwnedImpl dec;
-    writePacket(dec, msg, connection_state_->cipher->blockSize(MODE_WRITE),
-                connection_state_->cipher->aadSize(MODE_WRITE));
-    Envoy::Buffer::OwnedImpl enc;
-    if (auto err =
-            connection_state_->cipher->encryptPacket(*connection_state_->seq_write, enc, dec);
-        err.has_value()) {
-      return err;
-    }
-    (*connection_state_->seq_write)++;
+  DownstreamCallbacks& downstream() override;
 
-    callbacks_->writeToConnection(enc);
-    return std::nullopt;
-  }
+private:
   GenericProxy::ServerCodecCallbacks* callbacks_{};
   bool handshake_done_{};
   std::unique_ptr<Handshaker> handshaker_;
@@ -82,6 +76,37 @@ private:
 
   std::unique_ptr<connection_state_t> connection_state_;
   std::map<std::string, std::unique_ptr<Service>> services_;
+
+  std::unique_ptr<DownstreamCallbacks> dsc_;
+};
+
+class DownstreamCallbacks {
+  friend class SshServerCodec;
+
+public:
+  template <typename T>
+  std::enable_if_t<std::is_base_of_v<SshMsg<T>, T>, error> sendMessage(const T& msg) {
+    if (!impl_->connection_state_) {
+      throw EnvoyException("bug: no connection state");
+    }
+    Envoy::Buffer::OwnedImpl dec;
+    writePacket(dec, msg, impl_->connection_state_->cipher->blockSize(MODE_WRITE),
+                impl_->connection_state_->cipher->aadSize(MODE_WRITE));
+    Envoy::Buffer::OwnedImpl enc;
+    if (auto err = impl_->connection_state_->cipher->encryptPacket(
+            *impl_->connection_state_->seq_write, enc, dec);
+        err.has_value()) {
+      return err;
+    }
+    (*impl_->connection_state_->seq_write)++;
+
+    impl_->callbacks_->writeToConnection(enc);
+    return std::nullopt;
+  }
+
+private:
+  DownstreamCallbacks(SshServerCodec* impl) : impl_(impl) {}
+  SshServerCodec* impl_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

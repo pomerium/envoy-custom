@@ -6,6 +6,8 @@
 #include <unistd.h>
 
 #include "source/extensions/filters/network/ssh/server_transport.h"
+#include "source/extensions/filters/network/ssh/service_connection.h"
+#include "source/extensions/filters/network/ssh/session.h"
 #include "source/extensions/filters/network/common/factory_base.h"
 #include "source/extensions/filters/network/well_known_names.h"
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
@@ -43,7 +45,10 @@ public:
 
 class SshCodecFactory : public CodecFactory {
 public:
-  SshCodecFactory(Api::Api& api) : api_(api) {}
+  SshCodecFactory(Api::Api& api) : api_(api) {
+    ConnectionService::RegisterChannelType(
+        "session", [](uint32_t channelId) { return std::make_unique<Session>(channelId); });
+  }
   ServerCodecPtr createServerCodec() const override {
     return std::make_unique<SshServerCodec>(api_);
   }
