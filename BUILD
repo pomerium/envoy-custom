@@ -31,6 +31,9 @@ configure_make(
         "--with-sandbox=no",
         "--enable-sk=no",
     ],
+    defines = [
+        "WITH_OPENSSL=1",
+    ],
     includes = [
         "openssh",
     ],

@@ -4,14 +4,15 @@
 #include <functional>
 #include <memory>
 #include <string>
-#include <openssl/evp.h>
-#include <openssl/pem.h>
 #include "source/extensions/filters/network/ssh/util.h"
 #include "source/extensions/filters/network/ssh/messages.h"
-#include "source/extensions/filters/network/ssh/packet_cipher.h"
 #include <netinet/in.h>
 #include "envoy/filesystem/filesystem.h"
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
+
+extern "C" {
+#include "openssh/digest.h"
+}
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -28,24 +29,13 @@ static const std::set<std::string> aeadCiphers = {
 };
 
 struct direction_t {
-  std::basic_string<uint8_t> iv_tag;
-  std::basic_string<uint8_t> key_tag;
-  std::basic_string<uint8_t> mac_key_tag;
-};
-
-struct cipher_mode_t {
-  int32_t keySize;
-
-  std::function<std::unique_ptr<PacketCipher>(std::basic_string_view<uint8_t>)> create;
+  bytearray iv_tag;
+  bytearray key_tag;
+  bytearray mac_key_tag;
 };
 
 static const direction_t clientKeys{{'A'}, {'C'}, {'E'}};
 static const direction_t serverKeys{{'B'}, {'D'}, {'F'}};
-
-static const std::map<std::string, cipher_mode_t> cipherModes{
-    {cipherChacha20Poly1305, {64, [](std::basic_string_view<uint8_t> key) {
-                                return std::make_unique<Chacha20Poly1305Cipher>(key);
-                              }}}};
 
 struct direction_algorithms_t {
   std::string cipher;
@@ -63,26 +53,34 @@ struct algorithms_t {
 struct handshake_magics_t {
   std::string client_version;
   std::string server_version;
-  std::string client_kex_init;
-  std::string server_kex_init;
+  bytearray client_kex_init;
+  bytearray server_kex_init;
 
   void writeTo(std::function<void(const void* data, size_t len)> writer) const;
 };
 
 enum hash_function {
-  SHA256,
-  SHA512,
+  SHA256 = SSH_DIGEST_SHA256,
+  SHA512 = SSH_DIGEST_SHA512,
 };
 
 struct kex_result_t {
-  std::string H;
-  std::string K;
-  std::string HostKeyBlob;
-  std::string Signature;
+  bytearray H; // exchange hash
+  bytearray K; // raw shared secret, not encoded as a length-prefixed bignum
+  bytearray HostKeyBlob;
+  bytearray Signature;
   hash_function Hash;
-  std::string SessionID;
-  std::string EphemeralPubKey;
+  bytearray SessionID;
+  bytearray EphemeralPubKey;
   algorithms_t Algorithms;
+
+  void EncodeSharedSecret(bytearray& out) {
+    Envoy::Buffer::OwnedImpl tmp;
+    writeBignum(tmp, K.data(), K.size());
+    out.resize(tmp.length());
+    out.shrink_to_fit();
+    tmp.copyOut(0, out.size(), out.data());
+  }
 };
 
 class KexAlgorithm : public Logger::Loggable<Logger::Id::filter> {
@@ -147,7 +145,7 @@ struct kex_state_t {
   KexInitMessage peer_kex{};
   algorithms_t negotiated_algorithms{};
   handshake_magics_t magics{};
-  std::optional<std::string> session_id{};
+  std::optional<bytearray> session_id{};
   uint32_t flags{};
 
   std::unique_ptr<KexAlgorithm> alg_impl;
@@ -156,6 +154,9 @@ struct kex_state_t {
   bool kex_init_sent{};
   bool kex_init_received{};
   bool kex_negotiated_algorithms{};
+  bool kex_reply_sent{};
+  bool kex_newkeys_sent{};
+  bool kex_newkeys_received{};
 
   bool kexHasExtInfoInAuth() const;
   void setKexHasExtInfoInAuth();

@@ -21,7 +21,7 @@ error_or<bool> Curve25519Sha256KexAlgorithm::HandleServer(Envoy::Buffer::Instanc
   if (err) {
     return {false, err};
   }
-  if (auto sz = peerMsg.client_pub_key.length(); sz != 32) {
+  if (auto sz = peerMsg.client_pub_key.size(); sz != 32) {
     return {false, fmt::format("invalid peer public key size (expected 32, got {})", sz)};
   }
   uint8_t client_pub_key[32];
@@ -42,18 +42,19 @@ error_or<bool> Curve25519Sha256KexAlgorithm::HandleServer(Envoy::Buffer::Instanc
   result_->Algorithms = *algs_;
 
   {
-    std::string hostKeyType;
-    copyWithLengthPrefix(hostKeyType, algs_->host_key.c_str());
-    std::string hostKeyData;
+    bytearray hostKeyType;
+    copyWithLengthPrefix(hostKeyType, algs_->host_key);
+    bytearray hostKeyData;
     copyWithLengthPrefix(hostKeyData, signer_->pub->ed25519_pk, static_cast<size_t>(32));
-    result_->HostKeyBlob = hostKeyType + hostKeyData;
+    std::copy(hostKeyData.begin(), hostKeyData.end(), std::back_inserter(hostKeyType));
+    result_->HostKeyBlob = hostKeyType;
   }
 
   Envoy::Buffer::OwnedImpl exchangeHash;
 
   magics_->writeTo([&exchangeHash](const void* p, size_t sz) { exchangeHash.add(p, sz); });
-  exchangeHash.writeBEInt<uint32_t>(result_->HostKeyBlob.length());
-  exchangeHash.add(result_->HostKeyBlob);
+  exchangeHash.writeBEInt<uint32_t>(result_->HostKeyBlob.size());
+  exchangeHash.add(result_->HostKeyBlob.data(), result_->HostKeyBlob.size());
   exchangeHash.writeBEInt<uint32_t>(sizeof(client_pub_key));
   exchangeHash.add(client_pub_key, sizeof(client_pub_key));
   exchangeHash.writeBEInt<uint32_t>(sizeof(server_keypair.pub));
@@ -125,7 +126,8 @@ std::tuple<bool, error> Kex::doInitialKex(Envoy::Buffer::Instance& buffer) noexc
     {
       Envoy::Buffer::OwnedImpl tmp;
       auto sz = peerKexInit.encode(tmp);
-      std::string raw_peer_kex_init(static_cast<char*>(tmp.linearize(sz)), sz);
+      auto tmpBytes = static_cast<uint8_t*>(tmp.linearize(sz));
+      bytearray raw_peer_kex_init(tmpBytes, tmpBytes + sz);
       tmp.drain(sz);
 
       if (is_server_) {
@@ -163,7 +165,8 @@ std::tuple<bool, error> Kex::doInitialKex(Envoy::Buffer::Instance& buffer) noexc
     {
       Envoy::Buffer::OwnedImpl tmp;
       auto sz = server_kex_init->encode(tmp);
-      std::string raw_kex_init(static_cast<char*>(tmp.linearize(sz)), sz);
+      auto tmpBytes = static_cast<uint8_t*>(tmp.linearize(sz));
+      bytearray raw_kex_init(tmpBytes, tmpBytes + sz);
       if (is_server_) {
         state_->magics.server_kex_init = std::move(raw_kex_init);
       } else {
@@ -222,7 +225,11 @@ std::tuple<bool, error> Kex::doInitialKex(Envoy::Buffer::Instance& buffer) noexc
     }
   }
 
-  if (state_->kex_result) {
+  if (!state_->kex_result) {
+    return {false, std::nullopt};
+  }
+
+  if (!state_->kex_reply_sent) {
     auto firstKeyExchange = !state_->session_id.has_value();
     if (firstKeyExchange) {
       state_->session_id = state_->kex_result->H;
@@ -236,10 +243,32 @@ std::tuple<bool, error> Kex::doInitialKex(Envoy::Buffer::Instance& buffer) noexc
     Envoy::Buffer::OwnedImpl writeBuf;
     writePacket(writeBuf, reply);
     callbacks_->writeToConnection(writeBuf);
+    state_->kex_reply_sent = true;
+    // don't return yet, sent newkeys first
+  }
+
+  if (!state_->kex_newkeys_sent) {
+    Envoy::Buffer::OwnedImpl buf;
+    writePacket(buf, EmptyMsg<SshMessageType::NewKeys>{});
+    callbacks_->writeToConnection(buf);
+    state_->kex_newkeys_sent = true;
+    // return here to yield and wait for client newkeys. if the buffer isn't empty this will
+    // be called again immediately.
+    return {false, std::nullopt};
+  }
+
+  if (!state_->kex_newkeys_received) {
+    auto [_, err] = readPacket<EmptyMsg<SshMessageType::NewKeys>>(buffer);
+    if (err.has_value()) {
+      return {false, err};
+    }
+    state_->kex_newkeys_received = true;
+  }
+
+  if (state_->kex_newkeys_received) {
     kex_callbacks_.setKexResult(state_->kex_result);
     return {true, std::nullopt};
   }
-
   return {false, std::nullopt};
 }
 
