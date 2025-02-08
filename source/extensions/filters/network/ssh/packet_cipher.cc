@@ -1,4 +1,5 @@
 #include "source/extensions/filters/network/ssh/packet_cipher.h"
+#include "kex.h"
 #include <algorithm>
 #include <iterator>
 #include <optional>
@@ -196,4 +197,7 @@ size_t PacketCipher::aadSize(Mode mode) {
 size_t AEADPacketCipher::blockSize() { return block_len_; };
 size_t AEADPacketCipher::aadSize() { return aad_len_; };
 
+std::unique_ptr<PacketCipher> NewUnencrypted() {
+  return std::make_unique<PacketCipher>(std::make_unique<NoCipher>(), std::make_unique<NoCipher>());
+}
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

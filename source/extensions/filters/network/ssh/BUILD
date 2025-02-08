@@ -20,11 +20,13 @@ envoy_cc_library(
         "session.cc",
         "ssh-sk-null.cc",
         "util.cc",
+        "version_exchange.cc",
     ],
     hdrs = [
         "config.h",
         "kex.h",
         "keys.h",
+        "message_handler.h",
         "messages.h",
         "packet_cipher.h",
         "server_transport.h",
@@ -33,6 +35,7 @@ envoy_cc_library(
         "service_userauth.h",
         "session.h",
         "util.h",
+        "version_exchange.h",
     ],
     repository = "@envoy",
     deps = [

@@ -5,15 +5,15 @@
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-class UserAuthService : public Service {
+class UserAuthService : public Service, public MessageHandler {
 public:
-  UserAuthService(ServerTransportCallbacks* callbacks, Api::Api& api);
+  UserAuthService(ServerTransportCallbacks& callbacks, Api::Api& api);
   std::string name() const override;
-  bool acceptsMessage(SshMessageType msgType) const override;
   error handleMessage(AnyMsg&& msg) override;
+  void registerMessageHandlers(MessageDispatcher& dispatcher) override;
 
 private:
-  ServerTransportCallbacks* callbacks_{};
+  ServerTransportCallbacks& callbacks_;
   Api::Api& api_;
 };
 

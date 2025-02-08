@@ -5,9 +5,9 @@
 #include "source/extensions/filters/network/ssh/kex.h"
 #include "source/extensions/filters/network/ssh/messages.h"
 #include "source/extensions/filters/network/ssh/packet_cipher.h"
+#include "source/extensions/filters/network/ssh/message_handler.h"
 #include "source/extensions/filters/network/generic_proxy/codec_callbacks.h"
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
-#include "envoy/filesystem/filesystem.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -17,24 +17,6 @@ class ServerTransportCallbacks {
 public:
   virtual ~ServerTransportCallbacks() = default;
   virtual DownstreamCallbacks& downstream() PURE;
-};
-
-class Handshaker {
-public:
-  Handshaker(GenericProxy::ServerCodecCallbacks* callbacks, KexCallbacks& kexCallbacks,
-             Filesystem::Instance& fs);
-  std::tuple<bool, error> decode(Envoy::Buffer::Instance& buffer) noexcept;
-
-  error doVersionExchange(Envoy::Buffer::Instance& buffer) noexcept;
-
-  error readVersion(Envoy::Buffer::Instance& buffer);
-
-private:
-  bool version_exchange_done_{};
-  bool initial_kex_done_{};
-  std::string their_version_;
-  std::unique_ptr<Kex> kex_;
-  GenericProxy::ServerCodecCallbacks* callbacks_{};
 };
 
 struct connection_state_t {
@@ -49,12 +31,14 @@ struct connection_state_t {
 class SshServerCodec : public Logger::Loggable<Logger::Id::filter>,
                        public ServerCodec,
                        public KexCallbacks,
-                       public ServerTransportCallbacks {
+                       public ServerTransportCallbacks,
+                       public MessageDispatcher,
+                       public MessageHandler {
   friend class DownstreamCallbacks;
 
 public:
   SshServerCodec(Api::Api& api);
-  ~SshServerCodec() { ENVOY_LOG(debug, "destructor"); };
+  ~SshServerCodec() = default;
   void setCodecCallbacks(GenericProxy::ServerCodecCallbacks& callbacks) override;
   void decode(Envoy::Buffer::Instance& buffer, bool end_stream) override;
   GenericProxy::EncodingResult encode(const GenericProxy::StreamFrame& frame,
@@ -64,16 +48,17 @@ public:
 
   void setKexResult(std::shared_ptr<kex_result_t> kex_result) override;
 
-  error handleTransportMsg(AnyMsg&& msg);
-
   DownstreamCallbacks& downstream() override;
 
 private:
+  error handleMessage(AnyMsg&& msg) override;
+
   GenericProxy::ServerCodecCallbacks* callbacks_{};
-  bool handshake_done_{};
-  std::unique_ptr<Handshaker> handshaker_;
+  bool version_exchange_done_{};
+  std::unique_ptr<VersionExchanger> handshaker_;
   Api::Api& api_;
 
+  std::unique_ptr<Kex> kex_;
   std::unique_ptr<connection_state_t> connection_state_;
   std::map<std::string, std::unique_ptr<Service>> services_;
 
@@ -84,25 +69,7 @@ class DownstreamCallbacks {
   friend class SshServerCodec;
 
 public:
-  template <typename T>
-  std::enable_if_t<std::is_base_of_v<SshMsg<T>, T>, error> sendMessage(const T& msg) {
-    if (!impl_->connection_state_) {
-      throw EnvoyException("bug: no connection state");
-    }
-    Envoy::Buffer::OwnedImpl dec;
-    writePacket(dec, msg, impl_->connection_state_->cipher->blockSize(MODE_WRITE),
-                impl_->connection_state_->cipher->aadSize(MODE_WRITE));
-    Envoy::Buffer::OwnedImpl enc;
-    if (auto err = impl_->connection_state_->cipher->encryptPacket(
-            *impl_->connection_state_->seq_write, enc, dec);
-        err.has_value()) {
-      return err;
-    }
-    (*impl_->connection_state_->seq_write)++;
-
-    impl_->callbacks_->writeToConnection(enc);
-    return std::nullopt;
-  }
+  error sendMessage(const SshMsg& msg);
 
 private:
   DownstreamCallbacks(SshServerCodec* impl) : impl_(impl) {}

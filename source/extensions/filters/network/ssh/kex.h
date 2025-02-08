@@ -6,6 +6,8 @@
 #include <string>
 #include "source/extensions/filters/network/ssh/util.h"
 #include "source/extensions/filters/network/ssh/messages.h"
+#include "source/extensions/filters/network/ssh/version_exchange.h"
+#include "source/extensions/filters/network/ssh/message_handler.h"
 #include <netinet/in.h>
 #include "envoy/filesystem/filesystem.h"
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
@@ -92,8 +94,8 @@ public:
       : magics_(magics), algs_(algs), signer_(signer) {}
   virtual ~KexAlgorithm() = default;
 
-  virtual error_or<bool> HandleServer(Envoy::Buffer::Instance& buffer) PURE;
-  virtual error_or<bool> HandleClient(Envoy::Buffer::Instance& buffer) PURE;
+  virtual error_or<bool> HandleServer(const AnyMsg& msg) PURE;
+  virtual error_or<bool> HandleClient(const AnyMsg& msg) PURE;
   virtual std::shared_ptr<kex_result_t>&& Result() PURE;
 
 protected:
@@ -126,8 +128,8 @@ class Curve25519Sha256KexAlgorithm : public KexAlgorithm {
 public:
   using KexAlgorithm::KexAlgorithm;
 
-  error_or<bool> HandleServer(Envoy::Buffer::Instance& buffer) override;
-  error_or<bool> HandleClient(Envoy::Buffer::Instance& buffer) override;
+  error_or<bool> HandleServer(const AnyMsg& msg) override;
+  error_or<bool> HandleClient(const AnyMsg& msg) override;
 
   std::shared_ptr<kex_result_t>&& Result() override;
 
@@ -188,31 +190,37 @@ inline NameList algorithmsForKeyFormat(const std::string& keyFormat) {
   return {keyFormat};
 }
 
+class ServerTransportCallbacks;
+
 class KexCallbacks {
 public:
   virtual ~KexCallbacks() = default;
   virtual void setKexResult(std::shared_ptr<kex_result_t> kex_result) PURE;
 };
 
-class Kex : public Logger::Loggable<Logger::Id::filter> {
+class Kex : public VersionExchangeCallbacks,
+            public MessageHandler,
+            public Logger::Loggable<Logger::Id::filter> {
 public:
-  Kex(GenericProxy::ServerCodecCallbacks* callbacks, KexCallbacks& kexCallbacks,
+  Kex(ServerTransportCallbacks& transportCallbacks, KexCallbacks& kexCallbacks,
       Filesystem::Instance& fs);
 
-  void setVersionStrings(const std::string& ours, const std::string& peer);
   std::tuple<bool, error> doInitialKex(Envoy::Buffer::Instance& buffer) noexcept;
   error_or<algorithms_t> negotiateAlgorithms() noexcept;
   error_or<std::unique_ptr<KexAlgorithm>> newAlgorithmImpl();
   const host_keypair_t* pickHostKey(const std::string& alg);
   error_or<std::string> findCommon(std::string_view what, const NameList& client,
                                    const NameList& server);
-
   void loadHostKeys();
-
   void loadSshKeyPair(const char* privKeyPath, const char* pubKeyPath);
 
+  // HandshakeCallbacks
+  void setVersionStrings(const std::string& ours, const std::string& peer) override;
+
 private:
-  GenericProxy::ServerCodecCallbacks* callbacks_{};
+  error handleMessage(AnyMsg&& msg) noexcept override;
+
+  ServerTransportCallbacks& transport_;
   KexCallbacks& kex_callbacks_;
   std::unique_ptr<kex_state_t> state_;
   Filesystem::Instance& fs_;

@@ -2,6 +2,7 @@
 
 #include <string>
 #include "source/extensions/filters/network/ssh/messages.h"
+#include "source/extensions/filters/network/ssh/message_handler.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -9,8 +10,9 @@ class Service {
 public:
   virtual ~Service() = default;
   virtual std::string name() const PURE;
-  virtual bool acceptsMessage(SshMessageType msgType) const PURE;
-  virtual error handleMessage(AnyMsg&& msg) PURE;
+
+protected:
+  virtual void registerMessageHandlers(MessageDispatcher& dispatcher) PURE;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

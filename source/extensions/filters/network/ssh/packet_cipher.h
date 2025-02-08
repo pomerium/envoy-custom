@@ -75,6 +75,23 @@ public:
       : AEADPacketCipher(cipherChacha20Poly1305, iv, key, mode) {}
 };
 
+class NoCipher : public DirectionalPacketCipher {
+public:
+  NoCipher() = default;
+  error decryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
+                      Envoy::Buffer::Instance& in) override {
+    out.move(in);
+    return std::nullopt;
+  }
+  error encryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
+                      Envoy::Buffer::Instance& in) override {
+    out.move(in);
+    return std::nullopt;
+  }
+  size_t blockSize() override { return 8; }
+  size_t aadSize() override { return 0; }
+};
+
 void generateKeyMaterial(bytearray& out, const bytearray& tag, kex_result_t* kex_result);
 
 static const std::map<std::string, cipher_mode_t> cipherModes{
@@ -84,4 +101,6 @@ static const std::map<std::string, cipher_mode_t> cipherModes{
 
 std::unique_ptr<PacketCipher> NewPacketCipher(direction_t read, direction_t write,
                                               kex_result_t* kex_result);
+
+std::unique_ptr<PacketCipher> NewUnencrypted();
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
