@@ -12,11 +12,13 @@
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 class DownstreamCallbacks;
+class UpstreamCallbacks;
 
 class ServerTransportCallbacks {
 public:
   virtual ~ServerTransportCallbacks() = default;
   virtual DownstreamCallbacks& downstream() PURE;
+  virtual UpstreamCallbacks& upstream() PURE;
 };
 
 struct connection_state_t {
@@ -35,6 +37,7 @@ class SshServerCodec : public Logger::Loggable<Logger::Id::filter>,
                        public MessageDispatcher,
                        public MessageHandler {
   friend class DownstreamCallbacks;
+  friend class UpstreamCallbacks;
 
 public:
   SshServerCodec(Api::Api& api);
@@ -49,9 +52,10 @@ public:
   void setKexResult(std::shared_ptr<kex_result_t> kex_result) override;
 
   DownstreamCallbacks& downstream() override;
+  UpstreamCallbacks& upstream() override;
 
 private:
-  error handleMessage(AnyMsg&& msg) override;
+  absl::Status handleMessage(AnyMsg&& msg) override;
 
   GenericProxy::ServerCodecCallbacks* callbacks_{};
   bool version_exchange_done_{};
@@ -63,16 +67,28 @@ private:
   std::map<std::string, std::unique_ptr<Service>> services_;
 
   std::unique_ptr<DownstreamCallbacks> dsc_;
+  std::unique_ptr<UpstreamCallbacks> usc_;
 };
 
 class DownstreamCallbacks {
   friend class SshServerCodec;
 
 public:
-  error sendMessage(const SshMsg& msg);
+  absl::StatusOr<size_t> sendMessage(const SshMsg& msg);
 
 private:
   DownstreamCallbacks(SshServerCodec* impl) : impl_(impl) {}
+  SshServerCodec* impl_;
+};
+
+class UpstreamCallbacks {
+  friend class SshServerCodec;
+
+public:
+  void initConnection(std::string_view username, std::string_view hostname);
+
+private:
+  UpstreamCallbacks(SshServerCodec* impl) : impl_(impl) {}
   SshServerCodec* impl_;
 };
 

@@ -7,7 +7,7 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 class MessageHandler {
 public:
   virtual ~MessageHandler() = default;
-  virtual error handleMessage(AnyMsg&& msg) PURE;
+  virtual absl::Status handleMessage(AnyMsg&& msg) PURE;
 };
 
 class MessageDispatcher {
@@ -20,10 +20,10 @@ public:
   }
 
 protected:
-  error dispatch(AnyMsg&& msg) {
+  absl::Status dispatch(AnyMsg&& msg) {
     auto mt = msg.msg_type;
     if (!dispatch_.contains(mt)) {
-      return {fmt::format("unknown message type: {}", mt)};
+      return absl::Status(absl::StatusCode::kInternal, fmt::format("unknown message type: {}", mt));
     }
     return dispatch_[mt]->handleMessage(std::move(msg));
   }

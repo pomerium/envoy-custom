@@ -16,7 +16,7 @@ class Channel {
 public:
   virtual ~Channel() = default;
   Channel(uint32_t channelId) : channel_id_(channelId) { (void)channel_id_; }
-  virtual error handleRequest(const ChannelRequestMsg& msg) PURE;
+  virtual absl::Status handleRequest(const ChannelRequestMsg& msg) PURE;
 
 protected:
   uint32_t channel_id_;
@@ -27,7 +27,7 @@ public:
   ConnectionService(ServerTransportCallbacks& callbacks, Api::Api& api);
   std::string name() const override;
 
-  error handleMessage(AnyMsg&& msg) override;
+  absl::Status handleMessage(AnyMsg&& msg) override;
   void registerMessageHandlers(MessageDispatcher& dispatcher) override;
 
   static void RegisterChannelType(const std::string& name, auto create) {

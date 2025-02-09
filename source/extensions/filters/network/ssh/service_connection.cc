@@ -13,7 +13,7 @@ ConnectionService::ConnectionService(ServerTransportCallbacks& callbacks, Api::A
 
 std::string ConnectionService::name() const { return "ssh-connection"; }
 
-error ConnectionService::handleMessage(AnyMsg&& msg) {
+absl::Status ConnectionService::handleMessage(AnyMsg&& msg) {
   switch (msg.msg_type) {
   case SshMessageType::ChannelOpen: {
     auto channelOpenMsg = msg.unwrap<ChannelOpenMsg>();
@@ -25,13 +25,13 @@ error ConnectionService::handleMessage(AnyMsg&& msg) {
       confirmation.recipient_channel = channelOpenMsg.sender_channel;
       confirmation.initial_window_size = channelOpenMsg.initial_window_size;
       confirmation.max_packet_size = channelOpenMsg.max_packet_size;
-      return transport_.downstream().sendMessage(confirmation);
+      return transport_.downstream().sendMessage(confirmation).status();
     } else {
       ChannelOpenFailureMsg failure;
       failure.recipient_channel = channelOpenMsg.sender_channel;
       failure.reason_code = SSH2_OPEN_UNKNOWN_CHANNEL_TYPE;
       failure.description = "unknown channel type";
-      return transport_.downstream().sendMessage(failure);
+      return transport_.downstream().sendMessage(failure).status();
     }
     break;
   }
@@ -45,11 +45,12 @@ error ConnectionService::handleMessage(AnyMsg&& msg) {
   default:
     break;
   }
-  return std::nullopt;
+  return absl::OkStatus();
 }
 
 void ConnectionService::registerMessageHandlers(MessageDispatcher& dispatcher) {
   dispatcher.registerHandler(SshMessageType::ChannelOpen, this);
+  dispatcher.registerHandler(SshMessageType::ChannelRequest, this);
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

@@ -71,28 +71,25 @@ constexpr inline SshMessageType operator|(SshMessageType l, SshMessageType r) {
   return static_cast<SshMessageType>(static_cast<uint8_t>(l) | static_cast<uint8_t>(r));
 }
 
-static constexpr auto kexAlgoECDH256 = "ecdh-sha2-nistp256";
-static constexpr auto kexAlgoECDH384 = "ecdh-sha2-nistp384";
-static constexpr auto kexAlgoECDH521 = "ecdh-sha2-nistp521";
 static constexpr auto kexAlgoCurve25519SHA256LibSSH = "curve25519-sha256@libssh.org";
 static constexpr auto kexAlgoCurve25519SHA256 = "curve25519-sha256";
 
-static const NameList preferredKexAlgos = {kexAlgoCurve25519SHA256, kexAlgoCurve25519SHA256LibSSH,
-                                           kexAlgoECDH256, kexAlgoECDH384, kexAlgoECDH521};
+static const NameList preferredKexAlgos = {kexAlgoCurve25519SHA256, kexAlgoCurve25519SHA256LibSSH};
 
 static constexpr auto cipherAES128GCM = "aes128-gcm@openssh.com";
 static constexpr auto cipherAES256GCM = "aes256-gcm@openssh.com";
 static constexpr auto cipherChacha20Poly1305 = "chacha20-poly1305@openssh.com";
 
-static const NameList preferredCiphers = {cipherAES128GCM, cipherAES256GCM, cipherChacha20Poly1305};
+static const NameList preferredCiphers = {cipherChacha20Poly1305, cipherAES128GCM, cipherAES256GCM};
 
+// TODO: non-AEAD cipher support
 static const NameList supportedMACs{
-    "hmac-sha2-256-etm@openssh.com",
-    "hmac-sha2-512-etm@openssh.com",
-    "hmac-sha2-256",
-    "hmac-sha2-512",
-    "hmac-sha1",
-    "hmac-sha1-96",
+    // "hmac-sha2-256-etm@openssh.com",
+    // "hmac-sha2-512-etm@openssh.com",
+    // "hmac-sha2-256",
+    // "hmac-sha2-512",
+    // "hmac-sha1",
+    // "hmac-sha1-96",
 };
 
 template <typename T>
@@ -194,7 +191,7 @@ void copyWithLengthPrefix(auto& dst, const auto& src) {
   dst.clear();
   dst.resize(src.size() + sizeof(len));
 
-  memcpy(dst.data() + sizeof(len), src.data(), dst.size());
+  memcpy(dst.data() + sizeof(len), src.data(), src.size());
   memcpy(dst.data(), reinterpret_cast<void*>(&len), sizeof(len));
 }
 
@@ -202,7 +199,7 @@ void copyWithLengthPrefix(auto& dst, const auto* src, size_t size) {
   uint32_t len = htonl(static_cast<uint32_t>(size));
   dst.clear();
   dst.resize(size + sizeof(len));
-  memcpy(dst.data() + sizeof(len), src, dst.size());
+  memcpy(dst.data() + sizeof(len), src, size);
   memcpy(dst.data(), reinterpret_cast<void*>(&len), sizeof(len));
 }
 
@@ -210,7 +207,7 @@ void copyWithLengthPrefixAndType(auto& dst, uint8_t type, const auto& src) {
   uint32_t len = htonl(src.size() + 1); // NB add 1 to len
   dst.clear();
   dst.resize(src.size() + sizeof(len) + 1);
-  memcpy(dst.data() + sizeof(len) + 1, src.data(), dst.size());
+  memcpy(dst.data() + sizeof(len) + 1, src.data(), src.size());
   memcpy(dst.data(), reinterpret_cast<void*>(&len), sizeof(len));
   dst[4] = type;
 }
@@ -321,9 +318,8 @@ template <SshMessageType MT> struct MsgType {
   static constexpr SshMessageType type = MT;
 };
 
-template <typename T> std::tuple<T, error> readPacket(Envoy::Buffer::Instance& buffer) noexcept {
+template <typename T> absl::StatusOr<T> readPacket(Envoy::Buffer::Instance& buffer) noexcept {
   try {
-    auto bufferSize = buffer.length();
     size_t n = 0;
     uint32_t packet_length{};
     uint8_t padding_length{};
@@ -334,20 +330,16 @@ template <typename T> std::tuple<T, error> readPacket(Envoy::Buffer::Instance& b
       auto payload_expected_size = packet_length - padding_length - 1;
       auto payload_actual_size = payload.decode(buffer, payload_expected_size);
       if (payload_actual_size != payload_expected_size) {
-        return {{},
-                fmt::format("unexpected packet payload size of {} bytes (expected {})", n,
-                            payload_expected_size)};
+        return absl::InvalidArgumentError(fmt::format(
+            "unexpected packet payload size of {} bytes (expected {})", n, payload_expected_size));
       }
       n += payload_actual_size;
     }
     bytearray padding(padding_length);
     n += readBytes(buffer, padding);
-    if (n != bufferSize) {
-      return {{}, fmt::format("bad packet length: {} (expected {})", bufferSize, n)};
-    }
-    return {payload, std::nullopt};
+    return payload;
   } catch (const EnvoyException& e) {
-    return {{}, fmt::format("error decoding packet: {}", e.what())};
+    return absl::InternalError(fmt::format("error decoding packet: {}", e.what()));
   }
 }
 
@@ -637,6 +629,27 @@ struct UserAuthBannerMsg : SshMsg, MsgType<SshMessageType::UserAuthBanner> {
   size_t encode(Envoy::Buffer::Instance& buffer) const override {
     size_t n = writeType<type>(buffer);
     n += writeString(buffer, message);
+    n += writeString(buffer, language_tag);
+    return n;
+  }
+};
+
+struct DisconnectMsg : SshMsg, MsgType<SshMessageType::Disconnect> {
+  uint32_t reason_code;
+  std::string description;
+  std::string language_tag;
+
+  size_t decode(Envoy::Buffer::Instance& buffer, size_t) override {
+    size_t n = readType<type>(buffer);
+    n += read(buffer, reason_code);
+    n += readString(buffer, description);
+    n += readString(buffer, language_tag);
+    return n;
+  }
+  size_t encode(Envoy::Buffer::Instance& buffer) const override {
+    size_t n = writeType<type>(buffer);
+    n += write(buffer, reason_code);
+    n += writeString(buffer, description);
     n += writeString(buffer, language_tag);
     return n;
   }

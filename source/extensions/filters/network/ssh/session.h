@@ -9,7 +9,7 @@ class Session : public Channel {
 public:
   virtual ~Session() = default;
   Session(uint32_t channelId);
-  error handleRequest(const ChannelRequestMsg& msg) override;
+  absl::Status handleRequest(const ChannelRequestMsg& msg) override;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

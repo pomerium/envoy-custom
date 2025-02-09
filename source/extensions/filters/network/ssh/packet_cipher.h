@@ -21,10 +21,10 @@ enum Mode {
 class DirectionalPacketCipher {
 public:
   virtual ~DirectionalPacketCipher() = default;
-  virtual error decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
-                              Envoy::Buffer::Instance& in) PURE;
-  virtual error encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
-                              Envoy::Buffer::Instance& in) PURE;
+  virtual absl::Status decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
+                                     Envoy::Buffer::Instance& in) PURE;
+  virtual absl::Status encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
+                                     Envoy::Buffer::Instance& in) PURE;
   virtual size_t blockSize() PURE;
   virtual size_t aadSize() PURE;
 };
@@ -40,8 +40,10 @@ class PacketCipher {
 public:
   PacketCipher(std::unique_ptr<DirectionalPacketCipher> read,
                std::unique_ptr<DirectionalPacketCipher> write);
-  error encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out, Envoy::Buffer::Instance& in);
-  error decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out, Envoy::Buffer::Instance& in);
+  absl::Status encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
+                             Envoy::Buffer::Instance& in);
+  absl::Status decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
+                             Envoy::Buffer::Instance& in);
   size_t blockSize(Mode mode);
   size_t aadSize(Mode mode);
 
@@ -54,10 +56,10 @@ class AEADPacketCipher : public DirectionalPacketCipher {
 public:
   AEADPacketCipher(const char* cipher_name, bytearray iv, bytearray key, Mode mode);
 
-  error decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
-                      Envoy::Buffer::Instance& in) override;
-  error encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
-                      Envoy::Buffer::Instance& in) override;
+  absl::Status decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
+                             Envoy::Buffer::Instance& in) override;
+  absl::Status encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
+                             Envoy::Buffer::Instance& in) override;
   size_t blockSize() override;
   size_t aadSize() override;
 
@@ -78,15 +80,15 @@ public:
 class NoCipher : public DirectionalPacketCipher {
 public:
   NoCipher() = default;
-  error decryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
-                      Envoy::Buffer::Instance& in) override {
+  absl::Status decryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
+                             Envoy::Buffer::Instance& in) override {
     out.move(in);
-    return std::nullopt;
+    return absl::OkStatus();
   }
-  error encryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
-                      Envoy::Buffer::Instance& in) override {
+  absl::Status encryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
+                             Envoy::Buffer::Instance& in) override {
     out.move(in);
-    return std::nullopt;
+    return absl::OkStatus();
   }
   size_t blockSize() override { return 8; }
   size_t aadSize() override { return 0; }

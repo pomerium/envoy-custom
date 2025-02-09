@@ -5,6 +5,7 @@
 #include <cerrno>
 #include <unistd.h>
 
+#include "source/extensions/filters/network/ssh/client_transport.h"
 #include "source/extensions/filters/network/ssh/server_transport.h"
 #include "source/extensions/filters/network/ssh/service_connection.h"
 #include "source/extensions/filters/network/ssh/session.h"
@@ -25,24 +26,6 @@ public:
   }
 };
 
-class SshClientCodec : public ClientCodec {
-public:
-  SshClientCodec() = default;
-  void setCodecCallbacks(GenericProxy::ClientCodecCallbacks& callbacks) override {
-    (void)callbacks;
-  }
-  void decode(Envoy::Buffer::Instance& buffer, bool end_stream) override {
-    (void)buffer;
-    (void)end_stream;
-  }
-  GenericProxy::EncodingResult encode(const GenericProxy::StreamFrame& frame,
-                                      GenericProxy::EncodingContext& ctx) override {
-    (void)frame;
-    (void)ctx;
-    return absl::OkStatus();
-  }
-};
-
 class SshCodecFactory : public CodecFactory {
 public:
   SshCodecFactory(Api::Api& api) : api_(api) {
@@ -52,7 +35,9 @@ public:
   ServerCodecPtr createServerCodec() const override {
     return std::make_unique<SshServerCodec>(api_);
   }
-  ClientCodecPtr createClientCodec() const override { return std::make_unique<SshClientCodec>(); }
+  ClientCodecPtr createClientCodec() const override {
+    return std::make_unique<SshClientCodec>(api_);
+  }
 
 private:
   Api::Api& api_;

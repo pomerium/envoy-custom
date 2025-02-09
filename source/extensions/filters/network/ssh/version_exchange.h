@@ -17,9 +17,9 @@ public:
   VersionExchanger(GenericProxy::ServerCodecCallbacks* callbacks,
                    VersionExchangeCallbacks& handshakeCallbacks);
 
-  error doVersionExchange(Envoy::Buffer::Instance& buffer) noexcept;
+  absl::Status doVersionExchange(Envoy::Buffer::Instance& buffer) noexcept;
 
-  error readVersion(Envoy::Buffer::Instance& buffer);
+  absl::Status readVersion(Envoy::Buffer::Instance& buffer);
 
 private:
   std::string their_version_;

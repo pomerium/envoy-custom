@@ -1,4 +1,5 @@
 #include "source/extensions/filters/network/ssh/service_userauth.h"
+#include "messages.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -10,20 +11,31 @@ UserAuthService::UserAuthService(ServerTransportCallbacks& callbacks, Api::Api& 
 
 std::string UserAuthService::name() const { return "ssh-userauth"; }
 
-error UserAuthService::handleMessage(AnyMsg&& msg) {
+absl::Status UserAuthService::handleMessage(AnyMsg&& msg) {
   switch (msg.msg_type) {
   case SshMessageType::UserAuthRequest: {
+    auto userAuthMsg = msg.unwrap<UserAuthRequestMsg>();
 
     UserAuthBannerMsg banner{};
-    banner.message = "beans";
-    callbacks_.downstream().sendMessage(banner);
-    return callbacks_.downstream().sendMessage(EmptyMsg<SshMessageType::UserAuthSuccess>());
+    banner.message = "\r\n====== TEST BANNER ======" +
+                     fmt::format("\r\n====== sign in as: {} ======\r\n", userAuthMsg.username);
+    auto _ = callbacks_.downstream().sendMessage(banner);
+
+    // test code
+    const std::vector<absl::string_view> parts =
+        absl::StrSplit(userAuthMsg.username, absl::MaxSplits("@", 1));
+    auto username = parts[0];
+    auto hostname = parts[1];
+    callbacks_.upstream().initConnection(username, hostname);
+
+    return absl::OkStatus();
+    // return callbacks_.downstream().sendMessage(EmptyMsg<SshMessageType::UserAuthSuccess>());
   }
   default:
     // specific protocols
     break;
   }
-  return std::nullopt;
+  return absl::OkStatus();
 }
 
 void UserAuthService::registerMessageHandlers(MessageDispatcher& dispatcher) {

@@ -8,7 +8,10 @@ package(default_visibility = ["//visibility:public"])
 
 envoy_cc_binary(
     name = "envoy",
-    features = ["fully_static_link"],
+    features = select({
+        "@envoy//bazel:asan_build": [],
+        "//conditions:default": ["fully_static_link"],
+    }),
     repository = "@envoy",
     stamped = True,
     deps = [

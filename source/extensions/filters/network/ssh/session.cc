@@ -4,9 +4,9 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 Session::Session(uint32_t channelId) : Channel(channelId) {}
 
-error Session::handleRequest(const ChannelRequestMsg& msg) {
+absl::Status Session::handleRequest(const ChannelRequestMsg& msg) {
   (void)msg;
-  return {"unimplemented"};
+  return absl::UnimplementedError("unimplemented");
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

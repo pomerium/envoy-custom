@@ -14,8 +14,8 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 using bytearray = std::vector<uint8_t>;
 
-using error = std::optional<std::string>;
-template <typename T> using error_or = std::tuple<T, error>;
+// using error = std::optional<std::string>;
+// template <typename T> using error_or = std::tuple<T, error>;
 using NameList = std::vector<std::string>;
 
 }; // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

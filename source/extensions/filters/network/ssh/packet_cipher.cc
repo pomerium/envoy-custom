@@ -16,13 +16,13 @@ PacketCipher::PacketCipher(std::unique_ptr<DirectionalPacketCipher> read,
                            std::unique_ptr<DirectionalPacketCipher> write)
     : read_(std::move(read)), write_(std::move(write)) {}
 
-error PacketCipher::encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
-                                  Envoy::Buffer::Instance& in) {
+absl::Status PacketCipher::encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
+                                         Envoy::Buffer::Instance& in) {
   return write_->encryptPacket(seqnum, out, in);
 }
 
-error PacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
-                                  Envoy::Buffer::Instance& in) {
+absl::Status PacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
+                                         Envoy::Buffer::Instance& in) {
   return read_->decryptPacket(seqnum, out, in);
 }
 
@@ -38,8 +38,8 @@ AEADPacketCipher::AEADPacketCipher(const char* cipher_name, bytearray /*iv*/, by
   ctx_.reset(cipher_ctx);
 }
 
-error AEADPacketCipher::encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
-                                      Envoy::Buffer::Instance& in) {
+absl::Status AEADPacketCipher::encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
+                                             Envoy::Buffer::Instance& in) {
 
   auto in_length = in.length();
   auto in_data = static_cast<uint8_t*>(in.linearize(in_length));
@@ -51,36 +51,36 @@ error AEADPacketCipher::encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& 
   auto r = cipher_crypt(ctx_.get(), seqnum, out_data.data(), in_data, packlen - aad_len_, aad_len_,
                         auth_len_);
   if (r != 0) {
-    return {fmt::format("cipher_crypt failed: {}", ssh_err(r))};
+    return absl::AbortedError(fmt::format("cipher_crypt failed: {}", ssh_err(r)));
   }
 
   in.drain(in_length);
   out.add(out_data.data(), out_data.size());
-  return std::nullopt;
+  return absl::OkStatus();
 }
 
-error AEADPacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
-                                      Envoy::Buffer::Instance& in) {
+absl::Status AEADPacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
+                                             Envoy::Buffer::Instance& in) {
   if (in.length() < block_len_) {
-    return {"packet too small"};
+    return absl::AbortedError("packet too small");
   }
 
   auto in_length = in.length();
   auto in_data = static_cast<uint8_t*>(in.linearize(in_length));
   uint32_t packlen = 0;
   if (cipher_get_length(ctx_.get(), &packlen, seqnum, in_data, in_length) != 0) {
-    return {"packet too small"};
+    return absl::AbortedError("packet too small");
   }
   if (packlen < 5 || packlen > PACKET_MAX_SIZE) {
-    return {fmt::format("bad packet length: {}", packlen)};
+    return absl::AbortedError(fmt::format("bad packet length: {}", packlen));
   }
   if (packlen % block_len_ != 0) {
-    return {fmt::format("padding error: need {} block {} mod {}", packlen, block_len_,
-                        packlen % block_len_)};
+    return absl::AbortedError(fmt::format("padding error: need {} block {} mod {}", packlen,
+                                          block_len_, packlen % block_len_));
   }
   if (in_length < aad_len_ + packlen + auth_len_) {
     // incomplete packet
-    return {"packet too small"};
+    return absl::AbortedError("packet too small");
   }
 
   bytearray out_data;
@@ -88,13 +88,13 @@ error AEADPacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& 
 
   auto r = cipher_crypt(ctx_.get(), seqnum, out_data.data(), in_data, packlen, aad_len_, auth_len_);
   if (r != 0) {
-    return {fmt::format("cipher_crypt failed: {}", ssh_err(r))};
+    return absl::AbortedError(fmt::format("cipher_crypt failed: {}", ssh_err(r)));
   }
 
   in.drain(in_length);
   out.add(out_data.data(), out_data.size());
 
-  return std::nullopt;
+  return absl::OkStatus();
 }
 
 void generateKeyMaterial(bytearray& out, const bytearray& tag, kex_result_t* kex_result) {

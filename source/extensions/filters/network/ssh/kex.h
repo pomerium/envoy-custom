@@ -94,8 +94,8 @@ public:
       : magics_(magics), algs_(algs), signer_(signer) {}
   virtual ~KexAlgorithm() = default;
 
-  virtual error_or<bool> HandleServer(const AnyMsg& msg) PURE;
-  virtual error_or<bool> HandleClient(const AnyMsg& msg) PURE;
+  virtual absl::Status HandleServer(const AnyMsg& msg) PURE;
+  virtual absl::Status HandleClient(const AnyMsg& msg) PURE;
   virtual std::shared_ptr<kex_result_t>&& Result() PURE;
 
 protected:
@@ -128,8 +128,8 @@ class Curve25519Sha256KexAlgorithm : public KexAlgorithm {
 public:
   using KexAlgorithm::KexAlgorithm;
 
-  error_or<bool> HandleServer(const AnyMsg& msg) override;
-  error_or<bool> HandleClient(const AnyMsg& msg) override;
+  absl::Status HandleServer(const AnyMsg& msg) override;
+  absl::Status HandleClient(const AnyMsg& msg) override;
 
   std::shared_ptr<kex_result_t>&& Result() override;
 
@@ -205,12 +205,12 @@ public:
   Kex(ServerTransportCallbacks& transportCallbacks, KexCallbacks& kexCallbacks,
       Filesystem::Instance& fs);
 
-  std::tuple<bool, error> doInitialKex(Envoy::Buffer::Instance& buffer) noexcept;
-  error_or<algorithms_t> negotiateAlgorithms() noexcept;
-  error_or<std::unique_ptr<KexAlgorithm>> newAlgorithmImpl();
+  absl::Status doInitialKex(Envoy::Buffer::Instance& buffer) noexcept;
+  absl::StatusOr<algorithms_t> negotiateAlgorithms() noexcept;
+  absl::StatusOr<std::unique_ptr<KexAlgorithm>> newAlgorithmImpl();
   const host_keypair_t* pickHostKey(const std::string& alg);
-  error_or<std::string> findCommon(std::string_view what, const NameList& client,
-                                   const NameList& server);
+  absl::StatusOr<std::string> findCommon(std::string_view what, const NameList& client,
+                                         const NameList& server);
   void loadHostKeys();
   void loadSshKeyPair(const char* privKeyPath, const char* pubKeyPath);
 
@@ -218,7 +218,8 @@ public:
   void setVersionStrings(const std::string& ours, const std::string& peer) override;
 
 private:
-  error handleMessage(AnyMsg&& msg) noexcept override;
+  absl::Status handleMessage(AnyMsg&& msg) noexcept override;
+  absl::Status sendKexInit() noexcept;
 
   ServerTransportCallbacks& transport_;
   KexCallbacks& kex_callbacks_;

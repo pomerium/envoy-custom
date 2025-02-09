@@ -9,7 +9,7 @@ class UserAuthService : public Service, public MessageHandler {
 public:
   UserAuthService(ServerTransportCallbacks& callbacks, Api::Api& api);
   std::string name() const override;
-  error handleMessage(AnyMsg&& msg) override;
+  absl::Status handleMessage(AnyMsg&& msg) override;
   void registerMessageHandlers(MessageDispatcher& dispatcher) override;
 
 private:

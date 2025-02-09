@@ -11,6 +11,7 @@ licenses(["notice"])
 envoy_cc_library(
     name = "pomerium_ssh",
     srcs = [
+        "client_transport.cc",
         "config.cc",
         "kex.cc",
         "packet_cipher.cc",
@@ -23,7 +24,9 @@ envoy_cc_library(
         "version_exchange.cc",
     ],
     hdrs = [
+        "client_transport.h",
         "config.h",
+        "frame.h",
         "kex.h",
         "keys.h",
         "message_handler.h",

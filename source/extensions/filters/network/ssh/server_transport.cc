@@ -7,10 +7,10 @@
 #include <unistd.h>
 
 #include "source/extensions/filters/network/ssh/kex.h"
+#include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/messages.h"
 #include "source/extensions/filters/network/ssh/service_userauth.h"
 #include "source/extensions/filters/network/ssh/service_connection.h"
-#include "source/extensions/filters/network/ssh/session.h"
 #include "source/extensions/filters/network/ssh/packet_cipher.h"
 #include "source/extensions/filters/network/generic_proxy/codec_callbacks.h"
 #include "source/common/buffer/buffer_impl.h"
@@ -24,6 +24,7 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 SshServerCodec::SshServerCodec(Api::Api& api) : api_(api) {
   dsc_.reset(new DownstreamCallbacks(this));
+  usc_.reset(new UpstreamCallbacks(this));
   auto userAuth = std::make_unique<UserAuthService>(*this, api);
   userAuth->registerMessageHandlers(*this);
   auto connection = std::make_unique<ConnectionService>(*this, api);
@@ -55,10 +56,10 @@ void SshServerCodec::setCodecCallbacks(GenericProxy::ServerCodecCallbacks& callb
 void SshServerCodec::decode(Envoy::Buffer::Instance& buffer, bool /*end_stream*/) {
   while (buffer.length() > 0) {
     if (!version_exchange_done_) {
-      auto err = handshaker_->doVersionExchange(buffer);
-      if (err) {
-        ENVOY_LOG(error, "ssh: {}", err.value());
-        callbacks_->onDecodingFailure(fmt::format("ssh: {}", err.value()));
+      auto stat = handshaker_->doVersionExchange(buffer);
+      if (!stat.ok()) {
+        ENVOY_LOG(error, "ssh: {}", stat.message());
+        callbacks_->onDecodingFailure(fmt::format("ssh: {}", stat.message()));
         return;
       }
       version_exchange_done_ = true;
@@ -66,23 +67,24 @@ void SshServerCodec::decode(Envoy::Buffer::Instance& buffer, bool /*end_stream*/
     }
 
     Envoy::Buffer::OwnedImpl dec;
-    auto err = connection_state_->cipher->decryptPacket(*connection_state_->seq_read, dec, buffer);
-    if (err.has_value()) {
-      ENVOY_LOG(error, "ssh: decryptPacket: {}", err.value());
-      callbacks_->onDecodingFailure(fmt::format("ssh: decryptPacket: {}", err.value()));
+    auto stat = connection_state_->cipher->decryptPacket(*connection_state_->seq_read, dec, buffer);
+    if (!stat.ok()) {
+      ENVOY_LOG(error, "ssh: decryptPacket: {}", stat.message());
+      callbacks_->onDecodingFailure(fmt::format("ssh: decryptPacket: {}", stat.message()));
       return;
     }
     (*connection_state_->seq_read)++;
     {
-      auto [msg, err] = readPacket<AnyMsg>(dec);
-      if (err.has_value()) {
-        ENVOY_LOG(error, "ssh: readPacket: {}", err.value());
-        callbacks_->onDecodingFailure(fmt::format("ssh: readPacket: {}", err.value()));
+      auto msg = readPacket<AnyMsg>(dec);
+      if (!msg.ok()) {
+        ENVOY_LOG(error, "ssh: readPacket: {}", msg.status().message());
+        callbacks_->onDecodingFailure(fmt::format("ssh: readPacket: {}", msg.status().message()));
         return;
       }
-      if (auto err = dispatch(std::move(msg)); err.has_value()) {
-        ENVOY_LOG(error, "ssh: {}", err.value());
-        callbacks_->onDecodingFailure(fmt::format("ssh: {}", err.value()));
+      ENVOY_LOG(info, "received message: type {}", msg->msg_type);
+      if (auto err = dispatch(std::move(*msg)); !err.ok()) {
+        ENVOY_LOG(error, "ssh: {}", err.message());
+        callbacks_->onDecodingFailure(fmt::format("ssh: {}", err.message()));
         return;
       }
     }
@@ -90,14 +92,24 @@ void SshServerCodec::decode(Envoy::Buffer::Instance& buffer, bool /*end_stream*/
 }
 
 GenericProxy::EncodingResult SshServerCodec::encode(const GenericProxy::StreamFrame& frame,
-                                                    GenericProxy::EncodingContext& ctx) {
-  (void)frame;
-  (void)ctx;
-  return absl::OkStatus();
+                                                    GenericProxy::EncodingContext& /*ctx*/) {
+  const auto& msg = dynamic_cast<const ResponseHeaderFrame&>(frame);
+  return downstream().sendMessage(msg.message());
 }
-GenericProxy::ResponsePtr SshServerCodec::respond(absl::Status, absl::string_view,
-                                                  const GenericProxy::Request&) {
-  return nullptr;
+
+GenericProxy::ResponsePtr SshServerCodec::respond(absl::Status status, absl::string_view data,
+                                                  const Request&) {
+  if (!status.ok()) {
+    // something went wrong, send a disconnect message
+    DisconnectMsg dc;
+    dc.reason_code = SSH2_DISCONNECT_SERVICE_NOT_AVAILABLE; // todo
+    dc.description = data;
+    // downstream().sendMessage(dc);
+
+    return std::make_unique<ResponseHeaderFrame>(
+        StreamStatus(SSH2_DISCONNECT_SERVICE_NOT_AVAILABLE, false), std::move(dc));
+  }
+  return nullptr; // todo
 }
 
 void SshServerCodec::setKexResult(std::shared_ptr<kex_result_t> kex_result) {
@@ -111,14 +123,14 @@ void SshServerCodec::setKexResult(std::shared_ptr<kex_result_t> kex_result) {
   connection_state_.reset(newReadState);
 }
 
-error SshServerCodec::handleMessage(AnyMsg&& msg) {
+absl::Status SshServerCodec::handleMessage(AnyMsg&& msg) {
   switch (msg.msg_type) {
   case SshMessageType::ServiceRequest: {
     auto req = msg.unwrap<ServiceRequestMsg>();
     if (services_.contains(req.service_name)) {
       ServiceAcceptMsg accept;
       accept.service_name = req.service_name;
-      return downstream().sendMessage(accept);
+      return downstream().sendMessage(accept).status();
     }
     ENVOY_LOG(debug, "received SshMessageType::ServiceRequest");
     break;
@@ -126,12 +138,13 @@ error SshServerCodec::handleMessage(AnyMsg&& msg) {
   default:
     break;
   }
-  return std::nullopt;
+  return absl::OkStatus();
 }
 
 DownstreamCallbacks& SshServerCodec::downstream() { return *dsc_; }
+UpstreamCallbacks& SshServerCodec::upstream() { return *usc_; }
 
-error DownstreamCallbacks::sendMessage(const SshMsg& msg) {
+absl::StatusOr<size_t> DownstreamCallbacks::sendMessage(const SshMsg& msg) {
   if (!impl_->connection_state_) {
     throw EnvoyException("bug: no connection state");
   }
@@ -139,14 +152,21 @@ error DownstreamCallbacks::sendMessage(const SshMsg& msg) {
   writePacket(dec, msg, impl_->connection_state_->cipher->blockSize(MODE_WRITE),
               impl_->connection_state_->cipher->aadSize(MODE_WRITE));
   Envoy::Buffer::OwnedImpl enc;
-  if (auto err = impl_->connection_state_->cipher->encryptPacket(
+  if (auto stat = impl_->connection_state_->cipher->encryptPacket(
           *impl_->connection_state_->seq_write, enc, dec);
-      err.has_value()) {
-    return err;
+      !stat.ok()) {
+    return stat;
   }
   (*impl_->connection_state_->seq_write)++;
 
+  size_t n = enc.length();
   impl_->callbacks_->writeToConnection(enc);
-  return std::nullopt;
+  return n;
 }
+
+void UpstreamCallbacks::initConnection(std::string_view /*username*/, std::string_view hostname) {
+  auto frame = std::make_unique<SSHRequestHeaderFrame>(hostname);
+  impl_->callbacks_->onDecodingSuccess(std::move(frame));
+};
+
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

@@ -7,12 +7,12 @@ VersionExchanger::VersionExchanger(GenericProxy::ServerCodecCallbacks* callbacks
                                    VersionExchangeCallbacks& handshakeCallbacks)
     : callbacks_(callbacks), version_exchange_callbacks_(handshakeCallbacks) {}
 
-error VersionExchanger::doVersionExchange(Envoy::Buffer::Instance& buffer) noexcept {
+absl::Status VersionExchanger::doVersionExchange(Envoy::Buffer::Instance& buffer) noexcept {
   static const std::string server_version = "SSH-2.0-Envoy";
 
-  auto err = readVersion(buffer);
-  if (err) {
-    return fmt::format("version exchange failed: {}", err.value());
+  auto stat = readVersion(buffer);
+  if (!stat.ok()) {
+    return absl::Status(stat.code(), fmt::format("version exchange failed: {}", stat.message()));
   }
 
   Envoy::Buffer::OwnedImpl w;
@@ -20,10 +20,10 @@ error VersionExchanger::doVersionExchange(Envoy::Buffer::Instance& buffer) noexc
   w.add("\r\n");
   callbacks_->writeToConnection(w);
   version_exchange_callbacks_.setVersionStrings(server_version, their_version_);
-  return {};
+  return absl::OkStatus();
 }
 
-error VersionExchanger::readVersion(Envoy::Buffer::Instance& buffer) {
+absl::Status VersionExchanger::readVersion(Envoy::Buffer::Instance& buffer) {
   static const size_t max_version_string_bytes = 255;
   bool ok{};
   while (buffer.length() > 0 && their_version_.length() < max_version_string_bytes) {
@@ -39,7 +39,7 @@ error VersionExchanger::readVersion(Envoy::Buffer::Instance& buffer) {
     their_version_ += b;
   }
   if (!ok) {
-    return "overflow reading version string";
+    return absl::InvalidArgumentError("overflow reading version string");
   }
 
   if (their_version_.length() > 0 && their_version_[their_version_.length() - 1] == '\r') {
@@ -48,7 +48,7 @@ error VersionExchanger::readVersion(Envoy::Buffer::Instance& buffer) {
 
   if (!their_version_.starts_with("SSH-")) {
     their_version_.clear();
-    return "invalid version string";
+    return absl::InvalidArgumentError("invalid version string");
   }
 
   return {};
