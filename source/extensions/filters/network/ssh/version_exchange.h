@@ -1,8 +1,6 @@
 #pragma once
 
-#include "source/extensions/filters/network/generic_proxy/codec_callbacks.h"
-#include "source/extensions/filters/network/generic_proxy/interface/codec.h"
-#include "source/extensions/filters/network/ssh/util.h"
+#include "source/extensions/filters/network/ssh/transport.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -14,16 +12,14 @@ public:
 
 class VersionExchanger {
 public:
-  VersionExchanger(GenericProxy::ServerCodecCallbacks* callbacks,
-                   VersionExchangeCallbacks& handshakeCallbacks);
-
-  absl::Status doVersionExchange(Envoy::Buffer::Instance& buffer) noexcept;
-
+  VersionExchanger(TransportCallbacks& callbacks, VersionExchangeCallbacks& handshakeCallbacks);
+  absl::StatusOr<size_t> writeVersion(std::string_view ours);
   absl::Status readVersion(Envoy::Buffer::Instance& buffer);
 
-private:
+protected:
   std::string their_version_;
-  GenericProxy::ServerCodecCallbacks* callbacks_{};
+  std::string our_version_;
+  TransportCallbacks& transport_;
   VersionExchangeCallbacks& version_exchange_callbacks_;
 };
 

@@ -1,7 +1,8 @@
 #pragma once
-#include "messages.h"
 #include "source/extensions/filters/network/ssh/service.h"
-#include "source/extensions/filters/network/ssh/server_transport.h"
+#include "source/extensions/filters/network/ssh/transport.h"
+#include "source/extensions/filters/network/ssh/messages.h"
+#include "source/extensions/filters/network/generic_proxy/interface/codec.h"
 #include <memory>
 
 extern "C" {
@@ -24,7 +25,7 @@ protected:
 
 class ConnectionService : public Service, public MessageHandler {
 public:
-  ConnectionService(ServerTransportCallbacks& callbacks, Api::Api& api);
+  ConnectionService(TransportCallbacks& callbacks, Api::Api& api);
   std::string name() const override;
 
   absl::Status handleMessage(AnyMsg&& msg) override;
@@ -35,7 +36,7 @@ public:
   }
 
 private:
-  ServerTransportCallbacks& transport_;
+  TransportCallbacks& transport_;
   Api::Api& api_;
 
   std::map<uint32_t, std::unique_ptr<Channel>> active_channels_;

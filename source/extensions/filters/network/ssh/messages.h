@@ -286,16 +286,16 @@ struct SshMsg {
   }
 
 protected:
-  void peekType(Envoy::Buffer::Instance& buffer, SshMessageType* out) const {
+  static void peekType(Envoy::Buffer::Instance& buffer, SshMessageType* out) {
     *out = buffer.peekInt<SshMessageType>();
   }
 
-  size_t readType(Envoy::Buffer::Instance& buffer, SshMessageType* out) const {
+  static size_t readType(Envoy::Buffer::Instance& buffer, SshMessageType* out) {
     *out = buffer.drainInt<SshMessageType>();
     return 1;
   }
 
-  template <SshMessageType MT> size_t readType(Envoy::Buffer::Instance& buffer) const {
+  template <SshMessageType MT> static size_t readType(Envoy::Buffer::Instance& buffer) {
     auto msgtype = buffer.drainInt<SshMessageType>();
     if (msgtype != MT) {
       throw EnvoyException("unexpected message type");
@@ -303,12 +303,12 @@ protected:
     return 1;
   }
 
-  size_t writeType(Envoy::Buffer::Instance& buffer, SshMessageType t) const {
+  static size_t writeType(Envoy::Buffer::Instance& buffer, SshMessageType t) {
     buffer.writeByte(t);
     return 1;
   }
 
-  template <SshMessageType MT> size_t writeType(Envoy::Buffer::Instance& buffer) const {
+  template <SshMessageType MT> static size_t writeType(Envoy::Buffer::Instance& buffer) {
     buffer.writeByte(MT);
     return 1;
   }
@@ -665,10 +665,8 @@ struct AnyMsg : SshMsg {
   }
 
   size_t encode(Envoy::Buffer::Instance& buffer) const override {
-    size_t n = writeType(buffer, msg_type);
     buffer.add(raw_packet.data(), raw_packet.size());
-    n += raw_packet.size();
-    return n;
+    return raw_packet.size();
   }
 
   template <typename T> T unwrap() const {
@@ -678,6 +676,17 @@ struct AnyMsg : SshMsg {
     t.decode(buf, buf.length());
     buf.drain(buf.length());
     return t;
+  }
+
+  static AnyMsg wrap(SshMsg&& msg) {
+    AnyMsg m;
+    Envoy::Buffer::OwnedImpl buf;
+    msg.encode(buf);
+    AnyMsg::peekType(buf, &m.msg_type);
+    m.raw_packet.resize(buf.length());
+    buf.copyOut(0, buf.length(), m.raw_packet.data());
+    buf.drain(buf.length());
+    return m;
   }
 };
 

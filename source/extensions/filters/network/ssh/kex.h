@@ -30,15 +30,6 @@ static const std::set<std::string> aeadCiphers = {
     cipherChacha20Poly1305,
 };
 
-struct direction_t {
-  bytearray iv_tag;
-  bytearray key_tag;
-  bytearray mac_key_tag;
-};
-
-static const direction_t clientKeys{{'A'}, {'C'}, {'E'}};
-static const direction_t serverKeys{{'B'}, {'D'}, {'F'}};
-
 struct direction_algorithms_t {
   std::string cipher;
   std::string mac;
@@ -94,8 +85,9 @@ public:
       : magics_(magics), algs_(algs), signer_(signer) {}
   virtual ~KexAlgorithm() = default;
 
-  virtual absl::Status HandleServer(const AnyMsg& msg) PURE;
-  virtual absl::Status HandleClient(const AnyMsg& msg) PURE;
+  virtual absl::Status HandleServerRecv(const AnyMsg& msg) PURE;
+  virtual absl::StatusOr<AnyMsg> HandleClientSend() PURE;
+  virtual absl::Status HandleClientRecv(const AnyMsg& msg) PURE;
   virtual std::shared_ptr<kex_result_t>&& Result() PURE;
 
 protected:
@@ -128,13 +120,18 @@ class Curve25519Sha256KexAlgorithm : public KexAlgorithm {
 public:
   using KexAlgorithm::KexAlgorithm;
 
-  absl::Status HandleServer(const AnyMsg& msg) override;
-  absl::Status HandleClient(const AnyMsg& msg) override;
+  absl::Status HandleServerRecv(const AnyMsg& msg) override;
+  absl::StatusOr<AnyMsg> HandleClientSend() override;
+  absl::Status HandleClientRecv(const AnyMsg& msg) override;
 
   std::shared_ptr<kex_result_t>&& Result() override;
 
 private:
   std::shared_ptr<kex_result_t> result_;
+  curve25519_keypair_t client_keypair_;
+
+  absl::Status buildResult(uint8_t client_pub_key[32], uint8_t shared_secret[32],
+                           curve25519_keypair_t server_keypair);
 };
 
 struct kex_state_t {
@@ -190,8 +187,6 @@ inline NameList algorithmsForKeyFormat(const std::string& keyFormat) {
   return {keyFormat};
 }
 
-class ServerTransportCallbacks;
-
 class KexCallbacks {
 public:
   virtual ~KexCallbacks() = default;
@@ -202,8 +197,8 @@ class Kex : public VersionExchangeCallbacks,
             public MessageHandler,
             public Logger::Loggable<Logger::Id::filter> {
 public:
-  Kex(ServerTransportCallbacks& transportCallbacks, KexCallbacks& kexCallbacks,
-      Filesystem::Instance& fs);
+  Kex(TransportCallbacks& transportCallbacks, KexCallbacks& kexCallbacks, Filesystem::Instance& fs,
+      bool isServer);
 
   absl::Status doInitialKex(Envoy::Buffer::Instance& buffer) noexcept;
   absl::StatusOr<algorithms_t> negotiateAlgorithms() noexcept;
@@ -221,7 +216,7 @@ private:
   absl::Status handleMessage(AnyMsg&& msg) noexcept override;
   absl::Status sendKexInit() noexcept;
 
-  ServerTransportCallbacks& transport_;
+  TransportCallbacks& transport_;
   KexCallbacks& kex_callbacks_;
   std::unique_ptr<kex_state_t> state_;
   Filesystem::Instance& fs_;

@@ -4,41 +4,22 @@
 #include "source/extensions/filters/network/ssh/service.h"
 #include "source/extensions/filters/network/ssh/kex.h"
 #include "source/extensions/filters/network/ssh/messages.h"
-#include "source/extensions/filters/network/ssh/packet_cipher.h"
+#include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/message_handler.h"
 #include "source/extensions/filters/network/generic_proxy/codec_callbacks.h"
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-class DownstreamCallbacks;
-class UpstreamCallbacks;
-
-class ServerTransportCallbacks {
-public:
-  virtual ~ServerTransportCallbacks() = default;
-  virtual DownstreamCallbacks& downstream() PURE;
-  virtual UpstreamCallbacks& upstream() PURE;
-};
-
-struct connection_state_t {
-  std::unique_ptr<PacketCipher> cipher;
-  std::shared_ptr<uint32_t> seq_read;
-  std::shared_ptr<uint32_t> seq_write;
-  direction_t direction_read;
-  direction_t direction_write;
-  // todo: pending key change?
-};
+class ServerDownstreamCallbacks;
+class ServerUpstreamCallbacks;
 
 class SshServerCodec : public Logger::Loggable<Logger::Id::filter>,
                        public ServerCodec,
                        public KexCallbacks,
-                       public ServerTransportCallbacks,
+                       public TransportCallbacks,
                        public MessageDispatcher,
                        public MessageHandler {
-  friend class DownstreamCallbacks;
-  friend class UpstreamCallbacks;
-
 public:
   SshServerCodec(Api::Api& api);
   ~SshServerCodec() = default;
@@ -50,12 +31,12 @@ public:
                                     const GenericProxy::Request&) override;
 
   void setKexResult(std::shared_ptr<kex_result_t> kex_result) override;
-
-  DownstreamCallbacks& downstream() override;
-  UpstreamCallbacks& upstream() override;
+  void initUpstream(std::string_view username, std::string_view hostname) override;
 
 private:
   absl::Status handleMessage(AnyMsg&& msg) override;
+  const connection_state_t& getConnectionState() const override;
+  void writeToConnection(Envoy::Buffer::Instance& buf) const override;
 
   GenericProxy::ServerCodecCallbacks* callbacks_{};
   bool version_exchange_done_{};
@@ -66,30 +47,7 @@ private:
   std::unique_ptr<connection_state_t> connection_state_;
   std::map<std::string, std::unique_ptr<Service>> services_;
 
-  std::unique_ptr<DownstreamCallbacks> dsc_;
-  std::unique_ptr<UpstreamCallbacks> usc_;
-};
-
-class DownstreamCallbacks {
-  friend class SshServerCodec;
-
-public:
-  absl::StatusOr<size_t> sendMessage(const SshMsg& msg);
-
-private:
-  DownstreamCallbacks(SshServerCodec* impl) : impl_(impl) {}
-  SshServerCodec* impl_;
-};
-
-class UpstreamCallbacks {
-  friend class SshServerCodec;
-
-public:
-  void initConnection(std::string_view username, std::string_view hostname);
-
-private:
-  UpstreamCallbacks(SshServerCodec* impl) : impl_(impl) {}
-  SshServerCodec* impl_;
+  std::string server_version_{"SSH-2.0-Envoy"};
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

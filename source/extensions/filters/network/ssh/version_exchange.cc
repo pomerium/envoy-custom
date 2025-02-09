@@ -1,27 +1,10 @@
 #include "source/extensions/filters/network/ssh/version_exchange.h"
-#include "source/common/buffer/buffer_impl.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-VersionExchanger::VersionExchanger(GenericProxy::ServerCodecCallbacks* callbacks,
+VersionExchanger::VersionExchanger(TransportCallbacks& callbacks,
                                    VersionExchangeCallbacks& handshakeCallbacks)
-    : callbacks_(callbacks), version_exchange_callbacks_(handshakeCallbacks) {}
-
-absl::Status VersionExchanger::doVersionExchange(Envoy::Buffer::Instance& buffer) noexcept {
-  static const std::string server_version = "SSH-2.0-Envoy";
-
-  auto stat = readVersion(buffer);
-  if (!stat.ok()) {
-    return absl::Status(stat.code(), fmt::format("version exchange failed: {}", stat.message()));
-  }
-
-  Envoy::Buffer::OwnedImpl w;
-  w.add(server_version);
-  w.add("\r\n");
-  callbacks_->writeToConnection(w);
-  version_exchange_callbacks_.setVersionStrings(server_version, their_version_);
-  return absl::OkStatus();
-}
+    : transport_(callbacks), version_exchange_callbacks_(handshakeCallbacks) {}
 
 absl::Status VersionExchanger::readVersion(Envoy::Buffer::Instance& buffer) {
   static const size_t max_version_string_bytes = 255;
@@ -51,7 +34,22 @@ absl::Status VersionExchanger::readVersion(Envoy::Buffer::Instance& buffer) {
     return absl::InvalidArgumentError("invalid version string");
   }
 
-  return {};
+  if (!our_version_.empty() && !their_version_.empty()) {
+    version_exchange_callbacks_.setVersionStrings(our_version_, their_version_);
+  }
+  return absl::OkStatus();
 }
 
+absl::StatusOr<size_t> VersionExchanger::writeVersion(std::string_view ours) {
+  our_version_ = ours;
+  Envoy::Buffer::OwnedImpl w;
+  w.add(ours);
+  w.add("\r\n");
+  size_t n = w.length();
+  transport_.writeToConnection(w);
+  if (!our_version_.empty() && !their_version_.empty()) {
+    version_exchange_callbacks_.setVersionStrings(our_version_, their_version_);
+  }
+  return n;
+}
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

@@ -5,7 +5,7 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 decltype(ConnectionService::channelTypes) ConnectionService::channelTypes = {};
 
-ConnectionService::ConnectionService(ServerTransportCallbacks& callbacks, Api::Api& api)
+ConnectionService::ConnectionService(TransportCallbacks& callbacks, Api::Api& api)
     : transport_(callbacks), api_(api) {
   (void)transport_;
   (void)api_;
@@ -25,13 +25,13 @@ absl::Status ConnectionService::handleMessage(AnyMsg&& msg) {
       confirmation.recipient_channel = channelOpenMsg.sender_channel;
       confirmation.initial_window_size = channelOpenMsg.initial_window_size;
       confirmation.max_packet_size = channelOpenMsg.max_packet_size;
-      return transport_.downstream().sendMessage(confirmation).status();
+      return transport_.sendMessageToConnection(confirmation).status();
     } else {
       ChannelOpenFailureMsg failure;
       failure.recipient_channel = channelOpenMsg.sender_channel;
       failure.reason_code = SSH2_OPEN_UNKNOWN_CHANNEL_TYPE;
       failure.description = "unknown channel type";
-      return transport_.downstream().sendMessage(failure).status();
+      return transport_.sendMessageToConnection(failure).status();
     }
     break;
   }

@@ -8,6 +8,7 @@
 #include <exception>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
+#include <sshkey.h>
 
 extern "C" {
 #include "openssh/ssherr.h"
@@ -18,7 +19,7 @@ extern "C" {
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-absl::Status Curve25519Sha256KexAlgorithm::HandleServer(const AnyMsg& msg) {
+absl::Status Curve25519Sha256KexAlgorithm::HandleServerRecv(const AnyMsg& msg) {
   auto peerMsg = msg.unwrap<KexEcdhInitMessage>();
 
   if (auto sz = peerMsg.client_pub_key.size(); sz != 32) {
@@ -26,7 +27,7 @@ absl::Status Curve25519Sha256KexAlgorithm::HandleServer(const AnyMsg& msg) {
         fmt::format("invalid peer public key size (expected 32, got {})", sz));
   }
   uint8_t client_pub_key[32];
-  memcpy(client_pub_key, peerMsg.client_pub_key.data(), sizeof(client_pub_key));
+  memcpy(client_pub_key, peerMsg.client_pub_key.data(), peerMsg.client_pub_key.size());
 
   curve25519_keypair_t server_keypair;
   kexc25519_keygen(server_keypair.priv, server_keypair.pub);
@@ -56,11 +57,11 @@ absl::Status Curve25519Sha256KexAlgorithm::HandleServer(const AnyMsg& msg) {
   magics_->writeTo([&exchangeHash](const void* p, size_t sz) { exchangeHash.add(p, sz); });
   exchangeHash.writeBEInt<uint32_t>(result_->HostKeyBlob.size());
   exchangeHash.add(result_->HostKeyBlob.data(), result_->HostKeyBlob.size());
-  exchangeHash.writeBEInt<uint32_t>(sizeof(client_pub_key));
-  exchangeHash.add(client_pub_key, sizeof(client_pub_key));
+  exchangeHash.writeBEInt<uint32_t>(32);
+  exchangeHash.add(client_pub_key, 32);
   exchangeHash.writeBEInt<uint32_t>(sizeof(server_keypair.pub));
   exchangeHash.add(server_keypair.pub, sizeof(server_keypair.pub));
-  writeBignum(exchangeHash, shared_secret, sizeof(shared_secret));
+  writeBignum(exchangeHash, shared_secret, 32);
 
   uint8_t digest[SSH_DIGEST_MAX_LENGTH];
   size_t digest_len = sizeof(digest);
@@ -81,8 +82,8 @@ absl::Status Curve25519Sha256KexAlgorithm::HandleServer(const AnyMsg& msg) {
   }
   result_->H.resize(digest_len);
   memcpy(result_->H.data(), digest, digest_len);
-  result_->K.resize(sizeof(shared_secret));
-  memcpy(result_->K.data(), shared_secret, sizeof(shared_secret));
+  result_->K.resize(32);
+  memcpy(result_->K.data(), shared_secret, 32);
 
   result_->Signature.resize(sig_len);
   memcpy(result_->Signature.data(), sig, sig_len);
@@ -94,18 +95,95 @@ absl::Status Curve25519Sha256KexAlgorithm::HandleServer(const AnyMsg& msg) {
   return absl::OkStatus();
 }
 
-absl::Status Curve25519Sha256KexAlgorithm::HandleClient(const AnyMsg&) {
-  throw std::runtime_error("unsupported");
+absl::StatusOr<AnyMsg> Curve25519Sha256KexAlgorithm::HandleClientSend() {
+  curve25519_keypair_t client_keypair;
+  kexc25519_keygen(client_keypair.priv, client_keypair.pub);
+  client_keypair_ = client_keypair;
+  KexEcdhInitMessage msg;
+  msg.client_pub_key.resize(sizeof(client_keypair.pub));
+  memcpy(msg.client_pub_key.data(), client_keypair.pub, sizeof(client_keypair.pub));
+  return AnyMsg::wrap(std::move(msg));
+}
+
+absl::Status Curve25519Sha256KexAlgorithm::HandleClientRecv(const AnyMsg& msg) {
+  auto serverMsg = msg.unwrap<KexEcdhReplyMsg>();
+
+  if (auto sz = serverMsg.ephemeral_pub_key.size(); sz != 32) {
+    return absl::AbortedError(
+        fmt::format("invalid peer public key size (expected 32, got {})", sz));
+  }
+
+  uint8_t server_pub_key[32];
+  memcpy(server_pub_key, serverMsg.ephemeral_pub_key.data(), serverMsg.ephemeral_pub_key.size());
+
+  uint8_t shared_secret[32];
+  if (!X25519(shared_secret, client_keypair_.priv, server_pub_key)) {
+    return absl::AbortedError("curve25519 key exchange failed");
+  }
+  if (!CRYPTO_memcmp(shared_secret, curve25519_zeros, 32)) {
+    return absl::AbortedError("peer's curve25519 public value has wrong order");
+  }
+
+  result_.reset(new kex_result_t);
+  result_->Algorithms = *algs_;
+  result_->HostKeyBlob = serverMsg.host_key;
+
+  Envoy::Buffer::OwnedImpl exchangeHash;
+
+  magics_->writeTo([&exchangeHash](const void* p, size_t sz) { exchangeHash.add(p, sz); });
+  exchangeHash.writeBEInt<uint32_t>(result_->HostKeyBlob.size());
+  exchangeHash.add(result_->HostKeyBlob.data(), result_->HostKeyBlob.size());
+  exchangeHash.writeBEInt<uint32_t>(sizeof(client_keypair_.pub));
+  exchangeHash.add(client_keypair_.pub, sizeof(client_keypair_.pub));
+  exchangeHash.writeBEInt<uint32_t>(sizeof(server_pub_key));
+  exchangeHash.add(server_pub_key, sizeof(server_pub_key));
+  writeBignum(exchangeHash, shared_secret, sizeof(shared_secret));
+
+  uint8_t digest[SSH_DIGEST_MAX_LENGTH];
+  size_t digest_len = sizeof(digest);
+  auto buf = exchangeHash.linearize(exchangeHash.length());
+  auto hash_alg = kex_hash_from_name(algs_->kex.c_str());
+  ssh_digest_memory(hash_alg, buf, exchangeHash.length(), digest, digest_len);
+  digest_len = ssh_digest_bytes(hash_alg);
+  sshbuf_dump_data(buf, exchangeHash.length(), stderr);
+  exchangeHash.drain(exchangeHash.length());
+
+  sshkey* server_host_key;
+  if (auto r =
+          sshkey_from_blob(serverMsg.host_key.data(), serverMsg.host_key.size(), &server_host_key);
+      r != 0) {
+    return absl::AbortedError("malformed host key");
+  }
+
+  if (auto r =
+          sshkey_verify(server_host_key, serverMsg.signature.data(), serverMsg.signature.size(),
+                        digest, digest_len, // <- NB: not sizeof(digest)
+                        algs_->host_key.c_str(), 0, nullptr);
+      r != 0) {
+    return absl::AbortedError("signature verification failed");
+  }
+
+  result_->H.resize(digest_len);
+  memcpy(result_->H.data(), digest, digest_len);
+  result_->K.resize(32);
+  memcpy(result_->K.data(), shared_secret, 32);
+
+  result_->Signature = serverMsg.signature;
+  result_->Hash = SHA256;
+  result_->EphemeralPubKey = serverMsg.ephemeral_pub_key;
+  // session id is not set here
+
+  return absl::OkStatus();
 }
 
 std::shared_ptr<kex_result_t>&& Curve25519Sha256KexAlgorithm::Result() {
   return std::move(result_);
 };
 
-Kex::Kex(ServerTransportCallbacks& transportCallbacks, KexCallbacks& kexCallbacks,
-         Filesystem::Instance& fs)
+Kex::Kex(TransportCallbacks& transportCallbacks, KexCallbacks& kexCallbacks,
+         Filesystem::Instance& fs, bool isServer)
     : transport_(transportCallbacks), kex_callbacks_(kexCallbacks),
-      state_(std::make_unique<kex_state_t>()), fs_(fs), is_server_(true) {
+      state_(std::make_unique<kex_state_t>()), fs_(fs), is_server_(isServer) {
   loadHostKeys();
 }
 
@@ -172,6 +250,15 @@ absl::Status Kex::handleMessage(AnyMsg&& msg) noexcept {
       }
 
       state_->alg_impl = std::move(*algImpl);
+
+      if (!is_server_) {
+        auto stat = state_->alg_impl->HandleClientSend();
+        if (!stat.ok()) {
+          return stat.status();
+        }
+        state_->kex_reply_sent = true;
+        return transport_.sendMessageToConnection(*stat).status();
+      }
       return absl::OkStatus();
     }
     break;
@@ -194,45 +281,61 @@ absl::Status Kex::handleMessage(AnyMsg&& msg) noexcept {
     }
 
     if (is_server_) {
-      auto stat = state_->alg_impl->HandleServer(msg);
+      auto stat = state_->alg_impl->HandleServerRecv(msg);
       if (!stat.ok()) {
         return stat;
       }
     } else {
-      auto stat = state_->alg_impl->HandleClient(msg);
+      auto stat = state_->alg_impl->HandleClientRecv(msg);
       if (!stat.ok()) {
         return stat;
       }
     }
+
     state_->kex_result = state_->alg_impl->Result();
     state_->alg_impl.reset();
 
-    if (!state_->kex_reply_sent) {
+    if (is_server_) {
+      if (!state_->kex_reply_sent) {
+        auto firstKeyExchange = !state_->session_id.has_value();
+        if (firstKeyExchange) {
+          state_->session_id = state_->kex_result->H;
+        }
+        state_->kex_result->SessionID = state_->session_id.value();
+
+        KexEcdhReplyMsg reply;
+        reply.host_key = state_->kex_result->HostKeyBlob;
+        reply.ephemeral_pub_key = state_->kex_result->EphemeralPubKey;
+        reply.signature = state_->kex_result->Signature;
+        if (auto err = transport_.sendMessageToConnection(reply); !err.ok()) {
+          return err.status();
+        }
+        state_->kex_reply_sent = true;
+        // don't return yet, send newkeys first
+      }
+
+      if (!state_->kex_newkeys_sent) {
+        auto newkeys = EmptyMsg<SshMessageType::NewKeys>{};
+        if (auto err = transport_.sendMessageToConnection(newkeys); !err.ok()) {
+          return err.status();
+        }
+        state_->kex_newkeys_sent = true;
+        // return here to yield and wait for client newkeys. if the buffer isn't empty this will
+        // be called again immediately.
+        return absl::OkStatus();
+      }
+    } else {
       auto firstKeyExchange = !state_->session_id.has_value();
       if (firstKeyExchange) {
         state_->session_id = state_->kex_result->H;
       }
       state_->kex_result->SessionID = state_->session_id.value();
 
-      KexEcdhReplyMsg reply;
-      reply.host_key = state_->kex_result->HostKeyBlob;
-      reply.ephemeral_pub_key = state_->kex_result->EphemeralPubKey;
-      reply.signature = state_->kex_result->Signature;
-      if (auto err = transport_.downstream().sendMessage(reply); !err.ok()) {
-        return err.status();
-      }
-      state_->kex_reply_sent = true;
-      // don't return yet, send newkeys first
-    }
-    if (!state_->kex_newkeys_sent) {
       auto newkeys = EmptyMsg<SshMessageType::NewKeys>{};
-      if (auto err = transport_.downstream().sendMessage(newkeys); !err.ok()) {
+      if (auto err = transport_.sendMessageToConnection(newkeys); !err.ok()) {
         return err.status();
       }
       state_->kex_newkeys_sent = true;
-      // return here to yield and wait for client newkeys. if the buffer isn't empty this will
-      // be called again immediately.
-      return absl::OkStatus();
     }
   }
   return absl::OkStatus();
@@ -489,7 +592,7 @@ absl::Status Kex::sendKexInit() noexcept {
     tmp.drain(tmp.length());
   }
 
-  if (auto err = transport_.downstream().sendMessage(*server_kex_init); !err.ok()) {
+  if (auto err = transport_.sendMessageToConnection(*server_kex_init); !err.ok()) {
     return err.status();
   }
   return absl::OkStatus();
