@@ -204,6 +204,7 @@ public:
   absl::StatusOr<algorithms_t> negotiateAlgorithms() noexcept;
   absl::StatusOr<std::unique_ptr<KexAlgorithm>> newAlgorithmImpl();
   const host_keypair_t* pickHostKey(const std::string& alg);
+  const host_keypair_t* getHostKey(const std::string& pkalg);
   absl::StatusOr<std::string> findCommon(std::string_view what, const NameList& client,
                                          const NameList& server);
   void loadHostKeys();

@@ -2,6 +2,7 @@
 #include "source/extensions/filters/network/ssh/client_transport.h"
 #include "source/extensions/filters/network/ssh/server_transport.h"
 #include "source/extensions/filters/network/ssh/service_connection.h"
+#include "source/extensions/filters/network/ssh/service_userauth.h"
 #include "source/extensions/filters/network/ssh/packet_cipher.h"
 #include "source/extensions/filters/network/ssh/session.h"
 #include "source/extensions/filters/network/common/factory_base.h"

@@ -1,20 +1,26 @@
 #include "source/extensions/filters/network/ssh/client_transport.h"
+#include "messages.h"
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/packet_cipher.h"
 #include "source/extensions/filters/network/ssh/service_userauth.h"
 #include "source/extensions/filters/network/ssh/service_connection.h"
 #include "transport.h"
 
+extern "C" {
+#include "openssh/ssherr.h"
+}
+
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 SshClientCodec::SshClientCodec(Api::Api& api) : TransportCallbacks(*this), api_(api) {
-  auto userAuth = std::make_unique<UserAuthService>(*this, api);
-  userAuth->registerMessageHandlers(*this);
-  auto connection = std::make_unique<ConnectionService>(*this, api);
-  connection->registerMessageHandlers(*this);
+  user_auth_svc_ = std::make_unique<UserAuthService>(*this, api);
+  user_auth_svc_->registerMessageHandlers(*this);
+  connection_svc_ = std::make_unique<ConnectionService>(*this, api);
+  connection_svc_->registerMessageHandlers(*this);
 
-  services_[userAuth->name()] = std::move(userAuth);
-  services_[connection->name()] = std::move(connection);
+  registerHandler(SshMessageType::ServiceAccept, this);
+  services_[user_auth_svc_->name()] = user_auth_svc_.get();
+  services_[connection_svc_->name()] = connection_svc_.get();
 }
 
 void SshClientCodec::setCodecCallbacks(GenericProxy::ClientCodecCallbacks& callbacks) {
@@ -78,6 +84,7 @@ GenericProxy::EncodingResult SshClientCodec::encode(const GenericProxy::StreamFr
   switch (dynamic_cast<const SSHStreamFrame&>(frame).frameKind()) {
   case FrameKind::RequestHeader: {
     const auto& reqHeader = dynamic_cast<const SSHRequestHeaderFrame&>(frame);
+    user_auth_svc_->setUsername(reqHeader.username());
     return version_exchanger_->writeVersion(reqHeader.ourVersion());
   }
   default:
@@ -88,6 +95,7 @@ GenericProxy::EncodingResult SshClientCodec::encode(const GenericProxy::StreamFr
 }
 
 void SshClientCodec::setKexResult(std::shared_ptr<kex_result_t> kex_result) {
+  kex_result_ = kex_result;
   auto newReadState = new connection_state_t;
   newReadState->direction_read = serverKeys;
   newReadState->direction_write = clientKeys;
@@ -96,11 +104,33 @@ void SshClientCodec::setKexResult(std::shared_ptr<kex_result_t> kex_result) {
   newReadState->seq_read = std::make_shared<uint32_t>(0);
   newReadState->seq_write = std::make_shared<uint32_t>(0);
   connection_state_.reset(newReadState);
+
+  if (!first_kex_done_) {
+    first_kex_done_ = true;
+
+    if (auto stat = user_auth_svc_->requestService(); !stat.ok()) {
+      ENVOY_LOG(error, "error requesting user auth: {}", stat.message());
+      callbacks_->onDecodingFailure(fmt::format("error requesting user auth: {}", stat.message()));
+      return;
+    }
+  }
 }
 
 absl::Status SshClientCodec::handleMessage(AnyMsg&& msg) {
-  ENVOY_LOG(debug, "received message {} (ignoring)", msg.msg_type);
-  return absl::UnimplementedError("unimplemented");
+  ENVOY_LOG(debug, "received message type {}", msg.msg_type);
+  switch (msg.msg_type) {
+  case SshMessageType::ServiceAccept: {
+    auto acceptMsg = msg.unwrap<ServiceAcceptMsg>();
+    if (services_.contains(acceptMsg.service_name)) {
+      return services_[acceptMsg.service_name]->handleMessage(std::move(msg));
+    }
+    ENVOY_LOG(error, "received ServiceAccept message for unknown service {}", msg.msg_type);
+    return absl::InternalError(
+        fmt::format("received ServiceAccept message for unknown service {}", msg.msg_type));
+  }
+  default:
+    return absl::UnimplementedError("unimplemented");
+  }
 }
 
 const connection_state_t& SshClientCodec::getConnectionState() const { return *connection_state_; }
@@ -111,6 +141,27 @@ void SshClientCodec::initUpstream(std::string_view, std::string_view) {
 
 void SshClientCodec::writeToConnection(Envoy::Buffer::Instance& buf) const {
   return callbacks_->writeToConnection(buf);
+}
+
+const kex_result_t& SshClientCodec::getKexResult() const { return *kex_result_; }
+
+absl::StatusOr<bytearray> SshClientCodec::signWithHostKey(Envoy::Buffer::Instance& in) const {
+  auto hostKey = kex_result_->Algorithms.host_key;
+  if (auto k = kex_->getHostKey(hostKey); k) {
+    auto inData = static_cast<uint8_t*>(in.linearize(in.length()));
+    uint8_t* sig;
+    size_t sig_len;
+    auto err = sshkey_sign(k->priv.get(), &sig, &sig_len, inData, in.length(), hostKey.c_str(),
+                           nullptr, nullptr, 0);
+    if (err != 0) {
+      return absl::InternalError(std::string(ssh_err(err)));
+    }
+    bytearray out;
+    out.resize(sig_len);
+    memcpy(out.data(), sig, sig_len);
+    return out;
+  }
+  return absl::InternalError("no such host key");
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

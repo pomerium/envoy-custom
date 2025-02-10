@@ -20,6 +20,10 @@
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 
+extern "C" {
+#include "openssh/ssherr.h"
+}
+
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 SshServerCodec::SshServerCodec(Api::Api& api) : TransportCallbacks(*this), api_(api) {
@@ -117,6 +121,7 @@ GenericProxy::ResponsePtr SshServerCodec::respond(absl::Status status, absl::str
 }
 
 void SshServerCodec::setKexResult(std::shared_ptr<kex_result_t> kex_result) {
+  kex_result_ = kex_result;
   auto newReadState = new connection_state_t;
   newReadState->direction_read = clientKeys;
   newReadState->direction_write = serverKeys;
@@ -154,6 +159,26 @@ const connection_state_t& SshServerCodec::getConnectionState() const { return *c
 
 void SshServerCodec::writeToConnection(Envoy::Buffer::Instance& buf) const {
   return callbacks_->writeToConnection(buf);
+}
+const kex_result_t& SshServerCodec::getKexResult() const { return *kex_result_; }
+
+absl::StatusOr<bytearray> SshServerCodec::signWithHostKey(Envoy::Buffer::Instance& in) const {
+  auto hostKey = kex_result_->Algorithms.host_key;
+  if (auto k = kex_->getHostKey(hostKey); k) {
+    auto inData = static_cast<uint8_t*>(in.linearize(in.length()));
+    uint8_t* sig;
+    size_t sig_len;
+    auto err = sshkey_sign(k->priv.get(), &sig, &sig_len, inData, in.length(), hostKey.c_str(),
+                           nullptr, nullptr, 0);
+    if (err != 0) {
+      return absl::InternalError(std::string(ssh_err(err)));
+    }
+    bytearray out;
+    out.resize(sig_len);
+    memcpy(out.data(), sig, sig_len);
+    return out;
+  }
+  return absl::InternalError("no such host key");
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

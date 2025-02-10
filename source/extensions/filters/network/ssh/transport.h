@@ -8,6 +8,7 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 class PacketCipher;
 struct SshMsg;
+struct kex_result_t;
 
 struct direction_t {
   bytearray iv_tag;
@@ -34,6 +35,9 @@ public:
 
   virtual void initUpstream(std::string_view username, std::string_view hostname) PURE;
   virtual void writeToConnection(Envoy::Buffer::Instance& buf) const PURE;
+
+  virtual const kex_result_t& getKexResult() const PURE;
+  virtual absl::StatusOr<bytearray> signWithHostKey(Envoy::Buffer::Instance& in) const PURE;
 
 protected:
   virtual const connection_state_t& getConnectionState() const PURE;

@@ -11,8 +11,6 @@ ConnectionService::ConnectionService(TransportCallbacks& callbacks, Api::Api& ap
   (void)api_;
 }
 
-std::string ConnectionService::name() const { return "ssh-connection"; }
-
 absl::Status ConnectionService::handleMessage(AnyMsg&& msg) {
   switch (msg.msg_type) {
   case SshMessageType::ChannelOpen: {

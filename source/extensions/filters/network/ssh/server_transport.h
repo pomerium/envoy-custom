@@ -31,7 +31,9 @@ public:
                                     const GenericProxy::Request&) override;
 
   void setKexResult(std::shared_ptr<kex_result_t> kex_result) override;
+  const kex_result_t& getKexResult() const override;
   void initUpstream(std::string_view username, std::string_view hostname) override;
+  absl::StatusOr<bytearray> signWithHostKey(Envoy::Buffer::Instance& in) const override;
 
 private:
   absl::Status handleMessage(AnyMsg&& msg) override;
@@ -44,6 +46,7 @@ private:
   Api::Api& api_;
 
   std::unique_ptr<Kex> kex_;
+  std::shared_ptr<kex_result_t> kex_result_;
   std::unique_ptr<connection_state_t> connection_state_;
   std::map<std::string, std::unique_ptr<Service>> services_;
 

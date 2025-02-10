@@ -23,16 +23,22 @@ protected:
   uint32_t channel_id_;
 };
 
-class ConnectionService : public Service, public MessageHandler {
+class ConnectionService : public Service {
 public:
-  ConnectionService(TransportCallbacks& callbacks, Api::Api& api);
-  std::string name() const override;
+  constexpr virtual std::string name() override { return "ssh-connection"; };
 
+  ConnectionService(TransportCallbacks& callbacks, Api::Api& api);
   absl::Status handleMessage(AnyMsg&& msg) override;
   void registerMessageHandlers(MessageDispatcher& dispatcher) override;
 
   static void RegisterChannelType(const std::string& name, auto create) {
     channelTypes[name] = create;
+  }
+
+  absl::Status requestService() override {
+    ServiceRequestMsg req;
+    req.service_name = name();
+    return transport_.sendMessageToConnection(req).status();
   }
 
 private:

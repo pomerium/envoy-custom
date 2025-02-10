@@ -82,7 +82,15 @@ public:
   NoCipher() = default;
   absl::Status decryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
                              Envoy::Buffer::Instance& in) override {
-    out.move(in);
+    uint32_t packlen = in.peekBEInt<uint32_t>();
+    if (packlen < 5 || packlen > PACKET_MAX_SIZE) {
+      return absl::AbortedError("invalid packet size");
+    }
+    auto need = packlen + 4;
+    if (in.length() < need) {
+      return absl::AbortedError("short read");
+    }
+    out.move(in, need);
     return absl::OkStatus();
   }
   absl::Status encryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,

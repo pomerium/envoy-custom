@@ -24,6 +24,7 @@ public:
   std::string_view host() const override { return host_; };
   std::string_view protocol() const override { return "ssh"; };
   std::string_view ourVersion() const { return our_version_; };
+  std::string_view username() const { return username_; };
 
   FrameKind frameKind() const override { return FrameKind::RequestHeader; };
 

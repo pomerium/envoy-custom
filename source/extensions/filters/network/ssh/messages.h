@@ -286,6 +286,12 @@ struct SshMsg {
   }
 
 protected:
+  virtual size_t readExtra(Envoy::Buffer::Instance& buffer, bytearray& out, size_t len) {
+    return readBytes(buffer, out, len);
+  }
+  virtual size_t writeExtra(Envoy::Buffer::Instance& buffer, const bytearray& in) const {
+    return writeBytes(buffer, in);
+  }
   static void peekType(Envoy::Buffer::Instance& buffer, SshMessageType* out) {
     *out = buffer.peekInt<SshMessageType>();
   }
@@ -503,7 +509,7 @@ struct ChannelOpenMsg : SshMsg, MsgType<SshMessageType::ChannelOpen> {
     n += read(buffer, sender_channel);
     n += read(buffer, initial_window_size);
     n += read(buffer, max_packet_size);
-    n += readBytes(buffer, extra, payload_size - n);
+    n += readExtra(buffer, extra, payload_size - n);
     return n;
   }
   size_t encode(Envoy::Buffer::Instance& buffer) const override {
@@ -512,7 +518,7 @@ struct ChannelOpenMsg : SshMsg, MsgType<SshMessageType::ChannelOpen> {
     n += write(buffer, sender_channel);
     n += write(buffer, initial_window_size);
     n += write(buffer, max_packet_size);
-    n += writeBytes(buffer, extra);
+    n += writeExtra(buffer, extra);
     return n;
   }
 };
@@ -528,7 +534,7 @@ struct ChannelRequestMsg : SshMsg, MsgType<SshMessageType::ChannelRequest> {
     n += read(buffer, channel);
     n += readString(buffer, request_type);
     n += read(buffer, want_reply);
-    n += readBytes(buffer, extra, payload_size - n);
+    n += readExtra(buffer, extra, payload_size - n);
     return n;
   }
   size_t encode(Envoy::Buffer::Instance& buffer) const override {
@@ -536,7 +542,7 @@ struct ChannelRequestMsg : SshMsg, MsgType<SshMessageType::ChannelRequest> {
     n += write(buffer, channel);
     n += writeString(buffer, request_type);
     n += write(buffer, want_reply);
-    n += writeBytes(buffer, extra);
+    n += writeExtra(buffer, extra);
     return n;
   }
 };
@@ -554,7 +560,7 @@ struct ChannelOpenConfirmationMsg : SshMsg, MsgType<SshMessageType::ChannelOpenC
     n += read(buffer, sender_channel);
     n += read(buffer, initial_window_size);
     n += read(buffer, max_packet_size);
-    n += readBytes(buffer, extra, payload_size - n);
+    n += readExtra(buffer, extra, payload_size - n);
     return n;
   }
   size_t encode(Envoy::Buffer::Instance& buffer) const override {
@@ -563,7 +569,7 @@ struct ChannelOpenConfirmationMsg : SshMsg, MsgType<SshMessageType::ChannelOpenC
     n += write(buffer, sender_channel);
     n += write(buffer, initial_window_size);
     n += write(buffer, max_packet_size);
-    n += writeBytes(buffer, extra);
+    n += writeExtra(buffer, extra);
     return n;
   }
 };
@@ -603,7 +609,7 @@ struct UserAuthRequestMsg : SshMsg, MsgType<SshMessageType::UserAuthRequest> {
     n += readString(buffer, username);
     n += readString(buffer, service_name);
     n += readString(buffer, method_name);
-    n += readBytes(buffer, extra, payload_size - n);
+    n += readExtra(buffer, extra, payload_size - n);
     return n;
   }
   size_t encode(Envoy::Buffer::Instance& buffer) const override {
@@ -611,7 +617,36 @@ struct UserAuthRequestMsg : SshMsg, MsgType<SshMessageType::UserAuthRequest> {
     n += writeString(buffer, username);
     n += writeString(buffer, service_name);
     n += writeString(buffer, method_name);
-    n += writeBytes(buffer, extra);
+    n += writeExtra(buffer, extra);
+    return n;
+  }
+};
+
+struct PubKeyUserAuthRequestMsg : UserAuthRequestMsg {
+  bool has_signature;
+  std::string public_key_alg;
+  bytearray public_key;
+  bytearray signature;
+
+  size_t readExtra(Envoy::Buffer::Instance& buffer, bytearray& out, size_t len) override {
+    size_t n = read(buffer, has_signature);
+    n += readString(buffer, public_key_alg);
+    n += readString(buffer, public_key);
+    if (has_signature) {
+      n += readString(buffer, signature);
+    }
+    n += UserAuthRequestMsg::readExtra(buffer, out, len - n);
+    return n;
+  }
+  size_t writeExtra(Envoy::Buffer::Instance& buffer, const bytearray&) const override {
+    size_t n = write(buffer, has_signature);
+    n += writeString(buffer, public_key_alg);
+    n += writeString(buffer, public_key);
+    // this check is important; even if signature was empty, writeString would still append a
+    // 4-byte length field containing 0
+    if (has_signature) {
+      n += writeString(buffer, signature);
+    }
     return n;
   }
 };
@@ -630,6 +665,24 @@ struct UserAuthBannerMsg : SshMsg, MsgType<SshMessageType::UserAuthBanner> {
     size_t n = writeType<type>(buffer);
     n += writeString(buffer, message);
     n += writeString(buffer, language_tag);
+    return n;
+  }
+};
+
+struct UserAuthFailureMsg : SshMsg, MsgType<SshMessageType::UserAuthFailure> {
+  NameList methods;
+  bool partial;
+
+  size_t decode(Envoy::Buffer::Instance& buffer, size_t) override {
+    size_t n = readType<type>(buffer);
+    n += readNameList(buffer, methods);
+    n += read(buffer, partial);
+    return n;
+  }
+  size_t encode(Envoy::Buffer::Instance& buffer) const override {
+    size_t n = writeType<type>(buffer);
+    n += writeNameList(buffer, methods);
+    n += write(buffer, partial);
     return n;
   }
 };

@@ -69,7 +69,9 @@ absl::Status Curve25519Sha256KexAlgorithm::HandleServerRecv(const AnyMsg& msg) {
   auto hash_alg = kex_hash_from_name(algs_->kex.c_str());
   ssh_digest_memory(hash_alg, buf, exchangeHash.length(), digest, digest_len);
   digest_len = ssh_digest_bytes(hash_alg);
+#if false
   sshbuf_dump_data(buf, exchangeHash.length(), stderr);
+#endif
   exchangeHash.drain(exchangeHash.length());
 
   uint8_t* sig;
@@ -145,7 +147,9 @@ absl::Status Curve25519Sha256KexAlgorithm::HandleClientRecv(const AnyMsg& msg) {
   auto hash_alg = kex_hash_from_name(algs_->kex.c_str());
   ssh_digest_memory(hash_alg, buf, exchangeHash.length(), digest, digest_len);
   digest_len = ssh_digest_bytes(hash_alg);
+#if false
   sshbuf_dump_data(buf, exchangeHash.length(), stderr);
+#endif
   exchangeHash.drain(exchangeHash.length());
 
   sshkey* server_host_key;
@@ -490,6 +494,16 @@ const host_keypair_t* Kex::pickHostKey(const std::string& alg) {
       if (alg == keyAlg) {
         return &keypair;
       }
+    }
+  }
+  return nullptr;
+}
+const host_keypair_t* Kex::getHostKey(const std::string& alg) {
+  auto pktype = sshkey_type_from_name(alg.c_str());
+
+  for (const auto& keypair : host_keys_) {
+    if (keypair.pub->type == pktype) {
+      return &keypair;
     }
   }
   return nullptr;
