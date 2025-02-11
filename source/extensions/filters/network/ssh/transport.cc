@@ -13,6 +13,10 @@ absl::StatusOr<size_t> TransportCallbacks::sendMessageToConnection(const SshMsg&
     return stat;
   }
   (*cs.seq_write)++;
+  if (msg.msg_type() == SshMessageType::NewKeys) {
+    ENVOY_LOG(debug, "resetting write seqnr");
+    *cs.seq_write = 0;
+  }
 
   size_t n = enc.length();
   writeToConnection(enc);

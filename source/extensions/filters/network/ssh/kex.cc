@@ -202,7 +202,7 @@ void Kex::setVersionStrings(const std::string& ours, const std::string& peer) {
 }
 
 absl::Status Kex::handleMessage(AnyMsg&& msg) noexcept {
-  switch (msg.msg_type) {
+  switch (msg.msgtype) {
   case SshMessageType::KexInit: {
     if (state_->kex_init_received) {
       return absl::FailedPreconditionError("unexpected KexInit message");

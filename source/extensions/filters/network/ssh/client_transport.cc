@@ -15,10 +15,16 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 SshClientCodec::SshClientCodec(Api::Api& api) : TransportCallbacks(*this), api_(api) {
   user_auth_svc_ = std::make_unique<UserAuthService>(*this, api);
   user_auth_svc_->registerMessageHandlers(*this);
-  connection_svc_ = std::make_unique<ConnectionService>(*this, api);
+  connection_svc_ = std::make_unique<ConnectionService>(*this, api, false);
   connection_svc_->registerMessageHandlers(*this);
 
   registerHandler(SshMessageType::ServiceAccept, this);
+  registerHandler(SshMessageType::GlobalRequest, this);
+  registerHandler(SshMessageType::RequestSuccess, this);
+  registerHandler(SshMessageType::RequestFailure, this);
+  registerHandler(SshMessageType::Ignore, this);
+  registerHandler(SshMessageType::Debug, this);
+  registerHandler(SshMessageType::Unimplemented, this);
   services_[user_auth_svc_->name()] = user_auth_svc_.get();
   services_[connection_svc_->name()] = connection_svc_.get();
 }
@@ -61,7 +67,9 @@ void SshClientCodec::decode(Envoy::Buffer::Instance& buffer, bool /*end_stream*/
       callbacks_->onDecodingFailure(fmt::format("ssh: decryptPacket: {}", stat.message()));
       return;
     }
-    (*connection_state_->seq_read)++;
+    auto prev = (*connection_state_->seq_read)++;
+    ENVOY_LOG(debug, "read seqnr inc: {} -> {}", prev, *connection_state_->seq_read);
+
     {
       auto msg = readPacket<AnyMsg>(dec);
       if (!msg.ok()) {
@@ -69,7 +77,11 @@ void SshClientCodec::decode(Envoy::Buffer::Instance& buffer, bool /*end_stream*/
         callbacks_->onDecodingFailure(fmt::format("ssh: readPacket: {}", msg.status().message()));
         return;
       }
-      ENVOY_LOG(info, "received message: type {}", msg->msg_type);
+      if (msg->msg_type() == SshMessageType::NewKeys) {
+        ENVOY_LOG(debug, "resetting read sequence number");
+        *connection_state_->seq_read = 0;
+      }
+      ENVOY_LOG(info, "received message: type {}", msg->msg_type());
       if (auto err = dispatch(std::move(*msg)); !err.ok()) {
         ENVOY_LOG(error, "ssh: {}", err.message());
         callbacks_->onDecodingFailure(fmt::format("ssh: {}", err.message()));
@@ -83,9 +95,17 @@ GenericProxy::EncodingResult SshClientCodec::encode(const GenericProxy::StreamFr
                                                     GenericProxy::EncodingContext& ctx) {
   switch (dynamic_cast<const SSHStreamFrame&>(frame).frameKind()) {
   case FrameKind::RequestHeader: {
-    const auto& reqHeader = dynamic_cast<const SSHRequestHeaderFrame&>(frame);
-    user_auth_svc_->setUsername(reqHeader.username());
-    return version_exchanger_->writeVersion(reqHeader.ourVersion());
+    // TODO this is kinda jank
+    auto& reqHeader =
+        const_cast<SSHRequestHeaderFrame&>(dynamic_cast<const SSHRequestHeaderFrame&>(frame));
+    downstream_state_ = reqHeader.downstreamState();
+    return version_exchanger_->writeVersion(downstream_state_->server_version);
+  }
+  case FrameKind::RequestCommon: {
+    auto& reqCommon =
+        const_cast<SSHRequestCommonFrame&>(dynamic_cast<const SSHRequestCommonFrame&>(frame));
+
+    return sendMessageToConnection(reqCommon.message());
   }
   default:
     throw EnvoyException("bug: unknown frame kind");
@@ -96,14 +116,9 @@ GenericProxy::EncodingResult SshClientCodec::encode(const GenericProxy::StreamFr
 
 void SshClientCodec::setKexResult(std::shared_ptr<kex_result_t> kex_result) {
   kex_result_ = kex_result;
-  auto newReadState = new connection_state_t;
-  newReadState->direction_read = serverKeys;
-  newReadState->direction_write = clientKeys;
-  newReadState->cipher = NewPacketCipher(newReadState->direction_read,
-                                         newReadState->direction_write, kex_result.get());
-  newReadState->seq_read = std::make_shared<uint32_t>(0);
-  newReadState->seq_write = std::make_shared<uint32_t>(0);
-  connection_state_.reset(newReadState);
+
+  connection_state_->cipher = NewPacketCipher(connection_state_->direction_read,
+                                              connection_state_->direction_write, kex_result.get());
 
   if (!first_kex_done_) {
     first_kex_done_ = true;
@@ -117,25 +132,61 @@ void SshClientCodec::setKexResult(std::shared_ptr<kex_result_t> kex_result) {
 }
 
 absl::Status SshClientCodec::handleMessage(AnyMsg&& msg) {
-  ENVOY_LOG(debug, "received message type {}", msg.msg_type);
-  switch (msg.msg_type) {
+  switch (msg.msgtype) {
   case SshMessageType::ServiceAccept: {
     auto acceptMsg = msg.unwrap<ServiceAcceptMsg>();
     if (services_.contains(acceptMsg.service_name)) {
       return services_[acceptMsg.service_name]->handleMessage(std::move(msg));
     }
-    ENVOY_LOG(error, "received ServiceAccept message for unknown service {}", msg.msg_type);
+    ENVOY_LOG(error, "received ServiceAccept message for unknown service {}", msg.msgtype);
     return absl::InternalError(
-        fmt::format("received ServiceAccept message for unknown service {}", msg.msg_type));
+        fmt::format("received ServiceAccept message for unknown service {}", msg.msgtype));
+  }
+  case SshMessageType::GlobalRequest: {
+    auto globalReq = msg.unwrap<GlobalRequestMsg>();
+    if (globalReq.request_name == "hostkeys-00@openssh.com") {
+      ENVOY_LOG(debug, "received hostkeys-00@openssh.com");
+      // ignore this for now
+      return absl::OkStatus();
+    }
+    ENVOY_LOG(debug, "forwarding global request");
+    forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id,
+                                                     std::move(globalReq)));
+    return absl::OkStatus();
+  }
+  case SshMessageType::RequestSuccess: {
+    forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id,
+                                                     msg.unwrap<GlobalRequestSuccessMsg>()));
+    return absl::OkStatus();
+  }
+  case SshMessageType::RequestFailure: {
+    forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id,
+                                                     msg.unwrap<GlobalRequestFailureMsg>()));
+    return absl::OkStatus();
+  }
+  case SshMessageType::Ignore: {
+    forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id,
+                                                     msg.unwrap<IgnoreMsg>()));
+    return absl::OkStatus();
+  }
+  case SshMessageType::Debug: {
+    forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id,
+                                                     msg.unwrap<DebugMsg>()));
+    return absl::OkStatus();
+  }
+  case SshMessageType::Unimplemented: {
+    forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id,
+                                                     msg.unwrap<UnimplementedMsg>()));
+    return absl::OkStatus();
   }
   default:
-    return absl::UnimplementedError("unimplemented");
+    PANIC("unimplemented");
   }
 }
 
 const connection_state_t& SshClientCodec::getConnectionState() const { return *connection_state_; }
 
-void SshClientCodec::initUpstream(std::string_view, std::string_view) {
+void SshClientCodec::initUpstream(std::shared_ptr<downstream_state_t>) {
   throw EnvoyException("bug: initUpstream called on ClientCodec");
 }
 
@@ -164,4 +215,24 @@ absl::StatusOr<bytearray> SshClientCodec::signWithHostKey(Envoy::Buffer::Instanc
   return absl::InternalError("no such host key");
 }
 
+const downstream_state_t& SshClientCodec::getDownstreamState() const { return *downstream_state_; };
+
+void SshClientCodec::forward(std::unique_ptr<SSHStreamFrame> frame) {
+  switch (frame->frameKind()) {
+  case FrameKind::ResponseHeader: {
+    auto framePtr =
+        std::unique_ptr<ResponseHeaderFrame>(dynamic_cast<ResponseHeaderFrame*>(frame.release()));
+    callbacks_->onDecodingSuccess(std::move(framePtr));
+    break;
+  }
+  case FrameKind::ResponseCommon: {
+    auto framePtr =
+        std::unique_ptr<ResponseCommonFrame>(dynamic_cast<ResponseCommonFrame*>(frame.release()));
+    callbacks_->onDecodingSuccess(std::move(framePtr));
+    break;
+  }
+  default:
+    PANIC("bug: wrong frame type passed to SshClientCodec::forward");
+  }
+}
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

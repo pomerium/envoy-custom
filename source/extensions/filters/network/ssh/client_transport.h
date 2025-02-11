@@ -12,7 +12,7 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 class UserAuthService;
 class ConnectionService;
 
-class SshClientCodec : public Logger::Loggable<Logger::Id::filter>,
+class SshClientCodec : public virtual Logger::Loggable<Logger::Id::filter>,
                        public ClientCodec,
                        public TransportCallbacks,
                        public KexCallbacks,
@@ -29,13 +29,15 @@ public:
   void setKexResult(std::shared_ptr<kex_result_t> kex_result) override;
   absl::Status handleMessage(AnyMsg&& msg) override;
   absl::StatusOr<bytearray> signWithHostKey(Envoy::Buffer::Instance& in) const override;
+  const downstream_state_t& getDownstreamState() const override;
+  void forward(std::unique_ptr<SSHStreamFrame> frame) override;
 
 private:
   const connection_state_t& getConnectionState() const override;
   const kex_result_t& getKexResult() const override;
   void writeToConnection(Envoy::Buffer::Instance& buf) const override;
 
-  void initUpstream(std::string_view, std::string_view) override;
+  void initUpstream(std::shared_ptr<downstream_state_t>) override;
 
   GenericProxy::ClientCodecCallbacks* callbacks_{};
   bool version_exchange_done_{};
@@ -45,6 +47,7 @@ private:
   Api::Api& api_;
   std::unique_ptr<Kex> kex_;
   std::unique_ptr<connection_state_t> connection_state_;
+  std::shared_ptr<downstream_state_t> downstream_state_;
   std::unique_ptr<UserAuthService> user_auth_svc_;
   std::unique_ptr<ConnectionService> connection_svc_;
   std::map<std::string, Service*> services_;

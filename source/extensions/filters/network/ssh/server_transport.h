@@ -8,13 +8,14 @@
 #include "source/extensions/filters/network/ssh/message_handler.h"
 #include "source/extensions/filters/network/generic_proxy/codec_callbacks.h"
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
+#include "util.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 class ServerDownstreamCallbacks;
 class ServerUpstreamCallbacks;
 
-class SshServerCodec : public Logger::Loggable<Logger::Id::filter>,
+class SshServerCodec : public virtual Logger::Loggable<Logger::Id::filter>,
                        public ServerCodec,
                        public KexCallbacks,
                        public TransportCallbacks,
@@ -32,14 +33,21 @@ public:
 
   void setKexResult(std::shared_ptr<kex_result_t> kex_result) override;
   const kex_result_t& getKexResult() const override;
-  void initUpstream(std::string_view username, std::string_view hostname) override;
+  void initUpstream(std::shared_ptr<downstream_state_t> downstreamState) override;
   absl::StatusOr<bytearray> signWithHostKey(Envoy::Buffer::Instance& in) const override;
+  const downstream_state_t& getDownstreamState() const override;
+  void forward(std::unique_ptr<SSHStreamFrame> frame) override;
 
 private:
   absl::Status handleMessage(AnyMsg&& msg) override;
   const connection_state_t& getConnectionState() const override;
   void writeToConnection(Envoy::Buffer::Instance& buf) const override;
 
+  absl::StatusOr<std::unique_ptr<HostKeysProveResponseMsg>>
+  handleHostKeysProve(HostKeysProveRequestMsg&& msg);
+
+  absl::StatusOr<bytearray> signWithSpecificHostKey(Envoy::Buffer::Instance& in,
+                                                    const libssh::SshKeyPtr& key) const;
   GenericProxy::ServerCodecCallbacks* callbacks_{};
   bool version_exchange_done_{};
   std::unique_ptr<VersionExchanger> handshaker_;
@@ -48,6 +56,7 @@ private:
   std::unique_ptr<Kex> kex_;
   std::shared_ptr<kex_result_t> kex_result_;
   std::unique_ptr<connection_state_t> connection_state_;
+  std::shared_ptr<downstream_state_t> downstream_state_;
   std::map<std::string, std::unique_ptr<Service>> services_;
 
   std::string server_version_{"SSH-2.0-Envoy"};

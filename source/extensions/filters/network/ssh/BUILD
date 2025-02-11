@@ -13,6 +13,7 @@ envoy_cc_library(
     srcs = [
         "client_transport.cc",
         "config.cc",
+        "frame.cc",
         "kex.cc",
         "packet_cipher.cc",
         "server_transport.cc",

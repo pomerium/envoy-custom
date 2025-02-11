@@ -21,7 +21,7 @@ public:
 
 protected:
   absl::Status dispatch(AnyMsg&& msg) {
-    auto mt = msg.msg_type;
+    auto mt = msg.msgtype;
     if (!dispatch_.contains(mt)) {
       return absl::Status(absl::StatusCode::kInternal, fmt::format("unknown message type: {}", mt));
     }

@@ -27,7 +27,7 @@ class ConnectionService : public Service {
 public:
   constexpr virtual std::string name() override { return "ssh-connection"; };
 
-  ConnectionService(TransportCallbacks& callbacks, Api::Api& api);
+  ConnectionService(TransportCallbacks& callbacks, Api::Api& api, bool is_server);
   absl::Status handleMessage(AnyMsg&& msg) override;
   void registerMessageHandlers(MessageDispatcher& dispatcher) override;
 
@@ -44,6 +44,7 @@ public:
 private:
   TransportCallbacks& transport_;
   Api::Api& api_;
+  bool is_server_;
 
   std::map<uint32_t, std::unique_ptr<Channel>> active_channels_;
 

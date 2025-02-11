@@ -2,13 +2,19 @@
 #include "source/extensions/filters/network/ssh/kex.h"
 #include "source/extensions/filters/network/ssh/keys.h"
 #include "messages.h"
+#include "transport.h"
+#include "util.h"
 #include <authfile.h>
+#include <cstdlib>
 #include <sshbuf.h>
 #include <sshkey.h>
 
 extern "C" {
 #include "openssh/ssh2.h"
+#include "openssh/ssherr.h"
 }
+#define OPTIONS_CRITICAL 1
+#define OPTIONS_EXTENSIONS 2
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 UserAuthService::UserAuthService(TransportCallbacks& callbacks, Api::Api& api)
@@ -18,50 +24,106 @@ UserAuthService::UserAuthService(TransportCallbacks& callbacks, Api::Api& api)
 }
 
 absl::Status UserAuthService::handleMessage(AnyMsg&& msg) {
-  switch (msg.msg_type) {
+  switch (msg.msgtype) {
   case SshMessageType::UserAuthRequest: { // server
     auto userAuthMsg = msg.unwrap<UserAuthRequestMsg>();
 
-    UserAuthBannerMsg banner{};
-    banner.message = "\r\n====== TEST BANNER ======" +
-                     fmt::format("\r\n====== sign in as: {} ======\r\n", userAuthMsg.username);
-    auto _ = transport_.sendMessageToConnection(banner);
+    if (userAuthMsg.method_name == "publickey") {
+      auto pubkeyReq = msg.unwrap<PubKeyUserAuthRequestMsg>();
 
-    // test code
-    const std::vector<absl::string_view> parts =
-        absl::StrSplit(userAuthMsg.username, absl::MaxSplits("@", 1));
-    auto username = parts[0];
-    auto hostname = parts[1];
-    transport_.initUpstream(username, hostname);
+      // test code
+      const std::vector<absl::string_view> parts =
+          absl::StrSplit(userAuthMsg.username, absl::MaxSplits("@", 1));
+      auto username = parts[0];
+      auto hostname = parts[1];
 
-    return absl::OkStatus();
-    // return callbacks_.downstream().sendMessage(EmptyMsg<SshMessageType::UserAuthSuccess>());
-  }
-  case SshMessageType::ServiceAccept: { // client
-    auto pub = loadSshPublicKey("source/extensions/filters/network/ssh/testdata/ca_user_key.pub");
+      UserAuthBannerMsg banner{};
+      auto msgDump = fmt::format("\r\nmethod:   {}"
+                                 "\r\nusername: {}"
+                                 "\r\nhostname: {}"
+                                 "\r\nkeyalg:   {}"
+                                 "\r\npubkey:   {}",
+                                 pubkeyReq.method_name, username, hostname,
+                                 pubkeyReq.public_key_alg, pubkeyReq.public_key);
+      banner.message = "\r\n====== TEST BANNER ======"
+                       "\r\n==== auth: publickey ====" +
+                       msgDump + "\r\n=========================\r\n";
+      auto _ = transport_.sendMessageToConnection(banner);
 
-    if (sshkey_to_certified(pub.get()) != 0) {
-      return absl::InternalError("sshkey_to_certified failed");
+      auto state = std::make_unique<downstream_state_t>();
+      state->hostname = hostname;
+      state->username = username;
+      state->pubkey = std::make_unique<PubKeyUserAuthRequestMsg>();
+      state->stream_id = api_.randomGenerator().random();
+      *state->pubkey = pubkeyReq;
+      transport_.initUpstream(std::move(state));
+
+      return absl::OkStatus();
+    } else {
+      UserAuthFailureMsg failure;
+      failure.methods = {"publickey"};
+      return transport_.sendMessageToConnection(failure).status();
     }
-    pub->cert->type = SSH2_CERT_TYPE_USER;
-    sshkey_from_private(ca_user_key_.get(), &pub->cert->signature_key);
-    sshkey_certify(pub.get(), ca_user_key_.get(), sshkey_type(ca_user_key_.get()), nullptr,
-                   nullptr);
+    break;
+  }
+
+  case SshMessageType::ServiceAccept: { // client
+    sshkey* userSessionSshKey;
+    if (auto r = sshkey_generate(KEY_ED25519, 256, &userSessionSshKey); r != 0) {
+      return absl::InternalError(fmt::format("sshkey_generate failed: {}", ssh_err(r)));
+    }
+
+    if (auto r = sshkey_to_certified(userSessionSshKey); r != 0) {
+      return absl::InternalError(fmt::format("sshkey_to_certified failed: {}", ssh_err(r)));
+    }
+
+    userSessionSshKey->cert->type = SSH2_CERT_TYPE_USER;
+    userSessionSshKey->cert->serial = 1;
+    userSessionSshKey->cert->nprincipals = 1;
+    char** principals = new char*[1];
+    principals[0] = const_cast<char*>(strdup(transport_.getDownstreamState().username.c_str()));
+    userSessionSshKey->cert->principals = principals;
+    userSessionSshKey->cert->extensions = sshbuf_new();
+    for (auto key : {
+             // non-critical extensions
+             // keep these sorted
+             "no-touch-required",
+             "permit-X11-forwarding",
+             "permit-port-forwarding",
+             "permit-pty",
+             "permit-user-rc",
+         }) {
+      sshbuf_put_cstring(userSessionSshKey->cert->extensions, key);
+      sshbuf_put_string(userSessionSshKey->cert->extensions, 0, 0);
+    }
+
+    time_t now = time(NULL);
+    userSessionSshKey->cert->valid_after = ((now - 59) / 60) * 60;
+    userSessionSshKey->cert->valid_before = ~0;
+
+    if (auto r = sshkey_from_private(ca_user_key_.get(), &userSessionSshKey->cert->signature_key);
+        r != 0) {
+      return absl::InternalError(fmt::format("sshkey_from_private failed: {}", ssh_err(r)));
+    }
+
+    if (auto r = sshkey_certify(userSessionSshKey, ca_user_key_.get(),
+                                sshkey_ssh_name(ca_user_key_.get()), nullptr, nullptr);
+        r != 0) {
+      return absl::InternalError(fmt::format("sshkey_certify failed: {}", ssh_err(r)));
+    }
 
     auto req = std::make_unique<PubKeyUserAuthRequestMsg>();
-    req->username = username_;
+    req->username = transport_.getDownstreamState().username;
     req->method_name = "publickey";
     req->service_name = "ssh-connection";
     req->has_signature = false;
-    req->public_key_alg = "ssh-ed25519";
-    char* out;
-    size_t len;
-    sshbuf_get_cstring(pub->cert->certblob, &out, &len);
+    req->public_key_alg = "ssh-ed25519-cert-v01@openssh.com";
+    size_t len = sshbuf_len(userSessionSshKey->cert->certblob);
     req->public_key.resize(len);
-    memcpy(req->public_key.data(), out, len);
+    memcpy(req->public_key.data(), sshbuf_ptr(userSessionSshKey->cert->certblob), len);
     pending_req_ = std::move(req);
+    pending_user_key_.reset(userSessionSshKey);
 
-    // req.public_key = transport_.getKexResult().HostKeyBlob;
     return transport_.sendMessageToConnection(*pending_req_).status();
   }
   case SshMessageType::UserAuthBanner: {
@@ -70,8 +132,13 @@ absl::Status UserAuthService::handleMessage(AnyMsg&& msg) {
     break;
   }
   case SshMessageType::UserAuthSuccess: { // client
+    ENVOY_LOG(info, "user auth success: \n{} [{}]", pending_req_->username,
+              pending_req_->method_name);
 
-    break;
+    auto frame = std::make_unique<SSHResponseHeaderFrame>(transport_.getDownstreamState().stream_id,
+                                                          StreamStatus(0, true), std::move(msg));
+    transport_.forward(std::move(frame));
+    return absl::OkStatus();
   }
   case SshMessageType::UserAuthFailure: { // client
     auto failureMsg = msg.unwrap<UserAuthFailureMsg>();
@@ -79,17 +146,24 @@ absl::Status UserAuthService::handleMessage(AnyMsg&& msg) {
   }
   case SshMessageType::UserAuthPubKeyOk: { // client
     if (pending_req_) {
-      pending_req_->has_signature = true;
       // compute signature
       Envoy::Buffer::OwnedImpl buf;
-      writeBytes(buf, transport_.getKexResult().SessionID);
+      writeString(buf, transport_.getKexResult().SessionID);
+      pending_req_->has_signature = true; // see PubKeyUserAuthRequestMsg::writeExtra
       pending_req_->encode(buf);
-
-      if (auto sig = transport_.signWithHostKey(buf); !sig.ok()) {
-        return sig.status();
-      } else {
-        pending_req_->signature = std::move(sig.value());
+      auto len = buf.length();
+      auto data = static_cast<uint8_t*>(buf.linearize(len));
+      uint8_t* sig;
+      size_t sig_len;
+      auto err = sshkey_sign(pending_user_key_.get(), &sig, &sig_len, data, len, nullptr, nullptr,
+                             nullptr, 0);
+      if (err != 0) {
+        return absl::InternalError(std::string(ssh_err(err)));
       }
+
+      pending_req_->signature.resize(sig_len);
+      memcpy(pending_req_->signature.data(), sig, sig_len);
+
       return transport_.sendMessageToConnection(*pending_req_).status();
     }
   }

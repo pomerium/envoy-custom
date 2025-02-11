@@ -52,7 +52,8 @@ private:
   std::unique_ptr<DirectionalPacketCipher> write_;
 };
 
-class AEADPacketCipher : public DirectionalPacketCipher {
+class AEADPacketCipher : public DirectionalPacketCipher,
+                         public Logger::Loggable<Logger::Id::filter> {
 public:
   AEADPacketCipher(const char* cipher_name, bytearray iv, bytearray key, Mode mode);
 

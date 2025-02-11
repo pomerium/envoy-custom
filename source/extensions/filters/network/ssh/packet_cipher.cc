@@ -72,7 +72,14 @@ absl::Status AEADPacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffer::Ins
     return absl::AbortedError("packet too small");
   }
   if (packlen < 5 || packlen > PACKET_MAX_SIZE) {
-    return absl::AbortedError(fmt::format("bad packet length: {}", packlen));
+    for (auto test : std::vector<uint32_t>{seqnum - 1, seqnum + 1, seqnum - 2, seqnum + 2, 0}) {
+      if (cipher_get_length(ctx_.get(), &packlen, test, in_data, in_length) == 0 &&
+          packlen < PACKET_MAX_SIZE) {
+        ENVOY_LOG(warn, "sequence number drift: packet decrypts with seqnr={}, but ours is {}",
+                  test, seqnum);
+      }
+    }
+    return absl::AbortedError(fmt::format("bad packet length: {} (seqnr {})", packlen, seqnum));
   }
   if (packlen % block_len_ != 0) {
     return absl::AbortedError(fmt::format("padding error: need {} block {} mod {}", packlen,
@@ -91,7 +98,7 @@ absl::Status AEADPacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffer::Ins
     return absl::AbortedError(fmt::format("cipher_crypt failed: {}", ssh_err(r)));
   }
 
-  in.drain(in_length);
+  in.drain(packlen + aad_len_ + auth_len_);
   out.add(out_data.data(), out_data.size());
 
   return absl::OkStatus();

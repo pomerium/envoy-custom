@@ -10,7 +10,6 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 class UserAuthService : public Service, public Logger::Loggable<Logger::Id::filter> {
 public:
   constexpr virtual std::string name() override { return "ssh-userauth"; };
-  void setUsername(std::string_view username) { username_ = username; }
   UserAuthService(TransportCallbacks& callbacks, Api::Api& api);
   absl::Status handleMessage(AnyMsg&& msg) override;
   void registerMessageHandlers(MessageDispatcher& dispatcher) override;
@@ -22,12 +21,12 @@ public:
   }
 
 private:
-  std::string username_;
   TransportCallbacks& transport_;
   Api::Api& api_;
   libssh::SshKeyPtr ca_user_key_;
   libssh::SshKeyPtr ca_user_pubkey_;
   std::unique_ptr<PubKeyUserAuthRequestMsg> pending_req_;
+  libssh::SshKeyPtr pending_user_key_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
