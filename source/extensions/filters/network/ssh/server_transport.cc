@@ -41,6 +41,7 @@ SshServerCodec::SshServerCodec(Api::Api& api) : TransportCallbacks(*this), api_(
   registerHandler(SshMessageType::Ignore, this);
   registerHandler(SshMessageType::Debug, this);
   registerHandler(SshMessageType::Unimplemented, this);
+  registerHandler(SshMessageType::Disconnect, this);
   services_[userAuth->name()] = std::move(userAuth);
   services_[connection->name()] = std::move(connection);
 };
@@ -87,6 +88,9 @@ void SshServerCodec::decode(Envoy::Buffer::Instance& buffer, bool /*end_stream*/
     if (!stat.ok()) {
       ENVOY_LOG(error, "ssh: decryptPacket: {}", stat.message());
       callbacks_->onDecodingFailure(fmt::format("ssh: decryptPacket: {}", stat.message()));
+      return;
+    } else if (dec.length() == 0) {
+      ENVOY_LOG(debug, "received incomplete packet; waiting for more data");
       return;
     }
 
@@ -209,6 +213,11 @@ absl::Status SshServerCodec::handleMessage(AnyMsg&& msg) {
   case SshMessageType::Unimplemented: {
     forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id,
                                                     msg.unwrap<UnimplementedMsg>()));
+    return absl::OkStatus();
+  }
+  case SshMessageType::Disconnect: {
+    forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id,
+                                                    msg.unwrap<DisconnectMsg>()));
     return absl::OkStatus();
   }
   default:

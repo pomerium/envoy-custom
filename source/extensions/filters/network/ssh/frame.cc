@@ -32,7 +32,12 @@ FrameKind SSHResponseCommonFrame::frameKind() const { return FrameKind::Response
 
 const SshMsg& SSHResponseCommonFrame::message() const { return *msg_; }
 
-FrameFlags SSHResponseHeaderFrame::frameFlags() const { return FrameFlags(stream_id_, 0, 0); }
+FrameFlags SSHResponseHeaderFrame::frameFlags() const {
+  if (!status().ok()) {
+    return FrameFlags(stream_id_, FrameFlags::FLAG_END_STREAM);
+  }
+  return FrameFlags(stream_id_, 0, 0);
+}
 FrameFlags SSHRequestCommonFrame::frameFlags() const { return FrameFlags(stream_id_, 0, 0); }
 FrameFlags SSHResponseCommonFrame::frameFlags() const { return FrameFlags(stream_id_, 0, 0); }
 FrameFlags SSHRequestHeaderFrame::frameFlags() const {

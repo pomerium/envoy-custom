@@ -37,6 +37,10 @@ absl::Status UserAuthService::handleMessage(AnyMsg&& msg) {
       auto username = parts[0];
       auto hostname = parts[1];
 
+      sshkey* userPubKey;
+      sshkey_from_blob(pubkeyReq.public_key.data(), pubkeyReq.public_key.size(), &userPubKey);
+      char* fp = sshkey_fingerprint(
+          userPubKey, sshkey_type_from_name(pubkeyReq.public_key_alg.c_str()), sshkey_fp_rep(0));
       UserAuthBannerMsg banner{};
       auto msgDump = fmt::format("\r\nmethod:   {}"
                                  "\r\nusername: {}"
@@ -44,10 +48,9 @@ absl::Status UserAuthService::handleMessage(AnyMsg&& msg) {
                                  "\r\nkeyalg:   {}"
                                  "\r\npubkey:   {}",
                                  pubkeyReq.method_name, username, hostname,
-                                 pubkeyReq.public_key_alg, pubkeyReq.public_key);
-      banner.message = "\r\n====== TEST BANNER ======"
-                       "\r\n==== auth: publickey ====" +
-                       msgDump + "\r\n=========================\r\n";
+                                 pubkeyReq.public_key_alg, std::string_view(fp));
+      banner.message =
+          "\r\n====== TEST BANNER ======" + msgDump + "\r\n=========================\r\n";
       auto _ = transport_.sendMessageToConnection(banner);
 
       auto state = std::make_unique<downstream_state_t>();
