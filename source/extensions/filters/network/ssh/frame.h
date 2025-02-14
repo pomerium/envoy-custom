@@ -18,20 +18,21 @@ public:
   virtual FrameKind frameKind() const PURE;
 };
 
-struct downstream_state_t;
+struct AuthState;
+using AuthStateSharedPtr = std::shared_ptr<AuthState>;
 
 class SSHRequestHeaderFrame : public GenericProxy::RequestHeaderFrame, public SSHStreamFrame {
 public:
-  SSHRequestHeaderFrame(std::shared_ptr<downstream_state_t> downstreamState);
+  SSHRequestHeaderFrame(AuthStateSharedPtr downstreamState);
   std::string_view host() const override;
   std::string_view protocol() const override;
-  const std::shared_ptr<downstream_state_t>& downstreamState() const;
+  const AuthStateSharedPtr& authState() const;
   FrameFlags frameFlags() const override;
 
   FrameKind frameKind() const override;
 
 private:
-  std::shared_ptr<downstream_state_t> downstream_state_;
+  AuthStateSharedPtr downstream_state_;
 };
 
 class SSHResponseHeaderFrame : public GenericProxy::ResponseHeaderFrame, public SSHStreamFrame {
@@ -46,10 +47,14 @@ public:
   const SshMsg& message() const;
   FrameKind frameKind() const override;
 
+  void setRawFlags(uint32_t raw_flags) { raw_flags_ = raw_flags; }
+  void setStatus(StreamStatus status) { status_ = status; };
+
 private:
   StreamStatus status_;
   std::unique_ptr<SshMsg> msg_;
   uint64_t stream_id_;
+  std::optional<uint32_t> raw_flags_{};
 };
 
 class SSHRequestCommonFrame : public GenericProxy::RequestCommonFrame, public SSHStreamFrame {

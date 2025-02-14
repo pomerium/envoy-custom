@@ -1,8 +1,10 @@
 #pragma once
+#include "bazel-out/k8-dbg/bin/api/extensions/filters/network/ssh/ssh.pb.h"
 #include "source/extensions/filters/network/ssh/service.h"
 #include "source/extensions/filters/network/ssh/messages.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/util.h"
+#include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
@@ -11,22 +13,38 @@ class UserAuthService : public Service, public Logger::Loggable<Logger::Id::filt
 public:
   constexpr virtual std::string name() override { return "ssh-userauth"; };
   UserAuthService(TransportCallbacks& callbacks, Api::Api& api);
-  absl::Status handleMessage(AnyMsg&& msg) override;
-  void registerMessageHandlers(MessageDispatcher& dispatcher) override;
+  void registerMessageHandlers(SshMessageDispatcher& dispatcher) const override;
+  absl::Status requestService() override;
 
-  absl::Status requestService() override {
-    ServiceRequestMsg req;
-    req.service_name = name();
-    return transport_.sendMessageToConnection(req).status();
-  }
-
-private:
+protected:
   TransportCallbacks& transport_;
   Api::Api& api_;
   libssh::SshKeyPtr ca_user_key_;
   libssh::SshKeyPtr ca_user_pubkey_;
   std::unique_ptr<PubKeyUserAuthRequestMsg> pending_req_;
   libssh::SshKeyPtr pending_user_key_;
+};
+
+class DownstreamUserAuthService : public UserAuthService, public StreamMgmtServerMessageHandler {
+public:
+  DownstreamUserAuthService(TransportCallbacks& callbacks, Api::Api& api)
+      : UserAuthService(callbacks, api),
+        transport_(dynamic_cast<DownstreamTransportCallbacks&>(callbacks)) {}
+
+  using UserAuthService::registerMessageHandlers;
+  absl::Status handleMessage(AnyMsg&& msg) override;
+
+  void registerMessageHandlers(StreamMgmtServerMessageDispatcher& dispatcher) const override;
+  absl::Status handleMessage(Grpc::ResponsePtr<ServerMessage>&& message) override;
+
+private:
+  DownstreamTransportCallbacks& transport_;
+};
+
+class UpstreamUserAuthService : public UserAuthService {
+public:
+  using UserAuthService::UserAuthService;
+  absl::Status handleMessage(AnyMsg&& msg) override;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

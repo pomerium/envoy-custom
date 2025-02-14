@@ -4,7 +4,7 @@
 #include "validate/validate.h"
 #include <cerrno>
 #include <unistd.h>
-
+#include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
@@ -20,12 +20,15 @@ public:
 
 class SshCodecFactory : public CodecFactory {
 public:
-  SshCodecFactory(Api::Api& api);
+  SshCodecFactory(Api::Api& api, std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
+                  CreateGrpcClientFunc create_grpc_client);
   ServerCodecPtr createServerCodec() const override;
   ClientCodecPtr createClientCodec() const override;
 
 private:
   Api::Api& api_;
+  std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config_;
+  CreateGrpcClientFunc create_grpc_client_;
 };
 
 DECLARE_FACTORY(SshCodecFactoryConfig);

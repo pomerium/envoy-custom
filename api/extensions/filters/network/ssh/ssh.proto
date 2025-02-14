@@ -1,9 +1,142 @@
 syntax = "proto3";
 
-package pomerium.extensions;
+package pomerium.extensions.ssh;
+
+import "envoy/config/core/v3/grpc_service.proto";
+import "google/protobuf/any.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/pomerium/envoy-custom/api/extensions/filters/network/ssh";
 
-message SshConfig  {}
+message Config {}
 
-message SshCodecConfig{}
+message CodecConfig {
+  repeated HostKeyPair host_keys   = 1;
+  HostKeyPair          user_ca_key = 2;
+
+  envoy.config.core.v3.GrpcService grpc_service = 3;
+}
+
+message HostKeyPair {
+  string public_key_file  = 1;
+  string private_key_file = 2;
+}
+
+message AuthenticationRequest {
+  string              username       = 1;
+  string              auth_method    = 2;
+  string              hostname       = 3;
+  google.protobuf.Any method_request = 4;
+}
+
+message PublicKeyMethodRequest {
+  bytes  public_key     = 1;
+  string public_key_alg = 2;
+}
+
+message KeyboardInteractiveMethodRequest {
+  repeated string submethods = 1;
+}
+
+message KeyboardInteractiveInfoPrompts {
+  message Prompt {
+    string prompt = 1;
+    bool   echo   = 2;
+  }
+
+  string          name         = 1;
+  string          instruction  = 2;
+  string          language_tag = 3;
+  repeated Prompt prompts      = 4;
+}
+
+message KeyboardInteractiveInfoPromptResponses {
+  repeated string responses = 1;
+}
+
+service StreamManagement {
+  rpc ManageStream(stream ClientMessage) returns (stream ServerMessage);
+}
+
+message ClientMessage {
+  oneof message {
+    StreamEvent           event         = 1;
+    AuthenticationRequest auth_request  = 2;
+    InfoResponse          info_response = 3;
+  }
+}
+
+message StreamEvent {
+  oneof event {
+    DownstreamConnectEvent downstream_connected = 1;
+  }
+}
+
+message DownstreamConnectEvent {}
+
+message ServerMessage {
+  oneof message {
+    AuthenticationResponse auth_response   = 1;
+    ControlRequest         control_request = 2;
+  }
+}
+
+message AuthenticationResponse {
+  oneof response {
+    AllowResponse allow        = 1;
+    DenyResponse  deny         = 2;
+    InfoRequest   info_request = 3;
+  }
+}
+
+message ControlRequest {
+  message CloseStream {
+    optional string reason = 1;
+  }
+
+  oneof action {
+    CloseStream close_stream = 1;
+  }
+}
+
+message AllowResponse {
+  string          username              = 1;
+  repeated string methods_authenticated = 2;
+  string          hostname              = 3;
+  bytes           public_key            = 4;
+  Permissions     permissions           = 5;
+}
+
+message Permissions {
+  bool permit_port_forwarding  = 1;
+  bool permit_agent_forwarding = 2;
+  bool permit_x11_forwarding   = 3;
+  bool permit_pty              = 4;
+  bool permit_user_rc          = 5;
+
+  google.protobuf.Timestamp valid_before = 6;
+  google.protobuf.Timestamp valid_after  = 7;
+
+  repeated string permit_open   = 8;
+  repeated string permit_listen = 9;
+
+  optional string     force_command         = 10;
+  map<string, string> force_env             = 11;
+  optional bool       require_user_presence = 12;
+  optional bool       require_verify        = 13;
+}
+
+message DenyResponse {
+  bool            partial = 1;
+  repeated string methods = 2;
+}
+
+message InfoRequest {
+  string              method  = 1;
+  google.protobuf.Any request = 2;
+}
+
+message InfoResponse {
+  string              method   = 1;
+  google.protobuf.Any response = 2;
+}

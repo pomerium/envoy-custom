@@ -29,7 +29,7 @@ public:
 
   ConnectionService(TransportCallbacks& callbacks, Api::Api& api, bool is_server);
   absl::Status handleMessage(AnyMsg&& msg) override;
-  void registerMessageHandlers(MessageDispatcher& dispatcher) override;
+  void registerMessageHandlers(SshMessageDispatcher& dispatcher) const override;
 
   static void RegisterChannelType(const std::string& name, auto create) {
     channelTypes[name] = create;

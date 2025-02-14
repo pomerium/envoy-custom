@@ -7,13 +7,12 @@
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-class Service : public MessageHandler {
+class Service : public SshMessageHandler {
 public:
   virtual ~Service() = default;
   constexpr virtual std::string name() PURE;
   // called after initial handshake and key exchange
   virtual absl::Status requestService() PURE;
-  virtual void registerMessageHandlers(MessageDispatcher& dispatcher) PURE;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

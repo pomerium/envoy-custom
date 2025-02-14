@@ -1,5 +1,7 @@
 #pragma once
 
+#include "bazel-out/k8-dbg/bin/api/extensions/filters/network/ssh/ssh.pb.h"
+#include "grpc_client_impl.h"
 #include "source/common/buffer/buffer_impl.h"
 #include "source/extensions/filters/network/ssh/util.h"
 #include "source/extensions/filters/network/ssh/frame.h"
@@ -31,30 +33,41 @@ struct connection_state_t {
 
 struct PubKeyUserAuthRequestMsg;
 
-struct downstream_state_t {
+struct AuthState {
   std::string server_version;
   uint64_t stream_id; // unique stream id for both connections
 
   std::string username;
   std::string hostname;
-  std::unique_ptr<PubKeyUserAuthRequestMsg> pubkey;
+  std::vector<std::string> auth_methods;
+  bytearray public_key;
+  std::unique_ptr<pomerium::extensions::ssh::AllowResponse> permissions;
 };
+
+using AuthStateSharedPtr = std::shared_ptr<AuthState>;
 
 class TransportCallbacks : public virtual Logger::Loggable<Logger::Id::filter> {
 public:
   virtual ~TransportCallbacks() = default;
   absl::StatusOr<size_t> sendMessageToConnection(const SshMsg& msg);
 
-  virtual void initUpstream(std::shared_ptr<downstream_state_t> downstreamState) PURE;
   virtual void forward(std::unique_ptr<SSHStreamFrame> frame) PURE;
   virtual void writeToConnection(Envoy::Buffer::Instance& buf) const PURE;
 
   virtual const kex_result_t& getKexResult() const PURE;
   virtual absl::StatusOr<bytearray> signWithHostKey(Envoy::Buffer::Instance& in) const PURE;
-  virtual const downstream_state_t& getDownstreamState() const PURE;
+  virtual const AuthState& authState() const PURE;
+  virtual const pomerium::extensions::ssh::CodecConfig& codecConfig() const PURE;
 
 protected:
   virtual const connection_state_t& getConnectionState() const PURE;
+};
+
+class DownstreamTransportCallbacks : public TransportCallbacks {
+public:
+  using TransportCallbacks::TransportCallbacks;
+  virtual void initUpstream(AuthStateSharedPtr downstreamState) PURE;
+  virtual void sendMgmtClientMessage(const ClientMessage& msg) PURE;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

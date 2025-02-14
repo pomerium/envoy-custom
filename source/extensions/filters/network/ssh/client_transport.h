@@ -16,10 +16,10 @@ class SshClientCodec : public virtual Logger::Loggable<Logger::Id::filter>,
                        public ClientCodec,
                        public TransportCallbacks,
                        public KexCallbacks,
-                       public MessageDispatcher,
-                       public MessageHandler {
+                       public SshMessageDispatcher,
+                       public SshMessageHandler {
 public:
-  SshClientCodec(Api::Api& api);
+  SshClientCodec(Api::Api& api, std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config);
 
   void setCodecCallbacks(GenericProxy::ClientCodecCallbacks& callbacks) override;
   void decode(Envoy::Buffer::Instance& buffer, bool end_stream) override;
@@ -29,16 +29,24 @@ public:
   void setKexResult(std::shared_ptr<kex_result_t> kex_result) override;
   absl::Status handleMessage(AnyMsg&& msg) override;
   absl::StatusOr<bytearray> signWithHostKey(Envoy::Buffer::Instance& in) const override;
-  const downstream_state_t& getDownstreamState() const override;
+  const AuthState& authState() const override;
   void forward(std::unique_ptr<SSHStreamFrame> frame) override;
+  const pomerium::extensions::ssh::CodecConfig& codecConfig() const override;
 
 private:
   const connection_state_t& getConnectionState() const override;
   const kex_result_t& getKexResult() const override;
   void writeToConnection(Envoy::Buffer::Instance& buf) const override;
-
-  void initUpstream(std::shared_ptr<downstream_state_t>) override;
-
+  void registerMessageHandlers(MessageDispatcher<AnyMsg>& dispatcher) const override {
+    dispatcher.registerHandler(SshMessageType::ServiceAccept, this);
+    dispatcher.registerHandler(SshMessageType::GlobalRequest, this);
+    dispatcher.registerHandler(SshMessageType::RequestSuccess, this);
+    dispatcher.registerHandler(SshMessageType::RequestFailure, this);
+    dispatcher.registerHandler(SshMessageType::Ignore, this);
+    dispatcher.registerHandler(SshMessageType::Debug, this);
+    dispatcher.registerHandler(SshMessageType::Unimplemented, this);
+    dispatcher.registerHandler(SshMessageType::Disconnect, this);
+  }
   GenericProxy::ClientCodecCallbacks* callbacks_{};
   bool version_exchange_done_{};
   bool first_kex_done_{};
@@ -47,9 +55,10 @@ private:
   Api::Api& api_;
   std::unique_ptr<Kex> kex_;
   std::unique_ptr<connection_state_t> connection_state_;
-  std::shared_ptr<downstream_state_t> downstream_state_;
+  AuthStateSharedPtr downstream_state_;
   std::unique_ptr<UserAuthService> user_auth_svc_;
   std::unique_ptr<ConnectionService> connection_svc_;
   std::map<std::string, Service*> services_;
+  std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config_;
 };
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

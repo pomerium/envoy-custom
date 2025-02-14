@@ -194,7 +194,7 @@ public:
 };
 
 class Kex : public VersionExchangeCallbacks,
-            public MessageHandler,
+            public SshMessageHandler,
             public Logger::Loggable<Logger::Id::filter> {
 public:
   Kex(TransportCallbacks& transportCallbacks, KexCallbacks& kexCallbacks, Filesystem::Instance& fs,
@@ -208,8 +208,13 @@ public:
   absl::StatusOr<std::string> findCommon(std::string_view what, const NameList& client,
                                          const NameList& server);
   void loadHostKeys();
-  void loadSshKeyPair(const char* privKeyPath, const char* pubKeyPath);
-
+  void loadSshKeyPair(const std::string& privKeyPath, const std::string& pubKeyPath);
+  void registerMessageHandlers(MessageDispatcher<AnyMsg>& dispatcher) const override {
+    dispatcher.registerHandler(SshMessageType::KexInit, this);
+    dispatcher.registerHandler(SshMessageType::KexECDHInit, this);
+    dispatcher.registerHandler(SshMessageType::KexECDHReply, this);
+    dispatcher.registerHandler(SshMessageType::NewKeys, this);
+  }
   // HandshakeCallbacks
   void setVersionStrings(const std::string& ours, const std::string& peer) override;
 

@@ -13,10 +13,10 @@
 #include "source/extensions/filters/network/ssh/service_userauth.h"
 #include "source/extensions/filters/network/ssh/service_connection.h"
 #include "source/extensions/filters/network/ssh/packet_cipher.h"
+#include "source/extensions/filters/network/ssh/util.h"
 #include "source/extensions/filters/network/generic_proxy/codec_callbacks.h"
 #include "source/common/buffer/buffer_impl.h"
 #include "source/extensions/filters/network/ssh/version_exchange.h"
-#include "util.h"
 
 #include <openssl/bn.h>
 #include <openssl/evp.h>
@@ -28,20 +28,22 @@ extern "C" {
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-SshServerCodec::SshServerCodec(Api::Api& api) : TransportCallbacks(*this), api_(api) {
-  auto userAuth = std::make_unique<UserAuthService>(*this, api);
+SshServerCodec::SshServerCodec(Api::Api& api,
+                               std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
+                               CreateGrpcClientFunc create_grpc_client)
+    : DownstreamTransportCallbacks(*this), api_(api), config_(config) {
+  auto grpcClient = create_grpc_client();
+  THROW_IF_NOT_OK(grpcClient.status());
+  mgmt_client_ = std::make_unique<StreamManagementServiceClient>(*grpcClient);
+  this->registerMessageHandlers(*mgmt_client_);
+  this->registerMessageHandlers(*static_cast<SshMessageDispatcher*>(this));
+
+  auto userAuth = std::make_unique<DownstreamUserAuthService>(*this, api);
   userAuth->registerMessageHandlers(*this);
+  userAuth->registerMessageHandlers(*mgmt_client_);
   auto connection = std::make_unique<ConnectionService>(*this, api, true);
   connection->registerMessageHandlers(*this);
 
-  registerHandler(SshMessageType::ServiceRequest, this);
-  registerHandler(SshMessageType::GlobalRequest, this);
-  registerHandler(SshMessageType::RequestSuccess, this);
-  registerHandler(SshMessageType::RequestFailure, this);
-  registerHandler(SshMessageType::Ignore, this);
-  registerHandler(SshMessageType::Debug, this);
-  registerHandler(SshMessageType::Unimplemented, this);
-  registerHandler(SshMessageType::Disconnect, this);
   services_[userAuth->name()] = std::move(userAuth);
   services_[connection->name()] = std::move(connection);
 };
@@ -49,11 +51,8 @@ SshServerCodec::SshServerCodec(Api::Api& api) : TransportCallbacks(*this), api_(
 void SshServerCodec::setCodecCallbacks(GenericProxy::ServerCodecCallbacks& callbacks) {
   this->callbacks_ = &callbacks;
   kex_ = std::make_unique<Kex>(*this, *this, api_.fileSystem(), true);
+  kex_->registerMessageHandlers(*this);
   handshaker_ = std::make_unique<VersionExchanger>(*this, *kex_);
-
-  registerHandler(SshMessageType::KexInit, kex_.get());
-  registerHandler(SshMessageType::KexECDHInit, kex_.get());
-  registerHandler(SshMessageType::NewKeys, kex_.get());
 
   auto defaultState = new connection_state_t{};
   defaultState->cipher = NewUnencrypted();
@@ -62,6 +61,15 @@ void SshServerCodec::setCodecCallbacks(GenericProxy::ServerCodecCallbacks& callb
   defaultState->seq_read = std::make_shared<uint32_t>(0);
   defaultState->seq_write = std::make_shared<uint32_t>(0);
   connection_state_.reset(defaultState);
+
+  mgmt_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus, std::string err) {
+    DisconnectMsg dc;
+    dc.reason_code = SSH2_DISCONNECT_CONNECTION_LOST; // todo
+    dc.description = err;
+    auto _ = sendMessageToConnection(dc);
+    callbacks_->connection()->close(Network::ConnectionCloseType::FlushWrite, err);
+  });
+  mgmt_client_->connect();
 }
 
 void SshServerCodec::decode(Envoy::Buffer::Instance& buffer, bool /*end_stream*/) {
@@ -148,6 +156,16 @@ GenericProxy::ResponsePtr SshServerCodec::respond(absl::Status status, absl::str
         req.frameFlags().streamId(), StreamStatus(SSH2_DISCONNECT_SERVICE_NOT_AVAILABLE, false),
         std::move(dc));
   } else {
+    // auto m = AnyMsg::fromString(data);
+    // switch (m.msg_type()) {
+    // case SshMessageType::UserAuthFailure: {
+    //   auto _ = sendMessageToConnection(m);
+    //   return std::make_unique<SSHResponseHeaderFrame>(
+    //       req.frameFlags().streamId(), StreamStatus(0, false), m.unwrap<UserAuthFailureMsg>());
+    // }
+    // default:
+    //   break;
+    // }
     PANIC("unimplemented");
   }
   return nullptr; // todo
@@ -225,8 +243,24 @@ absl::Status SshServerCodec::handleMessage(AnyMsg&& msg) {
   }
   return absl::OkStatus();
 }
+absl::Status SshServerCodec::handleMessage(Grpc::ResponsePtr<ServerMessage>&& msg) {
+  switch (msg->message_case()) {
+  case ServerMessage::kControlRequest:
+    switch (msg->control_request().action_case()) {
+    case pomerium::extensions::ssh::ControlRequest::kCloseStream: {
+      callbacks_->connection()->close(Network::ConnectionCloseType::AbortReset,
+                                      msg->control_request().close_stream().reason());
+      return absl::OkStatus();
+    }
+    default:
+      PANIC("unknown action case");
+    }
+  default:
+    PANIC("unknown message case");
+  }
+}
 
-void SshServerCodec::initUpstream(std::shared_ptr<downstream_state_t> downstreamState) {
+void SshServerCodec::initUpstream(AuthStateSharedPtr downstreamState) {
   downstreamState->server_version = server_version_;
   downstream_state_ = downstreamState;
   auto frame = std::make_unique<SSHRequestHeaderFrame>(downstreamState);
@@ -248,7 +282,7 @@ absl::StatusOr<bytearray> SshServerCodec::signWithHostKey(Envoy::Buffer::Instanc
   return absl::InternalError("no such host key");
 }
 
-const downstream_state_t& SshServerCodec::getDownstreamState() const { return *downstream_state_; }
+const AuthState& SshServerCodec::authState() const { return *downstream_state_; }
 
 void SshServerCodec::forward(std::unique_ptr<SSHStreamFrame> frame) {
   switch (frame->frameKind()) {
@@ -315,6 +349,14 @@ SshServerCodec::signWithSpecificHostKey(Envoy::Buffer::Instance& in,
   out.resize(sig_len);
   memcpy(out.data(), sig, sig_len);
   return out;
+}
+
+const pomerium::extensions::ssh::CodecConfig& SshServerCodec::codecConfig() const {
+  return *config_;
+};
+
+void SshServerCodec::sendMgmtClientMessage(const ClientMessage& msg) {
+  mgmt_client_->stream().sendMessage(msg, false);
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

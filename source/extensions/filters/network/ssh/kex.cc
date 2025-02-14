@@ -510,24 +510,13 @@ const host_keypair_t* Kex::getHostKey(const std::string& alg) {
 }
 
 void Kex::loadHostKeys() {
-  // static constexpr auto rsaPriv =
-  //     "source/extensions/filters/network/ssh/testdata/test_host_rsa_key";
-  // static constexpr auto rsaPub =
-  //     "source/extensions/filters/network/ssh/testdata/test_host_rsa_key.pub";
-  // static constexpr auto rsaPriv = "/etc/ssh/ssh_host_rsa_key";
-  // static constexpr auto rsaPub = "/etc/ssh/ssh_host_rsa_key.pub";
-  // loadSshKeyPair(rsaPriv, rsaPub);
-
-  // static constexpr auto ed25519Priv = "/etc/ssh/ssh_host_ed25519_key";
-  // static constexpr auto ed25519Pub = "/etc/ssh/ssh_host_ed25519_key.pub";
-  static constexpr auto ed25519Priv =
-      "source/extensions/filters/network/ssh/testdata/test_host_ed25519_key";
-  static constexpr auto ed25519Pub =
-      "source/extensions/filters/network/ssh/testdata/test_host_ed25519_key.pub";
-  loadSshKeyPair(ed25519Priv, ed25519Pub);
+  auto hostKeys = transport_.codecConfig().host_keys();
+  for (const auto& hostKey : hostKeys) {
+    loadSshKeyPair(hostKey.private_key_file(), hostKey.public_key_file());
+  }
 }
 
-void Kex::loadSshKeyPair(const char* privKeyPath, const char* pubKeyPath) {
+void Kex::loadSshKeyPair(const std::string& privKeyPath, const std::string& pubKeyPath) {
   if (fs_.fileExists(privKeyPath) && fs_.fileExists(pubKeyPath)) {
     try {
       auto priv = loadSshPrivateKey(privKeyPath);

@@ -3,7 +3,7 @@
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-SSHRequestHeaderFrame::SSHRequestHeaderFrame(std::shared_ptr<downstream_state_t> downstreamState)
+SSHRequestHeaderFrame::SSHRequestHeaderFrame(AuthStateSharedPtr downstreamState)
     : downstream_state_(downstreamState) {}
 
 std::string_view SSHRequestHeaderFrame::host() const { return downstream_state_->hostname; };
@@ -20,9 +20,7 @@ const SshMsg& SSHResponseHeaderFrame::message() const { return *msg_; }
 
 FrameKind SSHResponseHeaderFrame::frameKind() const { return FrameKind::ResponseHeader; };
 
-const std::shared_ptr<downstream_state_t>& SSHRequestHeaderFrame::downstreamState() const {
-  return downstream_state_;
-}
+const AuthStateSharedPtr& SSHRequestHeaderFrame::authState() const { return downstream_state_; }
 
 FrameKind SSHRequestCommonFrame::frameKind() const { return FrameKind::RequestCommon; };
 
@@ -33,6 +31,9 @@ FrameKind SSHResponseCommonFrame::frameKind() const { return FrameKind::Response
 const SshMsg& SSHResponseCommonFrame::message() const { return *msg_; }
 
 FrameFlags SSHResponseHeaderFrame::frameFlags() const {
+  if (raw_flags_.has_value()) {
+    return FrameFlags(stream_id_, raw_flags_.value(), 0);
+  }
   if (!status().ok()) {
     return FrameFlags(stream_id_, FrameFlags::FLAG_END_STREAM);
   }

@@ -12,20 +12,15 @@ extern "C" {
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-SshClientCodec::SshClientCodec(Api::Api& api) : TransportCallbacks(*this), api_(api) {
-  user_auth_svc_ = std::make_unique<UserAuthService>(*this, api);
+SshClientCodec::SshClientCodec(Api::Api& api,
+                               std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config)
+    : TransportCallbacks(*this), api_(api), config_(std::move(config)) {
+  this->registerMessageHandlers(*static_cast<SshMessageDispatcher*>(this));
+  user_auth_svc_ = std::make_unique<UpstreamUserAuthService>(*this, api);
   user_auth_svc_->registerMessageHandlers(*this);
   connection_svc_ = std::make_unique<ConnectionService>(*this, api, false);
   connection_svc_->registerMessageHandlers(*this);
 
-  registerHandler(SshMessageType::ServiceAccept, this);
-  registerHandler(SshMessageType::GlobalRequest, this);
-  registerHandler(SshMessageType::RequestSuccess, this);
-  registerHandler(SshMessageType::RequestFailure, this);
-  registerHandler(SshMessageType::Ignore, this);
-  registerHandler(SshMessageType::Debug, this);
-  registerHandler(SshMessageType::Unimplemented, this);
-  registerHandler(SshMessageType::Disconnect, this);
   services_[user_auth_svc_->name()] = user_auth_svc_.get();
   services_[connection_svc_->name()] = connection_svc_.get();
 }
@@ -33,12 +28,8 @@ SshClientCodec::SshClientCodec(Api::Api& api) : TransportCallbacks(*this), api_(
 void SshClientCodec::setCodecCallbacks(GenericProxy::ClientCodecCallbacks& callbacks) {
   callbacks_ = &callbacks;
   kex_ = std::make_unique<Kex>(*this, *this, api_.fileSystem(), false);
+  kex_->registerMessageHandlers(*this);
   version_exchanger_ = std::make_unique<VersionExchanger>(*this, *kex_);
-
-  registerHandler(SshMessageType::KexInit, kex_.get());
-  registerHandler(SshMessageType::KexECDHReply, kex_.get());
-  registerHandler(SshMessageType::NewKeys, kex_.get());
-
   auto defaultState = new connection_state_t{};
   defaultState->cipher = NewUnencrypted();
   defaultState->direction_read = serverKeys;
@@ -99,17 +90,12 @@ GenericProxy::EncodingResult SshClientCodec::encode(const GenericProxy::StreamFr
                                                     GenericProxy::EncodingContext& ctx) {
   switch (dynamic_cast<const SSHStreamFrame&>(frame).frameKind()) {
   case FrameKind::RequestHeader: {
-    // TODO this is kinda jank
-    auto& reqHeader =
-        const_cast<SSHRequestHeaderFrame&>(dynamic_cast<const SSHRequestHeaderFrame&>(frame));
-    downstream_state_ = reqHeader.downstreamState();
+    auto& reqHeader = dynamic_cast<const SSHRequestHeaderFrame&>(frame);
+    downstream_state_ = reqHeader.authState();
     return version_exchanger_->writeVersion(downstream_state_->server_version);
   }
   case FrameKind::RequestCommon: {
-    auto& reqCommon =
-        const_cast<SSHRequestCommonFrame&>(dynamic_cast<const SSHRequestCommonFrame&>(frame));
-
-    return sendMessageToConnection(reqCommon.message());
+    return sendMessageToConnection(dynamic_cast<const SSHRequestCommonFrame&>(frame).message());
   }
   default:
     throw EnvoyException("bug: unknown frame kind");
@@ -195,10 +181,6 @@ absl::Status SshClientCodec::handleMessage(AnyMsg&& msg) {
 
 const connection_state_t& SshClientCodec::getConnectionState() const { return *connection_state_; }
 
-void SshClientCodec::initUpstream(std::shared_ptr<downstream_state_t>) {
-  throw EnvoyException("bug: initUpstream called on ClientCodec");
-}
-
 void SshClientCodec::writeToConnection(Envoy::Buffer::Instance& buf) const {
   return callbacks_->writeToConnection(buf);
 }
@@ -224,7 +206,7 @@ absl::StatusOr<bytearray> SshClientCodec::signWithHostKey(Envoy::Buffer::Instanc
   return absl::InternalError("no such host key");
 }
 
-const downstream_state_t& SshClientCodec::getDownstreamState() const { return *downstream_state_; };
+const AuthState& SshClientCodec::authState() const { return *downstream_state_; };
 
 void SshClientCodec::forward(std::unique_ptr<SSHStreamFrame> frame) {
   switch (frame->frameKind()) {
@@ -244,4 +226,7 @@ void SshClientCodec::forward(std::unique_ptr<SSHStreamFrame> frame) {
     PANIC("bug: wrong frame type passed to SshClientCodec::forward");
   }
 }
+const pomerium::extensions::ssh::CodecConfig& SshClientCodec::codecConfig() const {
+  return *config_;
+};
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

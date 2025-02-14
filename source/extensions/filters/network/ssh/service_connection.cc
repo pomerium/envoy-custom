@@ -14,7 +14,7 @@ ConnectionService::ConnectionService(TransportCallbacks& callbacks, Api::Api& ap
 }
 
 absl::Status ConnectionService::handleMessage(AnyMsg&& msg) {
-  auto streamId = transport_.getDownstreamState().stream_id;
+  auto streamId = transport_.authState().stream_id;
   switch (msg.msgtype) {
   case SshMessageType::ChannelOpen:
     transport_.forward(
@@ -147,7 +147,7 @@ absl::Status ConnectionService::handleMessage(AnyMsg&& msg) {
   return absl::OkStatus();
 }
 
-void ConnectionService::registerMessageHandlers(MessageDispatcher& dispatcher) {
+void ConnectionService::registerMessageHandlers(SshMessageDispatcher& dispatcher) const {
   dispatcher.registerHandler(SshMessageType::ChannelOpen, this);
   dispatcher.registerHandler(SshMessageType::ChannelOpenConfirmation, this);
   dispatcher.registerHandler(SshMessageType::ChannelOpenFailure, this);

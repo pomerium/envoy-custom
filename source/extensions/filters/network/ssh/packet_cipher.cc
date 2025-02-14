@@ -86,7 +86,6 @@ absl::Status AEADPacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffer::Ins
                                           block_len_, packlen % block_len_));
   }
   if (in_length < aad_len_ + packlen + auth_len_) {
-    // incomplete packet    return absl::OkStatus(); // incomplete packet
     return absl::OkStatus(); // incomplete packet
   }
 

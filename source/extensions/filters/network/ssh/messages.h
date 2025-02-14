@@ -5,6 +5,7 @@
 #include <string>
 #include "source/common/buffer/buffer_impl.h"
 #include "source/extensions/filters/network/ssh/util.h"
+#include "source/extensions/filters/network/ssh/message_handler.h"
 #include "openssl/rand.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
@@ -914,6 +915,89 @@ struct PubKeyUserAuthRequestMsg : UserAuthRequestMsg {
   }
 };
 
+struct KeyboardInteractiveUserAuthRequestMsg : UserAuthRequestMsg {
+  std::string language_tag;
+  NameList submethods;
+
+  size_t readExtra(Envoy::Buffer::Instance& buffer, bytearray& out, size_t len) override {
+    size_t n = readString(buffer, language_tag);
+    n += readNameList(buffer, submethods);
+    n += UserAuthRequestMsg::readExtra(buffer, out, len - n);
+    return n;
+  }
+  size_t writeExtra(Envoy::Buffer::Instance& buffer, const bytearray&) const override {
+    size_t n = writeString(buffer, language_tag);
+    n += writeNameList(buffer, submethods);
+    return n;
+  }
+};
+
+struct UserAuthInfoRequestMsg : SshMsg, MsgType<SshMessageType::UserAuthInfoRequest> {
+  struct prompt {
+    std::string prompt;
+    bool echo;
+  };
+
+  std::string name;
+  std::string instruction;
+  std::string language_tag;
+  int32_t num_prompts;
+  std::vector<prompt> prompts;
+
+  size_t decode(Envoy::Buffer::Instance& buffer, size_t payload_size) override {
+    size_t n = readType<type>(buffer);
+    n += readString(buffer, name);
+    n += readString(buffer, instruction);
+    n += readString(buffer, language_tag);
+    n += read(buffer, num_prompts);
+    for (int32_t i = 0; i < num_prompts && n < payload_size; i++) {
+      prompt p;
+      n += readString(buffer, p.prompt);
+      n += read(buffer, p.echo);
+      prompts.push_back(std::move(p));
+    }
+    return n;
+  }
+
+  size_t encode(Envoy::Buffer::Instance& buffer) const override {
+    size_t n = writeType<type>(buffer);
+    n += writeString(buffer, name);
+    n += writeString(buffer, instruction);
+    n += writeString(buffer, language_tag);
+    n += write(buffer, num_prompts);
+    for (const auto& prompt : prompts) {
+      n += writeString(buffer, prompt.prompt);
+      n += write(buffer, prompt.echo);
+    }
+    return n;
+  }
+};
+
+struct UserInfoResponseMsg : SshMsg, MsgType<SshMessageType::UserAuthInfoResponse> {
+  int32_t num_responses;
+  std::vector<std::string> responses;
+
+  size_t decode(Envoy::Buffer::Instance& buffer, size_t payload_size) override {
+    size_t n = readType<type>(buffer);
+    n += read(buffer, num_responses);
+    for (int32_t i = 0; i < num_responses && n < payload_size; i++) {
+      std::string response;
+      n += readString(buffer, response);
+      responses.push_back(std::move(response));
+    }
+    return n;
+  }
+
+  size_t encode(Envoy::Buffer::Instance& buffer) const override {
+    size_t n = writeType<type>(buffer);
+    n += write(buffer, num_responses);
+    for (const auto& response : responses) {
+      n += writeString(buffer, response);
+    }
+    return n;
+  }
+};
+
 struct UserAuthBannerMsg : SshMsg, MsgType<SshMessageType::UserAuthBanner> {
   std::string message;
   std::string language_tag;
@@ -1006,6 +1090,21 @@ struct AnyMsg : SshMsg {
     buf.drain(buf.length());
     return m;
   }
+
+  static AnyMsg fromString(std::string_view str) {
+    Envoy::Buffer::OwnedImpl buf;
+    buf.add(str);
+    AnyMsg m{};
+    m.decode(buf, buf.length());
+    return m;
+  }
 };
+
+using SshMessageDispatcher = MessageDispatcher<AnyMsg>;
+using SshMessageHandler = MessageHandler<AnyMsg>;
+
+template <> struct message_case_type<AnyMsg> : std::type_identity<SshMessageType> {};
+
+template <> inline SshMessageType messageCase(const AnyMsg& msg) { return msg.msg_type(); }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

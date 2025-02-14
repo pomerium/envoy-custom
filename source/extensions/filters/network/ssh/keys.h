@@ -13,18 +13,18 @@ extern "C" {
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-inline libssh::SshKeyPtr loadSshPrivateKey(const char* filename) {
+inline libssh::SshKeyPtr loadSshPrivateKey(const std::string& filename) {
   sshkey* key{};
-  auto ret = sshkey_load_private(filename, nullptr, &key, nullptr);
+  auto ret = sshkey_load_private(filename.c_str(), nullptr, &key, nullptr);
   if (ret != 0) {
     ExceptionUtil::throwEnvoyException("error reading ssh private key");
   }
   return libssh::SshKeyPtr(key);
 }
 
-inline libssh::SshKeyPtr loadSshPublicKey(const char* filename) {
+inline libssh::SshKeyPtr loadSshPublicKey(const std::string& filename) {
   sshkey* key{};
-  auto ret = sshkey_load_public(filename, &key, nullptr);
+  auto ret = sshkey_load_public(filename.c_str(), &key, nullptr);
   if (ret < 0) {
     ExceptionUtil::throwEnvoyException("error reading ssh private key");
   }
