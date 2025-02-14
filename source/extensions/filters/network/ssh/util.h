@@ -1,9 +1,10 @@
 #pragma once
 
 #include <memory>
-#include <optional>
 #include <vector>
 #include <string>
+
+#include "fmt/std.h" // IWYU pragma: keep
 
 extern "C" {
 #include "openssh/sshkey.h"
@@ -22,13 +23,18 @@ using NameList = std::vector<std::string>;
 
 namespace libssh {
 
-template <typename T> void delete_impl(T*);
+template <typename T>
+void delete_impl(T*);
 
 struct Deleter {
-  template <typename T> void operator()(T* ptr) { delete_impl(ptr); }
+  template <typename T>
+  void operator()(T* ptr) {
+    delete_impl(ptr);
+  }
 };
 
-template <typename T> using UniquePtr = std::unique_ptr<T, Deleter>;
+template <typename T>
+using UniquePtr = std::unique_ptr<T, Deleter>;
 
 using SshKeyPtr = UniquePtr<struct sshkey>;
 using SshBufPtr = UniquePtr<struct sshbuf>;

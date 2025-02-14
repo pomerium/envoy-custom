@@ -1,4 +1,5 @@
 #include "source/extensions/filters/network/ssh/version_exchange.h"
+#include "source/extensions/filters/network/ssh/transport.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 

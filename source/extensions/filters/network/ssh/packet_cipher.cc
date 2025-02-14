@@ -1,8 +1,9 @@
 #include "source/extensions/filters/network/ssh/packet_cipher.h"
-#include "kex.h"
+
 #include <algorithm>
 #include <iterator>
-#include <optional>
+
+#include "source/extensions/filters/network/ssh/kex.h"
 
 extern "C" {
 #include "openssh/openbsd-compat/sha2.h"
@@ -200,8 +201,12 @@ size_t PacketCipher::aadSize(Mode mode) {
   throw EnvoyException("unknown mode");
 }
 
-size_t AEADPacketCipher::blockSize() { return block_len_; };
-size_t AEADPacketCipher::aadSize() { return aad_len_; };
+size_t AEADPacketCipher::blockSize() {
+  return block_len_;
+};
+size_t AEADPacketCipher::aadSize() {
+  return aad_len_;
+};
 
 std::unique_ptr<PacketCipher> NewUnencrypted() {
   return std::make_unique<PacketCipher>(std::make_unique<NoCipher>(), std::make_unique<NoCipher>());

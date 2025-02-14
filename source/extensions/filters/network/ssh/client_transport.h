@@ -1,11 +1,12 @@
 #pragma once
+
 #include "source/extensions/filters/network/generic_proxy/codec_callbacks.h"
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
+
 #include "source/extensions/filters/network/ssh/kex.h"
-#include "source/extensions/filters/network/ssh/version_exchange.h"
-#include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/service.h"
-#include <sshkey.h>
+#include "source/extensions/filters/network/ssh/transport.h"
+#include "source/extensions/filters/network/ssh/version_exchange.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -37,16 +38,8 @@ private:
   const connection_state_t& getConnectionState() const override;
   const kex_result_t& getKexResult() const override;
   void writeToConnection(Envoy::Buffer::Instance& buf) const override;
-  void registerMessageHandlers(MessageDispatcher<AnyMsg>& dispatcher) const override {
-    dispatcher.registerHandler(SshMessageType::ServiceAccept, this);
-    dispatcher.registerHandler(SshMessageType::GlobalRequest, this);
-    dispatcher.registerHandler(SshMessageType::RequestSuccess, this);
-    dispatcher.registerHandler(SshMessageType::RequestFailure, this);
-    dispatcher.registerHandler(SshMessageType::Ignore, this);
-    dispatcher.registerHandler(SshMessageType::Debug, this);
-    dispatcher.registerHandler(SshMessageType::Unimplemented, this);
-    dispatcher.registerHandler(SshMessageType::Disconnect, this);
-  }
+  void registerMessageHandlers(MessageDispatcher<AnyMsg>& dispatcher) const override;
+
   GenericProxy::ClientCodecCallbacks* callbacks_{};
   bool version_exchange_done_{};
   bool first_kex_done_{};
@@ -61,4 +54,5 @@ private:
   std::map<std::string, Service*> services_;
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config_;
 };
+
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

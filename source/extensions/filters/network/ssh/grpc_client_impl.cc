@@ -1,5 +1,6 @@
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
-#include "bazel-out/k8-dbg/bin/api/extensions/filters/network/ssh/ssh.pb.h"
+
+#include "api/extensions/filters/network/ssh/ssh.pb.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 using namespace pomerium::extensions::ssh;

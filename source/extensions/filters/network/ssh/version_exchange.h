@@ -1,6 +1,7 @@
 #pragma once
 
-#include "source/extensions/filters/network/ssh/transport.h"
+#include "absl/status/statusor.h"
+#include "envoy/buffer/buffer.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -9,6 +10,8 @@ public:
   virtual ~VersionExchangeCallbacks() = default;
   virtual void setVersionStrings(const std::string& ours, const std::string& peer) PURE;
 };
+
+class TransportCallbacks;
 
 class VersionExchanger {
 public:

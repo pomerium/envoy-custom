@@ -1,28 +1,37 @@
 #pragma once
 #include <unordered_map>
 #include <utility>
+
 #include "absl/status/status.h"
+#include "fmt/format.h"
+
 #include "envoy/common/pure.h"
 #include "source/common/common/assert.h"
-#include "fmt/format.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-template <typename T> class MessageDispatcher;
+template <typename T>
+class MessageDispatcher;
 
-template <typename T> class MessageHandler {
+template <typename T>
+class MessageHandler {
 public:
   virtual ~MessageHandler() = default;
   virtual absl::Status handleMessage(T&& msg) PURE;
   virtual void registerMessageHandlers(MessageDispatcher<T>& dispatcher) const PURE;
 };
 
-template <typename T> struct message_case_type;
-template <typename T> using message_case_type_t = message_case_type<T>::type;
+template <typename T>
+struct message_case_type;
 
-template <typename T> message_case_type_t<T> messageCase(const T& msg);
+template <typename T>
+using message_case_type_t = message_case_type<T>::type;
 
-template <typename T> class MessageDispatcher {
+template <typename T>
+message_case_type_t<T> messageCase(const T& msg);
+
+template <typename T>
+class MessageDispatcher {
 public:
   void registerHandler(message_case_type_t<T> messageType, const MessageHandler<T>* handler) {
     if (dispatch_.contains(messageType)) {

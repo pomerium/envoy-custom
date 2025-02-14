@@ -1,13 +1,10 @@
 #include "source/extensions/filters/network/ssh/config.h"
-#include "bazel-out/k8-dbg/bin/api/extensions/filters/network/ssh/ssh.pb.h"
+
+#include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "source/extensions/filters/network/ssh/client_transport.h"
 #include "source/extensions/filters/network/ssh/server_transport.h"
-#include "source/extensions/filters/network/ssh/service_connection.h"
-#include "source/extensions/filters/network/ssh/service_userauth.h"
-#include "source/extensions/filters/network/ssh/packet_cipher.h"
-#include "source/extensions/filters/network/ssh/session.h"
-#include "source/extensions/filters/network/common/factory_base.h"
-#include "source/extensions/filters/network/well_known_names.h"
+#include "source/extensions/filters/network/ssh/service_connection.h" // IWYU pragma: keep
+#include "source/extensions/filters/network/ssh/service_userauth.h"   // IWYU pragma: keep
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -32,8 +29,6 @@ SshCodecFactory::SshCodecFactory(Api::Api& api,
                                  std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
                                  CreateGrpcClientFunc create_grpc_client)
     : api_(api), config_(config), create_grpc_client_(create_grpc_client) {
-  ConnectionService::RegisterChannelType(
-      "session", [](uint32_t channelId) { return std::make_unique<Session>(channelId); });
 }
 
 ServerCodecPtr SshCodecFactory::createServerCodec() const {
@@ -47,4 +42,5 @@ ClientCodecPtr SshCodecFactory::createClientCodec() const {
 ProtobufTypes::MessagePtr SshCodecFactoryConfig::createEmptyConfigProto() {
   return std::make_unique<pomerium::extensions::ssh::CodecConfig>();
 }
+
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

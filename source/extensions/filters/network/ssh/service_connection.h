@@ -1,9 +1,10 @@
 #pragma once
+
+#include <memory>
+
+#include "source/extensions/filters/network/ssh/messages.h"
 #include "source/extensions/filters/network/ssh/service.h"
 #include "source/extensions/filters/network/ssh/transport.h"
-#include "source/extensions/filters/network/ssh/messages.h"
-#include "source/extensions/filters/network/generic_proxy/interface/codec.h"
-#include <memory>
 
 extern "C" {
 #include "openssh/ssh2.h"
@@ -16,7 +17,10 @@ static std::atomic_int32_t SessionIdCounter;
 class Channel {
 public:
   virtual ~Channel() = default;
-  Channel(uint32_t channelId) : channel_id_(channelId) { (void)channel_id_; }
+  Channel(uint32_t channelId)
+      : channel_id_(channelId) {
+    (void)channel_id_;
+  }
   virtual absl::Status handleRequest(const ChannelRequestMsg& msg) PURE;
 
 protected:
@@ -25,7 +29,9 @@ protected:
 
 class ConnectionService : public Service {
 public:
-  constexpr virtual std::string name() override { return "ssh-connection"; };
+  constexpr virtual std::string name() override {
+    return "ssh-connection";
+  };
 
   ConnectionService(TransportCallbacks& callbacks, Api::Api& api, bool is_server);
   absl::Status handleMessage(AnyMsg&& msg) override;

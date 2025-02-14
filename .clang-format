@@ -1,9 +1,17 @@
 ---
-Language:        Cpp
+Language: Cpp
 AccessModifierOffset: -2
-ColumnLimit: 100
+ColumnLimit: 0
 DerivePointerAlignment: false
 PointerAlignment: Left
 SortIncludes: false
-...
+
+AlignTrailingComments:
+  Kind: Always
+AllowShortBlocksOnASingleLine: Empty
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+BreakTemplateDeclarations: true
+
+---
 

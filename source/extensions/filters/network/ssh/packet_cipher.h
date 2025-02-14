@@ -1,10 +1,11 @@
 #pragma once
 
+#include <memory>
+#include <string>
+
 #include "source/extensions/filters/network/ssh/util.h"
 #include "source/extensions/filters/network/ssh/messages.h"
 #include "source/extensions/filters/network/ssh/kex.h"
-#include <memory>
-#include <string>
 
 extern "C" {
 #include "openssh/cipher.h"
@@ -99,8 +100,12 @@ public:
     out.move(in);
     return absl::OkStatus();
   }
-  size_t blockSize() override { return 8; }
-  size_t aadSize() override { return 0; }
+  size_t blockSize() override {
+    return 8;
+  }
+  size_t aadSize() override {
+    return 0;
+  }
 };
 
 void generateKeyMaterial(bytearray& out, const bytearray& tag, kex_result_t* kex_result);

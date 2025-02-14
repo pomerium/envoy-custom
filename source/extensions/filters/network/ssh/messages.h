@@ -3,10 +3,13 @@
 #include <cstdint>
 #include <type_traits>
 #include <string>
+
+#include "openssl/rand.h"
+
 #include "source/common/buffer/buffer_impl.h"
+
 #include "source/extensions/filters/network/ssh/util.h"
 #include "source/extensions/filters/network/ssh/message_handler.h"
-#include "openssl/rand.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -63,7 +66,9 @@ enum class SshMessageType : uint8_t {
   ChannelFailure = 100,
 };
 
-inline auto format_as(SshMessageType mt) { return fmt::underlying(mt); }
+inline auto format_as(SshMessageType mt) {
+  return fmt::underlying(mt);
+}
 
 constexpr inline SshMessageType operator~(SshMessageType t) {
   return static_cast<SshMessageType>(~static_cast<uint8_t>(t));
@@ -93,6 +98,12 @@ static const NameList supportedMACs{
     // "hmac-sha1-96",
 };
 
+struct direction_t {
+  bytearray iv_tag;
+  bytearray key_tag;
+  bytearray mac_key_tag;
+};
+
 template <typename T>
 std::enable_if_t<std::is_integral_v<T>, size_t> read(Envoy::Buffer::Instance& buffer, T& out) {
   if (buffer.length() < sizeof(T)) {
@@ -108,14 +119,16 @@ std::enable_if_t<std::is_integral_v<T>, size_t> write(Envoy::Buffer::Instance& b
   return sizeof(T);
 }
 
-template <> inline size_t read<bool>(Envoy::Buffer::Instance& buffer, bool& out) {
+template <>
+inline size_t read<bool>(Envoy::Buffer::Instance& buffer, bool& out) {
   uint8_t b{};
   auto n = read(buffer, b);
   out = (b != 0);
   return n;
 }
 
-template <> inline size_t write<bool>(Envoy::Buffer::Instance& buffer, bool b) {
+template <>
+inline size_t write<bool>(Envoy::Buffer::Instance& buffer, bool b) {
   buffer.writeByte(static_cast<uint8_t>(b));
   return 1;
 }
@@ -146,7 +159,8 @@ inline size_t writeBytes(Envoy::Buffer::Instance& buffer, const bytearray& bytes
   return sz;
 }
 
-template <size_t N> inline size_t readFixedBytes(Envoy::Buffer::Instance& buffer, void* out) {
+template <size_t N>
+inline size_t readFixedBytes(Envoy::Buffer::Instance& buffer, void* out) {
   if (buffer.length() < N) {
     throw EnvoyException("short read");
   }
@@ -155,7 +169,8 @@ template <size_t N> inline size_t readFixedBytes(Envoy::Buffer::Instance& buffer
   return N;
 }
 
-template <size_t N> inline size_t writeFixedBytes(Envoy::Buffer::Instance& buffer, const void* in) {
+template <size_t N>
+inline size_t writeFixedBytes(Envoy::Buffer::Instance& buffer, const void* in) {
   buffer.add(in, N);
   return N;
 }
@@ -311,7 +326,8 @@ protected:
     return 1;
   }
 
-  template <SshMessageType MT> static size_t readType(Envoy::Buffer::Instance& buffer) {
+  template <SshMessageType MT>
+  static size_t readType(Envoy::Buffer::Instance& buffer) {
     auto msgtype = buffer.drainInt<SshMessageType>();
     if (msgtype != MT) {
       throw EnvoyException("unexpected message type");
@@ -324,19 +340,24 @@ protected:
     return 1;
   }
 
-  template <SshMessageType MT> static size_t writeType(Envoy::Buffer::Instance& buffer) {
+  template <SshMessageType MT>
+  static size_t writeType(Envoy::Buffer::Instance& buffer) {
     buffer.writeByte(MT);
     return 1;
   }
 };
 
-template <SshMessageType MT> struct MsgType : public virtual BaseSshMsg {
+template <SshMessageType MT>
+struct MsgType : public virtual BaseSshMsg {
   static constexpr SshMessageType type = MT;
 
-  SshMessageType msg_type() const override { return type; }
+  SshMessageType msg_type() const override {
+    return type;
+  }
 };
 
-template <typename T> absl::StatusOr<T> readPacket(Envoy::Buffer::Instance& buffer) noexcept {
+template <typename T>
+absl::StatusOr<T> readPacket(Envoy::Buffer::Instance& buffer) noexcept {
   try {
     size_t n = 0;
     uint32_t packet_length{};
@@ -503,9 +524,14 @@ struct ServiceAcceptMsg : SshMsg, MsgType<SshMessageType::ServiceAccept> {
   }
 };
 
-template <SshMessageType T> struct EmptyMsg : SshMsg, MsgType<T> {
-  size_t decode(Envoy::Buffer::Instance& buffer, size_t) override { return readType<T>(buffer); }
-  size_t encode(Envoy::Buffer::Instance& buffer) const override { return writeType<T>(buffer); }
+template <SshMessageType T>
+struct EmptyMsg : SshMsg, MsgType<T> {
+  size_t decode(Envoy::Buffer::Instance& buffer, size_t) override {
+    return readType<T>(buffer);
+  }
+  size_t encode(Envoy::Buffer::Instance& buffer) const override {
+    return writeType<T>(buffer);
+  }
 };
 
 struct ChannelOpenMsg : SshMsg, MsgType<SshMessageType::ChannelOpen> {
@@ -1059,7 +1085,9 @@ struct AnyMsg : SshMsg {
   SshMessageType msgtype;
   bytearray raw_packet; // includes msg_type
 
-  SshMessageType msg_type() const override { return msgtype; }
+  SshMessageType msg_type() const override {
+    return msgtype;
+  }
 
   size_t decode(Envoy::Buffer::Instance& buffer, size_t payload_size) override {
     peekType(buffer, &msgtype);
@@ -1071,7 +1099,8 @@ struct AnyMsg : SshMsg {
     return raw_packet.size();
   }
 
-  template <typename T> T unwrap() const {
+  template <typename T>
+  T unwrap() const {
     T t{};
     Envoy::Buffer::OwnedImpl buf;
     buf.add(raw_packet.data(), raw_packet.size());
@@ -1103,8 +1132,12 @@ struct AnyMsg : SshMsg {
 using SshMessageDispatcher = MessageDispatcher<AnyMsg>;
 using SshMessageHandler = MessageHandler<AnyMsg>;
 
-template <> struct message_case_type<AnyMsg> : std::type_identity<SshMessageType> {};
+template <>
+struct message_case_type<AnyMsg> : std::type_identity<SshMessageType> {};
 
-template <> inline SshMessageType messageCase(const AnyMsg& msg) { return msg.msg_type(); }
+template <>
+inline SshMessageType messageCase(const AnyMsg& msg) {
+  return msg.msg_type();
+}
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

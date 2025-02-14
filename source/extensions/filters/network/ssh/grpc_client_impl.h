@@ -1,11 +1,16 @@
 #pragma once
-#include "source/common/grpc/typed_async_client.h"
-#include "bazel-out/k8-dbg/bin/api/extensions/filters/network/ssh/ssh.pb.h"
-#include "source/extensions/filters/network/ssh/message_handler.h"
+
 #include <type_traits>
 
+#include "source/common/grpc/typed_async_client.h"
+
+#include "api/extensions/filters/network/ssh/ssh.pb.h"
+#include "source/extensions/filters/network/ssh/message_handler.h"
+
 namespace pomerium::extensions::ssh {
-inline auto format_as(ServerMessage::MessageCase mt) { return fmt::underlying(mt); }
+inline auto format_as(ServerMessage::MessageCase mt) {
+  return fmt::underlying(mt);
+}
 } // namespace pomerium::extensions::ssh
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
@@ -36,7 +41,9 @@ public:
 
   void connect();
 
-  Grpc::AsyncStream<ClientMessage>& stream() { return stream_; }
+  Grpc::AsyncStream<ClientMessage>& stream() {
+    return stream_;
+  }
   void setOnRemoteCloseCallback(std::function<void(Grpc::Status::GrpcStatus, std::string)> cb) {
     on_remote_close_ = cb;
   }

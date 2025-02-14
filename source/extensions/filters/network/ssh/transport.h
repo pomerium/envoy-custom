@@ -1,23 +1,15 @@
 #pragma once
 
-#include "bazel-out/k8-dbg/bin/api/extensions/filters/network/ssh/ssh.pb.h"
-#include "grpc_client_impl.h"
-#include "source/common/buffer/buffer_impl.h"
-#include "source/extensions/filters/network/ssh/util.h"
-#include "source/extensions/filters/network/ssh/frame.h"
 #include "absl/status/statusor.h"
 
+#include "api/extensions/filters/network/ssh/ssh.pb.h"
+#include "source/extensions/filters/network/ssh/grpc_client_impl.h"
+#include "source/extensions/filters/network/ssh/util.h"
+#include "source/extensions/filters/network/ssh/frame.h"
+#include "source/extensions/filters/network/ssh/packet_cipher.h"
+#include "source/extensions/filters/network/ssh/kex.h"
+
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
-
-class PacketCipher;
-struct SshMsg;
-struct kex_result_t;
-
-struct direction_t {
-  bytearray iv_tag;
-  bytearray key_tag;
-  bytearray mac_key_tag;
-};
 
 static const direction_t clientKeys{{'A'}, {'C'}, {'E'}};
 static const direction_t serverKeys{{'B'}, {'D'}, {'F'}};
@@ -30,8 +22,6 @@ struct connection_state_t {
   direction_t direction_write;
   // todo: pending key change?
 };
-
-struct PubKeyUserAuthRequestMsg;
 
 struct AuthState {
   std::string server_version;

@@ -3,9 +3,11 @@
 #include <cstddef>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
-#include "source/common/common/utility.h"
-#include "source/extensions/filters/network/ssh/util.h"
 #include <netinet/in.h>
+
+#include "source/common/common/utility.h"
+
+#include "source/extensions/filters/network/ssh/util.h"
 
 extern "C" {
 #include "openssh/authfile.h"

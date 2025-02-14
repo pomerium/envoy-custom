@@ -1,6 +1,6 @@
 #include "source/extensions/filters/network/ssh/service_connection.h"
+
 #include "source/extensions/filters/network/ssh/frame.h"
-#include "source/extensions/filters/network/ssh/kex.h"
 #include "source/extensions/filters/network/ssh/messages.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
@@ -9,25 +9,41 @@ decltype(ConnectionService::channelTypes) ConnectionService::channelTypes = {};
 
 ConnectionService::ConnectionService(TransportCallbacks& callbacks, Api::Api& api, bool is_server)
     : transport_(callbacks), api_(api), is_server_(is_server) {
-  (void)transport_;
   (void)api_;
 }
+
+void ConnectionService::registerMessageHandlers(SshMessageDispatcher& dispatcher) const {
+  dispatcher.registerHandler(SshMessageType::ChannelOpen, this);
+  dispatcher.registerHandler(SshMessageType::ChannelOpenConfirmation, this);
+  dispatcher.registerHandler(SshMessageType::ChannelOpenFailure, this);
+  dispatcher.registerHandler(SshMessageType::ChannelWindowAdjust, this);
+  dispatcher.registerHandler(SshMessageType::ChannelData, this);
+  dispatcher.registerHandler(SshMessageType::ChannelExtendedData, this);
+  dispatcher.registerHandler(SshMessageType::ChannelEOF, this);
+  dispatcher.registerHandler(SshMessageType::ChannelClose, this);
+  dispatcher.registerHandler(SshMessageType::ChannelRequest, this);
+  dispatcher.registerHandler(SshMessageType::ChannelSuccess, this);
+  dispatcher.registerHandler(SshMessageType::ChannelFailure, this);
+};
 
 absl::Status ConnectionService::handleMessage(AnyMsg&& msg) {
   auto streamId = transport_.authState().stream_id;
   switch (msg.msgtype) {
-  case SshMessageType::ChannelOpen:
+  case SshMessageType::ChannelOpen: {
     transport_.forward(
         std::make_unique<SSHRequestCommonFrame>(streamId, msg.unwrap<ChannelOpenMsg>()));
     break;
-  case SshMessageType::ChannelOpenConfirmation:
-    transport_.forward(std::make_unique<SSHResponseCommonFrame>(
-        streamId, msg.unwrap<ChannelOpenConfirmationMsg>()));
+  }
+  case SshMessageType::ChannelOpenConfirmation: {
+    transport_.forward(
+        std::make_unique<SSHResponseCommonFrame>(streamId, msg.unwrap<ChannelOpenConfirmationMsg>()));
     break;
-  case SshMessageType::ChannelOpenFailure:
+  }
+  case SshMessageType::ChannelOpenFailure: {
     transport_.forward(
         std::make_unique<SSHResponseCommonFrame>(streamId, msg.unwrap<ChannelOpenFailureMsg>()));
     break;
+  }
   case SshMessageType::ChannelWindowAdjust: {
     if (is_server_) {
       transport_.forward(
@@ -146,19 +162,5 @@ absl::Status ConnectionService::handleMessage(AnyMsg&& msg) {
   }
   return absl::OkStatus();
 }
-
-void ConnectionService::registerMessageHandlers(SshMessageDispatcher& dispatcher) const {
-  dispatcher.registerHandler(SshMessageType::ChannelOpen, this);
-  dispatcher.registerHandler(SshMessageType::ChannelOpenConfirmation, this);
-  dispatcher.registerHandler(SshMessageType::ChannelOpenFailure, this);
-  dispatcher.registerHandler(SshMessageType::ChannelWindowAdjust, this);
-  dispatcher.registerHandler(SshMessageType::ChannelData, this);
-  dispatcher.registerHandler(SshMessageType::ChannelExtendedData, this);
-  dispatcher.registerHandler(SshMessageType::ChannelEOF, this);
-  dispatcher.registerHandler(SshMessageType::ChannelClose, this);
-  dispatcher.registerHandler(SshMessageType::ChannelRequest, this);
-  dispatcher.registerHandler(SshMessageType::ChannelSuccess, this);
-  dispatcher.registerHandler(SshMessageType::ChannelFailure, this);
-};
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

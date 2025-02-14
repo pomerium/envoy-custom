@@ -1,16 +1,16 @@
 #pragma once
 
-#include "api/extensions/filters/network/ssh/ssh.pb.h"
-#include "bazel-out/k8-dbg/bin/api/extensions/filters/network/ssh/ssh.pb.h"
-#include "source/extensions/filters/network/ssh/service.h"
-#include "source/extensions/filters/network/ssh/grpc_client_impl.h"
-#include "source/extensions/filters/network/ssh/kex.h"
-#include "source/extensions/filters/network/ssh/messages.h"
-#include "source/extensions/filters/network/ssh/transport.h"
-#include "source/extensions/filters/network/ssh/message_handler.h"
-#include "source/extensions/filters/network/ssh/util.h"
 #include "source/extensions/filters/network/generic_proxy/codec_callbacks.h"
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
+
+#include "api/extensions/filters/network/ssh/ssh.pb.h"
+#include "source/extensions/filters/network/ssh/grpc_client_impl.h"
+#include "source/extensions/filters/network/ssh/kex.h"
+#include "source/extensions/filters/network/ssh/message_handler.h"
+#include "source/extensions/filters/network/ssh/messages.h"
+#include "source/extensions/filters/network/ssh/service.h"
+#include "source/extensions/filters/network/ssh/transport.h"
+#include "source/extensions/filters/network/ssh/util.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 

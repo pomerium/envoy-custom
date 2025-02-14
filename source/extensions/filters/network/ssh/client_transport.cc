@@ -1,10 +1,11 @@
 #include "source/extensions/filters/network/ssh/client_transport.h"
-#include "messages.h"
+
 #include "source/extensions/filters/network/ssh/frame.h"
+#include "source/extensions/filters/network/ssh/messages.h"
 #include "source/extensions/filters/network/ssh/packet_cipher.h"
-#include "source/extensions/filters/network/ssh/service_userauth.h"
 #include "source/extensions/filters/network/ssh/service_connection.h"
-#include "transport.h"
+#include "source/extensions/filters/network/ssh/service_userauth.h"
+#include "source/extensions/filters/network/ssh/transport.h"
 
 extern "C" {
 #include "openssh/ssherr.h"
@@ -23,6 +24,17 @@ SshClientCodec::SshClientCodec(Api::Api& api,
 
   services_[user_auth_svc_->name()] = user_auth_svc_.get();
   services_[connection_svc_->name()] = connection_svc_.get();
+}
+
+void SshClientCodec::registerMessageHandlers(MessageDispatcher<AnyMsg>& dispatcher) const {
+  dispatcher.registerHandler(SshMessageType::ServiceAccept, this);
+  dispatcher.registerHandler(SshMessageType::GlobalRequest, this);
+  dispatcher.registerHandler(SshMessageType::RequestSuccess, this);
+  dispatcher.registerHandler(SshMessageType::RequestFailure, this);
+  dispatcher.registerHandler(SshMessageType::Ignore, this);
+  dispatcher.registerHandler(SshMessageType::Debug, this);
+  dispatcher.registerHandler(SshMessageType::Unimplemented, this);
+  dispatcher.registerHandler(SshMessageType::Disconnect, this);
 }
 
 void SshClientCodec::setCodecCallbacks(GenericProxy::ClientCodecCallbacks& callbacks) {
@@ -107,8 +119,10 @@ GenericProxy::EncodingResult SshClientCodec::encode(const GenericProxy::StreamFr
 void SshClientCodec::setKexResult(std::shared_ptr<kex_result_t> kex_result) {
   kex_result_ = kex_result;
 
-  connection_state_->cipher = NewPacketCipher(connection_state_->direction_read,
-                                              connection_state_->direction_write, kex_result.get());
+  connection_state_->cipher = NewPacketCipher(
+      connection_state_->direction_read,
+      connection_state_->direction_write,
+      kex_result.get());
 
   if (!first_kex_done_) {
     first_kex_done_ = true;
@@ -179,13 +193,17 @@ absl::Status SshClientCodec::handleMessage(AnyMsg&& msg) {
   }
 }
 
-const connection_state_t& SshClientCodec::getConnectionState() const { return *connection_state_; }
+const connection_state_t& SshClientCodec::getConnectionState() const {
+  return *connection_state_;
+}
 
 void SshClientCodec::writeToConnection(Envoy::Buffer::Instance& buf) const {
   return callbacks_->writeToConnection(buf);
 }
 
-const kex_result_t& SshClientCodec::getKexResult() const { return *kex_result_; }
+const kex_result_t& SshClientCodec::getKexResult() const {
+  return *kex_result_;
+}
 
 absl::StatusOr<bytearray> SshClientCodec::signWithHostKey(Envoy::Buffer::Instance& in) const {
   auto hostKey = kex_result_->Algorithms.host_key;
@@ -206,7 +224,9 @@ absl::StatusOr<bytearray> SshClientCodec::signWithHostKey(Envoy::Buffer::Instanc
   return absl::InternalError("no such host key");
 }
 
-const AuthState& SshClientCodec::authState() const { return *downstream_state_; };
+const AuthState& SshClientCodec::authState() const {
+  return *downstream_state_;
+};
 
 void SshClientCodec::forward(std::unique_ptr<SSHStreamFrame> frame) {
   switch (frame->frameKind()) {
@@ -226,7 +246,9 @@ void SshClientCodec::forward(std::unique_ptr<SSHStreamFrame> frame) {
     PANIC("bug: wrong frame type passed to SshClientCodec::forward");
   }
 }
+
 const pomerium::extensions::ssh::CodecConfig& SshClientCodec::codecConfig() const {
   return *config_;
 };
+
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

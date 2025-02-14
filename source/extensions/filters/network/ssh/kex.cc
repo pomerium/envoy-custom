@@ -1,19 +1,17 @@
 #include "source/extensions/filters/network/ssh/kex.h"
-#include "messages.h"
-#include "source/common/buffer/buffer_impl.h"
+
 #include "openssl/curve25519.h"
+
+#include "source/common/buffer/buffer_impl.h"
+
+#include "source/extensions/filters/network/ssh/messages.h"
 #include "source/extensions/filters/network/ssh/keys.h"
-#include "source/extensions/filters/network/ssh/server_transport.h"
-#include "absl/strings/str_split.h"
-#include <exception>
-#include <openssl/evp.h>
-#include <openssl/pem.h>
-#include <sshkey.h>
+#include "source/extensions/filters/network/ssh/transport.h"
 
 extern "C" {
+#include "openssh/sshkey.h"
 #include "openssh/ssherr.h"
 #include "openssh/kex.h"
-#include "openssh/sshbuf.h"
 #include "openssh/digest.h"
 }
 
@@ -532,21 +530,29 @@ void Kex::loadSshKeyPair(const std::string& privKeyPath, const std::string& pubK
   }
 }
 
-bool kex_state_t::kexHasExtInfoInAuth() const { return (flags & KEX_HAS_EXT_INFO_IN_AUTH) != 0; }
+bool kex_state_t::kexHasExtInfoInAuth() const {
+  return (flags & KEX_HAS_EXT_INFO_IN_AUTH) != 0;
+}
 
-void kex_state_t::setKexHasExtInfoInAuth() { flags |= KEX_HAS_EXT_INFO_IN_AUTH; }
+void kex_state_t::setKexHasExtInfoInAuth() {
+  flags |= KEX_HAS_EXT_INFO_IN_AUTH;
+}
 
 bool kex_state_t::kexRSASHA2256Supported() const {
   return (flags & KEX_RSA_SHA2_256_SUPPORTED) != 0;
 }
 
-void kex_state_t::setKexRSASHA2256Supported() { flags |= KEX_RSA_SHA2_256_SUPPORTED; }
+void kex_state_t::setKexRSASHA2256Supported() {
+  flags |= KEX_RSA_SHA2_256_SUPPORTED;
+}
 
 bool kex_state_t::kexRSASHA2512Supported() const {
   return (flags & KEX_RSA_SHA2_512_SUPPORTED) != 0;
 }
 
-void kex_state_t::setKexRSASHA2512Supported() { flags |= KEX_RSA_SHA2_512_SUPPORTED; }
+void kex_state_t::setKexRSASHA2512Supported() {
+  flags |= KEX_RSA_SHA2_512_SUPPORTED;
+}
 
 void handshake_magics_t::writeTo(std::function<void(const void* data, size_t len)> writer) const {
   std::string buf;

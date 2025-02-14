@@ -7,15 +7,15 @@
 #include <sshkey.h>
 #include <unistd.h>
 
-#include "source/extensions/filters/network/ssh/kex.h"
-#include "source/extensions/filters/network/ssh/frame.h"
-#include "source/extensions/filters/network/ssh/messages.h"
-#include "source/extensions/filters/network/ssh/service_userauth.h"
-#include "source/extensions/filters/network/ssh/service_connection.h"
-#include "source/extensions/filters/network/ssh/packet_cipher.h"
-#include "source/extensions/filters/network/ssh/util.h"
-#include "source/extensions/filters/network/generic_proxy/codec_callbacks.h"
 #include "source/common/buffer/buffer_impl.h"
+#include "source/extensions/filters/network/generic_proxy/codec_callbacks.h"
+#include "source/extensions/filters/network/ssh/frame.h"
+#include "source/extensions/filters/network/ssh/kex.h"
+#include "source/extensions/filters/network/ssh/messages.h"
+#include "source/extensions/filters/network/ssh/packet_cipher.h"
+#include "source/extensions/filters/network/ssh/service_connection.h"
+#include "source/extensions/filters/network/ssh/service_userauth.h"
+#include "source/extensions/filters/network/ssh/util.h"
 #include "source/extensions/filters/network/ssh/version_exchange.h"
 
 #include <openssl/bn.h>
@@ -153,8 +153,7 @@ GenericProxy::ResponsePtr SshServerCodec::respond(absl::Status status, absl::str
     // downstream().sendMessage(dc);
 
     return std::make_unique<SSHResponseHeaderFrame>(
-        req.frameFlags().streamId(), StreamStatus(SSH2_DISCONNECT_SERVICE_NOT_AVAILABLE, false),
-        std::move(dc));
+        req.frameFlags().streamId(), StreamStatus(SSH2_DISCONNECT_SERVICE_NOT_AVAILABLE, false), std::move(dc));
   } else {
     // auto m = AnyMsg::fromString(data);
     // switch (m.msg_type()) {
@@ -175,7 +174,8 @@ void SshServerCodec::setKexResult(std::shared_ptr<kex_result_t> kex_result) {
   kex_result_ = kex_result;
 
   connection_state_->cipher = NewPacketCipher(connection_state_->direction_read,
-                                              connection_state_->direction_write, kex_result.get());
+                                              connection_state_->direction_write,
+                                              kex_result.get());
 }
 
 absl::Status SshServerCodec::handleMessage(AnyMsg&& msg) {
@@ -267,12 +267,16 @@ void SshServerCodec::initUpstream(AuthStateSharedPtr downstreamState) {
   callbacks_->onDecodingSuccess(std::move(frame));
 }
 
-const connection_state_t& SshServerCodec::getConnectionState() const { return *connection_state_; }
+const connection_state_t& SshServerCodec::getConnectionState() const {
+  return *connection_state_;
+}
 
 void SshServerCodec::writeToConnection(Envoy::Buffer::Instance& buf) const {
   return callbacks_->writeToConnection(buf);
 }
-const kex_result_t& SshServerCodec::getKexResult() const { return *kex_result_; }
+const kex_result_t& SshServerCodec::getKexResult() const {
+  return *kex_result_;
+}
 
 absl::StatusOr<bytearray> SshServerCodec::signWithHostKey(Envoy::Buffer::Instance& in) const {
   auto hostKey = kex_result_->Algorithms.host_key;
@@ -282,7 +286,9 @@ absl::StatusOr<bytearray> SshServerCodec::signWithHostKey(Envoy::Buffer::Instanc
   return absl::InternalError("no such host key");
 }
 
-const AuthState& SshServerCodec::authState() const { return *downstream_state_; }
+const AuthState& SshServerCodec::authState() const {
+  return *downstream_state_;
+}
 
 void SshServerCodec::forward(std::unique_ptr<SSHStreamFrame> frame) {
   switch (frame->frameKind()) {

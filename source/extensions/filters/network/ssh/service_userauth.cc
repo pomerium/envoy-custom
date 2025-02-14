@@ -1,20 +1,23 @@
 #include "source/extensions/filters/network/ssh/service_userauth.h"
-#include "bazel-out/k8-dbg/bin/api/extensions/filters/network/ssh/ssh.pb.h"
-#include "grpc_client_impl.h"
+
+#include <cstdlib>
+
+#include "api/extensions/filters/network/ssh/ssh.pb.h"
+#include "source/extensions/filters/network/ssh/grpc_client_impl.h"
+#include "source/extensions/filters/network/ssh/messages.h"
 #include "source/extensions/filters/network/ssh/kex.h"
 #include "source/extensions/filters/network/ssh/keys.h"
-#include "messages.h"
-#include "transport.h"
-#include "util.h"
-#include <authfile.h>
-#include <cstdlib>
-#include <sshbuf.h>
-#include <sshkey.h>
+#include "source/extensions/filters/network/ssh/transport.h"
+#include "source/extensions/filters/network/ssh/util.h"
 
 extern "C" {
 #include "openssh/ssh2.h"
 #include "openssh/ssherr.h"
+#include "openssh/sshbuf.h"
+#include "openssh/sshkey.h"
+#include "openssh/authfile.h"
 }
+
 #define OPTIONS_CRITICAL 1
 #define OPTIONS_EXTENSIONS 2
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {

@@ -4,13 +4,14 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <netinet/in.h>
+
+#include "envoy/filesystem/filesystem.h"
+
 #include "source/extensions/filters/network/ssh/util.h"
 #include "source/extensions/filters/network/ssh/messages.h"
 #include "source/extensions/filters/network/ssh/version_exchange.h"
 #include "source/extensions/filters/network/ssh/message_handler.h"
-#include <netinet/in.h>
-#include "envoy/filesystem/filesystem.h"
-#include "source/extensions/filters/network/generic_proxy/interface/codec.h"
 
 extern "C" {
 #include "openssh/digest.h"
@@ -106,7 +107,9 @@ protected:
 private:
   bool should_ignore_one_{};
 
-  void ignoreNextPacket() { should_ignore_one_ = true; }
+  void ignoreNextPacket() {
+    should_ignore_one_ = true;
+  }
 };
 
 struct curve25519_keypair_t {

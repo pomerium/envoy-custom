@@ -1,17 +1,19 @@
 #pragma once
-#include "bazel-out/k8-dbg/bin/api/extensions/filters/network/ssh/ssh.pb.h"
-#include "source/extensions/filters/network/ssh/service.h"
+
+#include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "source/extensions/filters/network/ssh/messages.h"
+#include "source/extensions/filters/network/ssh/service.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/util.h"
-#include "source/extensions/filters/network/ssh/grpc_client_impl.h"
-#include "source/extensions/filters/network/generic_proxy/interface/codec.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-class UserAuthService : public Service, public Logger::Loggable<Logger::Id::filter> {
+class UserAuthService : public Service,
+                        public Logger::Loggable<Logger::Id::filter> {
 public:
-  constexpr virtual std::string name() override { return "ssh-userauth"; };
+  constexpr virtual std::string name() override {
+    return "ssh-userauth";
+  };
   UserAuthService(TransportCallbacks& callbacks, Api::Api& api);
   void registerMessageHandlers(SshMessageDispatcher& dispatcher) const override;
   absl::Status requestService() override;
@@ -25,7 +27,8 @@ protected:
   libssh::SshKeyPtr pending_user_key_;
 };
 
-class DownstreamUserAuthService : public UserAuthService, public StreamMgmtServerMessageHandler {
+class DownstreamUserAuthService : public UserAuthService,
+                                  public StreamMgmtServerMessageHandler {
 public:
   DownstreamUserAuthService(TransportCallbacks& callbacks, Api::Api& api)
       : UserAuthService(callbacks, api),
@@ -34,8 +37,10 @@ public:
   using UserAuthService::registerMessageHandlers;
   absl::Status handleMessage(AnyMsg&& msg) override;
 
-  void registerMessageHandlers(StreamMgmtServerMessageDispatcher& dispatcher) const override;
-  absl::Status handleMessage(Grpc::ResponsePtr<ServerMessage>&& message) override;
+  void registerMessageHandlers(
+      StreamMgmtServerMessageDispatcher& dispatcher) const override;
+  absl::Status
+  handleMessage(Grpc::ResponsePtr<ServerMessage>&& message) override;
 
 private:
   DownstreamTransportCallbacks& transport_;

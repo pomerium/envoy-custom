@@ -1,5 +1,7 @@
 #pragma once
+
 #include "source/extensions/filters/network/generic_proxy/interface/stream.h"
+
 #include "source/extensions/filters/network/ssh/messages.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
@@ -47,8 +49,12 @@ public:
   const SshMsg& message() const;
   FrameKind frameKind() const override;
 
-  void setRawFlags(uint32_t raw_flags) { raw_flags_ = raw_flags; }
-  void setStatus(StreamStatus status) { status_ = status; };
+  void setRawFlags(uint32_t raw_flags) {
+    raw_flags_ = raw_flags;
+  }
+  void setStatus(StreamStatus status) {
+    status_ = status;
+  };
 
 private:
   StreamStatus status_;
