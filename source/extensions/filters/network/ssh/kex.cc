@@ -17,8 +17,8 @@ extern "C" {
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-absl::Status Curve25519Sha256KexAlgorithm::HandleServerRecv(const AnyMsg& msg) {
-  auto peerMsg = msg.unwrap<KexEcdhInitMessage>();
+absl::Status Curve25519Sha256KexAlgorithm::HandleServerRecv(const SshMsg& msg) {
+  const auto& peerMsg = dynamic_cast<const KexEcdhInitMessage&>(msg);
 
   if (auto sz = peerMsg.client_pub_key.size(); sz != 32) {
     return absl::AbortedError(
@@ -95,18 +95,19 @@ absl::Status Curve25519Sha256KexAlgorithm::HandleServerRecv(const AnyMsg& msg) {
   return absl::OkStatus();
 }
 
-absl::StatusOr<AnyMsg> Curve25519Sha256KexAlgorithm::HandleClientSend() {
+absl::StatusOr<std::unique_ptr<SshMsg>> Curve25519Sha256KexAlgorithm::HandleClientSend() {
   curve25519_keypair_t client_keypair;
   kexc25519_keygen(client_keypair.priv, client_keypair.pub);
   client_keypair_ = client_keypair;
-  KexEcdhInitMessage msg;
-  msg.client_pub_key.resize(sizeof(client_keypair.pub));
-  memcpy(msg.client_pub_key.data(), client_keypair.pub, sizeof(client_keypair.pub));
-  return AnyMsg::wrap(std::move(msg));
+  auto msg = std::make_unique<KexEcdhInitMessage>();
+
+  msg->client_pub_key.resize(sizeof(client_keypair.pub));
+  memcpy(msg->client_pub_key.data(), client_keypair.pub, sizeof(client_keypair.pub));
+  return msg;
 }
 
-absl::Status Curve25519Sha256KexAlgorithm::HandleClientRecv(const AnyMsg& msg) {
-  auto serverMsg = msg.unwrap<KexEcdhReplyMsg>();
+absl::Status Curve25519Sha256KexAlgorithm::HandleClientRecv(const SshMsg& msg) {
+  auto& serverMsg = dynamic_cast<const KexEcdhReplyMsg&>(msg);
 
   if (auto sz = serverMsg.ephemeral_pub_key.size(); sz != 32) {
     return absl::AbortedError(
@@ -199,13 +200,13 @@ void Kex::setVersionStrings(const std::string& ours, const std::string& peer) {
   }
 }
 
-absl::Status Kex::handleMessage(AnyMsg&& msg) noexcept {
-  switch (msg.msgtype) {
+absl::Status Kex::handleMessage(SshMsg&& msg) noexcept {
+  switch (msg.msg_type()) {
   case SshMessageType::KexInit: {
     if (state_->kex_init_received) {
       return absl::FailedPreconditionError("unexpected KexInit message");
     }
-    auto peerKexInit = msg.unwrap<KexInitMessage>();
+    auto& peerKexInit = dynamic_cast<KexInitMessage&>(msg);
 
     {
       Envoy::Buffer::OwnedImpl tmp;
@@ -259,7 +260,7 @@ absl::Status Kex::handleMessage(AnyMsg&& msg) noexcept {
           return stat.status();
         }
         state_->kex_reply_sent = true;
-        return transport_.sendMessageToConnection(*stat).status();
+        return transport_.sendMessageToConnection(**stat).status();
       }
       return absl::OkStatus();
     }

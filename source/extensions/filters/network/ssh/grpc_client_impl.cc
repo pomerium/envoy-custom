@@ -11,9 +11,7 @@ StreamManagementServiceClient::StreamManagementServiceClient(Grpc::RawAsyncClien
       client_(client) {}
 
 StreamManagementServiceClient::~StreamManagementServiceClient() {
-  if (stream_ != nullptr) {
-    stream_.resetStream();
-  }
+  stream_ = nullptr;
 }
 
 void StreamManagementServiceClient::connect() {
@@ -28,6 +26,25 @@ void StreamManagementServiceClient::onReceiveMessage(Grpc::ResponsePtr<ServerMes
   if (!stat.ok()) {
     ENVOY_LOG(error, stat.message());
   }
+}
+
+ChannelStreamServiceClient::ChannelStreamServiceClient(Grpc::RawAsyncClientSharedPtr client)
+    : method_manage_stream_(*Protobuf::DescriptorPool::generated_pool()->FindMethodByName(
+          "pomerium.extensions.ssh.StreamManagement.ServeChannel")),
+      client_(client) {}
+
+ChannelStreamServiceClient::~ChannelStreamServiceClient() {
+  stream_ = nullptr;
+}
+
+Grpc::AsyncStream<ChannelMessage>* ChannelStreamServiceClient::start(ChannelStreamCallbacks* callbacks) {
+  callbacks_ = callbacks;
+  stream_ = client_.start(method_manage_stream_, *this, Http::AsyncClient::StreamOptions{});
+  return &stream_;
+}
+
+void ChannelStreamServiceClient::onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) {
+  callbacks_->onReceiveMessage(std::move(message));
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

@@ -7,6 +7,7 @@
 #include <sshkey.h>
 #include <unistd.h>
 
+#include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "source/common/buffer/buffer_impl.h"
 #include "source/extensions/filters/network/generic_proxy/codec_callbacks.h"
 #include "source/extensions/filters/network/ssh/frame.h"
@@ -16,7 +17,9 @@
 #include "source/extensions/filters/network/ssh/service_connection.h"
 #include "source/extensions/filters/network/ssh/service_userauth.h"
 #include "source/extensions/filters/network/ssh/util.h"
+#include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "source/extensions/filters/network/ssh/version_exchange.h"
+#include "source/extensions/filters/network/ssh/transport.h"
 
 #include <openssl/bn.h>
 #include <openssl/evp.h>
@@ -30,22 +33,24 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 SshServerCodec::SshServerCodec(Api::Api& api,
                                std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                               CreateGrpcClientFunc create_grpc_client)
-    : DownstreamTransportCallbacks(*this), api_(api), config_(config) {
+                               CreateGrpcClientFunc create_grpc_client,
+                               AccessLog::AccessLogFileSharedPtr access_log)
+    : DownstreamTransportCallbacks(*this), api_(api), config_(config), access_log_(access_log) {
   auto grpcClient = create_grpc_client();
   THROW_IF_NOT_OK(grpcClient.status());
   mgmt_client_ = std::make_unique<StreamManagementServiceClient>(*grpcClient);
+  channel_client_ = std::make_unique<ChannelStreamServiceClient>(*grpcClient);
   this->registerMessageHandlers(*mgmt_client_);
   this->registerMessageHandlers(*static_cast<SshMessageDispatcher*>(this));
 
-  auto userAuth = std::make_unique<DownstreamUserAuthService>(*this, api);
-  userAuth->registerMessageHandlers(*this);
-  userAuth->registerMessageHandlers(*mgmt_client_);
-  auto connection = std::make_unique<ConnectionService>(*this, api, true);
-  connection->registerMessageHandlers(*this);
+  user_auth_service_ = std::make_unique<DownstreamUserAuthService>(*this, api);
+  user_auth_service_->registerMessageHandlers(*this);
+  user_auth_service_->registerMessageHandlers(*mgmt_client_);
+  connection_service_ = std::make_unique<DownstreamConnectionService>(*this, api, access_log_);
+  connection_service_->registerMessageHandlers(*this);
 
-  services_[userAuth->name()] = std::move(userAuth);
-  services_[connection->name()] = std::move(connection);
+  service_names_.insert(user_auth_service_->name());
+  service_names_.insert(connection_service_->name());
 };
 
 void SshServerCodec::setCodecCallbacks(GenericProxy::ServerCodecCallbacks& callbacks) {
@@ -106,12 +111,13 @@ void SshServerCodec::decode(Envoy::Buffer::Instance& buffer, bool /*end_stream*/
     ENVOY_LOG(debug, "read seqnr inc: {} -> {}", prev, *connection_state_->seq_read);
 
     {
-      auto msg = readPacket<AnyMsg>(dec);
-      if (!msg.ok()) {
-        ENVOY_LOG(error, "ssh: readPacket: {}", msg.status().message());
-        callbacks_->onDecodingFailure(fmt::format("ssh: readPacket: {}", msg.status().message()));
+      auto anyMsg = readPacket<AnyMsg>(dec);
+      if (!anyMsg.ok()) {
+        ENVOY_LOG(error, "ssh: readPacket: {}", anyMsg.status().message());
+        callbacks_->onDecodingFailure(fmt::format("ssh: readPacket: {}", anyMsg.status().message()));
         return;
       }
+      std::unique_ptr<SshMsg> msg = anyMsg->unwrap();
       if (msg->msg_type() == SshMessageType::NewKeys) {
         ENVOY_LOG(debug, "resetting read sequence number");
         *connection_state_->seq_read = 0;
@@ -131,6 +137,10 @@ GenericProxy::EncodingResult SshServerCodec::encode(const GenericProxy::StreamFr
   const auto& msg = dynamic_cast<const SSHStreamFrame&>(frame);
   switch (msg.frameKind()) {
   case FrameKind::ResponseHeader: {
+    if (authState().handoff_info.handoff_in_progress) {
+      authState().handoff_info.handoff_in_progress = false;
+      callbacks_->connection()->readDisable(false);
+    }
     const auto& respHdr = dynamic_cast<const SSHResponseHeaderFrame&>(frame);
     return sendMessageToConnection(respHdr.message());
   }
@@ -178,11 +188,11 @@ void SshServerCodec::setKexResult(std::shared_ptr<kex_result_t> kex_result) {
                                               kex_result.get());
 }
 
-absl::Status SshServerCodec::handleMessage(AnyMsg&& msg) {
-  switch (msg.msgtype) {
+absl::Status SshServerCodec::handleMessage(SshMsg&& msg) {
+  switch (msg.msg_type()) {
   case SshMessageType::ServiceRequest: {
-    auto req = msg.unwrap<ServiceRequestMsg>();
-    if (services_.contains(req.service_name)) {
+    const auto& req = dynamic_cast<const ServiceRequestMsg&>(msg);
+    if (service_names_.contains(req.service_name)) {
       ServiceAcceptMsg accept;
       accept.service_name = req.service_name;
       return sendMessageToConnection(accept).status();
@@ -191,9 +201,9 @@ absl::Status SshServerCodec::handleMessage(AnyMsg&& msg) {
     break;
   }
   case SshMessageType::GlobalRequest: {
-    auto globalReq = msg.unwrap<GlobalRequestMsg>();
+    const auto& globalReq = dynamic_cast<const GlobalRequestMsg&>(msg);
     if (globalReq.request_name == "hostkeys-prove-00@openssh.com") {
-      auto resp = handleHostKeysProve(msg.unwrap<HostKeysProveRequestMsg>());
+      auto resp = handleHostKeysProve(HostKeysProveRequestMsg(globalReq));
       if (!resp.ok()) {
         return resp.status();
       }
@@ -204,38 +214,38 @@ absl::Status SshServerCodec::handleMessage(AnyMsg&& msg) {
       return absl::OkStatus();
     }
     forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id,
-                                                    std::move(globalReq)));
+                                                    dynamic_cast<GlobalRequestMsg&&>(msg)));
 
     return absl::OkStatus();
   }
   case SshMessageType::RequestSuccess: {
     forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id,
-                                                    msg.unwrap<GlobalRequestSuccessMsg>()));
+                                                    dynamic_cast<GlobalRequestSuccessMsg&&>(msg)));
     return absl::OkStatus();
   }
   case SshMessageType::RequestFailure: {
     forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id,
-                                                    msg.unwrap<GlobalRequestFailureMsg>()));
+                                                    dynamic_cast<GlobalRequestFailureMsg&&>(msg)));
     return absl::OkStatus();
   }
   case SshMessageType::Ignore: {
     forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id,
-                                                    msg.unwrap<IgnoreMsg>()));
+                                                    dynamic_cast<IgnoreMsg&&>(msg)));
     return absl::OkStatus();
   }
   case SshMessageType::Debug: {
     forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id,
-                                                    msg.unwrap<DebugMsg>()));
+                                                    dynamic_cast<DebugMsg&&>(msg)));
     return absl::OkStatus();
   }
   case SshMessageType::Unimplemented: {
     forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id,
-                                                    msg.unwrap<UnimplementedMsg>()));
+                                                    dynamic_cast<UnimplementedMsg&&>(msg)));
     return absl::OkStatus();
   }
   case SshMessageType::Disconnect: {
     forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id,
-                                                    msg.unwrap<DisconnectMsg>()));
+                                                    dynamic_cast<DisconnectMsg&&>(msg)));
     return absl::OkStatus();
   }
   default:
@@ -245,11 +255,11 @@ absl::Status SshServerCodec::handleMessage(AnyMsg&& msg) {
 }
 absl::Status SshServerCodec::handleMessage(Grpc::ResponsePtr<ServerMessage>&& msg) {
   switch (msg->message_case()) {
-  case ServerMessage::kControlRequest:
-    switch (msg->control_request().action_case()) {
-    case pomerium::extensions::ssh::ControlRequest::kCloseStream: {
+  case ServerMessage::kStreamControl:
+    switch (msg->stream_control().action_case()) {
+    case pomerium::extensions::ssh::StreamControl::kCloseStream: {
       callbacks_->connection()->close(Network::ConnectionCloseType::AbortReset,
-                                      msg->control_request().close_stream().reason());
+                                      msg->stream_control().close_stream().reason());
       return absl::OkStatus();
     }
     default:
@@ -263,8 +273,24 @@ absl::Status SshServerCodec::handleMessage(Grpc::ResponsePtr<ServerMessage>&& ms
 void SshServerCodec::initUpstream(AuthStateSharedPtr downstreamState) {
   downstreamState->server_version = server_version_;
   downstream_state_ = downstreamState;
-  auto frame = std::make_unique<SSHRequestHeaderFrame>(downstreamState);
-  callbacks_->onDecodingSuccess(std::move(frame));
+  switch (downstreamState->channel_mode) {
+  case ChannelMode::Normal: {
+    auto frame = std::make_unique<SSHRequestHeaderFrame>(downstreamState);
+    callbacks_->onDecodingSuccess(std::move(frame));
+    break;
+  }
+  case ChannelMode::Hijacked: {
+    downstream_state_->hijacked_stream = channel_client_->start(connection_service_.get());
+    auto _ = sendMessageToConnection(EmptyMsg<SshMessageType::UserAuthSuccess>{});
+    break;
+  }
+  case ChannelMode::Handoff: {
+    auto frame = std::make_unique<SSHRequestHeaderFrame>(downstreamState);
+    callbacks_->connection()->readDisable(true);
+    callbacks_->onDecodingSuccess(std::move(frame));
+    break;
+  }
+  }
 }
 
 const connection_state_t& SshServerCodec::getConnectionState() const {
@@ -290,7 +316,14 @@ const AuthState& SshServerCodec::authState() const {
   return *downstream_state_;
 }
 
+AuthState& SshServerCodec::authState() {
+  return *downstream_state_;
+}
+
 void SshServerCodec::forward(std::unique_ptr<SSHStreamFrame> frame) {
+  if (authState().handoff_info.handoff_in_progress) {
+    PANIC("forward() called during handoff, this should not happen");
+  }
   switch (frame->frameKind()) {
   case FrameKind::RequestHeader: {
     auto framePtr =
@@ -310,7 +343,7 @@ void SshServerCodec::forward(std::unique_ptr<SSHStreamFrame> frame) {
 }
 
 absl::StatusOr<std::unique_ptr<HostKeysProveResponseMsg>>
-SshServerCodec::handleHostKeysProve(HostKeysProveRequestMsg&& msg) {
+SshServerCodec::handleHostKeysProve(const HostKeysProveRequestMsg& msg) {
   std::vector<bytearray> signatures;
   for (const auto& keyBlob : msg.hostkeys) {
     sshkey* tmp;

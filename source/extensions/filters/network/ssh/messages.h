@@ -14,6 +14,7 @@
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 enum class SshMessageType : uint8_t {
+  Invalid = 0,
   // Transport layer protocol
   Disconnect = 1,
   Ignore = 2,
@@ -299,6 +300,12 @@ struct BaseSshMsg {
 
 struct SshMsg : public virtual BaseSshMsg {
   virtual ~SshMsg() = default;
+  // SshMsg() = default;
+  // SshMsg(const SshMsg&) = delete;
+  // SshMsg(SshMsg&&) = default;
+  // SshMsg& operator=(const SshMsg&) = delete;
+  // SshMsg& operator=(SshMsg&&) = default;
+
   virtual size_t decode(Envoy::Buffer::Instance& buffer, size_t payload_size) PURE;
   virtual size_t encode(Envoy::Buffer::Instance& buffer) const PURE;
 
@@ -562,14 +569,14 @@ struct ChannelOpenMsg : SshMsg, MsgType<SshMessageType::ChannelOpen> {
 };
 
 struct ChannelRequestMsg : SshMsg, MsgType<SshMessageType::ChannelRequest> {
-  uint32_t channel;
+  uint32_t recipient_channel;
   std::string request_type;
   bool want_reply;
   bytearray extra;
 
   size_t decode(Envoy::Buffer::Instance& buffer, size_t payload_size) override {
     size_t n = readType<type>(buffer);
-    n += read(buffer, channel);
+    n += read(buffer, recipient_channel);
     n += readString(buffer, request_type);
     n += read(buffer, want_reply);
     n += readExtra(buffer, extra, payload_size - n);
@@ -577,7 +584,7 @@ struct ChannelRequestMsg : SshMsg, MsgType<SshMessageType::ChannelRequest> {
   }
   size_t encode(Envoy::Buffer::Instance& buffer) const override {
     size_t n = writeType<type>(buffer);
-    n += write(buffer, channel);
+    n += write(buffer, recipient_channel);
     n += writeString(buffer, request_type);
     n += write(buffer, want_reply);
     n += writeExtra(buffer, extra);
@@ -585,7 +592,46 @@ struct ChannelRequestMsg : SshMsg, MsgType<SshMessageType::ChannelRequest> {
   }
 };
 
-struct ChannelOpenConfirmationMsg : SshMsg, MsgType<SshMessageType::ChannelOpenConfirmation> {
+struct PtyReqChannelRequestMsg : ChannelRequestMsg {
+  std::string term_env;
+  uint32_t width_columns;
+  uint32_t height_rows;
+  uint32_t width_px;
+  uint32_t height_px;
+  std::string modes;
+
+  PtyReqChannelRequestMsg() = default;
+  PtyReqChannelRequestMsg(const ChannelRequestMsg& base)
+      : ChannelRequestMsg(base) {
+    Envoy::Buffer::OwnedImpl tmp;
+    tmp.add(extra.data(), extra.size());
+    extra.clear();
+    readExtra(tmp, extra, tmp.length());
+  }
+
+  size_t readExtra(Envoy::Buffer::Instance& buffer, bytearray& out, size_t payload_len) override {
+    size_t n = readString(buffer, term_env);
+    n += read(buffer, width_columns);
+    n += read(buffer, height_rows);
+    n += read(buffer, width_px);
+    n += read(buffer, height_px);
+    n += readString(buffer, modes);
+    ChannelRequestMsg::readExtra(buffer, out, payload_len - n);
+    return n;
+  }
+  size_t writeExtra(Envoy::Buffer::Instance& buffer, const bytearray&) const override {
+    size_t n = writeString(buffer, term_env);
+    n += write(buffer, width_columns);
+    n += write(buffer, height_rows);
+    n += write(buffer, width_px);
+    n += write(buffer, height_px);
+    n += writeString(buffer, modes);
+    return n;
+  }
+};
+
+struct ChannelOpenConfirmationMsg : SshMsg,
+                                    MsgType<SshMessageType::ChannelOpenConfirmation> {
   uint32_t recipient_channel;
   uint32_t sender_channel;
   uint32_t initial_window_size;
@@ -777,6 +823,15 @@ struct GlobalRequestMsg : SshMsg, MsgType<SshMessageType::GlobalRequest> {
 struct HostKeysProveRequestMsg : GlobalRequestMsg {
   std::vector<bytearray> hostkeys;
 
+  HostKeysProveRequestMsg() = default;
+  HostKeysProveRequestMsg(const GlobalRequestMsg& base)
+      : GlobalRequestMsg(base) {
+    Envoy::Buffer::OwnedImpl tmp;
+    tmp.add(extra.data(), extra.size());
+    extra.clear();
+    readExtra(tmp, extra, tmp.length());
+  }
+
   size_t readExtra(Envoy::Buffer::Instance& buffer, bytearray&, size_t len) override {
     size_t n = 0;
     while (len > 0) {
@@ -812,6 +867,15 @@ struct GlobalRequestSuccessMsg : SshMsg, MsgType<SshMessageType::RequestSuccess>
 
 struct HostKeysProveResponseMsg : GlobalRequestSuccessMsg {
   std::vector<bytearray> signatures;
+
+  HostKeysProveResponseMsg() = default;
+  HostKeysProveResponseMsg(const GlobalRequestSuccessMsg& base)
+      : GlobalRequestSuccessMsg(base) {
+    Envoy::Buffer::OwnedImpl tmp;
+    tmp.add(extra.data(), extra.size());
+    extra.clear();
+    readExtra(tmp, extra, tmp.length());
+  }
 
   size_t readExtra(Envoy::Buffer::Instance& buffer, bytearray&, size_t len) override {
     size_t n = 0;
@@ -916,6 +980,15 @@ struct PubKeyUserAuthRequestMsg : UserAuthRequestMsg {
   bytearray public_key;
   bytearray signature;
 
+  PubKeyUserAuthRequestMsg() = default;
+  PubKeyUserAuthRequestMsg(const UserAuthRequestMsg& base)
+      : UserAuthRequestMsg(base) {
+    Envoy::Buffer::OwnedImpl tmp;
+    tmp.add(extra.data(), extra.size());
+    extra.clear();
+    readExtra(tmp, extra, tmp.length());
+  }
+
   size_t readExtra(Envoy::Buffer::Instance& buffer, bytearray& out, size_t len) override {
     size_t n = read(buffer, has_signature);
     n += readString(buffer, public_key_alg);
@@ -944,6 +1017,15 @@ struct PubKeyUserAuthRequestMsg : UserAuthRequestMsg {
 struct KeyboardInteractiveUserAuthRequestMsg : UserAuthRequestMsg {
   std::string language_tag;
   NameList submethods;
+
+  KeyboardInteractiveUserAuthRequestMsg() = default;
+  KeyboardInteractiveUserAuthRequestMsg(const UserAuthRequestMsg& base)
+      : UserAuthRequestMsg(base) {
+    Envoy::Buffer::OwnedImpl tmp;
+    tmp.add(extra.data(), extra.size());
+    extra.clear();
+    readExtra(tmp, extra, tmp.length());
+  }
 
   size_t readExtra(Envoy::Buffer::Instance& buffer, bytearray& out, size_t len) override {
     size_t n = readString(buffer, language_tag);
@@ -999,7 +1081,7 @@ struct UserAuthInfoRequestMsg : SshMsg, MsgType<SshMessageType::UserAuthInfoRequ
   }
 };
 
-struct UserInfoResponseMsg : SshMsg, MsgType<SshMessageType::UserAuthInfoResponse> {
+struct UserAuthInfoResponseMsg : SshMsg, MsgType<SshMessageType::UserAuthInfoResponse> {
   int32_t num_responses;
   std::vector<std::string> responses;
 
@@ -1081,6 +1163,26 @@ struct DisconnectMsg : SshMsg, MsgType<SshMessageType::Disconnect> {
   }
 };
 
+struct UserAuthSuccessMsg : EmptyMsg<SshMessageType::UserAuthSuccess> {};
+
+struct UserAuthPubKeyOkMsg : SshMsg, MsgType<SshMessageType::UserAuthPubKeyOk> {
+  std::string public_key_alg;
+  bytearray public_key;
+
+  size_t decode(Envoy::Buffer::Instance& buffer, size_t) override {
+    size_t n = readType<type>(buffer);
+    n += readString(buffer, public_key_alg);
+    n += readString(buffer, public_key);
+    return n;
+  }
+  size_t encode(Envoy::Buffer::Instance& buffer) const override {
+    size_t n = writeType<type>(buffer);
+    n += writeString(buffer, public_key_alg);
+    n += writeString(buffer, public_key);
+    return n;
+  }
+};
+
 struct AnyMsg : SshMsg {
   SshMessageType msgtype;
   bytearray raw_packet; // includes msg_type
@@ -1099,14 +1201,107 @@ struct AnyMsg : SshMsg {
     return raw_packet.size();
   }
 
-  template <typename T>
-  T unwrap() const {
-    T t{};
+  std::unique_ptr<SshMsg> unwrap() const {
+    SshMsg* mp;
+    switch (msg_type()) {
+    case SshMessageType::Disconnect:
+      mp = new DisconnectMsg;
+      break;
+    case SshMessageType::Ignore:
+      mp = new IgnoreMsg;
+      break;
+    case SshMessageType::Unimplemented:
+      mp = new UnimplementedMsg;
+      break;
+    case SshMessageType::Debug:
+      mp = new DebugMsg;
+      break;
+    case SshMessageType::ServiceRequest:
+      mp = new ServiceRequestMsg;
+      break;
+    case SshMessageType::ServiceAccept:
+      mp = new ServiceAcceptMsg;
+      break;
+    case SshMessageType::KexInit:
+      mp = new KexInitMessage;
+      break;
+    case SshMessageType::KexECDHInit:
+      mp = new KexEcdhInitMessage;
+      break;
+    case SshMessageType::KexECDHReply:
+      mp = new KexEcdhReplyMsg;
+      break;
+    case SshMessageType::NewKeys:
+      mp = new EmptyMsg<SshMessageType::NewKeys>;
+      break;
+    case SshMessageType::UserAuthRequest:
+      mp = new UserAuthRequestMsg;
+      break;
+    case SshMessageType::UserAuthFailure:
+      mp = new UserAuthFailureMsg;
+      break;
+    case SshMessageType::UserAuthSuccess:
+      mp = new UserAuthSuccessMsg;
+      break;
+    case SshMessageType::UserAuthBanner:
+      mp = new UserAuthBannerMsg;
+      break;
+    case SshMessageType::UserAuthPubKeyOk:
+      mp = new UserAuthPubKeyOkMsg;
+      break;
+    case SshMessageType::UserAuthInfoResponse:
+      mp = new UserAuthInfoResponseMsg;
+      break;
+    case SshMessageType::GlobalRequest:
+      mp = new GlobalRequestMsg;
+      break;
+    case SshMessageType::RequestSuccess:
+      mp = new GlobalRequestSuccessMsg;
+      break;
+    case SshMessageType::RequestFailure:
+      mp = new GlobalRequestFailureMsg;
+      break;
+    case SshMessageType::ChannelOpen:
+      mp = new ChannelOpenMsg;
+      break;
+    case SshMessageType::ChannelOpenConfirmation:
+      mp = new ChannelOpenConfirmationMsg;
+      break;
+    case SshMessageType::ChannelOpenFailure:
+      mp = new ChannelOpenFailureMsg;
+      break;
+    case SshMessageType::ChannelWindowAdjust:
+      mp = new ChannelWindowAdjustMsg;
+      break;
+    case SshMessageType::ChannelData:
+      mp = new ChannelDataMsg;
+      break;
+    case SshMessageType::ChannelExtendedData:
+      mp = new ChannelExtendedDataMsg;
+      break;
+    case SshMessageType::ChannelEOF:
+      mp = new ChannelEOFMsg;
+      break;
+    case SshMessageType::ChannelClose:
+      mp = new ChannelCloseMsg;
+      break;
+    case SshMessageType::ChannelRequest:
+      mp = new ChannelRequestMsg;
+      break;
+    case SshMessageType::ChannelSuccess:
+      mp = new ChannelSuccessMsg;
+      break;
+    case SshMessageType::ChannelFailure:
+      mp = new ChannelFailureMsg;
+      break;
+    default:
+      PANIC("unimplemented");
+    }
     Envoy::Buffer::OwnedImpl buf;
     buf.add(raw_packet.data(), raw_packet.size());
-    t.decode(buf, buf.length());
+    mp->decode(buf, buf.length());
     buf.drain(buf.length());
-    return t;
+    return std::unique_ptr<SshMsg>(mp);
   }
 
   static AnyMsg wrap(SshMsg&& msg) {
@@ -1129,14 +1324,15 @@ struct AnyMsg : SshMsg {
   }
 };
 
-using SshMessageDispatcher = MessageDispatcher<AnyMsg>;
-using SshMessageHandler = MessageHandler<AnyMsg>;
+using SshMessageDispatcher = MessageDispatcher<SshMsg>;
+using SshMessageHandler = MessageHandler<SshMsg>;
+using SshMessageMiddleware = MessageMiddleware<SshMsg>;
 
 template <>
-struct message_case_type<AnyMsg> : std::type_identity<SshMessageType> {};
+struct message_case_type<SshMsg> : std::type_identity<SshMessageType> {};
 
 template <>
-inline SshMessageType messageCase(const AnyMsg& msg) {
+inline SshMessageType messageCase(const SshMsg& msg) {
   return msg.msg_type();
 }
 

@@ -14,19 +14,20 @@ extern "C" {
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 SshClientCodec::SshClientCodec(Api::Api& api,
-                               std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config)
-    : TransportCallbacks(*this), api_(api), config_(std::move(config)) {
+                               std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
+                               AccessLog::AccessLogFileSharedPtr access_log)
+    : TransportCallbacks(*this), api_(api), config_(std::move(config)), access_log_(access_log) {
   this->registerMessageHandlers(*static_cast<SshMessageDispatcher*>(this));
   user_auth_svc_ = std::make_unique<UpstreamUserAuthService>(*this, api);
   user_auth_svc_->registerMessageHandlers(*this);
-  connection_svc_ = std::make_unique<ConnectionService>(*this, api, false);
+  connection_svc_ = std::make_unique<UpstreamConnectionService>(*this, api, access_log);
   connection_svc_->registerMessageHandlers(*this);
 
   services_[user_auth_svc_->name()] = user_auth_svc_.get();
   services_[connection_svc_->name()] = connection_svc_.get();
 }
 
-void SshClientCodec::registerMessageHandlers(MessageDispatcher<AnyMsg>& dispatcher) const {
+void SshClientCodec::registerMessageHandlers(MessageDispatcher<SshMsg>& dispatcher) const {
   dispatcher.registerHandler(SshMessageType::ServiceAccept, this);
   dispatcher.registerHandler(SshMessageType::GlobalRequest, this);
   dispatcher.registerHandler(SshMessageType::RequestSuccess, this);
@@ -78,12 +79,13 @@ void SshClientCodec::decode(Envoy::Buffer::Instance& buffer, bool /*end_stream*/
     ENVOY_LOG(debug, "read seqnr inc: {} -> {}", prev, *connection_state_->seq_read);
 
     {
-      auto msg = readPacket<AnyMsg>(dec);
-      if (!msg.ok()) {
-        ENVOY_LOG(error, "ssh: readPacket: {}", msg.status().message());
-        callbacks_->onDecodingFailure(fmt::format("ssh: readPacket: {}", msg.status().message()));
+      auto anyMsg = readPacket<AnyMsg>(dec);
+      if (!anyMsg.ok()) {
+        ENVOY_LOG(error, "ssh: readPacket: {}", anyMsg.status().message());
+        callbacks_->onDecodingFailure(fmt::format("ssh: readPacket: {}", anyMsg.status().message()));
         return;
       }
+      std::unique_ptr<SshMsg> msg = anyMsg->unwrap();
       if (msg->msg_type() == SshMessageType::NewKeys) {
         ENVOY_LOG(debug, "resetting read sequence number");
         *connection_state_->seq_read = 0;
@@ -104,10 +106,18 @@ GenericProxy::EncodingResult SshClientCodec::encode(const GenericProxy::StreamFr
   case FrameKind::RequestHeader: {
     auto& reqHeader = dynamic_cast<const SSHRequestHeaderFrame&>(frame);
     downstream_state_ = reqHeader.authState();
+    if (downstream_state_->channel_mode == ChannelMode::Handoff) {
+      channel_id_remap_enabled_ = true;
+      installMiddleware(this);
+    }
     return version_exchanger_->writeVersion(downstream_state_->server_version);
   }
   case FrameKind::RequestCommon: {
-    return sendMessageToConnection(dynamic_cast<const SSHRequestCommonFrame&>(frame).message());
+    const auto& msg = dynamic_cast<const SSHRequestCommonFrame&>(frame).message();
+    if (channel_id_remap_enabled_) {
+      doChannelIdRemap(const_cast<SshMsg&>(msg), channel_id_mappings_);
+    }
+    return sendMessageToConnection(msg);
   }
   default:
     throw EnvoyException("bug: unknown frame kind");
@@ -135,19 +145,19 @@ void SshClientCodec::setKexResult(std::shared_ptr<kex_result_t> kex_result) {
   }
 }
 
-absl::Status SshClientCodec::handleMessage(AnyMsg&& msg) {
-  switch (msg.msgtype) {
+absl::Status SshClientCodec::handleMessage(SshMsg&& msg) {
+  switch (msg.msg_type()) {
   case SshMessageType::ServiceAccept: {
-    auto acceptMsg = msg.unwrap<ServiceAcceptMsg>();
+    const auto& acceptMsg = dynamic_cast<ServiceAcceptMsg&>(msg);
     if (services_.contains(acceptMsg.service_name)) {
       return services_[acceptMsg.service_name]->handleMessage(std::move(msg));
     }
-    ENVOY_LOG(error, "received ServiceAccept message for unknown service {}", msg.msgtype);
+    ENVOY_LOG(error, "received ServiceAccept message for unknown service {}", msg.msg_type());
     return absl::InternalError(
-        fmt::format("received ServiceAccept message for unknown service {}", msg.msgtype));
+        fmt::format("received ServiceAccept message for unknown service {}", msg.msg_type()));
   }
   case SshMessageType::GlobalRequest: {
-    auto globalReq = msg.unwrap<GlobalRequestMsg>();
+    const auto& globalReq = dynamic_cast<GlobalRequestMsg&>(msg);
     if (globalReq.request_name == "hostkeys-00@openssh.com") {
       ENVOY_LOG(debug, "received hostkeys-00@openssh.com");
       // ignore this for now
@@ -155,37 +165,37 @@ absl::Status SshClientCodec::handleMessage(AnyMsg&& msg) {
     }
     ENVOY_LOG(debug, "forwarding global request");
     forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id,
-                                                     std::move(globalReq)));
+                                                     dynamic_cast<ServiceAcceptMsg&&>(msg)));
     return absl::OkStatus();
   }
   case SshMessageType::RequestSuccess: {
     forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id,
-                                                     msg.unwrap<GlobalRequestSuccessMsg>()));
+                                                     dynamic_cast<GlobalRequestSuccessMsg&&>(msg)));
     return absl::OkStatus();
   }
   case SshMessageType::RequestFailure: {
     forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id,
-                                                     msg.unwrap<GlobalRequestFailureMsg>()));
+                                                     dynamic_cast<GlobalRequestFailureMsg&&>(msg)));
     return absl::OkStatus();
   }
   case SshMessageType::Ignore: {
     forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id,
-                                                     msg.unwrap<IgnoreMsg>()));
+                                                     dynamic_cast<IgnoreMsg&&>(msg)));
     return absl::OkStatus();
   }
   case SshMessageType::Debug: {
     forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id,
-                                                     msg.unwrap<DebugMsg>()));
+                                                     dynamic_cast<DebugMsg&&>(msg)));
     return absl::OkStatus();
   }
   case SshMessageType::Unimplemented: {
     forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id,
-                                                     msg.unwrap<UnimplementedMsg>()));
+                                                     dynamic_cast<UnimplementedMsg&&>(msg)));
     return absl::OkStatus();
   }
   case SshMessageType::Disconnect: {
     forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id,
-                                                     msg.unwrap<DisconnectMsg>()));
+                                                     dynamic_cast<DisconnectMsg&&>(msg)));
     return absl::OkStatus();
   }
   default:
@@ -228,11 +238,15 @@ const AuthState& SshClientCodec::authState() const {
   return *downstream_state_;
 };
 
+AuthState& SshClientCodec::authState() {
+  return *downstream_state_;
+}
+
 void SshClientCodec::forward(std::unique_ptr<SSHStreamFrame> frame) {
   switch (frame->frameKind()) {
   case FrameKind::ResponseHeader: {
     auto framePtr =
-        std::unique_ptr<ResponseHeaderFrame>(dynamic_cast<ResponseHeaderFrame*>(frame.release()));
+        std::unique_ptr<ResponseHeaderFrame>(dynamic_cast<SSHResponseHeaderFrame*>(frame.release()));
     callbacks_->onDecodingSuccess(std::move(framePtr));
     break;
   }
@@ -240,6 +254,16 @@ void SshClientCodec::forward(std::unique_ptr<SSHStreamFrame> frame) {
     auto framePtr =
         std::unique_ptr<ResponseCommonFrame>(dynamic_cast<ResponseCommonFrame*>(frame.release()));
     callbacks_->onDecodingSuccess(std::move(framePtr));
+    // auto framePtr = dynamic_cast<SSHResponseCommonFrame*>(frame.release());
+    // if (authState().channel_mode == ChannelMode::Handoff && !sent_response_header_frame_) {
+    //   // we haven't yet sent a response header frame after handoff, transform the first one
+    //   // into a header frame
+    //   callbacks_->onDecodingSuccess(
+    //       std::unique_ptr<ResponseHeaderFrame>(new SSHResponseHeaderFrame(framePtr, StreamStatus(0, true))));
+    //   sent_response_header_frame_ = true;
+    //   return;
+    // }
+    // callbacks_->onDecodingSuccess(std::unique_ptr<ResponseCommonFrame>(framePtr));
     break;
   }
   default:
@@ -250,5 +274,96 @@ void SshClientCodec::forward(std::unique_ptr<SSHStreamFrame> frame) {
 const pomerium::extensions::ssh::CodecConfig& SshClientCodec::codecConfig() const {
   return *config_;
 };
+
+bool SshClientCodec::interceptMessage(SshMsg& sshMsg) {
+  switch (sshMsg.msg_type()) {
+  case SshMessageType::ChannelOpenConfirmation: {
+    auto& confirm = dynamic_cast<ChannelOpenConfirmationMsg&>(sshMsg);
+    const auto& info = downstream_state_->handoff_info;
+    if (info.handoff_in_progress && confirm.recipient_channel == info.channel_info->downstream_channel_id()) {
+      channel_id_mappings_[info.channel_info->internal_upstream_channel_id()] = confirm.sender_channel;
+      channel_id_mappings_inverse_[confirm.sender_channel] = info.channel_info->internal_upstream_channel_id();
+      // channel is open, now request a pty
+      PtyReqChannelRequestMsg ptyReq;
+      ptyReq.recipient_channel = confirm.sender_channel;
+      ptyReq.request_type = "pty-req";
+      ptyReq.want_reply = true;
+      ptyReq.term_env = info.pty_info->term_env();
+      ptyReq.width_columns = info.pty_info->width_columns();
+      ptyReq.height_rows = info.pty_info->height_rows();
+      ptyReq.width_px = info.pty_info->width_px();
+      ptyReq.height_px = info.pty_info->height_px();
+      ptyReq.modes = info.pty_info->modes();
+      auto _ = sendMessageToConnection(ptyReq); // todo: handle error
+      return false;
+    }
+    return true;
+  }
+  case SshMessageType::ChannelOpenFailure: {
+    const auto& failure = dynamic_cast<const ChannelOpenFailureMsg&>(sshMsg);
+    if (failure.recipient_channel == downstream_state_->handoff_info.channel_info->downstream_channel_id()) {
+
+      // couldn't connect to the upstream, bail out
+      // still can't forward the message, the downstream thinks
+      // the channel is already open
+      callbacks_->onDecodingFailure(failure.description);
+      return false;
+    }
+    return true;
+  }
+  case SshMessageType::UserAuthSuccess: {
+    // upstream authenticated successfully; open a channel
+    ChannelOpenMsg openMsg;
+    openMsg.channel_type = downstream_state_->handoff_info.channel_info->channel_type();
+    openMsg.sender_channel = downstream_state_->handoff_info.channel_info->downstream_channel_id();
+    openMsg.initial_window_size = downstream_state_->handoff_info.channel_info->initial_window_size();
+    openMsg.max_packet_size = downstream_state_->handoff_info.channel_info->max_packet_size();
+    auto _ = sendMessageToConnection(openMsg); // todo: handle status
+    return false;
+  }
+  case SshMessageType::UserAuthFailure: {
+    const auto& failure = dynamic_cast<const ChannelOpenFailureMsg&>(sshMsg);
+    callbacks_->onDecodingFailure(failure.description);
+    return false;
+  }
+  case SshMessageType::ChannelSuccess: {
+    if (downstream_state_->handoff_info.handoff_in_progress) {
+      // open a shell
+      // TODO: don't "hard code" this logic
+      ChannelRequestMsg shellReq;
+      shellReq.recipient_channel = channel_id_mappings_[downstream_state_->handoff_info.channel_info->internal_upstream_channel_id()];
+      shellReq.request_type = "shell";
+      shellReq.want_reply = false;
+      auto _ = sendMessageToConnection(shellReq);
+
+      // handoff is complete, send an empty message to signal the downstream codec
+      auto frame = std::make_unique<SSHResponseHeaderFrame>(authState().stream_id, StreamStatus(0, true), IgnoreMsg{});
+      frame->setRawFlags(0);
+      callbacks_->onDecodingSuccess(std::move(frame));
+      return false;
+    }
+    break;
+  }
+  case SshMessageType::ChannelFailure: {
+    if (downstream_state_->handoff_info.handoff_in_progress) {
+      callbacks_->onDecodingFailure("failed to open upstream tty");
+      return false;
+    }
+    break;
+  }
+  case SshMessageType::Ignore:
+  case SshMessageType::Debug:
+  case SshMessageType::Unimplemented:
+    if (downstream_state_->handoff_info.handoff_in_progress) {
+      // ignore these messages during handoff, they can trigger a common frame to be sent too early
+      return false;
+    }
+    break;
+  default:
+    break;
+  }
+  // doChannelIdRemap(sshMsg, channel_id_mappings_inverse_);
+  return true;
+}
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

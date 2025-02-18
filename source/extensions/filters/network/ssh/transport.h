@@ -8,6 +8,7 @@
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/packet_cipher.h"
 #include "source/extensions/filters/network/ssh/kex.h"
+#include "source/extensions/filters/network/ssh/messages.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -23,15 +24,32 @@ struct connection_state_t {
   // todo: pending key change?
 };
 
+enum class ChannelMode {
+  Normal = 1,
+  Hijacked = 2,
+  Handoff = 3,
+};
+
+struct handoff_info_t {
+  bool handoff_in_progress{false};
+  std::unique_ptr<pomerium::extensions::ssh::SSHDownstreamChannelInfo> channel_info;
+  std::unique_ptr<pomerium::extensions::ssh::SSHDownstreamPTYInfo> pty_info;
+};
+
 struct AuthState {
   std::string server_version;
   uint64_t stream_id; // unique stream id for both connections
+  ChannelMode channel_mode;
+  Grpc::AsyncStream<pomerium::extensions::ssh::ChannelMessage>* hijacked_stream;
+  handoff_info_t handoff_info;
 
   std::string username;
   std::string hostname;
   std::vector<std::string> auth_methods;
   bytearray public_key;
-  std::unique_ptr<pomerium::extensions::ssh::AllowResponse> permissions;
+  std::unique_ptr<pomerium::extensions::ssh::Permissions> permissions;
+
+  std::unique_ptr<AuthState> clone();
 };
 
 using AuthStateSharedPtr = std::shared_ptr<AuthState>;
@@ -47,6 +65,7 @@ public:
   virtual const kex_result_t& getKexResult() const PURE;
   virtual absl::StatusOr<bytearray> signWithHostKey(Envoy::Buffer::Instance& in) const PURE;
   virtual const AuthState& authState() const PURE;
+  virtual AuthState& authState() PURE;
   virtual const pomerium::extensions::ssh::CodecConfig& codecConfig() const PURE;
 
 protected:

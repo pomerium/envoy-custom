@@ -15,6 +15,7 @@ inline auto format_as(ServerMessage::MessageCase mt) {
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
+using pomerium::extensions::ssh::ChannelMessage;
 using pomerium::extensions::ssh::ClientMessage;
 using pomerium::extensions::ssh::ServerMessage;
 
@@ -63,6 +64,34 @@ private:
   Grpc::AsyncStream<ClientMessage> stream_;
   Grpc::AsyncClient<ClientMessage, ServerMessage> client_;
   std::function<void(Grpc::Status::GrpcStatus, std::string)> on_remote_close_;
+};
+
+class ChannelStreamCallbacks {
+public:
+  virtual ~ChannelStreamCallbacks() = default;
+  virtual void onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) PURE;
+};
+
+class ChannelStreamServiceClient : public Grpc::AsyncStreamCallbacks<ChannelMessage>,
+                                   public Logger::Loggable<Logger::Id::filter> {
+public:
+  ChannelStreamServiceClient(Grpc::RawAsyncClientSharedPtr client);
+  ~ChannelStreamServiceClient();
+  Grpc::AsyncStream<ChannelMessage>* start(ChannelStreamCallbacks* callbacks);
+
+private:
+  void onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) override;
+  void onCreateInitialMetadata(Http::RequestHeaderMap&) override {}
+  void onReceiveInitialMetadata(Http::ResponseHeaderMapPtr&&) override {}
+  void onReceiveTrailingMetadata(Http::ResponseTrailerMapPtr&&) override {}
+  void onRemoteClose(Grpc::Status::GrpcStatus, const std::string&) override {
+    stream_.resetStream();
+    callbacks_ = nullptr;
+  }
+  const Protobuf::MethodDescriptor& method_manage_stream_;
+  Grpc::AsyncStream<ChannelMessage> stream_;
+  Grpc::AsyncClient<ChannelMessage, ChannelMessage> client_;
+  ChannelStreamCallbacks* callbacks_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

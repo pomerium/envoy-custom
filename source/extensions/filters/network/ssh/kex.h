@@ -86,9 +86,9 @@ public:
       : magics_(magics), algs_(algs), signer_(signer) {}
   virtual ~KexAlgorithm() = default;
 
-  virtual absl::Status HandleServerRecv(const AnyMsg& msg) PURE;
-  virtual absl::StatusOr<AnyMsg> HandleClientSend() PURE;
-  virtual absl::Status HandleClientRecv(const AnyMsg& msg) PURE;
+  virtual absl::Status HandleServerRecv(const SshMsg& msg) PURE;
+  virtual absl::StatusOr<std::unique_ptr<SshMsg>> HandleClientSend() PURE;
+  virtual absl::Status HandleClientRecv(const SshMsg& msg) PURE;
   virtual std::shared_ptr<kex_result_t>&& Result() PURE;
 
 protected:
@@ -123,9 +123,9 @@ class Curve25519Sha256KexAlgorithm : public KexAlgorithm {
 public:
   using KexAlgorithm::KexAlgorithm;
 
-  absl::Status HandleServerRecv(const AnyMsg& msg) override;
-  absl::StatusOr<AnyMsg> HandleClientSend() override;
-  absl::Status HandleClientRecv(const AnyMsg& msg) override;
+  absl::Status HandleServerRecv(const SshMsg& msg) override;
+  absl::StatusOr<std::unique_ptr<SshMsg>> HandleClientSend() override;
+  absl::Status HandleClientRecv(const SshMsg& msg) override;
 
   std::shared_ptr<kex_result_t>&& Result() override;
 
@@ -212,7 +212,7 @@ public:
                                          const NameList& server);
   void loadHostKeys();
   void loadSshKeyPair(const std::string& privKeyPath, const std::string& pubKeyPath);
-  void registerMessageHandlers(MessageDispatcher<AnyMsg>& dispatcher) const override {
+  void registerMessageHandlers(MessageDispatcher<SshMsg>& dispatcher) const override {
     dispatcher.registerHandler(SshMessageType::KexInit, this);
     dispatcher.registerHandler(SshMessageType::KexECDHInit, this);
     dispatcher.registerHandler(SshMessageType::KexECDHReply, this);
@@ -222,7 +222,7 @@ public:
   void setVersionStrings(const std::string& ours, const std::string& peer) override;
 
 private:
-  absl::Status handleMessage(AnyMsg&& msg) noexcept override;
+  absl::Status handleMessage(SshMsg&& msg) noexcept override;
   absl::Status sendKexInit() noexcept;
 
   TransportCallbacks& transport_;

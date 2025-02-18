@@ -4,9 +4,9 @@
 #include <iterator>
 
 #include "source/extensions/filters/network/ssh/kex.h"
+#include "openssl/evp.h"
 
 extern "C" {
-#include "openssh/openbsd-compat/sha2.h"
 #include "openssh/ssherr.h"
 #include "openssh/cipher.h"
 }
@@ -111,21 +111,15 @@ void generateKeyMaterial(bytearray& out, const bytearray& tag, kex_result_t* kex
 
   using namespace std::placeholders;
   while (out.size() < out.capacity()) {
-    std::function<void(const uint8_t*, size_t)> write;
-    std::function<void(uint8_t*)> sum;
     size_t digest_size;
-    SHA2_CTX hash_ctx;
+    bssl::ScopedEVP_MD_CTX ctx;
     switch (kex_result->Hash) {
     case SHA256:
-      SHA256Init(&hash_ctx);
-      write = std::bind(&SHA256Update, &hash_ctx, _1, _2);
-      sum = std::bind(&SHA256Final, _1, &hash_ctx);
+      EVP_DigestInit(ctx.get(), EVP_sha256());
       digest_size = 32;
       break;
     case SHA512:
-      SHA512Init(&hash_ctx);
-      write = std::bind(&SHA512Update, &hash_ctx, _1, _2);
-      sum = std::bind(&SHA512Final, _1, &hash_ctx);
+      EVP_DigestInit(ctx.get(), EVP_sha512());
       digest_size = 64;
       break;
     default:
@@ -133,16 +127,16 @@ void generateKeyMaterial(bytearray& out, const bytearray& tag, kex_result_t* kex
     }
     bytearray encoded_k;
     kex_result->EncodeSharedSecret(encoded_k);
-    write(encoded_k.data(), encoded_k.size());
-    write(kex_result->H.data(), kex_result->H.size());
+    EVP_DigestUpdate(ctx.get(), encoded_k.data(), encoded_k.size());
+    EVP_DigestUpdate(ctx.get(), kex_result->H.data(), kex_result->H.size());
     if (digestsSoFar.size() == 0) {
-      write(tag.data(), tag.size());
-      write(kex_result->SessionID.data(), kex_result->SessionID.size());
+      EVP_DigestUpdate(ctx.get(), tag.data(), tag.size());
+      EVP_DigestUpdate(ctx.get(), kex_result->SessionID.data(), kex_result->SessionID.size());
     } else {
-      write(digestsSoFar.data(), digestsSoFar.size());
+      EVP_DigestUpdate(ctx.get(), digestsSoFar.data(), digestsSoFar.size());
     }
     bytearray digest(digest_size, 0);
-    sum(digest.data());
+    EVP_DigestFinal(ctx.get(), digest.data(), nullptr);
     auto toCopy = std::min(out.capacity() - out.size(), digest.size());
     if (toCopy > 0) {
       std::copy_n(digest.begin(), toCopy, std::back_inserter(out));

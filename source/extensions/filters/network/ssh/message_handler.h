@@ -22,6 +22,13 @@ public:
 };
 
 template <typename T>
+class MessageMiddleware {
+public:
+  virtual ~MessageMiddleware() = default;
+  virtual bool interceptMessage(T& msg) PURE;
+};
+
+template <typename T>
 struct message_case_type;
 
 template <typename T>
@@ -40,14 +47,38 @@ public:
     dispatch_[messageType] = const_cast<MessageHandler<T>*>(handler);
   }
 
+  void unregisterHandler(message_case_type_t<T> messageType) {
+    dispatch_.erase(messageType);
+  }
+
+  void installMiddleware(MessageMiddleware<T>* middleware) {
+    middlewares_.push_back(middleware);
+  }
+
+  void uninstallMiddleware(MessageMiddleware<T>* middleware) {
+    if (auto it = std::find(middlewares_.begin(), middlewares_.end(), middleware);
+        it != middlewares_.end()) {
+      middlewares_.erase(it);
+    }
+  }
+
 protected:
   absl::Status dispatch(T&& msg) {
     message_case_type_t<T> mt = messageCase(msg);
     if (!dispatch_.contains(mt)) {
       return absl::Status(absl::StatusCode::kInternal, fmt::format("unknown message type: {}", mt));
     }
+    if (!middlewares_.empty()) {
+      for (auto& mw : middlewares_) {
+        auto cont = mw->interceptMessage(msg);
+        if (!cont) {
+          return absl::OkStatus();
+        }
+      }
+    }
     return dispatch_[mt]->handleMessage(std::forward<T>(msg));
   }
+  std::list<MessageMiddleware<T>*> middlewares_;
   std::unordered_map<message_case_type_t<T>, MessageHandler<T>*> dispatch_;
 };
 

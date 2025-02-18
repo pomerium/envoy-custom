@@ -8,14 +8,13 @@
 #include "source/extensions/filters/network/ssh/kex.h"
 #include "source/extensions/filters/network/ssh/message_handler.h"
 #include "source/extensions/filters/network/ssh/messages.h"
-#include "source/extensions/filters/network/ssh/service.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/util.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-class ServerDownstreamCallbacks;
-class ServerUpstreamCallbacks;
+class DownstreamUserAuthService;
+class DownstreamConnectionService;
 
 class SshServerCodec : public virtual Logger::Loggable<Logger::Id::filter>,
                        public ServerCodec,
@@ -25,8 +24,10 @@ class SshServerCodec : public virtual Logger::Loggable<Logger::Id::filter>,
                        public SshMessageHandler,
                        public StreamMgmtServerMessageHandler {
 public:
-  SshServerCodec(Api::Api& api, std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                 CreateGrpcClientFunc create_grpc_client);
+  SshServerCodec(Api::Api& api,
+                 std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
+                 CreateGrpcClientFunc create_grpc_client,
+                 AccessLog::AccessLogFileSharedPtr access_log);
   ~SshServerCodec() = default;
   void setCodecCallbacks(GenericProxy::ServerCodecCallbacks& callbacks) override;
   void decode(Envoy::Buffer::Instance& buffer, bool end_stream) override;
@@ -40,13 +41,14 @@ public:
   void initUpstream(AuthStateSharedPtr downstreamState) override;
   absl::StatusOr<bytearray> signWithHostKey(Envoy::Buffer::Instance& in) const override;
   const AuthState& authState() const override;
+  AuthState& authState() override;
   void forward(std::unique_ptr<SSHStreamFrame> frame) override;
   const pomerium::extensions::ssh::CodecConfig& codecConfig() const override;
 
 private:
-  absl::Status handleMessage(AnyMsg&& msg) override;
+  absl::Status handleMessage(SshMsg&& msg) override;
   absl::Status handleMessage(Grpc::ResponsePtr<ServerMessage>&& msg) override;
-  void registerMessageHandlers(MessageDispatcher<AnyMsg>& dispatcher) const override {
+  void registerMessageHandlers(MessageDispatcher<SshMsg>& dispatcher) const override {
     dispatcher.registerHandler(SshMessageType::ServiceRequest, this);
     dispatcher.registerHandler(SshMessageType::GlobalRequest, this);
     dispatcher.registerHandler(SshMessageType::RequestSuccess, this);
@@ -58,14 +60,14 @@ private:
   }
   void registerMessageHandlers(
       MessageDispatcher<Grpc::ResponsePtr<ServerMessage>>& dispatcher) const override {
-    dispatcher.registerHandler(ServerMessage::MessageCase::kControlRequest, this);
+    dispatcher.registerHandler(ServerMessage::MessageCase::kStreamControl, this);
   }
 
   const connection_state_t& getConnectionState() const override;
   void writeToConnection(Envoy::Buffer::Instance& buf) const override;
   void sendMgmtClientMessage(const ClientMessage& msg) override;
   absl::StatusOr<std::unique_ptr<HostKeysProveResponseMsg>>
-  handleHostKeysProve(HostKeysProveRequestMsg&& msg);
+  handleHostKeysProve(const HostKeysProveRequestMsg& msg);
 
   absl::StatusOr<bytearray> signWithSpecificHostKey(Envoy::Buffer::Instance& in,
                                                     const libssh::SshKeyPtr& key) const;
@@ -78,10 +80,14 @@ private:
   std::shared_ptr<kex_result_t> kex_result_;
   std::unique_ptr<connection_state_t> connection_state_;
   AuthStateSharedPtr downstream_state_;
-  std::map<std::string, std::unique_ptr<Service>> services_;
+  std::set<std::string> service_names_;
+  std::unique_ptr<DownstreamUserAuthService> user_auth_service_;
+  std::unique_ptr<DownstreamConnectionService> connection_service_;
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config_;
 
   std::unique_ptr<StreamManagementServiceClient> mgmt_client_;
+  std::unique_ptr<ChannelStreamServiceClient> channel_client_;
+  AccessLog::AccessLogFileSharedPtr access_log_;
 
   std::string server_version_{"SSH-2.0-Envoy"};
 };

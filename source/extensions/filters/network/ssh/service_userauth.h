@@ -35,7 +35,7 @@ public:
         transport_(dynamic_cast<DownstreamTransportCallbacks&>(callbacks)) {}
 
   using UserAuthService::registerMessageHandlers;
-  absl::Status handleMessage(AnyMsg&& msg) override;
+  absl::Status handleMessage(SshMsg&& msg) override;
 
   void registerMessageHandlers(
       StreamMgmtServerMessageDispatcher& dispatcher) const override;
@@ -49,7 +49,7 @@ private:
 class UpstreamUserAuthService : public UserAuthService {
 public:
   using UserAuthService::UserAuthService;
-  absl::Status handleMessage(AnyMsg&& msg) override;
+  absl::Status handleMessage(SshMsg&& msg) override;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
