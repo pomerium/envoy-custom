@@ -215,21 +215,10 @@ const kex_result_t& SshClientCodec::getKexResult() const {
   return *kex_result_;
 }
 
-absl::StatusOr<bytearray> SshClientCodec::signWithHostKey(Envoy::Buffer::Instance& in) const {
+absl::StatusOr<bytes> SshClientCodec::signWithHostKey(bytes_view<> in) const {
   auto hostKey = kex_result_->Algorithms.host_key;
   if (auto k = kex_->getHostKey(hostKey); k) {
-    auto inData = static_cast<uint8_t*>(in.linearize(in.length()));
-    uint8_t* sig;
-    size_t sig_len;
-    auto err = sshkey_sign(k->priv.get(), &sig, &sig_len, inData, in.length(), hostKey.c_str(),
-                           nullptr, nullptr, 0);
-    if (err != 0) {
-      return absl::InternalError(std::string(ssh_err(err)));
-    }
-    bytearray out;
-    out.resize(sig_len);
-    memcpy(out.data(), sig, sig_len);
-    return out;
+    return k->priv.sign(in);
   }
   return absl::InternalError("no such host key");
 }
@@ -282,7 +271,6 @@ bool SshClientCodec::interceptMessage(SshMsg& sshMsg) {
     const auto& info = downstream_state_->handoff_info;
     if (info.handoff_in_progress && confirm.recipient_channel == info.channel_info->downstream_channel_id()) {
       channel_id_mappings_[info.channel_info->internal_upstream_channel_id()] = confirm.sender_channel;
-      channel_id_mappings_inverse_[confirm.sender_channel] = info.channel_info->internal_upstream_channel_id();
       // channel is open, now request a pty
       PtyReqChannelRequestMsg ptyReq;
       ptyReq.recipient_channel = confirm.sender_channel;
@@ -322,8 +310,8 @@ bool SshClientCodec::interceptMessage(SshMsg& sshMsg) {
     return false;
   }
   case SshMessageType::UserAuthFailure: {
-    const auto& failure = dynamic_cast<const ChannelOpenFailureMsg&>(sshMsg);
-    callbacks_->onDecodingFailure(failure.description);
+    const auto& failure = dynamic_cast<const UserAuthFailureMsg&>(sshMsg);
+    callbacks_->onDecodingFailure(fmt::format("auth failure: {}", failure.methods));
     return false;
   }
   case SshMessageType::ChannelSuccess: {

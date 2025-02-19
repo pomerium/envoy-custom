@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
+#include "openssh.h"
 #include "source/common/buffer/buffer_impl.h"
 #include "source/extensions/filters/network/generic_proxy/codec_callbacks.h"
 #include "source/extensions/filters/network/ssh/frame.h"
@@ -304,10 +305,10 @@ const kex_result_t& SshServerCodec::getKexResult() const {
   return *kex_result_;
 }
 
-absl::StatusOr<bytearray> SshServerCodec::signWithHostKey(Envoy::Buffer::Instance& in) const {
+absl::StatusOr<bytes> SshServerCodec::signWithHostKey(bytes_view<> in) const {
   auto hostKey = kex_result_->Algorithms.host_key;
   if (auto k = kex_->getHostKey(hostKey); k) {
-    return signWithSpecificHostKey(in, k->priv);
+    return k->priv.sign(in);
   }
   return absl::InternalError("no such host key");
 }
@@ -344,16 +345,14 @@ void SshServerCodec::forward(std::unique_ptr<SSHStreamFrame> frame) {
 
 absl::StatusOr<std::unique_ptr<HostKeysProveResponseMsg>>
 SshServerCodec::handleHostKeysProve(const HostKeysProveRequestMsg& msg) {
-  std::vector<bytearray> signatures;
+  std::vector<bytes> signatures;
   for (const auto& keyBlob : msg.hostkeys) {
-    sshkey* tmp;
-    if (auto r = sshkey_from_blob(keyBlob.data(), keyBlob.size(), &tmp); r != 0) {
-      ENVOY_LOG(error, "client requested to prove ownership of a malformed key");
-      return absl::InvalidArgumentError("requested key is malformed");
+    auto key = openssh::SSHKey::fromBlob(keyBlob);
+    if (!key.ok()) {
+      return key.status();
     }
-    libssh::SshKeyPtr key(tmp);
-    auto hostKey = kex_->getHostKey(sshkey_type(key.get()));
-    if (sshkey_equal_public(key.get(), hostKey->pub.get()) != 1) {
+    auto hostKey = kex_->getHostKey(key->name());
+    if (*key != hostKey->pub) {
       // not our key?
       ENVOY_LOG(error, "client requested to prove ownership of a key that isn't ours");
       return absl::InvalidArgumentError("requested key is invalid");
@@ -362,7 +361,7 @@ SshServerCodec::handleHostKeysProve(const HostKeysProveRequestMsg& msg) {
     writeString(buf, "hostkeys-prove-00@openssh.com");
     writeString(buf, kex_result_->SessionID);
     writeString(buf, keyBlob);
-    auto sig = signWithSpecificHostKey(buf, key);
+    auto sig = key->sign(flushToBytes(buf));
     if (!sig.ok()) {
       return absl::InternalError(fmt::format("sshkey_sign failed: {}", sig.status()));
     }
@@ -371,23 +370,6 @@ SshServerCodec::handleHostKeysProve(const HostKeysProveRequestMsg& msg) {
   auto resp = std::make_unique<HostKeysProveResponseMsg>();
   resp->signatures = std::move(signatures);
   return resp;
-}
-
-absl::StatusOr<bytearray>
-SshServerCodec::signWithSpecificHostKey(Envoy::Buffer::Instance& in,
-                                        const libssh::SshKeyPtr& key) const {
-  auto alg = sshkey_type(key.get());
-  auto inData = static_cast<uint8_t*>(in.linearize(in.length()));
-  uint8_t* sig;
-  size_t sig_len;
-  auto err = sshkey_sign(key.get(), &sig, &sig_len, inData, in.length(), alg, nullptr, nullptr, 0);
-  if (err != 0) {
-    return absl::InternalError(std::string(ssh_err(err)));
-  }
-  bytearray out;
-  out.resize(sig_len);
-  memcpy(out.data(), sig, sig_len);
-  return out;
 }
 
 const pomerium::extensions::ssh::CodecConfig& SshServerCodec::codecConfig() const {

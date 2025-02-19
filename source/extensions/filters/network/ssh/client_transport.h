@@ -34,7 +34,7 @@ public:
 
   void setKexResult(std::shared_ptr<kex_result_t> kex_result) override;
   absl::Status handleMessage(SshMsg&& msg) override;
-  absl::StatusOr<bytearray> signWithHostKey(Envoy::Buffer::Instance& in) const override;
+  absl::StatusOr<bytes> signWithHostKey(bytes_view<> in) const override;
   const AuthState& authState() const override;
   AuthState& authState() override;
   void forward(std::unique_ptr<SSHStreamFrame> frame) override;
@@ -110,12 +110,9 @@ private:
   AccessLog::AccessLogFileSharedPtr access_log_;
 
   bool channel_id_remap_enabled_{false};
-  // bool sent_response_header_frame_{false};
 
   // translates upstream channel ids from {the id the downstream thinks the upstream has} -> {the id the upstream actually has}
   std::unordered_map<uint32_t, uint32_t> channel_id_mappings_;
-  // translates upstream channel ids from {the id the upstream actually has} -> {the id the downstream thinks the upstream has}
-  std::unordered_map<uint32_t, uint32_t> channel_id_mappings_inverse_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

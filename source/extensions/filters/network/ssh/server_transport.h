@@ -39,7 +39,7 @@ public:
   void setKexResult(std::shared_ptr<kex_result_t> kex_result) override;
   const kex_result_t& getKexResult() const override;
   void initUpstream(AuthStateSharedPtr downstreamState) override;
-  absl::StatusOr<bytearray> signWithHostKey(Envoy::Buffer::Instance& in) const override;
+  absl::StatusOr<bytes> signWithHostKey(bytes_view<> in) const override;
   const AuthState& authState() const override;
   AuthState& authState() override;
   void forward(std::unique_ptr<SSHStreamFrame> frame) override;
@@ -69,8 +69,6 @@ private:
   absl::StatusOr<std::unique_ptr<HostKeysProveResponseMsg>>
   handleHostKeysProve(const HostKeysProveRequestMsg& msg);
 
-  absl::StatusOr<bytearray> signWithSpecificHostKey(Envoy::Buffer::Instance& in,
-                                                    const libssh::SshKeyPtr& key) const;
   GenericProxy::ServerCodecCallbacks* callbacks_{};
   bool version_exchange_done_{};
   std::unique_ptr<VersionExchanger> handshaker_;

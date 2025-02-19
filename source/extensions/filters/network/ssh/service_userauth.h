@@ -1,5 +1,6 @@
 #pragma once
 
+#include "openssh.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "source/extensions/filters/network/ssh/messages.h"
 #include "source/extensions/filters/network/ssh/service.h"
@@ -21,10 +22,10 @@ public:
 protected:
   TransportCallbacks& transport_;
   Api::Api& api_;
-  libssh::SshKeyPtr ca_user_key_;
-  libssh::SshKeyPtr ca_user_pubkey_;
+  openssh::SSHKey ca_user_key_;
+  openssh::SSHKey ca_user_pubkey_;
   std::unique_ptr<PubKeyUserAuthRequestMsg> pending_req_;
-  libssh::SshKeyPtr pending_user_key_;
+  openssh::SSHKey pending_user_key_;
 };
 
 class DownstreamUserAuthService : public UserAuthService,

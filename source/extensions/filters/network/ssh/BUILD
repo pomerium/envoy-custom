@@ -22,7 +22,6 @@ envoy_cc_library(
         "service_userauth.cc",
         "ssh-sk-null.cc",
         "transport.cc",
-        "util.cc",
         "version_exchange.cc",
     ],
     hdrs = [
@@ -31,9 +30,9 @@ envoy_cc_library(
         "frame.h",
         "grpc_client_impl.h",
         "kex.h",
-        "keys.h",
         "message_handler.h",
         "messages.h",
+        "openssh.h",
         "packet_cipher.h",
         "server_transport.h",
         "service.h",

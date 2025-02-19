@@ -46,7 +46,7 @@ struct AuthState {
   std::string username;
   std::string hostname;
   std::vector<std::string> auth_methods;
-  bytearray public_key;
+  bytes public_key;
   std::unique_ptr<pomerium::extensions::ssh::Permissions> permissions;
 
   std::unique_ptr<AuthState> clone();
@@ -63,7 +63,7 @@ public:
   virtual void writeToConnection(Envoy::Buffer::Instance& buf) const PURE;
 
   virtual const kex_result_t& getKexResult() const PURE;
-  virtual absl::StatusOr<bytearray> signWithHostKey(Envoy::Buffer::Instance& in) const PURE;
+  virtual absl::StatusOr<bytes> signWithHostKey(bytes_view<> in) const PURE;
   virtual const AuthState& authState() const PURE;
   virtual AuthState& authState() PURE;
   virtual const pomerium::extensions::ssh::CodecConfig& codecConfig() const PURE;

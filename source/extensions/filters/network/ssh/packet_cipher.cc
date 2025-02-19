@@ -4,7 +4,6 @@
 #include <iterator>
 
 #include "source/extensions/filters/network/ssh/kex.h"
-#include "openssl/evp.h"
 
 extern "C" {
 #include "openssh/ssherr.h"
@@ -27,7 +26,7 @@ absl::Status PacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffer::Instanc
   return read_->decryptPacket(seqnum, out, in);
 }
 
-AEADPacketCipher::AEADPacketCipher(const char* cipher_name, bytearray /*iv*/, bytearray key,
+AEADPacketCipher::AEADPacketCipher(const char* cipher_name, bytes /*iv*/, bytes key,
                                    Mode mode) {
   auto cipher = cipher_by_name(cipher_name);
   block_len_ = cipher_blocksize(cipher);
@@ -46,7 +45,7 @@ absl::Status AEADPacketCipher::encryptPacket(uint32_t seqnum, Envoy::Buffer::Ins
   auto in_data = static_cast<uint8_t*>(in.linearize(in_length));
   uint32_t packlen = in_length;
 
-  bytearray out_data;
+  bytes out_data;
   out_data.resize(packlen + auth_len_);
 
   auto r = cipher_crypt(ctx_.get(), seqnum, out_data.data(), in_data, packlen - aad_len_, aad_len_,
@@ -90,7 +89,7 @@ absl::Status AEADPacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffer::Ins
     return absl::OkStatus(); // incomplete packet
   }
 
-  bytearray out_data;
+  bytes out_data;
   out_data.resize(packlen + aad_len_);
 
   auto r = cipher_crypt(ctx_.get(), seqnum, out_data.data(), in_data, packlen, aad_len_, auth_len_);
@@ -104,9 +103,9 @@ absl::Status AEADPacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffer::Ins
   return absl::OkStatus();
 }
 
-void generateKeyMaterial(bytearray& out, const bytearray& tag, kex_result_t* kex_result) {
+void generateKeyMaterial(bytes& out, const bytes& tag, kex_result_t* kex_result) {
   // translated from go ssh/transport.go
-  bytearray digestsSoFar;
+  bytes digestsSoFar;
   std::string x;
 
   using namespace std::placeholders;
@@ -125,7 +124,7 @@ void generateKeyMaterial(bytearray& out, const bytearray& tag, kex_result_t* kex
     default:
       throw EnvoyException("unsupported hash algorithm");
     }
-    bytearray encoded_k;
+    bytes encoded_k;
     kex_result->EncodeSharedSecret(encoded_k);
     EVP_DigestUpdate(ctx.get(), encoded_k.data(), encoded_k.size());
     EVP_DigestUpdate(ctx.get(), kex_result->H.data(), kex_result->H.size());
@@ -135,7 +134,7 @@ void generateKeyMaterial(bytearray& out, const bytearray& tag, kex_result_t* kex
     } else {
       EVP_DigestUpdate(ctx.get(), digestsSoFar.data(), digestsSoFar.size());
     }
-    bytearray digest(digest_size, 0);
+    bytes digest(digest_size, 0);
     EVP_DigestFinal(ctx.get(), digest.data(), nullptr);
     auto toCopy = std::min(out.capacity() - out.size(), digest.size());
     if (toCopy > 0) {
@@ -153,19 +152,19 @@ std::unique_ptr<PacketCipher> NewPacketCipher(direction_t d_read, direction_t d_
     auto readMode = cipherModes.at(kex_result->Algorithms.r.cipher);
     auto writeMode = cipherModes.at(kex_result->Algorithms.w.cipher);
 
-    bytearray readIv;
+    bytes readIv;
     readIv.reserve(readMode.ivSize);
     generateKeyMaterial(readIv, d_read.iv_tag, kex_result);
-    bytearray readKey;
+    bytes readKey;
     readKey.reserve(readMode.keySize);
     generateKeyMaterial(readKey, d_read.key_tag, kex_result);
 
     // todo: non-aead ciphers?
 
-    bytearray writeIv;
+    bytes writeIv;
     writeIv.reserve(writeMode.ivSize);
     generateKeyMaterial(writeIv, d_write.iv_tag, kex_result);
-    bytearray writeKey;
+    bytes writeKey;
     writeKey.reserve(writeMode.keySize);
     generateKeyMaterial(writeKey, d_write.key_tag, kex_result);
 

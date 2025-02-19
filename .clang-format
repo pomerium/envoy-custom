@@ -11,7 +11,12 @@ AlignTrailingComments:
 AllowShortBlocksOnASingleLine: Empty
 AllowShortFunctionsOnASingleLine: Empty
 AllowShortIfStatementsOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: true
 BreakTemplateDeclarations: true
+AlignConsecutiveShortCaseStatements:
+  Enabled: true
+  AcrossEmptyLines: false
+  AcrossComments: false
 
 ---
 

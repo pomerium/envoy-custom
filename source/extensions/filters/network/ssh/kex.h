@@ -12,6 +12,7 @@
 #include "source/extensions/filters/network/ssh/messages.h"
 #include "source/extensions/filters/network/ssh/version_exchange.h"
 #include "source/extensions/filters/network/ssh/message_handler.h"
+#include "source/extensions/filters/network/ssh/openssh.h"
 
 extern "C" {
 #include "openssh/digest.h"
@@ -20,8 +21,8 @@ extern "C" {
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 struct host_keypair_t {
-  libssh::SshKeyPtr priv;
-  libssh::SshKeyPtr pub;
+  openssh::SSHKey priv;
+  openssh::SSHKey pub;
 };
 
 // from go ssh/common.go
@@ -47,10 +48,15 @@ struct algorithms_t {
 struct handshake_magics_t {
   std::string client_version;
   std::string server_version;
-  bytearray client_kex_init;
-  bytearray server_kex_init;
+  bytes client_kex_init;
+  bytes server_kex_init;
 
-  void writeTo(std::function<void(const void* data, size_t len)> writer) const;
+  void encode(Envoy::Buffer::Instance& buffer) const {
+    writeString(buffer, client_version);
+    writeString(buffer, server_version);
+    writeString(buffer, client_kex_init);
+    writeString(buffer, server_kex_init);
+  }
 };
 
 enum hash_function {
@@ -59,21 +65,19 @@ enum hash_function {
 };
 
 struct kex_result_t {
-  bytearray H; // exchange hash
-  bytearray K; // raw shared secret, not encoded as a length-prefixed bignum
-  bytearray HostKeyBlob;
-  bytearray Signature;
+  bytes H; // exchange hash
+  bytes K; // raw shared secret, not encoded as a length-prefixed bignum
+  bytes HostKeyBlob;
+  bytes Signature;
   hash_function Hash;
-  bytearray SessionID;
-  bytearray EphemeralPubKey;
+  bytes SessionID;
+  bytes EphemeralPubKey;
   algorithms_t Algorithms;
 
-  void EncodeSharedSecret(bytearray& out) {
+  void EncodeSharedSecret(bytes& out) {
     Envoy::Buffer::OwnedImpl tmp;
-    writeBignum(tmp, K.data(), K.size());
-    out.resize(tmp.length());
-    out.shrink_to_fit();
-    tmp.copyOut(0, out.size(), out.data());
+    writeBignum(tmp, K);
+    flushToBytes(tmp, out);
   }
 };
 
@@ -113,11 +117,11 @@ private:
 };
 
 struct curve25519_keypair_t {
-  uint8_t priv[32];
-  uint8_t pub[32];
+  std::array<uint8_t, 32> priv;
+  std::array<uint8_t, 32> pub;
 };
 
-static const uint8_t curve25519_zeros[32]{};
+static const std::array<uint8_t, 32> curve25519_zeros{};
 
 class Curve25519Sha256KexAlgorithm : public KexAlgorithm {
 public:
@@ -147,7 +151,7 @@ struct kex_state_t {
   KexInitMessage peer_kex{};
   algorithms_t negotiated_algorithms{};
   handshake_magics_t magics{};
-  std::optional<bytearray> session_id{};
+  std::optional<bytes> session_id{};
   uint32_t flags{};
 
   std::unique_ptr<KexAlgorithm> alg_impl;
@@ -170,24 +174,24 @@ struct kex_state_t {
   void setKexRSASHA2512Supported();
 };
 
-static const NameList rsaSha2256HostKeyAlgs = {
+static const name_list rsaSha2256HostKeyAlgs = {
     "rsa-sha2-256",
     "rsa-sha2-256-cert-v01@openssh.com",
 };
 
-static const NameList rsaSha2512HostKeyAlgs = {
+static const name_list rsaSha2512HostKeyAlgs = {
     "rsa-sha2-512",
     "rsa-sha2-512-cert-v01@openssh.com",
 };
 
-inline NameList algorithmsForKeyFormat(const std::string& keyFormat) {
+inline name_list algorithmsForKeyFormat(std::string_view keyFormat) {
   if (keyFormat == "ssh-rsa") {
     return {"rsa-sha2-256", "rsa-sha2-512", "ssh-rsa"};
   } else if (keyFormat == "ssh-rsa-cert-v01@openssh.com") {
     return {"rsa-sha2-256-cert-v01@openssh.com", "rsa-sha2-512-cert-v01@openssh.com",
             "ssh-rsa-cert-v01@openssh.com"};
   }
-  return {keyFormat};
+  return {std::string(keyFormat)};
 }
 
 class KexCallbacks {
@@ -206,12 +210,12 @@ public:
   absl::Status doInitialKex(Envoy::Buffer::Instance& buffer) noexcept;
   absl::StatusOr<algorithms_t> negotiateAlgorithms() noexcept;
   absl::StatusOr<std::unique_ptr<KexAlgorithm>> newAlgorithmImpl();
-  const host_keypair_t* pickHostKey(const std::string& alg);
-  const host_keypair_t* getHostKey(const std::string& pkalg);
-  absl::StatusOr<std::string> findCommon(std::string_view what, const NameList& client,
-                                         const NameList& server);
-  void loadHostKeys();
-  void loadSshKeyPair(const std::string& privKeyPath, const std::string& pubKeyPath);
+  const host_keypair_t* pickHostKey(std::string_view alg);
+  const host_keypair_t* getHostKey(std::string_view pkalg);
+  absl::StatusOr<std::string> findCommon(std::string_view what, const name_list& client,
+                                         const name_list& server);
+  absl::Status loadHostKeys();
+  absl::Status loadSshKeyPair(std::string_view privKeyPath, std::string_view pubKeyPath);
   void registerMessageHandlers(MessageDispatcher<SshMsg>& dispatcher) const override {
     dispatcher.registerHandler(SshMessageType::KexInit, this);
     dispatcher.registerHandler(SshMessageType::KexECDHInit, this);

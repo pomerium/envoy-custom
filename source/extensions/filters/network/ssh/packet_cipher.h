@@ -6,10 +6,7 @@
 #include "source/extensions/filters/network/ssh/util.h"
 #include "source/extensions/filters/network/ssh/messages.h"
 #include "source/extensions/filters/network/ssh/kex.h"
-
-extern "C" {
-#include "openssh/cipher.h"
-}
+#include "source/extensions/filters/network/ssh/openssh.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -34,7 +31,7 @@ struct cipher_mode_t {
   size_t keySize;
   size_t ivSize;
 
-  std::function<std::unique_ptr<DirectionalPacketCipher>(bytearray, bytearray, Mode)> create;
+  std::function<std::unique_ptr<DirectionalPacketCipher>(bytes, bytes, Mode)> create;
 };
 
 class PacketCipher {
@@ -56,7 +53,7 @@ private:
 class AEADPacketCipher : public DirectionalPacketCipher,
                          public Logger::Loggable<Logger::Id::filter> {
 public:
-  AEADPacketCipher(const char* cipher_name, bytearray iv, bytearray key, Mode mode);
+  AEADPacketCipher(const char* cipher_name, bytes iv, bytes key, Mode mode);
 
   absl::Status decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
                              Envoy::Buffer::Instance& in) override;
@@ -66,7 +63,7 @@ public:
   size_t aadSize() override;
 
 protected:
-  libssh::UniquePtr<sshcipher_ctx> ctx_;
+  openssh::SshCipherCtxPtr ctx_;
   size_t block_len_;
   size_t aad_len_;
   size_t auth_len_;
@@ -75,7 +72,7 @@ protected:
 
 class Chacha20Poly1305Cipher : public AEADPacketCipher {
 public:
-  Chacha20Poly1305Cipher(bytearray iv, bytearray key, Mode mode)
+  Chacha20Poly1305Cipher(bytes iv, bytes key, Mode mode)
       : AEADPacketCipher(cipherChacha20Poly1305, iv, key, mode) {}
 };
 
@@ -108,10 +105,10 @@ public:
   }
 };
 
-void generateKeyMaterial(bytearray& out, const bytearray& tag, kex_result_t* kex_result);
+void generateKeyMaterial(bytes& out, const bytes& tag, kex_result_t* kex_result);
 
 static const std::map<std::string, cipher_mode_t> cipherModes{
-    {cipherChacha20Poly1305, {64, 0, [](bytearray iv, bytearray key, Mode mode) {
+    {cipherChacha20Poly1305, {64, 0, [](bytes iv, bytes key, Mode mode) {
                                 return std::make_unique<Chacha20Poly1305Cipher>(iv, key, mode);
                               }}}};
 

@@ -3,30 +3,28 @@
 #include <cstdlib>
 
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
+#include "openssh.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "source/extensions/filters/network/ssh/messages.h"
 #include "source/extensions/filters/network/ssh/kex.h"
-#include "source/extensions/filters/network/ssh/keys.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/util.h"
 
-extern "C" {
-#include "openssh/ssh2.h"
-#include "openssh/ssherr.h"
-#include "openssh/sshbuf.h"
-#include "openssh/sshkey.h"
-#include "openssh/authfile.h"
-}
-
-#define OPTIONS_CRITICAL 1
-#define OPTIONS_EXTENSIONS 2
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 using namespace pomerium::extensions::ssh;
 
 UserAuthService::UserAuthService(TransportCallbacks& callbacks, Api::Api& api)
     : transport_(callbacks), api_(api) {
-  ca_user_key_ = loadSshPrivateKey(transport_.codecConfig().user_ca_key().private_key_file());
-  ca_user_pubkey_ = loadSshPublicKey(transport_.codecConfig().user_ca_key().public_key_file());
+  {
+    auto privKey = openssh::SSHKey::fromPrivateKeyFile(transport_.codecConfig().user_ca_key().private_key_file());
+    THROW_IF_NOT_OK(privKey.status());
+    ca_user_key_ = std::move(*privKey);
+  }
+  {
+    auto pubKey = openssh::SSHKey::fromPublicKeyFile(transport_.codecConfig().user_ca_key().public_key_file());
+    THROW_IF_NOT_OK(pubKey.status());
+    ca_user_pubkey_ = std::move(*pubKey);
+  }
 }
 
 void UserAuthService::registerMessageHandlers(SshMessageDispatcher& dispatcher) const {
@@ -69,10 +67,7 @@ absl::Status DownstreamUserAuthService::handleMessage(SshMsg&& msg) {
     if (userAuthMsg.method_name == "publickey") {
       PubKeyUserAuthRequestMsg pubkeyReq(userAuthMsg);
 
-      sshkey* userPubKey;
-      sshkey_from_blob(pubkeyReq.public_key.data(), pubkeyReq.public_key.size(), &userPubKey);
-      char* fp = sshkey_fingerprint(
-          userPubKey, sshkey_type_from_name(pubkeyReq.public_key_alg.c_str()), sshkey_fp_rep(0));
+      auto userPubKey = openssh::SSHKey::fromBlob(pubkeyReq.public_key);
       UserAuthBannerMsg banner{};
       auto msgDump = fmt::format("\r\nmethod:   {}"
                                  "\r\nusername: {}"
@@ -80,7 +75,7 @@ absl::Status DownstreamUserAuthService::handleMessage(SshMsg&& msg) {
                                  "\r\nkeyalg:   {}"
                                  "\r\npubkey:   {}",
                                  pubkeyReq.method_name, username, hostname,
-                                 pubkeyReq.public_key_alg, std::string(fp));
+                                 pubkeyReq.public_key_alg, userPubKey->fingerprint());
       banner.message =
           "\r\n====== TEST BANNER ======" + msgDump + "\r\n=========================\r\n";
       auto _ = transport_.sendMessageToConnection(banner);
@@ -212,48 +207,21 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
 absl::Status UpstreamUserAuthService::handleMessage(SshMsg&& msg) {
   switch (msg.msg_type()) {
   case SshMessageType::ServiceAccept: {
-    sshkey* userSessionSshKey;
-    if (auto r = sshkey_generate(KEY_ED25519, 256, &userSessionSshKey); r != 0) {
-      return absl::InternalError(fmt::format("sshkey_generate failed: {}", ssh_err(r)));
-    }
-
-    if (auto r = sshkey_to_certified(userSessionSshKey); r != 0) {
-      return absl::InternalError(fmt::format("sshkey_to_certified failed: {}", ssh_err(r)));
-    }
-
-    userSessionSshKey->cert->type = SSH2_CERT_TYPE_USER;
-    userSessionSshKey->cert->serial = 1;
-    userSessionSshKey->cert->nprincipals = 1;
-    char** principals = new char*[1];
-    principals[0] = const_cast<char*>(strdup(transport_.authState().username.c_str()));
-    userSessionSshKey->cert->principals = principals;
-    userSessionSshKey->cert->extensions = sshbuf_new();
-    for (auto key : {
-             // non-critical extensions
-             // keep these sorted
-             "no-touch-required",
-             "permit-X11-forwarding",
-             "permit-port-forwarding",
-             "permit-pty",
-             "permit-user-rc",
-         }) {
-      sshbuf_put_cstring(userSessionSshKey->cert->extensions, key);
-      sshbuf_put_string(userSessionSshKey->cert->extensions, 0, 0);
-    }
-
-    time_t now = time(NULL);
-    userSessionSshKey->cert->valid_after = ((now - 59) / 60) * 60;
-    userSessionSshKey->cert->valid_before = ~0;
-
-    if (auto r = sshkey_from_private(ca_user_key_.get(), &userSessionSshKey->cert->signature_key);
-        r != 0) {
-      return absl::InternalError(fmt::format("sshkey_from_private failed: {}", ssh_err(r)));
-    }
-
-    if (auto r = sshkey_certify(userSessionSshKey, ca_user_key_.get(),
-                                sshkey_ssh_name(ca_user_key_.get()), nullptr, nullptr);
-        r != 0) {
-      return absl::InternalError(fmt::format("sshkey_certify failed: {}", ssh_err(r)));
+    auto userSessionSshKey = openssh::SSHKey::generate(KEY_ED25519, 256);
+    auto stat = userSessionSshKey->convertToSignedUserCertificate(
+        1,
+        {transport_.authState().username},
+        {
+            openssh::ExtensionNoTouchRequired,
+            openssh::ExtensionPermitX11Forwarding,
+            openssh::ExtensionPermitPortForwarding,
+            openssh::ExtensionPermitPty,
+            openssh::ExtensionPermitUserRc,
+        },
+        absl::Hours(24),
+        ca_user_key_);
+    if (!stat.ok()) {
+      return stat;
     }
 
     auto req = std::make_unique<PubKeyUserAuthRequestMsg>();
@@ -262,11 +230,13 @@ absl::Status UpstreamUserAuthService::handleMessage(SshMsg&& msg) {
     req->service_name = "ssh-connection";
     req->has_signature = false;
     req->public_key_alg = "ssh-ed25519-cert-v01@openssh.com";
-    size_t len = sshbuf_len(userSessionSshKey->cert->certblob);
-    req->public_key.resize(len);
-    memcpy(req->public_key.data(), sshbuf_ptr(userSessionSshKey->cert->certblob), len);
+    auto blob = userSessionSshKey->toBlob();
+    if (!blob.ok()) {
+      return blob.status();
+    }
+    req->public_key = *blob;
     pending_req_ = std::move(req);
-    pending_user_key_.reset(userSessionSshKey);
+    pending_user_key_ = std::move(*userSessionSshKey);
 
     return transport_.sendMessageToConnection(*pending_req_).status();
   }
@@ -281,19 +251,11 @@ absl::Status UpstreamUserAuthService::handleMessage(SshMsg&& msg) {
     writeString(buf, transport_.getKexResult().SessionID);
     pending_req_->has_signature = true; // see PubKeyUserAuthRequestMsg::writeExtra
     pending_req_->encode(buf);
-    auto len = buf.length();
-    auto data = static_cast<uint8_t*>(buf.linearize(len));
-    uint8_t* sig;
-    size_t sig_len;
-    auto err = sshkey_sign(pending_user_key_.get(), &sig, &sig_len, data, len, nullptr, nullptr,
-                           nullptr, 0);
-    if (err != 0) {
-      return absl::InternalError(std::string(ssh_err(err)));
+    auto sig = pending_user_key_.sign(flushToBytes(buf));
+    if (!sig.ok()) {
+      return sig.status();
     }
-
-    pending_req_->signature.resize(sig_len);
-    memcpy(pending_req_->signature.data(), sig, sig_len);
-
+    pending_req_->signature = *sig;
     return transport_.sendMessageToConnection(*pending_req_).status();
   }
   case SshMessageType::UserAuthBanner: {

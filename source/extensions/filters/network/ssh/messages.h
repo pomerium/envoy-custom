@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <type_traits>
 #include <string>
@@ -81,16 +82,16 @@ constexpr inline SshMessageType operator|(SshMessageType l, SshMessageType r) {
 static constexpr auto kexAlgoCurve25519SHA256LibSSH = "curve25519-sha256@libssh.org";
 static constexpr auto kexAlgoCurve25519SHA256 = "curve25519-sha256";
 
-static const NameList preferredKexAlgos = {kexAlgoCurve25519SHA256, kexAlgoCurve25519SHA256LibSSH};
+static const name_list preferredKexAlgos = {kexAlgoCurve25519SHA256, kexAlgoCurve25519SHA256LibSSH};
 
 static constexpr auto cipherAES128GCM = "aes128-gcm@openssh.com";
 static constexpr auto cipherAES256GCM = "aes256-gcm@openssh.com";
 static constexpr auto cipherChacha20Poly1305 = "chacha20-poly1305@openssh.com";
 
-static const NameList preferredCiphers = {cipherChacha20Poly1305, cipherAES128GCM, cipherAES256GCM};
+static const name_list preferredCiphers = {cipherChacha20Poly1305, cipherAES128GCM, cipherAES256GCM};
 
 // TODO: non-AEAD cipher support
-static const NameList supportedMACs{
+static const name_list supportedMACs{
     // "hmac-sha2-256-etm@openssh.com",
     // "hmac-sha2-512-etm@openssh.com",
     // "hmac-sha2-256",
@@ -100,9 +101,9 @@ static const NameList supportedMACs{
 };
 
 struct direction_t {
-  bytearray iv_tag;
-  bytearray key_tag;
-  bytearray mac_key_tag;
+  bytes iv_tag;
+  bytes key_tag;
+  bytes mac_key_tag;
 };
 
 template <typename T>
@@ -134,14 +135,14 @@ inline size_t write<bool>(Envoy::Buffer::Instance& buffer, bool b) {
   return 1;
 }
 
-inline size_t readBytes(Envoy::Buffer::Instance& buffer, bytearray& out) {
+inline size_t readBytes(Envoy::Buffer::Instance& buffer, bytes& out) {
   auto sz = out.size();
   buffer.copyOut(0, sz, out.data());
   buffer.drain(sz);
   return sz;
 }
 
-inline size_t readBytes(Envoy::Buffer::Instance& buffer, bytearray& out, size_t n) {
+inline size_t readBytes(Envoy::Buffer::Instance& buffer, bytes& out, size_t n) {
   if (buffer.length() < n) {
     throw EnvoyException("short read");
   }
@@ -154,7 +155,7 @@ inline size_t readBytes(Envoy::Buffer::Instance& buffer, bytearray& out, size_t 
   return n;
 }
 
-inline size_t writeBytes(Envoy::Buffer::Instance& buffer, const bytearray& bytes) {
+inline size_t writeBytes(Envoy::Buffer::Instance& buffer, const bytes& bytes) {
   auto sz = bytes.size();
   buffer.add(bytes.data(), sz);
   return sz;
@@ -207,33 +208,7 @@ inline size_t writeString(Envoy::Buffer::Instance& buffer, const char* str) {
   return writeString(buffer, std::string_view(str));
 }
 
-void copyWithLengthPrefix(auto& dst, const auto& src) {
-  uint32_t len = htonl(static_cast<uint32_t>(src.size()));
-  dst.clear();
-  dst.resize(src.size() + sizeof(len));
-
-  memcpy(dst.data() + sizeof(len), src.data(), src.size());
-  memcpy(dst.data(), reinterpret_cast<void*>(&len), sizeof(len));
-}
-
-void copyWithLengthPrefix(auto& dst, const auto* src, size_t size) {
-  uint32_t len = htonl(static_cast<uint32_t>(size));
-  dst.clear();
-  dst.resize(size + sizeof(len));
-  memcpy(dst.data() + sizeof(len), src, size);
-  memcpy(dst.data(), reinterpret_cast<void*>(&len), sizeof(len));
-}
-
-void copyWithLengthPrefixAndType(auto& dst, uint8_t type, const auto& src) {
-  uint32_t len = htonl(src.size() + 1); // NB add 1 to len
-  dst.clear();
-  dst.resize(src.size() + sizeof(len) + 1);
-  memcpy(dst.data() + sizeof(len) + 1, src.data(), src.size());
-  memcpy(dst.data(), reinterpret_cast<void*>(&len), sizeof(len));
-  dst[4] = type;
-}
-
-inline size_t readNameList(Envoy::Buffer::Instance& buffer, NameList& out) {
+inline size_t readNameList(Envoy::Buffer::Instance& buffer, name_list& out) {
   size_t n = 0;
   auto size = buffer.drainBEInt<uint32_t>();
   n += sizeof(size);
@@ -259,7 +234,7 @@ inline size_t readNameList(Envoy::Buffer::Instance& buffer, NameList& out) {
   return n;
 }
 
-inline size_t writeNameList(Envoy::Buffer::Instance& buffer, const NameList& list) {
+inline size_t writeNameList(Envoy::Buffer::Instance& buffer, const name_list& list) {
   uint32_t size = 0;
   for (const auto& entry : list) {
     size += entry.length();
@@ -279,18 +254,48 @@ inline size_t writeNameList(Envoy::Buffer::Instance& buffer, const NameList& lis
 }
 
 // equivalent to sshbuf_put_bignum2_bytes
-inline void writeBignum(Envoy::Buffer::Instance& buffer, const uint8_t* src, size_t srclen) {
-  std::basic_string_view str{src, srclen};
+inline void writeBignum(Envoy::Buffer::Instance& buffer, std::span<const uint8_t> str) {
   // skip leading zeros
-  str = str.substr(str.find_first_not_of(static_cast<uint8_t>(0)));
-  size_t len = str.length();
+  str = str.subspan(std::distance(str.begin(),
+                                  std::find_if(str.begin(), str.end(),
+                                               [](const uint8_t& b) { return b != 0; })));
+  size_t len = str.size();
   // prepend a zero byte if the most significant bit is set
   auto prepend = (len > 0 && (str[0] & 0x80) != 0);
   buffer.writeBEInt<uint32_t>(prepend ? (len + 1) : len);
   if (prepend) {
     buffer.writeByte(0);
   }
-  buffer.add(str.data(), str.length());
+  buffer.add(str.data(), str.size());
+}
+
+inline bytes flushToBytes(Envoy::Buffer::Instance& buf) {
+  bytes out;
+  size_t n = buf.length();
+  out.resize(n);
+  buf.copyOut(0, n, out.data());
+  buf.drain(n);
+  return out;
+}
+
+inline void flushToBytes(Envoy::Buffer::Instance& buf, bytes& out) {
+  size_t n = buf.length();
+  out.resize(n);
+  buf.copyOut(0, n, out.data());
+  buf.drain(n);
+}
+
+template <typename T>
+concept encoder = requires(T t) {
+  { t.encode(std::declval<Envoy::Buffer::Instance&>()) };
+};
+
+template <typename T>
+  requires encoder<T>
+inline bytes encodeToBytes(const T& t) {
+  Envoy::Buffer::OwnedImpl tmp;
+  t.encode(tmp);
+  return flushToBytes(tmp);
 }
 
 struct BaseSshMsg {
@@ -300,11 +305,6 @@ struct BaseSshMsg {
 
 struct SshMsg : public virtual BaseSshMsg {
   virtual ~SshMsg() = default;
-  // SshMsg() = default;
-  // SshMsg(const SshMsg&) = delete;
-  // SshMsg(SshMsg&&) = default;
-  // SshMsg& operator=(const SshMsg&) = delete;
-  // SshMsg& operator=(SshMsg&&) = default;
 
   virtual size_t decode(Envoy::Buffer::Instance& buffer, size_t payload_size) PURE;
   virtual size_t encode(Envoy::Buffer::Instance& buffer) const PURE;
@@ -318,12 +318,14 @@ struct SshMsg : public virtual BaseSshMsg {
   }
 
 protected:
-  virtual size_t readExtra(Envoy::Buffer::Instance& buffer, bytearray& out, size_t len) {
+  virtual size_t readExtra(Envoy::Buffer::Instance& buffer, bytes& out, size_t len) {
     return readBytes(buffer, out, len);
   }
-  virtual size_t writeExtra(Envoy::Buffer::Instance& buffer, const bytearray& in) const {
+
+  virtual size_t writeExtra(Envoy::Buffer::Instance& buffer, const bytes& in) const {
     return writeBytes(buffer, in);
   }
+
   static void peekType(Envoy::Buffer::Instance& buffer, SshMessageType* out) {
     *out = buffer.peekInt<SshMessageType>();
   }
@@ -381,7 +383,7 @@ absl::StatusOr<T> readPacket(Envoy::Buffer::Instance& buffer) noexcept {
       }
       n += payload_actual_size;
     }
-    bytearray padding(padding_length);
+    bytes padding(padding_length);
     n += readBytes(buffer, padding);
     return payload;
   } catch (const EnvoyException& e) {
@@ -407,7 +409,7 @@ inline size_t writePacket(Envoy::Buffer::Instance& out, const SshMsg& msg,
   out.move(payloadBytes);
   n += payload_length;
 
-  bytearray padding(padding_length, 0);
+  bytes padding(padding_length, 0);
   RAND_bytes(padding.data(), padding.size());
   n += writeBytes(out, padding);
   return n;
@@ -415,16 +417,16 @@ inline size_t writePacket(Envoy::Buffer::Instance& out, const SshMsg& msg,
 
 struct KexInitMessage : SshMsg, MsgType<SshMessageType::KexInit> {
   uint8_t cookie[16];
-  NameList kex_algorithms;
-  NameList server_host_key_algorithms;
-  NameList encryption_algorithms_client_to_server;
-  NameList encryption_algorithms_server_to_client;
-  NameList mac_algorithms_client_to_server;
-  NameList mac_algorithms_server_to_client;
-  NameList compression_algorithms_client_to_server;
-  NameList compression_algorithms_server_to_client;
-  NameList languages_client_to_server;
-  NameList languages_server_to_client;
+  name_list kex_algorithms;
+  name_list server_host_key_algorithms;
+  name_list encryption_algorithms_client_to_server;
+  name_list encryption_algorithms_server_to_client;
+  name_list mac_algorithms_client_to_server;
+  name_list mac_algorithms_server_to_client;
+  name_list compression_algorithms_client_to_server;
+  name_list compression_algorithms_server_to_client;
+  name_list languages_client_to_server;
+  name_list languages_server_to_client;
   uint8_t first_kex_packet_follows;
   uint32_t reserved;
 
@@ -466,7 +468,7 @@ struct KexInitMessage : SshMsg, MsgType<SshMessageType::KexInit> {
 };
 
 struct KexEcdhInitMessage : SshMsg, MsgType<SshMessageType::KexECDHInit> {
-  bytearray client_pub_key;
+  bytes client_pub_key;
 
   size_t decode(Envoy::Buffer::Instance& buffer, size_t) override {
     size_t n = readType<type>(buffer);
@@ -481,9 +483,9 @@ struct KexEcdhInitMessage : SshMsg, MsgType<SshMessageType::KexECDHInit> {
 };
 
 struct KexEcdhReplyMsg : SshMsg, MsgType<SshMessageType::KexECDHReply> {
-  bytearray host_key;
-  bytearray ephemeral_pub_key;
-  bytearray signature;
+  bytes host_key;
+  bytes ephemeral_pub_key;
+  bytes signature;
 
   size_t decode(Envoy::Buffer::Instance& buffer, size_t) override {
     size_t n = readType<type>(buffer);
@@ -546,7 +548,7 @@ struct ChannelOpenMsg : SshMsg, MsgType<SshMessageType::ChannelOpen> {
   uint32_t sender_channel;
   uint32_t initial_window_size;
   uint32_t max_packet_size;
-  bytearray extra;
+  bytes extra;
 
   size_t decode(Envoy::Buffer::Instance& buffer, size_t payload_size) override {
     size_t n = readType<type>(buffer);
@@ -572,7 +574,7 @@ struct ChannelRequestMsg : SshMsg, MsgType<SshMessageType::ChannelRequest> {
   uint32_t recipient_channel;
   std::string request_type;
   bool want_reply;
-  bytearray extra;
+  bytes extra;
 
   size_t decode(Envoy::Buffer::Instance& buffer, size_t payload_size) override {
     size_t n = readType<type>(buffer);
@@ -609,7 +611,7 @@ struct PtyReqChannelRequestMsg : ChannelRequestMsg {
     readExtra(tmp, extra, tmp.length());
   }
 
-  size_t readExtra(Envoy::Buffer::Instance& buffer, bytearray& out, size_t payload_len) override {
+  size_t readExtra(Envoy::Buffer::Instance& buffer, bytes& out, size_t payload_len) override {
     size_t n = readString(buffer, term_env);
     n += read(buffer, width_columns);
     n += read(buffer, height_rows);
@@ -619,7 +621,7 @@ struct PtyReqChannelRequestMsg : ChannelRequestMsg {
     ChannelRequestMsg::readExtra(buffer, out, payload_len - n);
     return n;
   }
-  size_t writeExtra(Envoy::Buffer::Instance& buffer, const bytearray&) const override {
+  size_t writeExtra(Envoy::Buffer::Instance& buffer, const bytes&) const override {
     size_t n = writeString(buffer, term_env);
     n += write(buffer, width_columns);
     n += write(buffer, height_rows);
@@ -636,7 +638,7 @@ struct ChannelOpenConfirmationMsg : SshMsg,
   uint32_t sender_channel;
   uint32_t initial_window_size;
   uint32_t max_packet_size;
-  bytearray extra;
+  bytes extra;
 
   size_t decode(Envoy::Buffer::Instance& buffer, size_t payload_size) override {
     size_t n = readType<type>(buffer);
@@ -702,7 +704,7 @@ struct ChannelWindowAdjustMsg : SshMsg, MsgType<SshMessageType::ChannelWindowAdj
 
 struct ChannelDataMsg : SshMsg, MsgType<SshMessageType::ChannelData> {
   uint32_t recipient_channel;
-  bytearray data;
+  bytes data;
 
   size_t decode(Envoy::Buffer::Instance& buffer, size_t) override {
     size_t n = readType<type>(buffer);
@@ -721,7 +723,7 @@ struct ChannelDataMsg : SshMsg, MsgType<SshMessageType::ChannelData> {
 struct ChannelExtendedDataMsg : SshMsg, MsgType<SshMessageType::ChannelExtendedData> {
   uint32_t recipient_channel;
   uint32_t data_type_code;
-  bytearray data;
+  bytes data;
 
   size_t decode(Envoy::Buffer::Instance& buffer, size_t) override {
     size_t n = readType<type>(buffer);
@@ -802,7 +804,7 @@ struct ChannelFailureMsg : SshMsg, MsgType<SshMessageType::ChannelFailure> {
 struct GlobalRequestMsg : SshMsg, MsgType<SshMessageType::GlobalRequest> {
   std::string request_name;
   bool want_reply;
-  bytearray extra;
+  bytes extra;
 
   size_t decode(Envoy::Buffer::Instance& buffer, size_t payload_size) override {
     size_t n = readType<type>(buffer);
@@ -821,7 +823,7 @@ struct GlobalRequestMsg : SshMsg, MsgType<SshMessageType::GlobalRequest> {
 };
 
 struct HostKeysProveRequestMsg : GlobalRequestMsg {
-  std::vector<bytearray> hostkeys;
+  std::vector<bytes> hostkeys;
 
   HostKeysProveRequestMsg() = default;
   HostKeysProveRequestMsg(const GlobalRequestMsg& base)
@@ -832,16 +834,16 @@ struct HostKeysProveRequestMsg : GlobalRequestMsg {
     readExtra(tmp, extra, tmp.length());
   }
 
-  size_t readExtra(Envoy::Buffer::Instance& buffer, bytearray&, size_t len) override {
+  size_t readExtra(Envoy::Buffer::Instance& buffer, bytes&, size_t len) override {
     size_t n = 0;
     while (len > 0) {
-      bytearray b;
+      bytes b;
       n += readString(buffer, b);
       hostkeys.push_back(std::move(b));
     }
     return n;
   }
-  size_t writeExtra(Envoy::Buffer::Instance& buffer, const bytearray&) const override {
+  size_t writeExtra(Envoy::Buffer::Instance& buffer, const bytes&) const override {
     size_t n = 0;
     for (const auto& b : hostkeys) {
       n += writeString(buffer, b);
@@ -851,7 +853,7 @@ struct HostKeysProveRequestMsg : GlobalRequestMsg {
 };
 
 struct GlobalRequestSuccessMsg : SshMsg, MsgType<SshMessageType::RequestSuccess> {
-  bytearray extra;
+  bytes extra;
 
   size_t decode(Envoy::Buffer::Instance& buffer, size_t payload_size) override {
     size_t n = readType<type>(buffer);
@@ -866,7 +868,7 @@ struct GlobalRequestSuccessMsg : SshMsg, MsgType<SshMessageType::RequestSuccess>
 };
 
 struct HostKeysProveResponseMsg : GlobalRequestSuccessMsg {
-  std::vector<bytearray> signatures;
+  std::vector<bytes> signatures;
 
   HostKeysProveResponseMsg() = default;
   HostKeysProveResponseMsg(const GlobalRequestSuccessMsg& base)
@@ -877,16 +879,16 @@ struct HostKeysProveResponseMsg : GlobalRequestSuccessMsg {
     readExtra(tmp, extra, tmp.length());
   }
 
-  size_t readExtra(Envoy::Buffer::Instance& buffer, bytearray&, size_t len) override {
+  size_t readExtra(Envoy::Buffer::Instance& buffer, bytes&, size_t len) override {
     size_t n = 0;
     while (len > 0) {
-      bytearray b;
+      bytes b;
       n += readString(buffer, b);
       signatures.push_back(std::move(b));
     }
     return n;
   }
-  size_t writeExtra(Envoy::Buffer::Instance& buffer, const bytearray&) const override {
+  size_t writeExtra(Envoy::Buffer::Instance& buffer, const bytes&) const override {
     size_t n = 0;
     for (const auto& b : signatures) {
       n += writeString(buffer, b);
@@ -898,7 +900,7 @@ struct HostKeysProveResponseMsg : GlobalRequestSuccessMsg {
 struct GlobalRequestFailureMsg : EmptyMsg<SshMessageType::RequestFailure> {};
 
 struct IgnoreMsg : SshMsg, MsgType<SshMessageType::Ignore> {
-  bytearray data;
+  bytes data;
 
   size_t decode(Envoy::Buffer::Instance& buffer, size_t) override {
     size_t n = readType<type>(buffer);
@@ -954,7 +956,7 @@ struct UserAuthRequestMsg : SshMsg, MsgType<SshMessageType::UserAuthRequest> {
   std::string username;
   std::string service_name;
   std::string method_name;
-  bytearray extra;
+  bytes extra;
 
   size_t decode(Envoy::Buffer::Instance& buffer, size_t payload_size) override {
     size_t n = readType<type>(buffer);
@@ -977,8 +979,8 @@ struct UserAuthRequestMsg : SshMsg, MsgType<SshMessageType::UserAuthRequest> {
 struct PubKeyUserAuthRequestMsg : UserAuthRequestMsg {
   bool has_signature;
   std::string public_key_alg;
-  bytearray public_key;
-  bytearray signature;
+  bytes public_key;
+  bytes signature;
 
   PubKeyUserAuthRequestMsg() = default;
   PubKeyUserAuthRequestMsg(const UserAuthRequestMsg& base)
@@ -989,7 +991,7 @@ struct PubKeyUserAuthRequestMsg : UserAuthRequestMsg {
     readExtra(tmp, extra, tmp.length());
   }
 
-  size_t readExtra(Envoy::Buffer::Instance& buffer, bytearray& out, size_t len) override {
+  size_t readExtra(Envoy::Buffer::Instance& buffer, bytes& out, size_t len) override {
     size_t n = read(buffer, has_signature);
     n += readString(buffer, public_key_alg);
     n += readString(buffer, public_key);
@@ -999,7 +1001,7 @@ struct PubKeyUserAuthRequestMsg : UserAuthRequestMsg {
     n += UserAuthRequestMsg::readExtra(buffer, out, len - n);
     return n;
   }
-  size_t writeExtra(Envoy::Buffer::Instance& buffer, const bytearray&) const override {
+  size_t writeExtra(Envoy::Buffer::Instance& buffer, const bytes&) const override {
     size_t n = write(buffer, has_signature);
     n += writeString(buffer, public_key_alg);
     n += writeString(buffer, public_key);
@@ -1016,7 +1018,7 @@ struct PubKeyUserAuthRequestMsg : UserAuthRequestMsg {
 
 struct KeyboardInteractiveUserAuthRequestMsg : UserAuthRequestMsg {
   std::string language_tag;
-  NameList submethods;
+  name_list submethods;
 
   KeyboardInteractiveUserAuthRequestMsg() = default;
   KeyboardInteractiveUserAuthRequestMsg(const UserAuthRequestMsg& base)
@@ -1027,13 +1029,13 @@ struct KeyboardInteractiveUserAuthRequestMsg : UserAuthRequestMsg {
     readExtra(tmp, extra, tmp.length());
   }
 
-  size_t readExtra(Envoy::Buffer::Instance& buffer, bytearray& out, size_t len) override {
+  size_t readExtra(Envoy::Buffer::Instance& buffer, bytes& out, size_t len) override {
     size_t n = readString(buffer, language_tag);
     n += readNameList(buffer, submethods);
     n += UserAuthRequestMsg::readExtra(buffer, out, len - n);
     return n;
   }
-  size_t writeExtra(Envoy::Buffer::Instance& buffer, const bytearray&) const override {
+  size_t writeExtra(Envoy::Buffer::Instance& buffer, const bytes&) const override {
     size_t n = writeString(buffer, language_tag);
     n += writeNameList(buffer, submethods);
     return n;
@@ -1125,7 +1127,7 @@ struct UserAuthBannerMsg : SshMsg, MsgType<SshMessageType::UserAuthBanner> {
 };
 
 struct UserAuthFailureMsg : SshMsg, MsgType<SshMessageType::UserAuthFailure> {
-  NameList methods;
+  name_list methods;
   bool partial;
 
   size_t decode(Envoy::Buffer::Instance& buffer, size_t) override {
@@ -1167,7 +1169,7 @@ struct UserAuthSuccessMsg : EmptyMsg<SshMessageType::UserAuthSuccess> {};
 
 struct UserAuthPubKeyOkMsg : SshMsg, MsgType<SshMessageType::UserAuthPubKeyOk> {
   std::string public_key_alg;
-  bytearray public_key;
+  bytes public_key;
 
   size_t decode(Envoy::Buffer::Instance& buffer, size_t) override {
     size_t n = readType<type>(buffer);
@@ -1185,7 +1187,7 @@ struct UserAuthPubKeyOkMsg : SshMsg, MsgType<SshMessageType::UserAuthPubKeyOk> {
 
 struct AnyMsg : SshMsg {
   SshMessageType msgtype;
-  bytearray raw_packet; // includes msg_type
+  bytes raw_packet; // includes msg_type
 
   SshMessageType msg_type() const override {
     return msgtype;
