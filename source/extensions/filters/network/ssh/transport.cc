@@ -1,11 +1,10 @@
 #include "source/extensions/filters/network/ssh/transport.h"
 
-#include "source/extensions/filters/network/ssh/packet_cipher.h"
 #include <memory>
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-absl::StatusOr<size_t> TransportCallbacks::sendMessageToConnection(const SshMsg& msg) {
+absl::StatusOr<size_t> TransportCallbacks::sendMessageToConnection(const wire::SshMsg& msg) {
   const auto& cs = getConnectionState();
 
   Envoy::Buffer::OwnedImpl dec;
@@ -15,7 +14,7 @@ absl::StatusOr<size_t> TransportCallbacks::sendMessageToConnection(const SshMsg&
     return stat;
   }
   (*cs.seq_write)++;
-  if (msg.msg_type() == SshMessageType::NewKeys) {
+  if (msg.msg_type() == wire::SshMessageType::NewKeys) {
     ENVOY_LOG(debug, "resetting write seqnr");
     *cs.seq_write = 0;
   }

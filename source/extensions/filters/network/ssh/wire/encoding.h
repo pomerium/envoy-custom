@@ -4,17 +4,28 @@
 #include <cstdint>
 #include <algorithm>
 #include <string>
-#include <tuple>
 #include <type_traits>
-#include <variant>
+
+#include "openssl/rand.h"
 
 #include "source/common/buffer/buffer_impl.h"
 
-#include "source/extensions/filters/network/ssh/util.h"
+#include "source/extensions/filters/network/ssh/wire/util.h"
+#include "source/extensions/filters/network/ssh/wire/common.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-enum class SshMessageType : uint8_t;
+namespace wire {
+
+inline size_t read(Envoy::Buffer::Instance& buffer, SshMessageType& t, size_t) {
+  t = buffer.drainInt<SshMessageType>();
+  return 1;
+}
+
+inline size_t write(Envoy::Buffer::Instance& buffer, const SshMessageType& t) {
+  buffer.writeByte(t);
+  return 1;
+}
 
 template <typename T>
 inline size_t split(Envoy::Buffer::Instance& buffer, std::vector<T>& out, size_t limit, char delimiter) {
@@ -81,38 +92,21 @@ inline void flushToBytes(Envoy::Buffer::Instance& buf, bytes& out) {
 }
 
 template <typename T>
-concept encoder = requires(T t) {
+concept Encoder = requires(T t) {
   { t.encode(std::declval<Envoy::Buffer::Instance&>()) };
 };
 
 template <typename T>
-concept decoder = requires(T t) {
+concept Decoder = requires(T t) {
   { t.decode(std::declval<Envoy::Buffer::Instance&>(), std::declval<size_t>()) };
 };
 
 template <typename T>
-  requires encoder<T>
+  requires Encoder<T>
 inline bytes encodeToBytes(const T& t) {
   Envoy::Buffer::OwnedImpl tmp;
   t.encode(tmp);
   return flushToBytes(tmp);
-}
-
-enum FieldOptions : uint32_t {
-  None = 0,
-  LengthPrefixed = 1 << 0,
-  CommaDelimited = 1 << 1,
-  ListSizePrefixed = 1 << 2,
-  ListLengthPrefixed = 1 << 3,
-  Conditional = 1 << 4,
-
-  NameListFormat = CommaDelimited | ListLengthPrefixed,
-};
-
-constexpr inline FieldOptions operator|(FieldOptions lhs, FieldOptions rhs) {
-  return static_cast<FieldOptions>(
-      static_cast<std::underlying_type_t<FieldOptions>>(lhs) |
-      static_cast<std::underlying_type_t<FieldOptions>>(rhs));
 }
 
 template <typename T>
@@ -209,24 +203,56 @@ inline size_t write(Envoy::Buffer::Instance& buffer, const fixed_bytes<N>& t) {
   return N;
 }
 
-size_t read(Envoy::Buffer::Instance& buffer, encoder auto& list, size_t len) {
-  size_t n = 0;
-  while (n < len) {
-    typename std::remove_cvref_t<decltype(list)>::value_type b;
-    n += b.decode(buffer, len - n);
-    if (n > len) {
-      throw EnvoyException("list corrupted");
+template <typename T>
+  requires Decoder<T>
+absl::StatusOr<T> readPacket(Envoy::Buffer::Instance& buffer) noexcept {
+  try {
+    size_t n = 0;
+    uint32_t packet_length{};
+    uint8_t padding_length{};
+    n += read(buffer, packet_length, sizeof(packet_length));
+    n += read(buffer, padding_length, sizeof(padding_length));
+    T payload{};
+    {
+      auto payload_expected_size = packet_length - padding_length - 1;
+      auto payload_actual_size = payload.decode(buffer, payload_expected_size);
+      if (payload_actual_size != payload_expected_size) {
+        return absl::InvalidArgumentError(fmt::format(
+            "unexpected packet payload size of {} bytes (expected {})", n, payload_expected_size));
+      }
+      n += payload_actual_size;
     }
-    list.push_back(std::move(b));
+    bytes padding(padding_length);
+    n += read(buffer, padding, static_cast<size_t>(padding_length));
+    return payload;
+  } catch (const EnvoyException& e) {
+    return absl::InternalError(fmt::format("error decoding packet: {}", e.what()));
   }
-  return n;
 }
 
-inline size_t write(Envoy::Buffer::Instance& buffer, decoder auto& list) {
-  size_t n = 0;
-  for (const auto& b : list) {
-    n += b.encode(buffer, b);
+template <typename T>
+  requires Encoder<T>
+inline size_t writePacket(Envoy::Buffer::Instance& out, const T& msg,
+                          size_t cipher_block_size = 8, size_t aad_len = 0) {
+  Envoy::Buffer::OwnedImpl payloadBytes;
+  size_t payload_length = msg.encode(payloadBytes);
+
+  // RFC4253 § 6
+  uint8_t padding_length = cipher_block_size - ((5 + payload_length - aad_len) % cipher_block_size);
+  if (padding_length < 4) {
+    padding_length += cipher_block_size;
   }
+  uint32_t packet_length = sizeof(padding_length) + payload_length + padding_length;
+
+  size_t n = 0;
+  n += write(out, packet_length);
+  n += write(out, padding_length);
+  out.move(payloadBytes);
+  n += payload_length;
+
+  bytes padding(padding_length, 0);
+  RAND_bytes(padding.data(), padding.size());
+  n += write(out, padding);
   return n;
 }
 
@@ -245,98 +271,25 @@ concept Writer = requires(const T& t) {
 template <typename T>
 concept ReadWriter = Reader<T> && Writer<T>;
 
-template <typename T, FieldOptions Opt>
-struct field_base {
-  T value{};
+enum EncodingOptions : uint32_t {
+  None = 0,
+  LengthPrefixed = 1 << 0,
+  CommaDelimited = 1 << 1,
+  ListSizePrefixed = 1 << 2,
+  ListLengthPrefixed = 1 << 3,
+  Conditional = 1 << 4,
 
-  operator T() const& {
-    return value;
-  }
-
-  operator T() & {
-    return value;
-  }
-
-  T* operator->() {
-    return &value;
-  }
-
-  const T* operator->() const {
-    return &value;
-  }
-
-  T& operator*() {
-    return value;
-  }
-
-  const T& operator*() const {
-    return value;
-  }
-
-  auto operator[](int i) const {
-    return value[i];
-  }
-
-  auto operator[](int i) {
-    return value[i];
-  }
-
-  auto operator<=>(const field_base& other) const = default;
-  bool operator==(const field_base& other) const = default;
-
-  template <typename U>
-  field_base& operator=(const U& rhs) {
-    value = rhs;
-    return *this;
-  }
-
-  template <typename U>
-  field_base& operator=(U&& rhs) {
-    value = std::forward<U>(rhs);
-    return *this;
-  }
-
-  template <typename U>
-  field_base& operator=(std::initializer_list<U> rhs) {
-    value = rhs;
-    return *this;
-  }
-
-  template <typename U>
-  auto operator<=>(const U& other) const {
-    return value <=> other;
-  }
-
-  template <typename U>
-  bool operator==(const U& other) const {
-    return value == other;
-  }
+  NameListFormat = CommaDelimited | ListLengthPrefixed,
 };
 
-template <typename T>
-struct type_or_value_type : std::type_identity<T> {};
-
-template <typename T, typename Allocator>
-struct type_or_value_type<std::vector<T, Allocator>> : std::type_identity<T> {};
-
-template <typename T>
-using type_or_value_type_t = type_or_value_type<T>::type;
-
-template <typename... Args>
-using first_type_t = std::tuple_element_t<0, std::tuple<std::decay_t<Args>...>>;
-
-template <typename T, FieldOptions Opt = None, typename = void>
-  requires ReadWriter<type_or_value_type_t<T>>
-struct field;
-
-template <typename T>
-struct is_vector : std::false_type {};
-
-template <typename T, typename Allocator>
-struct is_vector<std::vector<T, Allocator>> : std::true_type {};
+constexpr inline EncodingOptions operator|(EncodingOptions lhs, EncodingOptions rhs) {
+  return static_cast<EncodingOptions>(
+      static_cast<std::underlying_type_t<EncodingOptions>>(lhs) |
+      static_cast<std::underlying_type_t<EncodingOptions>>(rhs));
+}
 
 // read function for standard field types
-template <FieldOptions Opt, typename T>
+template <EncodingOptions Opt, typename T>
 std::enable_if_t<(!is_vector<T>::value || std::is_same_v<T, bytes>), size_t>
 read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t n) {
   if constexpr (Opt & LengthPrefixed) {
@@ -348,7 +301,7 @@ read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t n) {
 }
 
 // write function for standard field types
-template <FieldOptions Opt, typename T>
+template <EncodingOptions Opt, typename T>
 std::enable_if_t<(!is_vector<T>::value || std::is_same_v<T, bytes>), size_t>
 write_opt(Envoy::Buffer::Instance& buffer, const T& value) {
   if constexpr (Opt & LengthPrefixed) {
@@ -362,7 +315,7 @@ write_opt(Envoy::Buffer::Instance& buffer, const T& value) {
 }
 
 // read function for fields of list types, which make use of field options to control list encoding.
-template <FieldOptions Opt, typename T>
+template <EncodingOptions Opt, typename T>
   requires Reader<typename T::value_type>
 std::enable_if_t<(is_vector<T>::value && !std::is_same_v<T, bytes>), size_t>
 read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) {
@@ -412,7 +365,7 @@ read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) {
 }
 
 // write function for fields of list types
-template <FieldOptions Opt, typename T>
+template <EncodingOptions Opt, typename T>
   requires Writer<typename T::value_type>
 std::enable_if_t<(is_vector<T>::value && !std::is_same_v<T, bytes>), size_t>
 write_opt(Envoy::Buffer::Instance& buffer, const T& value) {
@@ -458,180 +411,6 @@ write_opt(Envoy::Buffer::Instance& buffer, const T& value) {
   return n;
 }
 
-// normal field (not conditional)
-template <typename T, FieldOptions Opt>
-  requires ReadWriter<type_or_value_type_t<T>>
-struct field<T, Opt, std::enable_if_t<(Opt & Conditional) == 0>> : field_base<T, Opt> {
-  static_assert(sizeof(field_base<T, Opt>) == sizeof(T));
-  using field_value_type = T;
-  using field_base<T, Opt>::value;
-  using field_base<T, Opt>::operator=;
-
-  size_t decode(Envoy::Buffer::Instance& buffer, size_t n = 0) {
-    return read_opt<Opt>(buffer, value, n);
-  }
-  size_t encode(Envoy::Buffer::Instance& buffer) const {
-    return write_opt<Opt>(buffer, value);
-  }
-};
-
-// conditional field
-template <typename T, FieldOptions Opt>
-  requires ReadWriter<type_or_value_type_t<T>>
-struct field<T, Opt, std::enable_if_t<(Opt & Conditional) != 0>> : field_base<T, Opt> {
-  static_assert(sizeof(field_base<T, Opt>) == sizeof(T));
-  using field_value_type = T;
-  using field_base<T, Opt>::value;
-  using field_base<T, Opt>::operator=;
-
-  auto enable_if(bool condition) const {
-    return codec{
-        .enabled = condition,
-        .vp = const_cast<T*>(&value),
-    };
-  }
-
-private:
-  struct codec {
-    bool enabled;
-    T* vp;
-    size_t decode(Envoy::Buffer::Instance& buffer, size_t n = 0) {
-      if (!enabled) {
-        return 0;
-      }
-      return read_opt<Opt>(buffer, *vp, n);
-    }
-    size_t encode(Envoy::Buffer::Instance& buffer) const {
-      if (!enabled) {
-        return 0;
-      }
-      return write_opt<Opt>(buffer, *vp);
-    }
-  };
-};
-
-template <typename... Fields>
-size_t decodeFields(Envoy::Buffer::Instance& buffer, size_t limit, Fields&&... fields) {
-  size_t n = 0;
-  ([&] { n += fields.decode(buffer, limit - n); }(), ...);
-  return n;
-}
-
-template <SshMessageType MT, typename... Fields>
-size_t decodeMsg(Envoy::Buffer::Instance& buffer, size_t limit, Fields&&... fields) {
-  if (auto mt = buffer.drainInt<SshMessageType>(); mt != MT) {
-    throw EnvoyException(fmt::format("decoded unexpected message type {}, expected {}",
-                                     static_cast<uint8_t>(mt),
-                                     static_cast<uint8_t>(MT)));
-  }
-  return 1 + decodeFields(buffer, limit - 1, std::forward<Fields>(fields)...);
-}
-
-template <typename... Fields>
-size_t encodeFields(Envoy::Buffer::Instance& buffer, const Fields&... fields) {
-  size_t n = 0;
-  ([&] { n += fields.encode(buffer); }(), ...);
-  return n;
-}
-
-template <SshMessageType MT, typename... Fields>
-size_t encodeMsg(Envoy::Buffer::Instance& buffer, const Fields&... fields) {
-  buffer.writeByte(MT);
-  return 1 + encodeFields(buffer, fields...);
-}
-
-// from https://en.cppreference.com/w/cpp/utility/variant/visit
-template <typename... Ts>
-struct overloads : Ts... {
-  using Ts::operator()...;
-};
-
-template <typename... Options>
-struct sub_message {
-  std::variant<std::monostate, Options...> oneof;
-  using field_value_type = decltype(oneof);
-  static constexpr auto option_names = {Options::request_type...};
-  static constexpr auto decoders =
-      {+[](field_value_type& oneof, Envoy::Buffer::Instance& buffer, size_t limit) -> size_t {
-        Options opt;
-        size_t n = opt.decode(buffer, limit);
-        oneof = std::move(opt);
-        return n;
-      }...};
-  static constexpr auto encoders =
-      {+[](const field_value_type& oneof, Envoy::Buffer::Instance& buffer) -> size_t {
-        return std::get<Options>(oneof).encode(buffer);
-      }...};
-
-  template <typename T>
-  sub_message& operator=(T&& other) {
-    // set the object in the variant
-    oneof = std::forward<T>(other);
-    // update the key field
-    key_field_->value = std::decay_t<T>::request_type;
-    return *this;
-  }
-
-  template <typename T>
-  decltype(auto) get() {
-    return std::get<T>(oneof);
-  }
-  template <typename T>
-  decltype(auto) get() const {
-    return std::get<T>(oneof);
-  }
-
-  void set_key_field(field<std::string, LengthPrefixed>* field_ptr) {
-    key_field_ = field_ptr;
-  }
-
-  std::optional<bytes> unknown;
-  size_t decode(Envoy::Buffer::Instance& buffer, size_t limit) {
-    auto index = std::distance(option_names.begin(),
-                               std::find(option_names.begin(), option_names.end(), *key_field_));
-    if (index == option_names.size()) {
-      auto data = static_cast<uint8_t*>(buffer.linearize(limit));
-      unknown = bytes{data, data + limit};
-      buffer.drain(limit);
-      return limit;
-    } else if (unknown.has_value()) {
-      unknown->clear();
-    }
-    return (*(decoders.begin() + index))(oneof, buffer, limit);
-  }
-  size_t encode(Envoy::Buffer::Instance& buffer) const {
-    if (unknown.has_value()) {
-      buffer.add(unknown->data(), unknown->size());
-      return unknown->size();
-    }
-    auto index = oneof.index();
-    if (index == 0) { // monostate
-      return 0;
-    }
-    // subtract 1 because monostate is index 0
-    return (*(encoders.begin() + index - 1))(oneof, buffer);
-  }
-
-  decltype(auto) visit(auto... fns) const {
-    return std::visit(overloads{fns...}, oneof);
-  }
-
-  decltype(auto) visit(auto... fns) {
-    return std::visit(overloads{fns...}, oneof);
-  }
-
-private:
-  field<std::string, LengthPrefixed>* key_field_;
-};
+} // namespace wire
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
-
-template <typename T, Envoy::Extensions::NetworkFilters::GenericProxy::Codec::FieldOptions Opt>
-struct fmt::formatter<Envoy::Extensions::NetworkFilters::GenericProxy::Codec::field<T, Opt>> : fmt::formatter<T> {
-  // parse is inherited from formatter<string_view>.
-
-  auto format(Envoy::Extensions::NetworkFilters::GenericProxy::Codec::field<T, Opt> c, format_context& ctx) const
-      -> format_context::iterator {
-    return formatter<T>::format(c.value, ctx);
-  }
-};

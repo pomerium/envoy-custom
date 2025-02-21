@@ -9,7 +9,7 @@ SortIncludes: false
 AlignTrailingComments:
   Kind: Always
 AllowShortBlocksOnASingleLine: Empty
-AllowShortFunctionsOnASingleLine: Empty
+AllowShortFunctionsOnASingleLine: Inline
 AllowShortIfStatementsOnASingleLine: Never
 AllowShortCaseLabelsOnASingleLine: true
 BreakTemplateDeclarations: Leave

@@ -16,7 +16,7 @@ envoy_cc_library(
         "frame.cc",
         "grpc_client_impl.cc",
         "kex.cc",
-        "packet_cipher.cc",
+        "packet_cipher_impl.cc",
         "server_transport.cc",
         "service_connection.cc",
         "service_userauth.cc",
@@ -25,28 +25,27 @@ envoy_cc_library(
         "version_exchange.cc",
     ],
     hdrs = [
-        "buffer.h",
         "client_transport.h",
         "config.h",
         "frame.h",
         "grpc_client_impl.h",
         "kex.h",
         "message_handler.h",
-        "messages.h",
         "openssh.h",
         "packet_cipher.h",
+        "packet_cipher_impl.h",
         "server_transport.h",
         "service.h",
         "service_connection.h",
         "service_userauth.h",
         "transport.h",
-        "util.h",
         "version_exchange.h",
     ],
     repository = "@envoy",
     deps = [
         ":ssh_cc_proto",
         "//:openssh",
+        "//source/extensions/filters/network/ssh/wire:wire_lib",
         "@envoy//envoy/buffer:buffer_interface",
         "@envoy//envoy/network:connection_interface",
         "@envoy//envoy/network:filter_interface",
@@ -70,18 +69,4 @@ envoy_cc_library(
 cc_proto_library(
     name = "ssh_cc_proto",
     deps = ["//api/extensions/filters/network/ssh:ssh_proto"],
-)
-
-envoy_cc_test(
-    name = "ssh_test",
-    srcs = ["messages_test.cc"],
-    repository = "@envoy",
-    deps = [
-        ":pomerium_ssh",
-        "@com_google_absl//absl/random",
-        "@envoy//source/common/common:random_generator_lib",
-        "@envoy//test/mocks/runtime:runtime_mocks",
-        "@envoy//test/mocks/stream_info:stream_info_mocks",
-        "@envoy//test/test_common:logging_lib",
-    ],
 )

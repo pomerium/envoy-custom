@@ -4,16 +4,24 @@
 
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
-#include "source/extensions/filters/network/ssh/util.h"
+#include "source/extensions/filters/network/ssh/wire/util.h"
 #include "source/extensions/filters/network/ssh/frame.h"
-#include "source/extensions/filters/network/ssh/packet_cipher.h"
 #include "source/extensions/filters/network/ssh/kex.h"
-#include "source/extensions/filters/network/ssh/messages.h"
+#include "source/extensions/filters/network/ssh/packet_cipher.h"
+#include "source/extensions/filters/network/ssh/wire/messages.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
+struct direction_t {
+  bytes iv_tag;
+  bytes key_tag;
+  bytes mac_key_tag;
+};
+
 static const direction_t clientKeys{{'A'}, {'C'}, {'E'}};
 static const direction_t serverKeys{{'B'}, {'D'}, {'F'}};
+
+class PacketCipher;
 
 struct connection_state_t {
   std::unique_ptr<PacketCipher> cipher;
@@ -57,7 +65,7 @@ using AuthStateSharedPtr = std::shared_ptr<AuthState>;
 class TransportCallbacks : public virtual Logger::Loggable<Logger::Id::filter> {
 public:
   virtual ~TransportCallbacks() = default;
-  absl::StatusOr<size_t> sendMessageToConnection(const SshMsg& msg);
+  absl::StatusOr<size_t> sendMessageToConnection(const wire::SshMsg& msg);
 
   virtual void forward(std::unique_ptr<SSHStreamFrame> frame) PURE;
   virtual void writeToConnection(Envoy::Buffer::Instance& buf) const PURE;

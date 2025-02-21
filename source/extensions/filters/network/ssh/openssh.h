@@ -3,7 +3,7 @@
 #include <cstdio> // IWYU pragma: keep
 
 #include "source/common/common/c_smart_ptr.h"
-#include "source/extensions/filters/network/ssh/util.h"
+#include "source/extensions/filters/network/ssh/wire/util.h"
 #include "absl/time/time.h"
 
 extern "C" {

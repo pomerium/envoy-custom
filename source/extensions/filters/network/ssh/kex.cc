@@ -1,11 +1,10 @@
 #include "source/extensions/filters/network/ssh/kex.h"
 
-#include "buffer.h"
 #include "openssl/curve25519.h"
 
 #include "source/common/buffer/buffer_impl.h"
 
-#include "source/extensions/filters/network/ssh/messages.h"
+#include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
 #include <algorithm>
@@ -18,8 +17,8 @@ extern "C" {
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-absl::Status Curve25519Sha256KexAlgorithm::HandleServerRecv(const SshMsg& msg) {
-  const auto& peerMsg = dynamic_cast<const KexEcdhInitMessage&>(msg);
+absl::Status Curve25519Sha256KexAlgorithm::HandleServerRecv(const wire::SshMsg& msg) {
+  const auto& peerMsg = dynamic_cast<const wire::KexEcdhInitMessage&>(msg);
 
   if (auto sz = peerMsg.client_pub_key->size(); sz != 32) {
     return absl::AbortedError(
@@ -49,10 +48,10 @@ absl::Status Curve25519Sha256KexAlgorithm::HandleServerRecv(const SshMsg& msg) {
 
   Envoy::Buffer::OwnedImpl exchangeHash;
   magics_->encode(exchangeHash);
-  write_opt<LengthPrefixed>(exchangeHash, result_->HostKeyBlob);
-  write_opt<LengthPrefixed>(exchangeHash, client_pub_key);
-  write_opt<LengthPrefixed>(exchangeHash, server_keypair.pub);
-  writeBignum(exchangeHash, shared_secret);
+  wire::write_opt<wire::LengthPrefixed>(exchangeHash, result_->HostKeyBlob);
+  wire::write_opt<wire::LengthPrefixed>(exchangeHash, client_pub_key);
+  wire::write_opt<wire::LengthPrefixed>(exchangeHash, server_keypair.pub);
+  wire::writeBignum(exchangeHash, shared_secret);
 
   fixed_bytes<SSH_DIGEST_MAX_LENGTH> digest_buf;
   size_t digest_len = sizeof(digest_buf);
@@ -79,18 +78,18 @@ absl::Status Curve25519Sha256KexAlgorithm::HandleServerRecv(const SshMsg& msg) {
   return absl::OkStatus();
 }
 
-absl::StatusOr<std::unique_ptr<SshMsg>> Curve25519Sha256KexAlgorithm::HandleClientSend() {
+absl::StatusOr<std::unique_ptr<wire::SshMsg>> Curve25519Sha256KexAlgorithm::HandleClientSend() {
   curve25519_keypair_t client_keypair;
   kexc25519_keygen(client_keypair.priv.data(), client_keypair.pub.data());
   client_keypair_ = client_keypair;
-  auto msg = std::make_unique<KexEcdhInitMessage>();
+  auto msg = std::make_unique<wire::KexEcdhInitMessage>();
 
   msg->client_pub_key = bytes{client_keypair.pub.begin(), client_keypair.pub.end()};
   return msg;
 }
 
-absl::Status Curve25519Sha256KexAlgorithm::HandleClientRecv(const SshMsg& msg) {
-  auto& serverMsg = dynamic_cast<const KexEcdhReplyMsg&>(msg);
+absl::Status Curve25519Sha256KexAlgorithm::HandleClientRecv(const wire::SshMsg& msg) {
+  auto& serverMsg = dynamic_cast<const wire::KexEcdhReplyMsg&>(msg);
 
   if (auto sz = serverMsg.ephemeral_pub_key->size(); sz != 32) {
     return absl::AbortedError(
@@ -114,10 +113,10 @@ absl::Status Curve25519Sha256KexAlgorithm::HandleClientRecv(const SshMsg& msg) {
 
   Envoy::Buffer::OwnedImpl exchangeHash;
   magics_->encode(exchangeHash);
-  write_opt<LengthPrefixed>(exchangeHash, result_->HostKeyBlob);
-  write_opt<LengthPrefixed>(exchangeHash, client_keypair_.pub);
-  write_opt<LengthPrefixed>(exchangeHash, server_pub_key);
-  writeBignum(exchangeHash, shared_secret);
+  wire::write_opt<wire::LengthPrefixed>(exchangeHash, result_->HostKeyBlob);
+  wire::write_opt<wire::LengthPrefixed>(exchangeHash, client_keypair_.pub);
+  wire::write_opt<wire::LengthPrefixed>(exchangeHash, server_pub_key);
+  wire::writeBignum(exchangeHash, shared_secret);
 
   fixed_bytes<SSH_DIGEST_MAX_LENGTH> digest_buf;
   size_t digest_len = digest_buf.size();
@@ -169,13 +168,13 @@ void Kex::setVersionStrings(const std::string& ours, const std::string& peer) {
   }
 }
 
-absl::Status Kex::handleMessage(SshMsg&& msg) noexcept {
+absl::Status Kex::handleMessage(wire::SshMsg&& msg) noexcept {
   switch (msg.msg_type()) {
-  case SshMessageType::KexInit: {
+  case wire::SshMessageType::KexInit: {
     if (state_->kex_init_received) {
       return absl::FailedPreconditionError("unexpected KexInit message");
     }
-    auto& peerKexInit = dynamic_cast<KexInitMessage&>(msg);
+    auto& peerKexInit = dynamic_cast<wire::KexInitMessage&>(msg);
 
     auto raw_peer_kex_init = encodeToBytes(peerKexInit);
 
@@ -229,7 +228,7 @@ absl::Status Kex::handleMessage(SshMsg&& msg) noexcept {
     }
     break;
   }
-  case SshMessageType::NewKeys: {
+  case wire::SshMessageType::NewKeys: {
     if (state_->kex_newkeys_received) {
       return absl::FailedPreconditionError("unexpected NewKeys message received");
     }
@@ -269,7 +268,7 @@ absl::Status Kex::handleMessage(SshMsg&& msg) noexcept {
         }
         state_->kex_result->SessionID = state_->session_id.value();
 
-        KexEcdhReplyMsg reply;
+        wire::KexEcdhReplyMsg reply;
         reply.host_key = state_->kex_result->HostKeyBlob;
         reply.ephemeral_pub_key = state_->kex_result->EphemeralPubKey;
         reply.signature = state_->kex_result->Signature;
@@ -281,7 +280,7 @@ absl::Status Kex::handleMessage(SshMsg&& msg) noexcept {
       }
 
       if (!state_->kex_newkeys_sent) {
-        auto newkeys = EmptyMsg<SshMessageType::NewKeys>{};
+        auto newkeys = wire::EmptyMsg<wire::SshMessageType::NewKeys>{};
         if (auto err = transport_.sendMessageToConnection(newkeys); !err.ok()) {
           return err.status();
         }
@@ -297,7 +296,7 @@ absl::Status Kex::handleMessage(SshMsg&& msg) noexcept {
       }
       state_->kex_result->SessionID = state_->session_id.value();
 
-      auto newkeys = EmptyMsg<SshMessageType::NewKeys>{};
+      auto newkeys = wire::EmptyMsg<wire::SshMessageType::NewKeys>{};
       if (auto err = transport_.sendMessageToConnection(newkeys); !err.ok()) {
         return err.status();
       }
@@ -523,7 +522,7 @@ void kex_state_t::setKexRSASHA2512Supported() {
 }
 
 absl::Status Kex::sendKexInit() noexcept {
-  KexInitMessage* server_kex_init = &state_->our_kex;
+  wire::KexInitMessage* server_kex_init = &state_->our_kex;
   std::copy(preferredKexAlgos.begin(), preferredKexAlgos.end(),
             std::back_inserter(*server_kex_init->kex_algorithms));
   if (is_server_) {

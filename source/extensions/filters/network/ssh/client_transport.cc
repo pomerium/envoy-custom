@@ -1,15 +1,11 @@
 #include "source/extensions/filters/network/ssh/client_transport.h"
 
 #include "source/extensions/filters/network/ssh/frame.h"
-#include "source/extensions/filters/network/ssh/messages.h"
-#include "source/extensions/filters/network/ssh/packet_cipher.h"
+#include "source/extensions/filters/network/ssh/wire/messages.h"
+#include "source/extensions/filters/network/ssh/packet_cipher_impl.h"
 #include "source/extensions/filters/network/ssh/service_connection.h"
 #include "source/extensions/filters/network/ssh/service_userauth.h"
 #include "source/extensions/filters/network/ssh/transport.h"
-
-extern "C" {
-#include "openssh/ssherr.h"
-}
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -27,15 +23,15 @@ SshClientCodec::SshClientCodec(Api::Api& api,
   services_[connection_svc_->name()] = connection_svc_.get();
 }
 
-void SshClientCodec::registerMessageHandlers(MessageDispatcher<SshMsg>& dispatcher) const {
-  dispatcher.registerHandler(SshMessageType::ServiceAccept, this);
-  dispatcher.registerHandler(SshMessageType::GlobalRequest, this);
-  dispatcher.registerHandler(SshMessageType::RequestSuccess, this);
-  dispatcher.registerHandler(SshMessageType::RequestFailure, this);
-  dispatcher.registerHandler(SshMessageType::Ignore, this);
-  dispatcher.registerHandler(SshMessageType::Debug, this);
-  dispatcher.registerHandler(SshMessageType::Unimplemented, this);
-  dispatcher.registerHandler(SshMessageType::Disconnect, this);
+void SshClientCodec::registerMessageHandlers(MessageDispatcher<wire::SshMsg>& dispatcher) const {
+  dispatcher.registerHandler(wire::SshMessageType::ServiceAccept, this);
+  dispatcher.registerHandler(wire::SshMessageType::GlobalRequest, this);
+  dispatcher.registerHandler(wire::SshMessageType::RequestSuccess, this);
+  dispatcher.registerHandler(wire::SshMessageType::RequestFailure, this);
+  dispatcher.registerHandler(wire::SshMessageType::Ignore, this);
+  dispatcher.registerHandler(wire::SshMessageType::Debug, this);
+  dispatcher.registerHandler(wire::SshMessageType::Unimplemented, this);
+  dispatcher.registerHandler(wire::SshMessageType::Disconnect, this);
 }
 
 void SshClientCodec::setCodecCallbacks(GenericProxy::ClientCodecCallbacks& callbacks) {
@@ -79,14 +75,14 @@ void SshClientCodec::decode(Envoy::Buffer::Instance& buffer, bool /*end_stream*/
     ENVOY_LOG(debug, "read seqnr inc: {} -> {}", prev, *connection_state_->seq_read);
 
     {
-      auto anyMsg = readPacket<AnyMsg>(dec);
+      auto anyMsg = wire::readPacket<wire::AnyMsg>(dec);
       if (!anyMsg.ok()) {
         ENVOY_LOG(error, "ssh: readPacket: {}", anyMsg.status().message());
         callbacks_->onDecodingFailure(fmt::format("ssh: readPacket: {}", anyMsg.status().message()));
         return;
       }
-      std::unique_ptr<SshMsg> msg = anyMsg->unwrap();
-      if (msg->msg_type() == SshMessageType::NewKeys) {
+      std::unique_ptr<wire::SshMsg> msg = anyMsg->unwrap();
+      if (msg->msg_type() == wire::SshMessageType::NewKeys) {
         ENVOY_LOG(debug, "resetting read sequence number");
         *connection_state_->seq_read = 0;
       }
@@ -115,7 +111,7 @@ GenericProxy::EncodingResult SshClientCodec::encode(const GenericProxy::StreamFr
   case FrameKind::RequestCommon: {
     const auto& msg = dynamic_cast<const SSHRequestCommonFrame&>(frame).message();
     if (channel_id_remap_enabled_ && msg.is_channel_message()) {
-      auto& channelMsg = const_cast<ChannelMsg&>(dynamic_cast<const ChannelMsg&>(msg));
+      auto& channelMsg = const_cast<wire::ChannelMsg&>(dynamic_cast<const wire::ChannelMsg&>(msg));
       channelMsg.get_recipient_channel() = channel_id_mappings_.at(channelMsg.get_recipient_channel());
     }
     return sendMessageToConnection(msg);
@@ -146,10 +142,10 @@ void SshClientCodec::setKexResult(std::shared_ptr<kex_result_t> kex_result) {
   }
 }
 
-absl::Status SshClientCodec::handleMessage(SshMsg&& msg) {
+absl::Status SshClientCodec::handleMessage(wire::SshMsg&& msg) {
   switch (msg.msg_type()) {
-  case SshMessageType::ServiceAccept: {
-    const auto& acceptMsg = dynamic_cast<ServiceAcceptMsg&>(msg);
+  case wire::SshMessageType::ServiceAccept: {
+    const auto& acceptMsg = dynamic_cast<wire::ServiceAcceptMsg&>(msg);
     if (services_.contains(acceptMsg.service_name)) {
       return services_[acceptMsg.service_name]->handleMessage(std::move(msg));
     }
@@ -157,8 +153,8 @@ absl::Status SshClientCodec::handleMessage(SshMsg&& msg) {
     return absl::InternalError(
         fmt::format("received ServiceAccept message for unknown service {}", msg.msg_type()));
   }
-  case SshMessageType::GlobalRequest: {
-    const auto& globalReq = dynamic_cast<GlobalRequestMsg&>(msg);
+  case wire::SshMessageType::GlobalRequest: {
+    const auto& globalReq = dynamic_cast<wire::GlobalRequestMsg&>(msg);
     if (globalReq.request_name == "hostkeys-00@openssh.com") {
       ENVOY_LOG(debug, "received hostkeys-00@openssh.com");
       // ignore this for now
@@ -166,37 +162,37 @@ absl::Status SshClientCodec::handleMessage(SshMsg&& msg) {
     }
     ENVOY_LOG(debug, "forwarding global request");
     forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id,
-                                                     dynamic_cast<ServiceAcceptMsg&&>(msg)));
+                                                     dynamic_cast<wire::ServiceAcceptMsg&&>(msg)));
     return absl::OkStatus();
   }
-  case SshMessageType::RequestSuccess: {
+  case wire::SshMessageType::RequestSuccess: {
     forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id,
-                                                     dynamic_cast<GlobalRequestSuccessMsg&&>(msg)));
+                                                     dynamic_cast<wire::GlobalRequestSuccessMsg&&>(msg)));
     return absl::OkStatus();
   }
-  case SshMessageType::RequestFailure: {
+  case wire::SshMessageType::RequestFailure: {
     forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id,
-                                                     dynamic_cast<GlobalRequestFailureMsg&&>(msg)));
+                                                     dynamic_cast<wire::GlobalRequestFailureMsg&&>(msg)));
     return absl::OkStatus();
   }
-  case SshMessageType::Ignore: {
+  case wire::SshMessageType::Ignore: {
     forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id,
-                                                     dynamic_cast<IgnoreMsg&&>(msg)));
+                                                     dynamic_cast<wire::IgnoreMsg&&>(msg)));
     return absl::OkStatus();
   }
-  case SshMessageType::Debug: {
+  case wire::SshMessageType::Debug: {
     forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id,
-                                                     dynamic_cast<DebugMsg&&>(msg)));
+                                                     dynamic_cast<wire::DebugMsg&&>(msg)));
     return absl::OkStatus();
   }
-  case SshMessageType::Unimplemented: {
+  case wire::SshMessageType::Unimplemented: {
     forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id,
-                                                     dynamic_cast<UnimplementedMsg&&>(msg)));
+                                                     dynamic_cast<wire::UnimplementedMsg&&>(msg)));
     return absl::OkStatus();
   }
-  case SshMessageType::Disconnect: {
+  case wire::SshMessageType::Disconnect: {
     forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id,
-                                                     dynamic_cast<DisconnectMsg&&>(msg)));
+                                                     dynamic_cast<wire::DisconnectMsg&&>(msg)));
     return absl::OkStatus();
   }
   default:
@@ -265,19 +261,19 @@ const pomerium::extensions::ssh::CodecConfig& SshClientCodec::codecConfig() cons
   return *config_;
 };
 
-bool SshClientCodec::interceptMessage(SshMsg& sshMsg) {
+bool SshClientCodec::interceptMessage(wire::SshMsg& sshMsg) {
   switch (sshMsg.msg_type()) {
-  case SshMessageType::ChannelOpenConfirmation: {
-    auto& confirm = dynamic_cast<ChannelOpenConfirmationMsg&>(sshMsg);
+  case wire::SshMessageType::ChannelOpenConfirmation: {
+    auto& confirm = dynamic_cast<wire::ChannelOpenConfirmationMsg&>(sshMsg);
     const auto& info = downstream_state_->handoff_info;
     if (info.handoff_in_progress && confirm.recipient_channel == info.channel_info->downstream_channel_id()) {
       channel_id_mappings_[info.channel_info->internal_upstream_channel_id()] = confirm.sender_channel;
       // channel is open, now request a pty
-      ChannelRequestMsg channelReq;
+      wire::ChannelRequestMsg channelReq;
       channelReq.recipient_channel = confirm.sender_channel;
       channelReq.want_reply = true;
 
-      PtyReqChannelRequestMsg ptyReq;
+      wire::PtyReqChannelRequestMsg ptyReq;
       ptyReq.term_env = info.pty_info->term_env();
       ptyReq.width_columns = info.pty_info->width_columns();
       ptyReq.height_rows = info.pty_info->height_rows();
@@ -291,8 +287,8 @@ bool SshClientCodec::interceptMessage(SshMsg& sshMsg) {
     }
     return true;
   }
-  case SshMessageType::ChannelOpenFailure: {
-    const auto& failure = dynamic_cast<const ChannelOpenFailureMsg&>(sshMsg);
+  case wire::SshMessageType::ChannelOpenFailure: {
+    const auto& failure = dynamic_cast<const wire::ChannelOpenFailureMsg&>(sshMsg);
     if (failure.recipient_channel == downstream_state_->handoff_info.channel_info->downstream_channel_id()) {
 
       // couldn't connect to the upstream, bail out
@@ -303,9 +299,9 @@ bool SshClientCodec::interceptMessage(SshMsg& sshMsg) {
     }
     return true;
   }
-  case SshMessageType::UserAuthSuccess: {
+  case wire::SshMessageType::UserAuthSuccess: {
     // upstream authenticated successfully; open a channel
-    ChannelOpenMsg openMsg;
+    wire::ChannelOpenMsg openMsg;
     openMsg.channel_type = downstream_state_->handoff_info.channel_info->channel_type();
     openMsg.sender_channel = downstream_state_->handoff_info.channel_info->downstream_channel_id();
     openMsg.initial_window_size = downstream_state_->handoff_info.channel_info->initial_window_size();
@@ -313,39 +309,39 @@ bool SshClientCodec::interceptMessage(SshMsg& sshMsg) {
     auto _ = sendMessageToConnection(openMsg); // todo: handle status
     return false;
   }
-  case SshMessageType::UserAuthFailure: {
-    const auto& failure = dynamic_cast<const UserAuthFailureMsg&>(sshMsg);
+  case wire::SshMessageType::UserAuthFailure: {
+    const auto& failure = dynamic_cast<const wire::UserAuthFailureMsg&>(sshMsg);
     callbacks_->onDecodingFailure(fmt::format("auth failure: {}", failure.methods));
     return false;
   }
-  case SshMessageType::ChannelSuccess: {
+  case wire::SshMessageType::ChannelSuccess: {
     if (downstream_state_->handoff_info.handoff_in_progress) {
       // open a shell
       // TODO: don't "hard code" this logic
-      ChannelRequestMsg shellReq;
+      wire::ChannelRequestMsg shellReq;
       shellReq.recipient_channel = channel_id_mappings_[downstream_state_->handoff_info.channel_info->internal_upstream_channel_id()];
       shellReq.request_type = "shell";
       shellReq.want_reply = false;
       auto _ = sendMessageToConnection(shellReq);
 
       // handoff is complete, send an empty message to signal the downstream codec
-      auto frame = std::make_unique<SSHResponseHeaderFrame>(authState().stream_id, StreamStatus(0, true), IgnoreMsg{});
+      auto frame = std::make_unique<SSHResponseHeaderFrame>(authState().stream_id, StreamStatus(0, true), wire::IgnoreMsg{});
       frame->setRawFlags(0);
       callbacks_->onDecodingSuccess(std::move(frame));
       return false;
     }
     break;
   }
-  case SshMessageType::ChannelFailure: {
+  case wire::SshMessageType::ChannelFailure: {
     if (downstream_state_->handoff_info.handoff_in_progress) {
       callbacks_->onDecodingFailure("failed to open upstream tty");
       return false;
     }
     break;
   }
-  case SshMessageType::Ignore:
-  case SshMessageType::Debug:
-  case SshMessageType::Unimplemented:
+  case wire::SshMessageType::Ignore:
+  case wire::SshMessageType::Debug:
+  case wire::SshMessageType::Unimplemented:
     if (downstream_state_->handoff_info.handoff_in_progress) {
       // ignore these messages during handoff, they can trigger a common frame to be sent too early
       return false;

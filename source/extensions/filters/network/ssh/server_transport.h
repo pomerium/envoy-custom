@@ -7,9 +7,9 @@
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "source/extensions/filters/network/ssh/kex.h"
 #include "source/extensions/filters/network/ssh/message_handler.h"
-#include "source/extensions/filters/network/ssh/messages.h"
+#include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/transport.h"
-#include "source/extensions/filters/network/ssh/util.h"
+#include "source/extensions/filters/network/ssh/wire/util.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -46,17 +46,17 @@ public:
   const pomerium::extensions::ssh::CodecConfig& codecConfig() const override;
 
 private:
-  absl::Status handleMessage(SshMsg&& msg) override;
+  absl::Status handleMessage(wire::SshMsg&& msg) override;
   absl::Status handleMessage(Grpc::ResponsePtr<ServerMessage>&& msg) override;
-  void registerMessageHandlers(MessageDispatcher<SshMsg>& dispatcher) const override {
-    dispatcher.registerHandler(SshMessageType::ServiceRequest, this);
-    dispatcher.registerHandler(SshMessageType::GlobalRequest, this);
-    dispatcher.registerHandler(SshMessageType::RequestSuccess, this);
-    dispatcher.registerHandler(SshMessageType::RequestFailure, this);
-    dispatcher.registerHandler(SshMessageType::Ignore, this);
-    dispatcher.registerHandler(SshMessageType::Debug, this);
-    dispatcher.registerHandler(SshMessageType::Unimplemented, this);
-    dispatcher.registerHandler(SshMessageType::Disconnect, this);
+  void registerMessageHandlers(MessageDispatcher<wire::SshMsg>& dispatcher) const override {
+    dispatcher.registerHandler(wire::SshMessageType::ServiceRequest, this);
+    dispatcher.registerHandler(wire::SshMessageType::GlobalRequest, this);
+    dispatcher.registerHandler(wire::SshMessageType::RequestSuccess, this);
+    dispatcher.registerHandler(wire::SshMessageType::RequestFailure, this);
+    dispatcher.registerHandler(wire::SshMessageType::Ignore, this);
+    dispatcher.registerHandler(wire::SshMessageType::Debug, this);
+    dispatcher.registerHandler(wire::SshMessageType::Unimplemented, this);
+    dispatcher.registerHandler(wire::SshMessageType::Disconnect, this);
   }
   void registerMessageHandlers(
       MessageDispatcher<Grpc::ResponsePtr<ServerMessage>>& dispatcher) const override {
@@ -66,8 +66,8 @@ private:
   const connection_state_t& getConnectionState() const override;
   void writeToConnection(Envoy::Buffer::Instance& buf) const override;
   void sendMgmtClientMessage(const ClientMessage& msg) override;
-  absl::StatusOr<std::unique_ptr<HostKeysProveResponseMsg>>
-  handleHostKeysProve(const HostKeysProveRequestMsg& msg);
+  absl::StatusOr<std::unique_ptr<wire::HostKeysProveResponseMsg>>
+  handleHostKeysProve(const wire::HostKeysProveRequestMsg& msg);
 
   GenericProxy::ServerCodecCallbacks* callbacks_{};
   bool version_exchange_done_{};

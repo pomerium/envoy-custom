@@ -8,30 +8,24 @@
 #include <unistd.h>
 
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
-#include "buffer.h"
 #include "envoy/network/connection.h"
-#include "openssh.h"
 #include "source/common/buffer/buffer_impl.h"
 #include "source/extensions/filters/network/generic_proxy/codec_callbacks.h"
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/kex.h"
-#include "source/extensions/filters/network/ssh/messages.h"
-#include "source/extensions/filters/network/ssh/packet_cipher.h"
+#include "source/extensions/filters/network/ssh/wire/messages.h"
+#include "source/extensions/filters/network/ssh/packet_cipher_impl.h"
 #include "source/extensions/filters/network/ssh/service_connection.h"
 #include "source/extensions/filters/network/ssh/service_userauth.h"
-#include "source/extensions/filters/network/ssh/util.h"
+#include "source/extensions/filters/network/ssh/wire/util.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "source/extensions/filters/network/ssh/version_exchange.h"
 #include "source/extensions/filters/network/ssh/transport.h"
+#include "source/extensions/filters/network/ssh/openssh.h"
 
 #include <openssl/bn.h>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
-#include <variant>
-
-extern "C" {
-#include "openssh/ssherr.h"
-}
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -72,7 +66,7 @@ void SshServerCodec::setCodecCallbacks(GenericProxy::ServerCodecCallbacks& callb
   connection_state_.reset(defaultState);
 
   mgmt_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus, std::string err) {
-    DisconnectMsg dc;
+    wire::DisconnectMsg dc;
     dc.reason_code = SSH2_DISCONNECT_CONNECTION_LOST; // todo
     dc.description = err;
     auto _ = sendMessageToConnection(dc);
@@ -115,14 +109,14 @@ void SshServerCodec::decode(Envoy::Buffer::Instance& buffer, bool /*end_stream*/
     ENVOY_LOG(debug, "read seqnr inc: {} -> {}", prev, *connection_state_->seq_read);
 
     {
-      auto anyMsg = readPacket<AnyMsg>(dec);
+      auto anyMsg = wire::readPacket<wire::AnyMsg>(dec);
       if (!anyMsg.ok()) {
         ENVOY_LOG(error, "ssh: readPacket: {}", anyMsg.status().message());
         callbacks_->onDecodingFailure(fmt::format("ssh: readPacket: {}", anyMsg.status().message()));
         return;
       }
-      std::unique_ptr<SshMsg> msg = anyMsg->unwrap();
-      if (msg->msg_type() == SshMessageType::NewKeys) {
+      std::unique_ptr<wire::SshMsg> msg = anyMsg->unwrap();
+      if (msg->msg_type() == wire::SshMessageType::NewKeys) {
         ENVOY_LOG(debug, "resetting read sequence number");
         *connection_state_->seq_read = 0;
       }
@@ -161,7 +155,7 @@ GenericProxy::ResponsePtr SshServerCodec::respond(absl::Status status, absl::str
                                                   const Request& req) {
   if (!status.ok()) {
     // something went wrong, send a disconnect message
-    DisconnectMsg dc;
+    wire::DisconnectMsg dc;
     dc.reason_code = SSH2_DISCONNECT_SERVICE_NOT_AVAILABLE; // todo
     dc.description = data;
     // downstream().sendMessage(dc);
@@ -171,7 +165,7 @@ GenericProxy::ResponsePtr SshServerCodec::respond(absl::Status status, absl::str
   } else {
     // auto m = AnyMsg::fromString(data);
     // switch (m.msg_type()) {
-    // case SshMessageType::UserAuthFailure: {
+    // case wire::SshMessageType::UserAuthFailure: {
     //   auto _ = sendMessageToConnection(m);
     //   return std::make_unique<SSHResponseHeaderFrame>(
     //       req.frameFlags().streamId(), StreamStatus(0, false), m.unwrap<UserAuthFailureMsg>());
@@ -192,12 +186,12 @@ void SshServerCodec::setKexResult(std::shared_ptr<kex_result_t> kex_result) {
                                               kex_result.get());
 }
 
-absl::Status SshServerCodec::handleMessage(SshMsg&& msg) {
+absl::Status SshServerCodec::handleMessage(wire::SshMsg&& msg) {
   switch (msg.msg_type()) {
-  case SshMessageType::ServiceRequest: {
-    const auto& req = dynamic_cast<const ServiceRequestMsg&>(msg);
+  case wire::SshMessageType::ServiceRequest: {
+    const auto& req = dynamic_cast<const wire::ServiceRequestMsg&>(msg);
     if (service_names_.contains(req.service_name)) {
-      ServiceAcceptMsg accept;
+      wire::ServiceAcceptMsg accept;
       accept.service_name = req.service_name;
       return sendMessageToConnection(accept).status();
     } else {
@@ -207,22 +201,24 @@ absl::Status SshServerCodec::handleMessage(SshMsg&& msg) {
 
     break;
   }
-  case SshMessageType::GlobalRequest: {
-    const auto& globalReq = dynamic_cast<const GlobalRequestMsg&>(msg);
+  case wire::SshMessageType::GlobalRequest: {
+    const auto& globalReq = dynamic_cast<const wire::GlobalRequestMsg&>(msg);
     auto stat = globalReq.msg.visit(
-        [&](const HostKeysProveRequestMsg& msg) {
+        [&](const wire::HostKeysProveRequestMsg& msg) {
           auto resp = handleHostKeysProve(msg);
           if (!resp.ok()) {
             return resp.status();
           }
-          return sendMessageToConnection(**resp).status();
+          wire::GlobalRequestSuccessMsg reply;
+          reply.msg = **resp;
+          return sendMessageToConnection(reply).status();
         },
-        [](const HostKeysMsg&) {
+        [](const wire::HostKeysMsg&) {
           ENVOY_LOG(debug, "received hostkeys-00@openssh.com");
           // ignore this for now
           return absl::OkStatus();
         },
-        [&](std::monostate) {
+        [&](auto) {
           ENVOY_LOG(debug, "ignoring global request {}", globalReq.request_name);
           return absl::OkStatus();
         });
@@ -230,37 +226,37 @@ absl::Status SshServerCodec::handleMessage(SshMsg&& msg) {
       return stat;
     }
     forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id,
-                                                    dynamic_cast<GlobalRequestMsg&&>(msg)));
+                                                    dynamic_cast<wire::GlobalRequestMsg&&>(msg)));
 
     return absl::OkStatus();
   }
-  case SshMessageType::RequestSuccess: {
+  case wire::SshMessageType::RequestSuccess: {
     forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id,
-                                                    dynamic_cast<GlobalRequestSuccessMsg&&>(msg)));
+                                                    dynamic_cast<wire::GlobalRequestSuccessMsg&&>(msg)));
     return absl::OkStatus();
   }
-  case SshMessageType::RequestFailure: {
+  case wire::SshMessageType::RequestFailure: {
     forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id,
-                                                    dynamic_cast<GlobalRequestFailureMsg&&>(msg)));
+                                                    dynamic_cast<wire::GlobalRequestFailureMsg&&>(msg)));
     return absl::OkStatus();
   }
-  case SshMessageType::Ignore: {
+  case wire::SshMessageType::Ignore: {
     forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id,
-                                                    dynamic_cast<IgnoreMsg&&>(msg)));
+                                                    dynamic_cast<wire::IgnoreMsg&&>(msg)));
     return absl::OkStatus();
   }
-  case SshMessageType::Debug: {
+  case wire::SshMessageType::Debug: {
     forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id,
-                                                    dynamic_cast<DebugMsg&&>(msg)));
+                                                    dynamic_cast<wire::DebugMsg&&>(msg)));
     return absl::OkStatus();
   }
-  case SshMessageType::Unimplemented: {
+  case wire::SshMessageType::Unimplemented: {
     forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id,
-                                                    dynamic_cast<UnimplementedMsg&&>(msg)));
+                                                    dynamic_cast<wire::UnimplementedMsg&&>(msg)));
     return absl::OkStatus();
   }
-  case SshMessageType::Disconnect: {
-    ENVOY_LOG(info, "received disconnect: {}", dynamic_cast<DisconnectMsg&&>(msg).description);
+  case wire::SshMessageType::Disconnect: {
+    ENVOY_LOG(info, "received disconnect: {}", dynamic_cast<wire::DisconnectMsg&&>(msg).description);
     return absl::CancelledError("disconnected");
   }
   default:
@@ -296,7 +292,7 @@ void SshServerCodec::initUpstream(AuthStateSharedPtr downstreamState) {
   }
   case ChannelMode::Hijacked: {
     downstream_state_->hijacked_stream = channel_client_->start(connection_service_.get());
-    auto _ = sendMessageToConnection(EmptyMsg<SshMessageType::UserAuthSuccess>{});
+    auto _ = sendMessageToConnection(wire::EmptyMsg<wire::SshMessageType::UserAuthSuccess>{});
     break;
   }
   case ChannelMode::Handoff: {
@@ -357,8 +353,8 @@ void SshServerCodec::forward(std::unique_ptr<SSHStreamFrame> frame) {
   }
 }
 
-absl::StatusOr<std::unique_ptr<HostKeysProveResponseMsg>>
-SshServerCodec::handleHostKeysProve(const HostKeysProveRequestMsg& msg) {
+absl::StatusOr<std::unique_ptr<wire::HostKeysProveResponseMsg>>
+SshServerCodec::handleHostKeysProve(const wire::HostKeysProveRequestMsg& msg) {
   std::vector<bytes> signatures;
   for (const auto& keyBlob : *msg.hostkeys) {
     auto key = openssh::SSHKey::fromBlob(keyBlob);
@@ -372,16 +368,16 @@ SshServerCodec::handleHostKeysProve(const HostKeysProveRequestMsg& msg) {
       return absl::InvalidArgumentError("requested key is invalid");
     }
     Envoy::Buffer::OwnedImpl buf;
-    write_opt<LengthPrefixed>(buf, "hostkeys-prove-00@openssh.com"s);
-    write_opt<LengthPrefixed>(buf, kex_result_->SessionID);
-    write_opt<LengthPrefixed>(buf, keyBlob);
-    auto sig = key->sign(flushToBytes(buf));
+    wire::write_opt<wire::LengthPrefixed>(buf, "hostkeys-prove-00@openssh.com"s);
+    wire::write_opt<wire::LengthPrefixed>(buf, kex_result_->SessionID);
+    wire::write_opt<wire::LengthPrefixed>(buf, keyBlob);
+    auto sig = key->sign(wire::flushToBytes(buf));
     if (!sig.ok()) {
       return absl::InternalError(fmt::format("sshkey_sign failed: {}", sig.status()));
     }
     signatures.push_back(std::move(*sig));
   }
-  auto resp = std::make_unique<HostKeysProveResponseMsg>();
+  auto resp = std::make_unique<wire::HostKeysProveResponseMsg>();
   resp->signatures = std::move(signatures);
   return resp;
 }

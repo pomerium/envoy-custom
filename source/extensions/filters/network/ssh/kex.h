@@ -8,9 +8,9 @@
 
 #include "envoy/filesystem/filesystem.h"
 
-#include "source/extensions/filters/network/ssh/buffer.h"
-#include "source/extensions/filters/network/ssh/util.h"
-#include "source/extensions/filters/network/ssh/messages.h"
+#include "source/extensions/filters/network/ssh/wire/encoding.h"
+#include "source/extensions/filters/network/ssh/wire/util.h"
+#include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/version_exchange.h"
 #include "source/extensions/filters/network/ssh/message_handler.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
@@ -24,6 +24,27 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 struct host_keypair_t {
   openssh::SSHKey priv;
   openssh::SSHKey pub;
+};
+
+static constexpr auto kexAlgoCurve25519SHA256LibSSH = "curve25519-sha256@libssh.org";
+static constexpr auto kexAlgoCurve25519SHA256 = "curve25519-sha256";
+
+static const string_list preferredKexAlgos = {kexAlgoCurve25519SHA256, kexAlgoCurve25519SHA256LibSSH};
+
+static constexpr auto cipherAES128GCM = "aes128-gcm@openssh.com";
+static constexpr auto cipherAES256GCM = "aes256-gcm@openssh.com";
+static constexpr auto cipherChacha20Poly1305 = "chacha20-poly1305@openssh.com";
+
+static const string_list preferredCiphers = {cipherChacha20Poly1305, cipherAES128GCM, cipherAES256GCM};
+
+// TODO: non-AEAD cipher support
+static const string_list supportedMACs{
+    // "hmac-sha2-256-etm@openssh.com",
+    // "hmac-sha2-512-etm@openssh.com",
+    // "hmac-sha2-256",
+    // "hmac-sha2-512",
+    // "hmac-sha1",
+    // "hmac-sha1-96",
 };
 
 // from go ssh/common.go
@@ -53,10 +74,10 @@ struct handshake_magics_t {
   bytes server_kex_init;
 
   void encode(Envoy::Buffer::Instance& buffer) const {
-    write_opt<LengthPrefixed>(buffer, client_version);
-    write_opt<LengthPrefixed>(buffer, server_version);
-    write_opt<LengthPrefixed>(buffer, client_kex_init);
-    write_opt<LengthPrefixed>(buffer, server_kex_init);
+    wire::write_opt<wire::LengthPrefixed>(buffer, client_version);
+    wire::write_opt<wire::LengthPrefixed>(buffer, server_version);
+    wire::write_opt<wire::LengthPrefixed>(buffer, client_kex_init);
+    wire::write_opt<wire::LengthPrefixed>(buffer, server_kex_init);
   }
 };
 
@@ -77,8 +98,8 @@ struct kex_result_t {
 
   void EncodeSharedSecret(bytes& out) {
     Envoy::Buffer::OwnedImpl tmp;
-    writeBignum(tmp, K);
-    flushToBytes(tmp, out);
+    wire::writeBignum(tmp, K);
+    wire::flushToBytes(tmp, out);
   }
 };
 
@@ -91,9 +112,9 @@ public:
       : magics_(magics), algs_(algs), signer_(signer) {}
   virtual ~KexAlgorithm() = default;
 
-  virtual absl::Status HandleServerRecv(const SshMsg& msg) PURE;
-  virtual absl::StatusOr<std::unique_ptr<SshMsg>> HandleClientSend() PURE;
-  virtual absl::Status HandleClientRecv(const SshMsg& msg) PURE;
+  virtual absl::Status HandleServerRecv(const wire::SshMsg& msg) PURE;
+  virtual absl::StatusOr<std::unique_ptr<wire::SshMsg>> HandleClientSend() PURE;
+  virtual absl::Status HandleClientRecv(const wire::SshMsg& msg) PURE;
   virtual std::shared_ptr<kex_result_t>&& Result() PURE;
 
 protected:
@@ -128,9 +149,9 @@ class Curve25519Sha256KexAlgorithm : public KexAlgorithm {
 public:
   using KexAlgorithm::KexAlgorithm;
 
-  absl::Status HandleServerRecv(const SshMsg& msg) override;
-  absl::StatusOr<std::unique_ptr<SshMsg>> HandleClientSend() override;
-  absl::Status HandleClientRecv(const SshMsg& msg) override;
+  absl::Status HandleServerRecv(const wire::SshMsg& msg) override;
+  absl::StatusOr<std::unique_ptr<wire::SshMsg>> HandleClientSend() override;
+  absl::Status HandleClientRecv(const wire::SshMsg& msg) override;
 
   std::shared_ptr<kex_result_t>&& Result() override;
 
@@ -148,8 +169,8 @@ struct kex_state_t {
   bool server_has_ext_info{};
   bool kex_strict{};
   bool ext_info_received{};
-  KexInitMessage our_kex{};
-  KexInitMessage peer_kex{};
+  wire::KexInitMessage our_kex{};
+  wire::KexInitMessage peer_kex{};
   algorithms_t negotiated_algorithms{};
   handshake_magics_t magics{};
   std::optional<bytes> session_id{};
@@ -217,17 +238,17 @@ public:
                                          const string_list& server);
   absl::Status loadHostKeys();
   absl::Status loadSshKeyPair(std::string_view privKeyPath, std::string_view pubKeyPath);
-  void registerMessageHandlers(MessageDispatcher<SshMsg>& dispatcher) const override {
-    dispatcher.registerHandler(SshMessageType::KexInit, this);
-    dispatcher.registerHandler(SshMessageType::KexECDHInit, this);
-    dispatcher.registerHandler(SshMessageType::KexECDHReply, this);
-    dispatcher.registerHandler(SshMessageType::NewKeys, this);
+  void registerMessageHandlers(MessageDispatcher<wire::SshMsg>& dispatcher) const override {
+    dispatcher.registerHandler(wire::SshMessageType::KexInit, this);
+    dispatcher.registerHandler(wire::SshMessageType::KexECDHInit, this);
+    dispatcher.registerHandler(wire::SshMessageType::KexECDHReply, this);
+    dispatcher.registerHandler(wire::SshMessageType::NewKeys, this);
   }
   // HandshakeCallbacks
   void setVersionStrings(const std::string& ours, const std::string& peer) override;
 
 private:
-  absl::Status handleMessage(SshMsg&& msg) noexcept override;
+  absl::Status handleMessage(wire::SshMsg&& msg) noexcept override;
   absl::Status sendKexInit() noexcept;
 
   TransportCallbacks& transport_;

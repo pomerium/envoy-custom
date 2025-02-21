@@ -3,7 +3,7 @@
 #include <memory>
 
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
-#include "source/extensions/filters/network/ssh/messages.h"
+#include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/service.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
@@ -29,7 +29,7 @@ public:
   }
 
   absl::Status requestService() override {
-    ServiceRequestMsg req;
+    wire::ServiceRequestMsg req;
     req.service_name = name();
     return transport_.sendMessageToConnection(req).status();
   }
@@ -50,7 +50,7 @@ public:
         transport_(dynamic_cast<DownstreamTransportCallbacks&>(callbacks)) {}
 
   void onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) override;
-  absl::Status handleMessage(SshMsg&& msg) override;
+  absl::Status handleMessage(wire::SshMsg&& msg) override;
 
   void registerMessageHandlers(SshMessageDispatcher& dispatcher) const override;
 
@@ -61,7 +61,7 @@ private:
 class UpstreamConnectionService : public ConnectionService {
 public:
   using ConnectionService::ConnectionService;
-  absl::Status handleMessage(SshMsg&& msg) override;
+  absl::Status handleMessage(wire::SshMsg&& msg) override;
   void registerMessageHandlers(SshMessageDispatcher& dispatcher) const override;
 };
 

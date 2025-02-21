@@ -4,133 +4,14 @@
 #include <type_traits>
 #include <string>
 
-#include "openssl/rand.h"
-
 #include "source/common/buffer/buffer_impl.h"
 
-#include "source/extensions/filters/network/ssh/buffer.h"
-#include "source/extensions/filters/network/ssh/message_handler.h"
+#include "source/extensions/filters/network/ssh/wire/encoding.h"
+#include "source/extensions/filters/network/ssh/wire/field.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-enum class SshMessageType : uint8_t {
-  Invalid = 0,
-  // Transport layer protocol
-  Disconnect = 1,
-  Ignore = 2,
-  Unimplemented = 3,
-  Debug = 4,
-  ServiceRequest = 5,
-  ServiceAccept = 6,
-  ExtInfo = 7,
-  KexInit = 20,
-  NewKeys = 21,
-  KexDHInit = 30,
-  KexDHReply = 31,
-  KexECDHInit = 30,
-  KexECDHReply = 31,
-  KexDHGexGroup = 31,
-  KexDHGexInit = 32,
-  KexDHGexReply = 33,
-  KexDHGexRequest = 34,
-
-  // User authentication protocol
-  UserAuthRequest = 50,
-  UserAuthFailure = 51,
-  UserAuthSuccess = 52,
-  UserAuthBanner = 53,
-  UserAuthPubKeyOk = 60,
-  UserAuthPasswdChangeReq = 60,
-  UserAuthInfoRequest = 60,
-  UserAuthGSSAPIResponse = 60,
-  UserAuthInfoResponse = 61,
-  UserAuthGSSAPIToken = 61,
-  UserAuthGSSAPIExchangeComplete = 63,
-  UserAuthGSSAPIError = 64,
-  UserAuthGSSAPIErrTok = 65,
-  UserAuthGSSAPIMIC = 66,
-
-  // Connection protocol
-  GlobalRequest = 80,
-  RequestSuccess = 81,
-  RequestFailure = 82,
-  ChannelOpen = 90,
-  ChannelOpenConfirmation = 91,
-  ChannelOpenFailure = 92,
-  ChannelWindowAdjust = 93,
-  ChannelData = 94,
-  ChannelExtendedData = 95,
-  ChannelEOF = 96,
-  ChannelClose = 97,
-  ChannelRequest = 98,
-  ChannelSuccess = 99,
-  ChannelFailure = 100,
-};
-
-inline size_t read(Envoy::Buffer::Instance& buffer, SshMessageType& t, size_t) {
-  t = buffer.drainInt<SshMessageType>();
-  return 1;
-}
-
-inline size_t write(Envoy::Buffer::Instance& buffer, const SshMessageType& t) {
-  buffer.writeByte(t);
-  return 1;
-}
-
-template <SshMessageType T>
-struct is_channel_msg : std::false_type {};
-
-template <SshMessageType T>
-inline constexpr bool is_channel_msg_v = is_channel_msg<T>::value;
-
-template <> struct is_channel_msg<SshMessageType::ChannelRequest> : std::true_type {};
-template <> struct is_channel_msg<SshMessageType::ChannelOpenConfirmation> : std::true_type {};
-template <> struct is_channel_msg<SshMessageType::ChannelOpenFailure> : std::true_type {};
-template <> struct is_channel_msg<SshMessageType::ChannelWindowAdjust> : std::true_type {};
-template <> struct is_channel_msg<SshMessageType::ChannelData> : std::true_type {};
-template <> struct is_channel_msg<SshMessageType::ChannelExtendedData> : std::true_type {};
-template <> struct is_channel_msg<SshMessageType::ChannelEOF> : std::true_type {};
-template <> struct is_channel_msg<SshMessageType::ChannelClose> : std::true_type {};
-template <> struct is_channel_msg<SshMessageType::ChannelSuccess> : std::true_type {};
-template <> struct is_channel_msg<SshMessageType::ChannelFailure> : std::true_type {};
-
-inline auto format_as(SshMessageType mt) {
-  return fmt::underlying(mt);
-}
-
-constexpr inline SshMessageType operator~(SshMessageType t) {
-  return static_cast<SshMessageType>(~static_cast<uint8_t>(t));
-}
-constexpr inline SshMessageType operator|(SshMessageType l, SshMessageType r) {
-  return static_cast<SshMessageType>(static_cast<uint8_t>(l) | static_cast<uint8_t>(r));
-}
-
-static constexpr auto kexAlgoCurve25519SHA256LibSSH = "curve25519-sha256@libssh.org";
-static constexpr auto kexAlgoCurve25519SHA256 = "curve25519-sha256";
-
-static const string_list preferredKexAlgos = {kexAlgoCurve25519SHA256, kexAlgoCurve25519SHA256LibSSH};
-
-static constexpr auto cipherAES128GCM = "aes128-gcm@openssh.com";
-static constexpr auto cipherAES256GCM = "aes256-gcm@openssh.com";
-static constexpr auto cipherChacha20Poly1305 = "chacha20-poly1305@openssh.com";
-
-static const string_list preferredCiphers = {cipherChacha20Poly1305, cipherAES128GCM, cipherAES256GCM};
-
-// TODO: non-AEAD cipher support
-static const string_list supportedMACs{
-    // "hmac-sha2-256-etm@openssh.com",
-    // "hmac-sha2-512-etm@openssh.com",
-    // "hmac-sha2-256",
-    // "hmac-sha2-512",
-    // "hmac-sha1",
-    // "hmac-sha1-96",
-};
-
-struct direction_t {
-  bytes iv_tag;
-  bytes key_tag;
-  bytes mac_key_tag;
-};
+namespace wire {
 
 struct BaseSshMsg {
   virtual ~BaseSshMsg() = default;
@@ -189,59 +70,26 @@ struct Msg : SshMsg, MsgType<T> {};
 template <SshMessageType T>
 struct Msg<T, std::enable_if_t<is_channel_msg_v<T>>> : ChannelMsg, MsgType<T> {};
 
-// TODO: is SubMsg necessary? sub-messages maybe shouldn't be usable as an SshMsg
-template <SshMessageType T>
-struct SubMsg : SshMsg, MsgType<T> {};
-
-template <typename T>
-absl::StatusOr<T> readPacket(Envoy::Buffer::Instance& buffer) noexcept {
-  try {
-    size_t n = 0;
-    uint32_t packet_length{};
-    uint8_t padding_length{};
-    n += read(buffer, packet_length, sizeof(packet_length));
-    n += read(buffer, padding_length, sizeof(padding_length));
-    T payload{};
-    {
-      auto payload_expected_size = packet_length - padding_length - 1;
-      auto payload_actual_size = payload.decode(buffer, payload_expected_size);
-      if (payload_actual_size != payload_expected_size) {
-        return absl::InvalidArgumentError(fmt::format(
-            "unexpected packet payload size of {} bytes (expected {})", n, payload_expected_size));
-      }
-      n += payload_actual_size;
-    }
-    bytes padding(padding_length);
-    n += read(buffer, padding, static_cast<size_t>(padding_length));
-    return payload;
-  } catch (const EnvoyException& e) {
-    return absl::InternalError(fmt::format("error decoding packet: {}", e.what()));
+template <auto N>
+struct Key {
+  constexpr Key(const char (&str)[N]) {
+    std::copy_n(str, N, value);
   }
-}
-
-inline size_t writePacket(Envoy::Buffer::Instance& out, const SshMsg& msg,
-                          size_t cipher_block_size = 8, size_t aad_len = 0) {
-  Envoy::Buffer::OwnedImpl payloadBytes;
-  size_t payload_length = msg.encode(payloadBytes);
-
-  // RFC4253 § 6
-  uint8_t padding_length = cipher_block_size - ((5 + payload_length - aad_len) % cipher_block_size);
-  if (padding_length < 4) {
-    padding_length += cipher_block_size;
+  constexpr std::string_view to_string() const {
+    return value;
   }
-  uint32_t packet_length = sizeof(padding_length) + payload_length + padding_length;
+  char value[N];
+};
 
-  size_t n = 0;
-  n += write(out, packet_length);
-  n += write(out, padding_length);
-  out.move(payloadBytes);
-  n += payload_length;
+template <SshMessageType MT, auto Key>
+struct SubMsg {
+  virtual ~SubMsg() = default;
+  static constexpr auto submsg_type = MT;
+  static constexpr auto submsg_key = Key.to_string();
 
-  bytes padding(padding_length, 0);
-  RAND_bytes(padding.data(), padding.size());
-  n += write(out, padding);
-  return n;
-}
+  virtual size_t decode(Envoy::Buffer::Instance& buffer, size_t payload_size) PURE;
+  virtual size_t encode(Envoy::Buffer::Instance& buffer) const PURE;
+};
 
 struct KexInitMessage : Msg<SshMessageType::KexInit> {
   field<fixed_bytes<16>> cookie;
@@ -386,9 +234,7 @@ struct ChannelOpenMsg : Msg<SshMessageType::ChannelOpen> {
   }
 };
 
-struct PtyReqChannelRequestMsg : SubMsg<SshMessageType::ChannelRequest> {
-  static constexpr auto request_type = "pty-req";
-
+struct PtyReqChannelRequestMsg : SubMsg<SshMessageType::ChannelRequest, Key("pty-req")> {
   field<std::string, LengthPrefixed> term_env;
   field<uint32_t> width_columns;
   field<uint32_t> height_rows;
@@ -628,9 +474,7 @@ struct ChannelFailureMsg : Msg<SshMessageType::ChannelFailure> {
   }
 };
 
-struct HostKeysProveRequestMsg : SubMsg<SshMessageType::GlobalRequest> {
-  static constexpr auto request_type = "hostkeys-prove-00@openssh.com";
-
+struct HostKeysProveRequestMsg : SubMsg<SshMessageType::GlobalRequest, Key("hostkeys-prove-00@openssh.com")> {
   field<bytes_list, LengthPrefixed> hostkeys;
 
   size_t decode(Envoy::Buffer::Instance& buffer, size_t len) override {
@@ -641,9 +485,7 @@ struct HostKeysProveRequestMsg : SubMsg<SshMessageType::GlobalRequest> {
   }
 };
 
-struct HostKeysMsg : SubMsg<SshMessageType::GlobalRequest> {
-  static constexpr auto request_type = "hostkeys-00@openssh.com";
-
+struct HostKeysMsg : SubMsg<SshMessageType::GlobalRequest, Key("hostkeys-00@openssh.com")> {
   field<bytes_list, LengthPrefixed> hostkeys;
 
   size_t decode(Envoy::Buffer::Instance& buffer, size_t len) override {
@@ -677,9 +519,7 @@ struct GlobalRequestMsg : Msg<SshMessageType::GlobalRequest> {
   }
 };
 
-struct HostKeysProveResponseMsg : SubMsg<SshMessageType::RequestSuccess> {
-  static constexpr auto request_type = "hostkeys-prove00@openssh.com";
-
+struct HostKeysProveResponseMsg : SubMsg<SshMessageType::RequestSuccess, Key("hostkeys-prove00@openssh.com")> {
   field<bytes_list, LengthPrefixed> signatures;
 
   size_t decode(Envoy::Buffer::Instance& buffer, size_t len) override {
@@ -751,9 +591,7 @@ struct UnimplementedMsg : Msg<SshMessageType::Unimplemented> {
   }
 };
 
-struct PubKeyUserAuthRequestMsg : SubMsg<SshMessageType::UserAuthRequest> {
-  static constexpr auto request_type = "publickey";
-
+struct PubKeyUserAuthRequestMsg : SubMsg<SshMessageType::UserAuthRequest, Key("publickey")> {
   field<bool> has_signature;
   field<std::string, LengthPrefixed> public_key_alg;
   field<bytes, LengthPrefixed> public_key;
@@ -779,9 +617,7 @@ struct PubKeyUserAuthRequestMsg : SubMsg<SshMessageType::UserAuthRequest> {
   }
 };
 
-struct KeyboardInteractiveUserAuthRequestMsg : SubMsg<SshMessageType::UserAuthRequest> {
-  static constexpr auto request_type = "keyboard-interactive";
-
+struct KeyboardInteractiveUserAuthRequestMsg : SubMsg<SshMessageType::UserAuthRequest, Key("keyboard-interactive")> {
   field<std::string, LengthPrefixed> language_tag;
   field<string_list, NameListFormat> submethods;
 
@@ -797,9 +633,7 @@ struct KeyboardInteractiveUserAuthRequestMsg : SubMsg<SshMessageType::UserAuthRe
   }
 };
 
-struct NoneAuthRequestMsg : SubMsg<SshMessageType::UserAuthRequest> {
-  static constexpr auto request_type = "none";
-
+struct NoneAuthRequestMsg : SubMsg<SshMessageType::UserAuthRequest, Key("none")> {
   size_t decode(Envoy::Buffer::Instance&, size_t) override {
     return 0;
   }
@@ -1092,16 +926,6 @@ struct AnyMsg : SshMsg {
   }
 };
 
-using SshMessageDispatcher = MessageDispatcher<SshMsg>;
-using SshMessageHandler = MessageHandler<SshMsg>;
-using SshMessageMiddleware = MessageMiddleware<SshMsg>;
-
-template <>
-struct message_case_type<SshMsg> : std::type_identity<SshMessageType> {};
-
-template <>
-inline SshMessageType messageCase(const SshMsg& msg) {
-  return msg.msg_type();
-}
+} // namespace wire
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

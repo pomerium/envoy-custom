@@ -5,7 +5,7 @@
 
 #include "source/extensions/filters/network/ssh/kex.h"
 #include "source/extensions/filters/network/ssh/service.h"
-#include "source/extensions/filters/network/ssh/messages.h"
+#include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/version_exchange.h"
 #include <unordered_map>
@@ -33,7 +33,7 @@ public:
                                       GenericProxy::EncodingContext& ctx) override;
 
   void setKexResult(std::shared_ptr<kex_result_t> kex_result) override;
-  absl::Status handleMessage(SshMsg&& msg) override;
+  absl::Status handleMessage(wire::SshMsg&& msg) override;
   absl::StatusOr<bytes> signWithHostKey(bytes_view<> in) const override;
   const AuthState& authState() const override;
   AuthState& authState() override;
@@ -44,8 +44,8 @@ private:
   const connection_state_t& getConnectionState() const override;
   const kex_result_t& getKexResult() const override;
   void writeToConnection(Envoy::Buffer::Instance& buf) const override;
-  void registerMessageHandlers(MessageDispatcher<SshMsg>& dispatcher) const override;
-  bool interceptMessage(SshMsg& sshMsg) override;
+  void registerMessageHandlers(MessageDispatcher<wire::SshMsg>& dispatcher) const override;
+  bool interceptMessage(wire::SshMsg& sshMsg) override;
 
   GenericProxy::ClientCodecCallbacks* callbacks_{};
   bool version_exchange_done_{};

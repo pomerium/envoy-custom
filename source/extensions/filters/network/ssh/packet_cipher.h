@@ -1,12 +1,10 @@
 #pragma once
 
-#include <memory>
-#include <string>
+#include "envoy/buffer/buffer.h"
 
-#include "source/extensions/filters/network/ssh/util.h"
-#include "source/extensions/filters/network/ssh/messages.h"
-#include "source/extensions/filters/network/ssh/kex.h"
-#include "source/extensions/filters/network/ssh/openssh.h"
+extern "C" {
+#include "openssh/cipher.h"
+}
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -27,13 +25,6 @@ public:
   virtual size_t aadSize() PURE;
 };
 
-struct cipher_mode_t {
-  size_t keySize;
-  size_t ivSize;
-
-  std::function<std::unique_ptr<DirectionalPacketCipher>(bytes, bytes, Mode)> create;
-};
-
 class PacketCipher {
 public:
   PacketCipher(std::unique_ptr<DirectionalPacketCipher> read,
@@ -50,70 +41,4 @@ private:
   std::unique_ptr<DirectionalPacketCipher> write_;
 };
 
-class AEADPacketCipher : public DirectionalPacketCipher,
-                         public Logger::Loggable<Logger::Id::filter> {
-public:
-  AEADPacketCipher(const char* cipher_name, bytes iv, bytes key, Mode mode);
-
-  absl::Status decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
-                             Envoy::Buffer::Instance& in) override;
-  absl::Status encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
-                             Envoy::Buffer::Instance& in) override;
-  size_t blockSize() override;
-  size_t aadSize() override;
-
-protected:
-  openssh::SshCipherCtxPtr ctx_;
-  size_t block_len_;
-  size_t aad_len_;
-  size_t auth_len_;
-  size_t iv_len_;
-};
-
-class Chacha20Poly1305Cipher : public AEADPacketCipher {
-public:
-  Chacha20Poly1305Cipher(bytes iv, bytes key, Mode mode)
-      : AEADPacketCipher(cipherChacha20Poly1305, iv, key, mode) {}
-};
-
-class NoCipher : public DirectionalPacketCipher {
-public:
-  NoCipher() = default;
-  absl::Status decryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
-                             Envoy::Buffer::Instance& in) override {
-    uint32_t packlen = in.peekBEInt<uint32_t>();
-    if (packlen < 5 || packlen > PACKET_MAX_SIZE) {
-      return absl::AbortedError("invalid packet size");
-    }
-    auto need = packlen + 4;
-    if (in.length() < need) {
-      return absl::AbortedError("short read");
-    }
-    out.move(in, need);
-    return absl::OkStatus();
-  }
-  absl::Status encryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
-                             Envoy::Buffer::Instance& in) override {
-    out.move(in);
-    return absl::OkStatus();
-  }
-  size_t blockSize() override {
-    return 8;
-  }
-  size_t aadSize() override {
-    return 0;
-  }
-};
-
-void generateKeyMaterial(bytes& out, const bytes& tag, kex_result_t* kex_result);
-
-static const std::map<std::string, cipher_mode_t> cipherModes{
-    {cipherChacha20Poly1305, {64, 0, [](bytes iv, bytes key, Mode mode) {
-                                return std::make_unique<Chacha20Poly1305Cipher>(iv, key, mode);
-                              }}}};
-
-std::unique_ptr<PacketCipher> NewPacketCipher(direction_t read, direction_t write,
-                                              kex_result_t* kex_result);
-
-std::unique_ptr<PacketCipher> NewUnencrypted();
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

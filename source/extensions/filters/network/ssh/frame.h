@@ -2,7 +2,7 @@
 
 #include "source/extensions/filters/network/generic_proxy/interface/stream.h"
 
-#include "source/extensions/filters/network/ssh/messages.h"
+#include "source/extensions/filters/network/ssh/wire/messages.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -47,11 +47,11 @@ public:
         stream_id_(streamId) {}
 
   FrameKind frameKind() const override;
-  const SshMsg& message() const;
+  const wire::SshMsg& message() const;
   FrameFlags frameFlags() const override;
 
 private:
-  std::unique_ptr<SshMsg> msg_;
+  std::unique_ptr<wire::SshMsg> msg_;
   uint64_t stream_id_;
 };
 
@@ -68,7 +68,7 @@ public:
   StreamStatus status() const override;
   std::string_view protocol() const override;
   FrameFlags frameFlags() const override;
-  const SshMsg& message() const;
+  const wire::SshMsg& message() const;
   FrameKind frameKind() const override;
 
   void setRawFlags(uint32_t raw_flags) {
@@ -80,14 +80,14 @@ public:
 
 private:
   StreamStatus status_;
-  std::unique_ptr<SshMsg> msg_;
+  std::unique_ptr<wire::SshMsg> msg_;
   uint64_t stream_id_;
   std::optional<uint32_t> raw_flags_{};
 };
 
 class SSHRequestCommonFrame : public GenericProxy::RequestCommonFrame, public SSHStreamFrame {
 public:
-  SSHRequestCommonFrame(uint64_t streamId, std::unique_ptr<SshMsg> msg)
+  SSHRequestCommonFrame(uint64_t streamId, std::unique_ptr<wire::SshMsg> msg)
       : msg_(std::move(msg)), stream_id_(streamId) {}
 
   template <typename T>
@@ -95,11 +95,11 @@ public:
       : msg_(std::make_unique<T>(std::move(msg))),
         stream_id_(streamId) {}
   FrameKind frameKind() const override;
-  const SshMsg& message() const;
+  const wire::SshMsg& message() const;
   FrameFlags frameFlags() const override;
 
 private:
-  std::unique_ptr<SshMsg> msg_;
+  std::unique_ptr<wire::SshMsg> msg_;
   uint64_t stream_id_;
 };
 

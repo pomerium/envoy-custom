@@ -1,11 +1,10 @@
 #pragma once
 
-#include "openssh.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
-#include "source/extensions/filters/network/ssh/messages.h"
+#include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/service.h"
 #include "source/extensions/filters/network/ssh/transport.h"
-#include "source/extensions/filters/network/ssh/util.h"
+#include "source/extensions/filters/network/ssh/openssh.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -24,7 +23,7 @@ protected:
   Api::Api& api_;
   openssh::SSHKey ca_user_key_;
   openssh::SSHKey ca_user_pubkey_;
-  std::unique_ptr<UserAuthRequestMsg> pending_req_;
+  std::unique_ptr<wire::UserAuthRequestMsg> pending_req_;
   openssh::SSHKey pending_user_key_;
 };
 
@@ -36,7 +35,7 @@ public:
         transport_(dynamic_cast<DownstreamTransportCallbacks&>(callbacks)) {}
 
   using UserAuthService::registerMessageHandlers;
-  absl::Status handleMessage(SshMsg&& msg) override;
+  absl::Status handleMessage(wire::SshMsg&& msg) override;
 
   void registerMessageHandlers(
       StreamMgmtServerMessageDispatcher& dispatcher) const override;
@@ -50,7 +49,7 @@ private:
 class UpstreamUserAuthService : public UserAuthService {
 public:
   using UserAuthService::UserAuthService;
-  absl::Status handleMessage(SshMsg&& msg) override;
+  absl::Status handleMessage(wire::SshMsg&& msg) override;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

@@ -7,6 +7,7 @@
 
 #include "envoy/common/pure.h"
 #include "source/common/common/assert.h"
+#include "source/extensions/filters/network/ssh/wire/messages.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -81,5 +82,17 @@ protected:
   std::list<MessageMiddleware<T>*> middlewares_;
   std::unordered_map<message_case_type_t<T>, MessageHandler<T>*> dispatch_;
 };
+
+using SshMessageDispatcher = MessageDispatcher<wire::SshMsg>;
+using SshMessageHandler = MessageHandler<wire::SshMsg>;
+using SshMessageMiddleware = MessageMiddleware<wire::SshMsg>;
+
+template <>
+struct message_case_type<wire::SshMsg> : std::type_identity<wire::SshMessageType> {};
+
+template <>
+inline wire::SshMessageType messageCase(const wire::SshMsg& msg) {
+  return msg.msg_type();
+}
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

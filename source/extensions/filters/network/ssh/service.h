@@ -2,7 +2,7 @@
 
 #include <string>
 
-#include "source/extensions/filters/network/ssh/messages.h"
+#include "source/extensions/filters/network/ssh/message_handler.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
