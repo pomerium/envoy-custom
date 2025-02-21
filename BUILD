@@ -37,6 +37,10 @@ configure_make(
     defines = [
         "WITH_OPENSSL=1",
     ],
+    env = select({
+        "@platforms//os:macos": {"AR": ""},
+        "//conditions:default": {},
+    }),
     includes = [
         "openssh",
     ],

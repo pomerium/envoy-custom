@@ -8,6 +8,8 @@
 #include <unistd.h>
 
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
+#include "buffer.h"
+#include "envoy/network/connection.h"
 #include "openssh.h"
 #include "source/common/buffer/buffer_impl.h"
 #include "source/extensions/filters/network/generic_proxy/codec_callbacks.h"
@@ -25,6 +27,7 @@
 #include <openssl/bn.h>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
+#include <variant>
 
 extern "C" {
 #include "openssh/ssherr.h"
@@ -197,22 +200,34 @@ absl::Status SshServerCodec::handleMessage(SshMsg&& msg) {
       ServiceAcceptMsg accept;
       accept.service_name = req.service_name;
       return sendMessageToConnection(accept).status();
+    } else {
+      return absl::UnavailableError("service not available");
     }
     ENVOY_LOG(debug, "received SshMessageType::ServiceRequest");
+
     break;
   }
   case SshMessageType::GlobalRequest: {
     const auto& globalReq = dynamic_cast<const GlobalRequestMsg&>(msg);
-    if (globalReq.request_name == "hostkeys-prove-00@openssh.com") {
-      auto resp = handleHostKeysProve(HostKeysProveRequestMsg(globalReq));
-      if (!resp.ok()) {
-        return resp.status();
-      }
-      return sendMessageToConnection(**resp).status();
-    } else if (globalReq.request_name == "hostkeys-00@openssh.com") {
-      ENVOY_LOG(debug, "received hostkeys-00@openssh.com");
-      // ignore this for now
-      return absl::OkStatus();
+    auto stat = globalReq.msg.visit(
+        [&](const HostKeysProveRequestMsg& msg) {
+          auto resp = handleHostKeysProve(msg);
+          if (!resp.ok()) {
+            return resp.status();
+          }
+          return sendMessageToConnection(**resp).status();
+        },
+        [](const HostKeysMsg&) {
+          ENVOY_LOG(debug, "received hostkeys-00@openssh.com");
+          // ignore this for now
+          return absl::OkStatus();
+        },
+        [&](std::monostate) {
+          ENVOY_LOG(debug, "ignoring global request {}", globalReq.request_name);
+          return absl::OkStatus();
+        });
+    if (!stat.ok()) {
+      return stat;
     }
     forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id,
                                                     dynamic_cast<GlobalRequestMsg&&>(msg)));
@@ -245,9 +260,8 @@ absl::Status SshServerCodec::handleMessage(SshMsg&& msg) {
     return absl::OkStatus();
   }
   case SshMessageType::Disconnect: {
-    forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id,
-                                                    dynamic_cast<DisconnectMsg&&>(msg)));
-    return absl::OkStatus();
+    ENVOY_LOG(info, "received disconnect: {}", dynamic_cast<DisconnectMsg&&>(msg).description);
+    return absl::CancelledError("disconnected");
   }
   default:
     break;
@@ -346,7 +360,7 @@ void SshServerCodec::forward(std::unique_ptr<SSHStreamFrame> frame) {
 absl::StatusOr<std::unique_ptr<HostKeysProveResponseMsg>>
 SshServerCodec::handleHostKeysProve(const HostKeysProveRequestMsg& msg) {
   std::vector<bytes> signatures;
-  for (const auto& keyBlob : msg.hostkeys) {
+  for (const auto& keyBlob : *msg.hostkeys) {
     auto key = openssh::SSHKey::fromBlob(keyBlob);
     if (!key.ok()) {
       return key.status();
@@ -358,9 +372,9 @@ SshServerCodec::handleHostKeysProve(const HostKeysProveRequestMsg& msg) {
       return absl::InvalidArgumentError("requested key is invalid");
     }
     Envoy::Buffer::OwnedImpl buf;
-    writeString(buf, "hostkeys-prove-00@openssh.com");
-    writeString(buf, kex_result_->SessionID);
-    writeString(buf, keyBlob);
+    write_opt<LengthPrefixed>(buf, "hostkeys-prove-00@openssh.com"s);
+    write_opt<LengthPrefixed>(buf, kex_result_->SessionID);
+    write_opt<LengthPrefixed>(buf, keyBlob);
     auto sig = key->sign(flushToBytes(buf));
     if (!sig.ok()) {
       return absl::InternalError(fmt::format("sshkey_sign failed: {}", sig.status()));

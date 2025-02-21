@@ -114,8 +114,9 @@ GenericProxy::EncodingResult SshClientCodec::encode(const GenericProxy::StreamFr
   }
   case FrameKind::RequestCommon: {
     const auto& msg = dynamic_cast<const SSHRequestCommonFrame&>(frame).message();
-    if (channel_id_remap_enabled_) {
-      doChannelIdRemap(const_cast<SshMsg&>(msg), channel_id_mappings_);
+    if (channel_id_remap_enabled_ && msg.is_channel_message()) {
+      auto& channelMsg = const_cast<ChannelMsg&>(dynamic_cast<const ChannelMsg&>(msg));
+      channelMsg.get_recipient_channel() = channel_id_mappings_.at(channelMsg.get_recipient_channel());
     }
     return sendMessageToConnection(msg);
   }
@@ -272,17 +273,20 @@ bool SshClientCodec::interceptMessage(SshMsg& sshMsg) {
     if (info.handoff_in_progress && confirm.recipient_channel == info.channel_info->downstream_channel_id()) {
       channel_id_mappings_[info.channel_info->internal_upstream_channel_id()] = confirm.sender_channel;
       // channel is open, now request a pty
+      ChannelRequestMsg channelReq;
+      channelReq.recipient_channel = confirm.sender_channel;
+      channelReq.want_reply = true;
+
       PtyReqChannelRequestMsg ptyReq;
-      ptyReq.recipient_channel = confirm.sender_channel;
-      ptyReq.request_type = "pty-req";
-      ptyReq.want_reply = true;
       ptyReq.term_env = info.pty_info->term_env();
       ptyReq.width_columns = info.pty_info->width_columns();
       ptyReq.height_rows = info.pty_info->height_rows();
       ptyReq.width_px = info.pty_info->width_px();
       ptyReq.height_px = info.pty_info->height_px();
       ptyReq.modes = info.pty_info->modes();
-      auto _ = sendMessageToConnection(ptyReq); // todo: handle error
+
+      channelReq.msg = ptyReq;
+      auto _ = sendMessageToConnection(channelReq); // todo: handle error
       return false;
     }
     return true;
@@ -294,7 +298,7 @@ bool SshClientCodec::interceptMessage(SshMsg& sshMsg) {
       // couldn't connect to the upstream, bail out
       // still can't forward the message, the downstream thinks
       // the channel is already open
-      callbacks_->onDecodingFailure(failure.description);
+      callbacks_->onDecodingFailure(*failure.description);
       return false;
     }
     return true;

@@ -46,53 +46,6 @@ private:
   void writeToConnection(Envoy::Buffer::Instance& buf) const override;
   void registerMessageHandlers(MessageDispatcher<SshMsg>& dispatcher) const override;
   bool interceptMessage(SshMsg& sshMsg) override;
-  void doChannelIdRemap(SshMsg& sshMsg, std::unordered_map<uint32_t, uint32_t>& mappings) {
-    switch (sshMsg.msg_type()) {
-    case SshMessageType::ChannelWindowAdjust: {
-      auto& m = dynamic_cast<ChannelWindowAdjustMsg&>(sshMsg);
-      m.recipient_channel = mappings.at(m.recipient_channel);
-      break;
-    }
-    case SshMessageType::ChannelData: {
-      auto& m = dynamic_cast<ChannelDataMsg&>(sshMsg);
-      m.recipient_channel = mappings.at(m.recipient_channel);
-      break;
-    }
-    case SshMessageType::ChannelExtendedData: {
-      auto& m = dynamic_cast<ChannelExtendedDataMsg&>(sshMsg);
-      m.recipient_channel = mappings.at(m.recipient_channel);
-      break;
-    }
-    case SshMessageType::ChannelEOF: {
-      auto& m = dynamic_cast<ChannelEOFMsg&>(sshMsg);
-      m.recipient_channel = mappings.at(m.recipient_channel);
-      break;
-    }
-    case SshMessageType::ChannelClose: {
-      auto& m = dynamic_cast<ChannelCloseMsg&>(sshMsg);
-      m.recipient_channel = mappings.at(m.recipient_channel);
-      // mappings.erase(m.recipient_channel);
-      break;
-    }
-    case SshMessageType::ChannelRequest: {
-      auto& m = dynamic_cast<ChannelRequestMsg&>(sshMsg);
-      m.recipient_channel = mappings.at(m.recipient_channel);
-      break;
-    }
-    case SshMessageType::ChannelSuccess: {
-      auto& m = dynamic_cast<ChannelSuccessMsg&>(sshMsg);
-      m.recipient_channel = mappings.at(m.recipient_channel);
-      break;
-    }
-    case SshMessageType::ChannelFailure: {
-      auto& m = dynamic_cast<ChannelFailureMsg&>(sshMsg);
-      m.recipient_channel = mappings.at(m.recipient_channel);
-      break;
-    }
-    default:
-      break;
-    }
-  }
 
   GenericProxy::ClientCodecCallbacks* callbacks_{};
   bool version_exchange_done_{};

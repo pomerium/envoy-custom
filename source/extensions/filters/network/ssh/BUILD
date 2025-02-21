@@ -25,6 +25,7 @@ envoy_cc_library(
         "version_exchange.cc",
     ],
     hdrs = [
+        "buffer.h",
         "client_transport.h",
         "config.h",
         "frame.h",

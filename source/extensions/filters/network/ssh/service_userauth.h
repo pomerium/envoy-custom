@@ -24,7 +24,7 @@ protected:
   Api::Api& api_;
   openssh::SSHKey ca_user_key_;
   openssh::SSHKey ca_user_pubkey_;
-  std::unique_ptr<PubKeyUserAuthRequestMsg> pending_req_;
+  std::unique_ptr<UserAuthRequestMsg> pending_req_;
   openssh::SSHKey pending_user_key_;
 };
 

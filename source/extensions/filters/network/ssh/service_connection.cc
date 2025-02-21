@@ -1,6 +1,7 @@
 #include "source/extensions/filters/network/ssh/service_connection.h"
 
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
+#include "buffer.h"
 #include "messages.h"
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/messages.h"
@@ -55,11 +56,11 @@ absl::Status DownstreamConnectionService::handleMessage(SshMsg&& msg) {
       pomerium::extensions::ssh::RecordingFrame frame;
       frame.mutable_timestamp()->MergeFrom(
           Protobuf::util::TimeUtil::NanosecondsToTimestamp(absl::GetCurrentTimeNanos()));
-      frame.mutable_raw_data()->resize(dataMsg.data.size());
-      memcpy(frame.mutable_raw_data()->data(), dataMsg.data.data(), dataMsg.data.size());
+      frame.mutable_raw_data()->resize(dataMsg.data->size());
+      memcpy(frame.mutable_raw_data()->data(), dataMsg.data->data(), dataMsg.data->size());
       Envoy::Buffer::OwnedImpl tmp;
       auto str = frame.SerializeAsString();
-      writeString(tmp, str);
+      write_opt<LengthPrefixed>(tmp, str);
       access_log_->write(tmp.toString());
       tmp.drain(tmp.length());
     }
@@ -95,12 +96,14 @@ absl::Status DownstreamConnectionService::handleMessage(SshMsg&& msg) {
           Protobuf::util::TimeUtil::NanosecondsToTimestamp(absl::GetCurrentTimeNanos()));
       pomerium::extensions::ssh::RecordingFrame::ChannelRequest channelReqFrame;
       channelReqFrame.set_request_type(reqMsg.request_type);
-      channelReqFrame.mutable_request()->resize(reqMsg.extra.size());
-      memcpy(channelReqFrame.mutable_request()->data(), reqMsg.extra.data(), reqMsg.extra.size());
+      auto subMsgData = encodeToBytes(reqMsg.msg);
+
+      channelReqFrame.mutable_request()->resize(subMsgData.size());
+      memcpy(channelReqFrame.mutable_request()->data(), subMsgData.data(), subMsgData.size());
       *frame.mutable_channel_request() = channelReqFrame;
       Envoy::Buffer::OwnedImpl tmp;
       auto str = frame.SerializeAsString();
-      writeString(tmp, str);
+      write_opt<LengthPrefixed>(tmp, str);
       access_log_->write(tmp.toString());
       tmp.drain(tmp.length());
     }
@@ -165,11 +168,11 @@ absl::Status UpstreamConnectionService::handleMessage(SshMsg&& msg) {
       pomerium::extensions::ssh::RecordingFrame frame;
       frame.mutable_timestamp()->MergeFrom(
           Protobuf::util::TimeUtil::NanosecondsToTimestamp(absl::GetCurrentTimeNanos()));
-      frame.mutable_raw_data()->resize(dataMsg.data.size());
-      memcpy(frame.mutable_raw_data()->data(), dataMsg.data.data(), dataMsg.data.size());
+      frame.mutable_raw_data()->resize(dataMsg.data->size());
+      memcpy(frame.mutable_raw_data()->data(), dataMsg.data->data(), dataMsg.data->size());
       Envoy::Buffer::OwnedImpl tmp;
       auto str = frame.SerializeAsString();
-      writeString(tmp, str);
+      write_opt<LengthPrefixed>(tmp, str);
       access_log_->write(tmp.toString());
       tmp.drain(tmp.length());
     }
@@ -205,12 +208,13 @@ absl::Status UpstreamConnectionService::handleMessage(SshMsg&& msg) {
           Protobuf::util::TimeUtil::NanosecondsToTimestamp(absl::GetCurrentTimeNanos()));
       pomerium::extensions::ssh::RecordingFrame::ChannelRequest channelReqFrame;
       channelReqFrame.set_request_type(reqMsg.request_type);
-      channelReqFrame.mutable_request()->resize(reqMsg.extra.size());
-      memcpy(channelReqFrame.mutable_request()->data(), reqMsg.extra.data(), reqMsg.extra.size());
+      auto subMsgData = encodeToBytes(reqMsg.msg);
+      channelReqFrame.mutable_request()->resize(subMsgData.size());
+      memcpy(channelReqFrame.mutable_request()->data(), subMsgData.data(), subMsgData.size());
       *frame.mutable_channel_request() = channelReqFrame;
       Envoy::Buffer::OwnedImpl tmp;
       auto str = frame.SerializeAsString();
-      writeString(tmp, str);
+      write_opt<LengthPrefixed>(tmp, str);
       access_log_->write(tmp.toString());
       tmp.drain(tmp.length());
     }

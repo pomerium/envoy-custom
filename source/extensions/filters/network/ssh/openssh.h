@@ -171,8 +171,8 @@ public:
 
   absl::Status convertToSignedUserCertificate(
       uint64_t serial,
-      std::vector<std::string> principals,
-      std::vector<std::string> extensions,
+      string_list principals,
+      string_list extensions,
       absl::Duration valid_duration,
       const SSHKey& signer) {
     if (auto err = sshkey_to_certified(key_.get()); err != 0) {

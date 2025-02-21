@@ -12,7 +12,7 @@ AllowShortBlocksOnASingleLine: Empty
 AllowShortFunctionsOnASingleLine: Empty
 AllowShortIfStatementsOnASingleLine: Never
 AllowShortCaseLabelsOnASingleLine: true
-BreakTemplateDeclarations: true
+BreakTemplateDeclarations: Leave
 AlignConsecutiveShortCaseStatements:
   Enabled: true
   AcrossEmptyLines: false

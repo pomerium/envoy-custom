@@ -3,6 +3,7 @@
 #include <cstdlib>
 
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
+#include "buffer.h"
 #include "openssh.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "source/extensions/filters/network/ssh/messages.h"
@@ -51,7 +52,7 @@ absl::Status DownstreamUserAuthService::handleMessage(SshMsg&& msg) {
     const auto& userAuthMsg = dynamic_cast<const UserAuthRequestMsg&>(msg);
 
     const std::vector<absl::string_view> parts =
-        absl::StrSplit(userAuthMsg.username, absl::MaxSplits("@", 1));
+        absl::StrSplit(*userAuthMsg.username, absl::MaxSplits("@", 1));
     std::string username, hostname;
     if (parts.size() == 2) {
       username = parts[0];
@@ -64,52 +65,54 @@ absl::Status DownstreamUserAuthService::handleMessage(SshMsg&& msg) {
     auth_req.set_hostname(hostname);
     auth_req.set_username(username);
 
-    if (userAuthMsg.method_name == "publickey") {
-      PubKeyUserAuthRequestMsg pubkeyReq(userAuthMsg);
+    return userAuthMsg.msg.visit(
+        [&](const PubKeyUserAuthRequestMsg& pubkeyReq) {
+          auto userPubKey = openssh::SSHKey::fromBlob(pubkeyReq.public_key);
+          UserAuthBannerMsg banner{};
+          auto msgDump = fmt::format("\r\nmethod:   {}"
+                                     "\r\nusername: {}"
+                                     "\r\nhostname: {}"
+                                     "\r\nkeyalg:   {}"
+                                     "\r\npubkey:   {}",
+                                     userAuthMsg.method_name, username, hostname,
+                                     pubkeyReq.public_key_alg, userPubKey->fingerprint());
+          banner.message =
+              "\r\n====== TEST BANNER ======" + msgDump + "\r\n=========================\r\n";
+          auto _ = transport_.sendMessageToConnection(banner);
 
-      auto userPubKey = openssh::SSHKey::fromBlob(pubkeyReq.public_key);
-      UserAuthBannerMsg banner{};
-      auto msgDump = fmt::format("\r\nmethod:   {}"
-                                 "\r\nusername: {}"
-                                 "\r\nhostname: {}"
-                                 "\r\nkeyalg:   {}"
-                                 "\r\npubkey:   {}",
-                                 pubkeyReq.method_name, username, hostname,
-                                 pubkeyReq.public_key_alg, userPubKey->fingerprint());
-      banner.message =
-          "\r\n====== TEST BANNER ======" + msgDump + "\r\n=========================\r\n";
-      auto _ = transport_.sendMessageToConnection(banner);
+          PublicKeyMethodRequest method_req;
+          method_req.set_public_key(pubkeyReq.public_key->data(), pubkeyReq.public_key->size());
+          method_req.set_public_key_alg(pubkeyReq.public_key_alg);
+          auth_req.mutable_method_request()->PackFrom(method_req);
 
-      PublicKeyMethodRequest method_req;
-      method_req.set_public_key(pubkeyReq.public_key.data(), pubkeyReq.public_key.size());
-      method_req.set_public_key_alg(pubkeyReq.public_key_alg);
-      auth_req.mutable_method_request()->PackFrom(method_req);
+          pomerium::extensions::ssh::ClientMessage clientMsg;
+          *clientMsg.mutable_auth_request() = auth_req;
+          transport_.sendMgmtClientMessage(clientMsg);
 
-      pomerium::extensions::ssh::ClientMessage clientMsg;
-      *clientMsg.mutable_auth_request() = auth_req;
-      transport_.sendMgmtClientMessage(clientMsg);
+          return absl::OkStatus();
+        },
+        [&](const KeyboardInteractiveUserAuthRequestMsg& interactiveReq) {
+          KeyboardInteractiveMethodRequest method_req;
+          for (const auto& sm : *interactiveReq.submethods) {
+            method_req.add_submethods(sm);
+          }
+          auth_req.mutable_method_request()->PackFrom(method_req);
 
-      return absl::OkStatus();
-    } else if (userAuthMsg.method_name == "keyboard-interactive") {
-      KeyboardInteractiveUserAuthRequestMsg interactiveReq(userAuthMsg);
+          pomerium::extensions::ssh::ClientMessage clientMsg;
+          *clientMsg.mutable_auth_request() = auth_req;
+          transport_.sendMgmtClientMessage(clientMsg);
 
-      KeyboardInteractiveMethodRequest method_req;
-      for (const auto& sm : interactiveReq.submethods) {
-        method_req.add_submethods(sm);
-      }
-      auth_req.mutable_method_request()->PackFrom(method_req);
-
-      pomerium::extensions::ssh::ClientMessage clientMsg;
-      *clientMsg.mutable_auth_request() = auth_req;
-      transport_.sendMgmtClientMessage(clientMsg);
-
-      return absl::OkStatus();
-    } else if (userAuthMsg.method_name == "none") {
-      UserAuthFailureMsg failure;
-      failure.methods = {"publickey", "keyboard-interactive"};
-      return transport_.sendMessageToConnection(failure).status();
-    }
-    return absl::InvalidArgumentError("unknown or unsupported request"); // TODO
+          return absl::OkStatus();
+        },
+        [&](const NoneAuthRequestMsg&) {
+          UserAuthFailureMsg failure;
+          failure.methods = {"publickey"s, "keyboard-interactive"s};
+          return transport_.sendMessageToConnection(failure).status();
+        },
+        [&](std::monostate) {
+          ENVOY_LOG(debug, "unsupported user auth request {}", userAuthMsg.method_name);
+          return absl::UnimplementedError("unknown or unsupported auth method");
+        });
   }
   case SshMessageType::UserAuthInfoResponse: {
     const auto& infoResp = dynamic_cast<const UserAuthInfoResponseMsg&>(msg);
@@ -117,7 +120,7 @@ absl::Status DownstreamUserAuthService::handleMessage(SshMsg&& msg) {
     InfoResponse info_resp;
     info_resp.set_method("keyboard-interactive");
     KeyboardInteractiveInfoPromptResponses info_method_resp;
-    for (const auto& resp : infoResp.responses) {
+    for (const auto& resp : *infoResp.responses) {
       info_method_resp.add_responses(resp);
     }
     info_resp.mutable_response()->PackFrom(info_method_resp);
@@ -172,7 +175,7 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
       auto deny = authResp.deny();
       UserAuthFailureMsg failure;
       auto methods = deny.methods();
-      failure.methods = std::vector<std::string>(methods.begin(), methods.end());
+      failure.methods = string_list(methods.begin(), methods.end());
       return transport_.sendMessageToConnection(failure).status();
     }
     case AuthenticationResponse::kInfoRequest: {
@@ -184,12 +187,11 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
         UserAuthInfoRequestMsg client_req;
         client_req.name = server_req.name();
         client_req.instruction = server_req.instruction();
-        client_req.num_prompts = server_req.prompts_size();
         for (const auto& prompt : server_req.prompts()) {
-          UserAuthInfoRequestMsg::prompt p;
+          userAuthInfoPrompt p;
           p.prompt = prompt.prompt();
           p.echo = prompt.echo();
-          client_req.prompts.push_back(std::move(p));
+          client_req.prompts->push_back(std::move(p));
         }
         return transport_.sendMessageToConnection(client_req).status();
       }
@@ -224,17 +226,21 @@ absl::Status UpstreamUserAuthService::handleMessage(SshMsg&& msg) {
       return stat;
     }
 
-    auto req = std::make_unique<PubKeyUserAuthRequestMsg>();
+    auto req = std::make_unique<UserAuthRequestMsg>();
     req->username = transport_.authState().username;
     req->method_name = "publickey";
     req->service_name = "ssh-connection";
-    req->has_signature = false;
-    req->public_key_alg = "ssh-ed25519-cert-v01@openssh.com";
+
+    PubKeyUserAuthRequestMsg pubkeyReq;
+    pubkeyReq.has_signature = false;
+    pubkeyReq.public_key_alg = "ssh-ed25519-cert-v01@openssh.com";
+
     auto blob = userSessionSshKey->toBlob();
     if (!blob.ok()) {
       return blob.status();
     }
-    req->public_key = *blob;
+    pubkeyReq.public_key = *blob;
+    req->msg = std::move(pubkeyReq);
     pending_req_ = std::move(req);
     pending_user_key_ = std::move(*userSessionSshKey);
 
@@ -248,14 +254,14 @@ absl::Status UpstreamUserAuthService::handleMessage(SshMsg&& msg) {
     (void)pubkeyOkMsg;
     // compute signature
     Envoy::Buffer::OwnedImpl buf;
-    writeString(buf, transport_.getKexResult().SessionID);
-    pending_req_->has_signature = true; // see PubKeyUserAuthRequestMsg::writeExtra
+    write_opt<LengthPrefixed>(buf, transport_.getKexResult().SessionID);
+    pending_req_->msg.get<PubKeyUserAuthRequestMsg>().has_signature = true; // see PubKeyUserAuthRequestMsg::writeExtra
     pending_req_->encode(buf);
     auto sig = pending_user_key_.sign(flushToBytes(buf));
     if (!sig.ok()) {
       return sig.status();
     }
-    pending_req_->signature = *sig;
+    pending_req_->msg.get<PubKeyUserAuthRequestMsg>().signature = *sig;
     return transport_.sendMessageToConnection(*pending_req_).status();
   }
   case SshMessageType::UserAuthBanner: {

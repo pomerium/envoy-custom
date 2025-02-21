@@ -45,7 +45,7 @@ struct AuthState {
 
   std::string username;
   std::string hostname;
-  std::vector<std::string> auth_methods;
+  string_list auth_methods;
   bytes public_key;
   std::unique_ptr<pomerium::extensions::ssh::Permissions> permissions;
 

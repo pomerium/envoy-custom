@@ -8,6 +8,7 @@
 
 #include "envoy/filesystem/filesystem.h"
 
+#include "source/extensions/filters/network/ssh/buffer.h"
 #include "source/extensions/filters/network/ssh/util.h"
 #include "source/extensions/filters/network/ssh/messages.h"
 #include "source/extensions/filters/network/ssh/version_exchange.h"
@@ -52,10 +53,10 @@ struct handshake_magics_t {
   bytes server_kex_init;
 
   void encode(Envoy::Buffer::Instance& buffer) const {
-    writeString(buffer, client_version);
-    writeString(buffer, server_version);
-    writeString(buffer, client_kex_init);
-    writeString(buffer, server_kex_init);
+    write_opt<LengthPrefixed>(buffer, client_version);
+    write_opt<LengthPrefixed>(buffer, server_version);
+    write_opt<LengthPrefixed>(buffer, client_kex_init);
+    write_opt<LengthPrefixed>(buffer, server_kex_init);
   }
 };
 
@@ -174,17 +175,17 @@ struct kex_state_t {
   void setKexRSASHA2512Supported();
 };
 
-static const name_list rsaSha2256HostKeyAlgs = {
+static const string_list rsaSha2256HostKeyAlgs = {
     "rsa-sha2-256",
     "rsa-sha2-256-cert-v01@openssh.com",
 };
 
-static const name_list rsaSha2512HostKeyAlgs = {
+static const string_list rsaSha2512HostKeyAlgs = {
     "rsa-sha2-512",
     "rsa-sha2-512-cert-v01@openssh.com",
 };
 
-inline name_list algorithmsForKeyFormat(std::string_view keyFormat) {
+inline string_list algorithmsForKeyFormat(std::string_view keyFormat) {
   if (keyFormat == "ssh-rsa") {
     return {"rsa-sha2-256", "rsa-sha2-512", "ssh-rsa"};
   } else if (keyFormat == "ssh-rsa-cert-v01@openssh.com") {
@@ -212,8 +213,8 @@ public:
   absl::StatusOr<std::unique_ptr<KexAlgorithm>> newAlgorithmImpl();
   const host_keypair_t* pickHostKey(std::string_view alg);
   const host_keypair_t* getHostKey(std::string_view pkalg);
-  absl::StatusOr<std::string> findCommon(std::string_view what, const name_list& client,
-                                         const name_list& server);
+  absl::StatusOr<std::string> findCommon(std::string_view what, const string_list& client,
+                                         const string_list& server);
   absl::Status loadHostKeys();
   absl::Status loadSshKeyPair(std::string_view privKeyPath, std::string_view pubKeyPath);
   void registerMessageHandlers(MessageDispatcher<SshMsg>& dispatcher) const override {
