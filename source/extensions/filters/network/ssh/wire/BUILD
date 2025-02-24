@@ -28,7 +28,7 @@ envoy_cc_library(
 
 envoy_cc_test(
     name = "wire_lib_test",
-    srcs = ["messages_test.cc"],
+    srcs = ["encoding_test.cc"],
     repository = "@envoy",
     deps = [
         ":wire_lib",

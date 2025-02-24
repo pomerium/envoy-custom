@@ -4,8 +4,6 @@
 
 #include "fmt/format.h"
 
-namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
-
 namespace wire {
 
 enum class SshMessageType : uint8_t {
@@ -103,6 +101,8 @@ struct type_or_value_type<std::vector<T, Allocator>> : std::type_identity<T> {};
 template <typename T>
 using type_or_value_type_t = type_or_value_type<T>::type;
 
+// is_vector<T> is true if T is a vector of any type, otherwise false. This is used to enable
+// decoding logic for fields of list types.
 template <typename T>
 struct is_vector : std::false_type {};
 
@@ -125,5 +125,22 @@ constexpr bool values_unique(std::initializer_list<std::string_view> arr) {
   return true;
 }
 
+// List of allowed integer types that can be used in SSH messages.
+// This is effectively:
+//  interface SshIntegerType {
+//    ~uint8 | ~uint32
+//  }
+template <typename T>
+concept SshIntegerType =
+    std::same_as<T, uint8_t> ||
+    std::same_as<T, uint32_t> ||
+    std::same_as<T, SshMessageType>;
+
+// List of allowed string types that can be used in SSH messages.
+// std::vector<uint8_t> is aliased by the name 'bytes', not used here to prevent circular import
+template <typename T>
+concept SshStringType =
+    std::same_as<T, std::string> ||
+    std::same_as<T, std::vector<uint8_t>>;
+
 } // namespace wire
-} // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

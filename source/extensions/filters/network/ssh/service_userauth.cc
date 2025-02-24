@@ -254,8 +254,11 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::SshMsg&& msg) {
     Envoy::Buffer::OwnedImpl buf;
     wire::write_opt<wire::LengthPrefixed>(buf, transport_.getKexResult().SessionID);
     pending_req_->msg.get<wire::PubKeyUserAuthRequestMsg>().has_signature = true; // see PubKeyUserAuthRequestMsg::writeExtra
-    pending_req_->encode(buf);
-    auto sig = pending_user_key_.sign(wire::flushToBytes(buf));
+    auto stat = pending_req_->encode(buf);
+    if (!stat.ok()) {
+      return stat.status();
+    }
+    auto sig = pending_user_key_.sign(wire::flushTo<bytes>(buf));
     if (!sig.ok()) {
       return sig.status();
     }

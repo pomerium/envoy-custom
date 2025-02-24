@@ -29,7 +29,11 @@ absl::Status DownstreamConnectionService::handleMessage(wire::SshMsg&& msg) {
     auto& authState = transport_.authState();
     ChannelMessage channel_msg;
     google::protobuf::BytesValue b;
-    *b.mutable_value() = msg.toString();
+    auto msgData = msg.encodeTo<std::string>();
+    if (!msgData.ok()) {
+      return absl::InvalidArgumentError("received invalid message");
+    }
+    *b.mutable_value() = *msgData;
     *channel_msg.mutable_raw_bytes() = b;
     authState.hijacked_stream->sendMessage(channel_msg, false);
     return absl::OkStatus();
@@ -93,10 +97,13 @@ absl::Status DownstreamConnectionService::handleMessage(wire::SshMsg&& msg) {
           Protobuf::util::TimeUtil::NanosecondsToTimestamp(absl::GetCurrentTimeNanos()));
       pomerium::extensions::ssh::RecordingFrame::ChannelRequest channelReqFrame;
       channelReqFrame.set_request_type(reqMsg.request_type);
-      auto subMsgData = encodeToBytes(reqMsg.msg);
+      auto subMsgData = wire::encodeTo<bytes>(reqMsg.msg);
+      if (!subMsgData.ok()) {
+        return subMsgData.status();
+      }
 
-      channelReqFrame.mutable_request()->resize(subMsgData.size());
-      memcpy(channelReqFrame.mutable_request()->data(), subMsgData.data(), subMsgData.size());
+      channelReqFrame.mutable_request()->resize(subMsgData->size());
+      memcpy(channelReqFrame.mutable_request()->data(), subMsgData->data(), subMsgData->size());
       *frame.mutable_channel_request() = channelReqFrame;
       Envoy::Buffer::OwnedImpl tmp;
       auto str = frame.SerializeAsString();
@@ -205,9 +212,12 @@ absl::Status UpstreamConnectionService::handleMessage(wire::SshMsg&& msg) {
           Protobuf::util::TimeUtil::NanosecondsToTimestamp(absl::GetCurrentTimeNanos()));
       pomerium::extensions::ssh::RecordingFrame::ChannelRequest channelReqFrame;
       channelReqFrame.set_request_type(reqMsg.request_type);
-      auto subMsgData = encodeToBytes(reqMsg.msg);
-      channelReqFrame.mutable_request()->resize(subMsgData.size());
-      memcpy(channelReqFrame.mutable_request()->data(), subMsgData.data(), subMsgData.size());
+      auto subMsgData = encodeTo<bytes>(reqMsg.msg);
+      if (!subMsgData.ok()) {
+        return subMsgData.status();
+      }
+      channelReqFrame.mutable_request()->resize(subMsgData->size());
+      memcpy(channelReqFrame.mutable_request()->data(), subMsgData->data(), subMsgData->size());
       *frame.mutable_channel_request() = channelReqFrame;
       Envoy::Buffer::OwnedImpl tmp;
       auto str = frame.SerializeAsString();
@@ -241,7 +251,12 @@ absl::Status UpstreamConnectionService::handleMessage(wire::SshMsg&& msg) {
 void DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) {
   switch (message->message_case()) {
   case pomerium::extensions::ssh::ChannelMessage::kRawBytes: {
-    auto _ = transport_.sendMessageToConnection(wire::AnyMsg::fromString(message->raw_bytes().value()));
+    auto anyMsg = wire::AnyMsg::fromString(message->raw_bytes().value());
+    if (!anyMsg.ok()) {
+      ENVOY_LOG(error, "received invalid channel message");
+      return; // TODO: wire up status here
+    }
+    auto _ = transport_.sendMessageToConnection(*anyMsg);
     break;
   }
   case pomerium::extensions::ssh::ChannelMessage::kChannelControl: {

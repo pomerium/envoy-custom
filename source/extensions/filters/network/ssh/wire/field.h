@@ -2,13 +2,27 @@
 
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
 
-namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
-
 namespace wire {
 
 template <typename T, EncodingOptions Opt>
 struct field_base {
   T value{};
+
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t n = 0) noexcept {
+    try {
+      return read_opt<Opt>(buffer, value, n);
+    } catch (const Envoy::EnvoyException& e) {
+      return absl::InvalidArgumentError(e.what());
+    }
+  }
+
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept {
+    try {
+      return write_opt<Opt>(buffer, value);
+    } catch (const Envoy::EnvoyException& e) {
+      return absl::InvalidArgumentError(e.what());
+    }
+  }
 
   // implicit conversion operator: allow field<T> to be treated as T in some contexts
   operator T() const& { return value; }
@@ -75,13 +89,6 @@ struct field<T, Opt, std::enable_if_t<(Opt & Conditional) == 0>> : field_base<T,
   static_assert(sizeof(field_base<T, Opt>) == sizeof(T));
   using field_base<T, Opt>::value;
   using field_base<T, Opt>::operator=;
-
-  size_t decode(Envoy::Buffer::Instance& buffer, size_t n = 0) {
-    return read_opt<Opt>(buffer, value, n);
-  }
-  size_t encode(Envoy::Buffer::Instance& buffer) const {
-    return write_opt<Opt>(buffer, value);
-  }
 };
 
 // conditional field
@@ -103,57 +110,57 @@ private:
   struct codec {
     bool enabled;
     T* vp;
-    size_t decode(Envoy::Buffer::Instance& buffer, size_t n = 0) {
+    absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t n = 0) noexcept {
       if (!enabled) {
         return 0;
       }
-      return read_opt<Opt>(buffer, *vp, n);
+      try {
+        return read_opt<Opt>(buffer, *vp, n);
+      } catch (const Envoy::EnvoyException& e) {
+        return absl::InvalidArgumentError(e.what());
+      }
     }
-    size_t encode(Envoy::Buffer::Instance& buffer) const {
+    absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept {
       if (!enabled) {
         return 0;
       }
-      return write_opt<Opt>(buffer, *vp);
+      try {
+        return write_opt<Opt>(buffer, *vp);
+      } catch (const Envoy::EnvoyException& e) {
+        return absl::InvalidArgumentError(e.what());
+      }
     }
   };
 };
-
-// Utility function to decode a list of fields in order. The size passed to each field's decode
-// method will be adjusted after each field is read. Returns the total number of bytes read.
-template <typename... Fields>
-size_t decodeFields(Envoy::Buffer::Instance& buffer, size_t limit, Fields&&... fields) {
-  size_t n = 0;
-  ([&] { n += fields.decode(buffer, limit - n); }(), ...);
-  return n;
-}
 
 // Utility function to decode a message, including a message type and a list of fields. The decoded
 // message type is validated to ensure it matches the expected type. Returns the total number of
 // bytes read (including the message type byte).
 template <SshMessageType MT, typename... Fields>
-size_t decodeMsg(Envoy::Buffer::Instance& buffer, size_t limit, Fields&&... fields) {
+absl::StatusOr<size_t> decodeMsg(Envoy::Buffer::Instance& buffer, size_t limit, Fields&&... fields) noexcept {
   if (auto mt = buffer.drainInt<SshMessageType>(); mt != MT) {
-    throw EnvoyException(fmt::format("decoded unexpected message type {}, expected {}",
-                                     static_cast<uint8_t>(mt),
-                                     static_cast<uint8_t>(MT)));
+    return absl::InvalidArgumentError(
+        fmt::format("decoded unexpected message type {}, expected {}",
+                    static_cast<uint8_t>(mt),
+                    static_cast<uint8_t>(MT)));
   }
-  return 1 + decodeFields(buffer, limit - 1, std::forward<Fields>(fields)...);
-}
-
-// Utility function to encode a list of fields in order. Returns the total number of bytes written.
-template <typename... Fields>
-size_t encodeFields(Envoy::Buffer::Instance& buffer, const Fields&... fields) {
-  size_t n = 0;
-  ([&] { n += fields.encode(buffer); }(), ...);
+  auto n = decodeSequence(buffer, limit - 1, std::forward<Fields>(fields)...);
+  if (n.ok()) {
+    return 1 + *n;
+  }
   return n;
 }
 
 // Utility function to encode a message, including a message type and a list of fields. Returns
 // the total number of bytes written (including the message type byte).
 template <SshMessageType MT, typename... Fields>
-size_t encodeMsg(Envoy::Buffer::Instance& buffer, const Fields&... fields) {
+absl::StatusOr<size_t> encodeMsg(Envoy::Buffer::Instance& buffer, const Fields&... fields) noexcept {
   buffer.writeByte(MT);
-  return 1 + encodeFields(buffer, fields...);
+  auto n = encodeSequence(buffer, fields...);
+  if (n.ok()) {
+    return 1 + *n;
+  }
+  return n;
 }
 
 // used in std::visit to hold a list of lambda functions
@@ -162,6 +169,16 @@ template <typename... Ts>
 struct overloads : Ts... {
   using Ts::operator()...;
 };
+
+// A sentinel type that can be used to construct a sub_message without a key field initially.
+// Any message decoded by such a sub_message instance will be treated as unknown and stored as
+// raw bytes. A key field can later be set using the set_key_field() method, then decode() can
+// be called again to decode the typed message.
+//
+// This is used to handle a couple of unusual SSH messages that contain a sub message but no
+// key field that can be used to determine its type without surrounding context.
+struct defer_decoding_t {};
+static constexpr const auto defer_decoding = defer_decoding_t{};
 
 // sub_message is used in place of a [field] for fields that contain one of several potential
 // messages, where the type of the message is indicated by a (string) name in a previous field.
@@ -174,11 +191,18 @@ struct sub_message {
   // oneof holds one of the messages in Options, or the empty (std::monostate) value.
   std::variant<std::monostate, Options...> oneof;
 
+  // unknown holds raw bytes for an unknown message type.
   std::optional<bytes> unknown;
 
-  // set_key_field must be called in the constructor of a message containing a sub_message to
-  // allow the sub_message to read to/write from the key field when encoding/decoding the message.
-  void set_key_field(field<std::string, LengthPrefixed>* field_ptr) { key_field_ = field_ptr; }
+  explicit sub_message(field<std::string, LengthPrefixed>& key_field)
+      : key_field_(key_field) {};
+
+  explicit sub_message(defer_decoding_t) {};
+
+  // set_key_field updates the key field used to decode the message.
+  void set_key_field(field<std::string, LengthPrefixed>& key_field) {
+    key_field_.emplace(key_field);
+  }
 
   // Assignment operator for any type in the options list. When a message is assigned, the
   // key field in the containing message is updated with the new message's key.
@@ -205,11 +229,14 @@ struct sub_message {
   // the raw bytes of the message will be read and stored in the 'unknown' field, and the oneof
   // variant will be reset. Likewise, the 'unknown' field will be cleared if a known message is
   // decoded.
-  size_t decode(Envoy::Buffer::Instance& buffer, size_t limit) {
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t limit) noexcept {
     // Find the index of the current key in option_keys. The key is read from the previously set
-    // key field.
-    auto index = std::distance(option_keys.begin(),
-                               std::find(option_keys.begin(), option_keys.end(), *key_field_));
+    // key field. If there is no set key, it is treated as an unknown message.
+    auto index = option_keys.size();
+    if (key_field_.has_value()) {
+      index = std::distance(option_keys.begin(),
+                            std::find(option_keys.begin(), option_keys.end(), *key_field_));
+    }
     if (index == option_keys.size()) { // not found
       auto data = static_cast<uint8_t*>(buffer.linearize(limit));
       unknown = bytes{data, data + limit};
@@ -226,7 +253,7 @@ struct sub_message {
   // Encodes the currently stored message and writes it to the buffer. If no message is stored,
   // does nothing. If an unknown message is stored, it will write the raw bytes of that message
   // to the buffer. Returns the total number of bytes written.
-  size_t encode(Envoy::Buffer::Instance& buffer) const {
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept {
     if (unknown.has_value()) {
       buffer.add(unknown->data(), unknown->size());
       return unknown->size();
@@ -260,7 +287,7 @@ struct sub_message {
   }
 
 private:
-  field<std::string, LengthPrefixed>* key_field_;
+  Envoy::OptRef<field<std::string, LengthPrefixed>> key_field_;
 
   // Contains a list of sub-message keys (strings) for each option type in the order provided.
   // All option types must be unique.
@@ -281,10 +308,12 @@ private:
   // to decode the corresponding type. The result is a list of functions, like
   //  {<decoder for A>, <decoder for B>, <decoder for C>} (where Options == <A, B, C>)
   static constexpr auto decoders =
-      {+[](oneof_type& oneof, Envoy::Buffer::Instance& buffer, size_t limit) -> size_t {
+      {+[](oneof_type& oneof, Envoy::Buffer::Instance& buffer, size_t limit) noexcept -> absl::StatusOr<size_t> {
         Options opt; // 'Options' is a placeholder, substituted for one of the contained types
-        size_t n = opt.decode(buffer, limit);
-        oneof = std::move(opt);
+        auto n = opt.decode(buffer, limit);
+        if (n.ok()) {
+          oneof = std::move(opt);
+        }
         return n;
       }...}; // the expression preceding '...' is repeated for each type in Options.
 
@@ -292,19 +321,16 @@ private:
   // The encoder for each type is retrieved using std::get<T>(variant), which returns the value
   // for that type (and asserts that it is the actual type stored in the variant).
   static constexpr auto encoders =
-      {+[](const oneof_type& oneof, Envoy::Buffer::Instance& buffer) -> size_t {
+      {+[](const oneof_type& oneof, Envoy::Buffer::Instance& buffer) noexcept -> absl::StatusOr<size_t> {
         return std::get<Options>(oneof).encode(buffer);
       }...};
 };
-
 } // namespace wire
 
-} // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
-
 // fmt::formatter specialization for field types - formats the value contained in the field.
-template <typename T, Envoy::Extensions::NetworkFilters::GenericProxy::Codec::wire::EncodingOptions Opt>
-struct fmt::formatter<Envoy::Extensions::NetworkFilters::GenericProxy::Codec::wire::field<T, Opt>> : fmt::formatter<T> {
-  auto format(Envoy::Extensions::NetworkFilters::GenericProxy::Codec::wire::field<T, Opt> c, format_context& ctx) const
+template <typename T, wire::EncodingOptions Opt>
+struct fmt::formatter<wire::field<T, Opt>> : fmt::formatter<T> {
+  auto format(wire::field<T, Opt> c, format_context& ctx) const
       -> format_context::iterator {
     return formatter<T>::format(c.value, ctx);
   }

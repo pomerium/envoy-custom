@@ -99,7 +99,7 @@ struct kex_result_t {
   void EncodeSharedSecret(bytes& out) {
     Envoy::Buffer::OwnedImpl tmp;
     wire::writeBignum(tmp, K);
-    wire::flushToBytes(tmp, out);
+    wire::flushTo<bytes>(tmp, out);
   }
 };
 

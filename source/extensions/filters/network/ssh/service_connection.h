@@ -42,7 +42,8 @@ protected:
 };
 
 class DownstreamConnectionService : public ConnectionService,
-                                    public ChannelStreamCallbacks {
+                                    public ChannelStreamCallbacks,
+                                    public Logger::Loggable<Logger::Id::filter> {
 public:
   DownstreamConnectionService(TransportCallbacks& callbacks, Api::Api& api,
                               AccessLog::AccessLogFileSharedPtr access_log)

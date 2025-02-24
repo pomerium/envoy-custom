@@ -74,24 +74,27 @@ void SshClientCodec::decode(Envoy::Buffer::Instance& buffer, bool /*end_stream*/
     auto prev = (*connection_state_->seq_read)++;
     ENVOY_LOG(debug, "read seqnr inc: {} -> {}", prev, *connection_state_->seq_read);
 
-    {
-      auto anyMsg = wire::readPacket<wire::AnyMsg>(dec);
-      if (!anyMsg.ok()) {
-        ENVOY_LOG(error, "ssh: readPacket: {}", anyMsg.status().message());
-        callbacks_->onDecodingFailure(fmt::format("ssh: readPacket: {}", anyMsg.status().message()));
-        return;
-      }
-      std::unique_ptr<wire::SshMsg> msg = anyMsg->unwrap();
-      if (msg->msg_type() == wire::SshMessageType::NewKeys) {
-        ENVOY_LOG(debug, "resetting read sequence number");
-        *connection_state_->seq_read = 0;
-      }
-      ENVOY_LOG(info, "received message: type {}", msg->msg_type());
-      if (auto err = dispatch(std::move(*msg)); !err.ok()) {
-        ENVOY_LOG(error, "ssh: {}", err.message());
-        callbacks_->onDecodingFailure(fmt::format("ssh: {}", err.message()));
-        return;
-      }
+    auto anyMsg = wire::decodePacket<wire::AnyMsg>(dec);
+    if (!anyMsg.ok()) {
+      ENVOY_LOG(error, "ssh: readPacket: {}", anyMsg.status().message());
+      callbacks_->onDecodingFailure(fmt::format("ssh: readPacket: {}", anyMsg.status().message()));
+      return;
+    }
+    auto msg = anyMsg->unwrap();
+    if (!msg.ok()) {
+      ENVOY_LOG(error, "ssh: error decoding message: {}", msg.status().message());
+      callbacks_->onDecodingFailure(fmt::format("ssh: error decoding message: {}", msg.status().message()));
+      return;
+    }
+    if ((*msg)->msg_type() == wire::SshMessageType::NewKeys) {
+      ENVOY_LOG(debug, "resetting read sequence number");
+      *connection_state_->seq_read = 0;
+    }
+    ENVOY_LOG(debug, "received message: type {}", (*msg)->msg_type());
+    if (auto err = dispatch(std::move(**msg)); !err.ok()) {
+      ENVOY_LOG(error, "ssh: {}", err.message());
+      callbacks_->onDecodingFailure(fmt::format("ssh: {}", err.message()));
+      return;
     }
   }
 }

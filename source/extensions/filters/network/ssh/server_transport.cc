@@ -109,19 +109,24 @@ void SshServerCodec::decode(Envoy::Buffer::Instance& buffer, bool /*end_stream*/
     ENVOY_LOG(debug, "read seqnr inc: {} -> {}", prev, *connection_state_->seq_read);
 
     {
-      auto anyMsg = wire::readPacket<wire::AnyMsg>(dec);
+      auto anyMsg = wire::decodePacket<wire::AnyMsg>(dec);
       if (!anyMsg.ok()) {
         ENVOY_LOG(error, "ssh: readPacket: {}", anyMsg.status().message());
         callbacks_->onDecodingFailure(fmt::format("ssh: readPacket: {}", anyMsg.status().message()));
         return;
       }
-      std::unique_ptr<wire::SshMsg> msg = anyMsg->unwrap();
-      if (msg->msg_type() == wire::SshMessageType::NewKeys) {
+      auto msg = anyMsg->unwrap();
+      if (!msg.ok()) {
+        ENVOY_LOG(error, "ssh: error decoding message: {}", msg.status().message());
+        callbacks_->onDecodingFailure(fmt::format("ssh: error decoding message: {}", msg.status().message()));
+        return;
+      }
+      if ((*msg)->msg_type() == wire::SshMessageType::NewKeys) {
         ENVOY_LOG(debug, "resetting read sequence number");
         *connection_state_->seq_read = 0;
       }
-      ENVOY_LOG(debug, "received message: type {}", msg->msg_type());
-      if (auto err = dispatch(std::move(*msg)); !err.ok()) {
+      ENVOY_LOG(debug, "received message: type {}", (*msg)->msg_type());
+      if (auto err = dispatch(std::move(**msg)); !err.ok()) {
         ENVOY_LOG(error, "ssh: {}", err.message());
         callbacks_->onDecodingFailure(fmt::format("ssh: {}", err.message()));
         return;
@@ -367,11 +372,11 @@ SshServerCodec::handleHostKeysProve(const wire::HostKeysProveRequestMsg& msg) {
       ENVOY_LOG(error, "client requested to prove ownership of a key that isn't ours");
       return absl::InvalidArgumentError("requested key is invalid");
     }
-    Envoy::Buffer::OwnedImpl buf;
-    wire::write_opt<wire::LengthPrefixed>(buf, "hostkeys-prove-00@openssh.com"s);
-    wire::write_opt<wire::LengthPrefixed>(buf, kex_result_->SessionID);
-    wire::write_opt<wire::LengthPrefixed>(buf, keyBlob);
-    auto sig = key->sign(wire::flushToBytes(buf));
+    Envoy::Buffer::OwnedImpl tmp;
+    wire::write_opt<wire::LengthPrefixed>(tmp, "hostkeys-prove-00@openssh.com"s);
+    wire::write_opt<wire::LengthPrefixed>(tmp, kex_result_->SessionID);
+    wire::write_opt<wire::LengthPrefixed>(tmp, keyBlob);
+    auto sig = key->sign(wire::flushTo<bytes>(tmp));
     if (!sig.ok()) {
       return absl::InternalError(fmt::format("sshkey_sign failed: {}", sig.status()));
     }

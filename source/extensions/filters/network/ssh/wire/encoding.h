@@ -1,10 +1,13 @@
 #pragma once
 
 #include <concepts>
+#include <cstddef>
 #include <cstdint>
 #include <algorithm>
+#include <initializer_list>
 #include <string>
 #include <type_traits>
+#include <utility>
 
 #include "openssl/rand.h"
 
@@ -13,51 +16,19 @@
 #include "source/extensions/filters/network/ssh/wire/util.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 
-namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
-
 namespace wire {
 
-inline size_t read(Envoy::Buffer::Instance& buffer, SshMessageType& t, size_t) {
-  t = buffer.drainInt<SshMessageType>();
-  return 1;
-}
-
-inline size_t write(Envoy::Buffer::Instance& buffer, const SshMessageType& t) {
-  buffer.writeByte(t);
-  return 1;
-}
+template <typename T>
+concept Encoder = requires(T t) {
+  // absl::StatusOr<size_t> encode(Envoy::Buffer::Instance&) noexcept
+  { t.encode(std::declval<Envoy::Buffer::Instance&>()) } noexcept -> std::same_as<absl::StatusOr<size_t>>;
+};
 
 template <typename T>
-inline size_t split(Envoy::Buffer::Instance& buffer, std::vector<T>& out, size_t limit, char delimiter) {
-  if (buffer.length() < limit) {
-    throw EnvoyException("short read");
-  }
-  static_assert(sizeof(typename T::value_type) == 1);
-
-  size_t n = 0;
-  auto size = buffer.drainBEInt<uint32_t>();
-  n += sizeof(size);
-  if (buffer.length() < size) {
-    throw EnvoyException(fmt::format("string has invalid length {}", size));
-  }
-  T current;
-  for (size_t i = 0; i < size; i++) {
-    auto c = buffer.drainInt<typename T::value_type>();
-    n++;
-    if (c == delimiter) {
-      if (current.size() > 0) {
-        out.push_back(std::move(current));
-        current.clear();
-      }
-      continue;
-    }
-    current.push_back(c);
-  }
-  if (current.size() > 0) {
-    out.push_back(std::move(current));
-  }
-  return n;
-}
+concept Decoder = requires(T t) {
+  // absl::StatusOr<size_t> decode(Envoy::Buffer::Instance&, size_t) noexcept
+  { t.decode(std::declval<Envoy::Buffer::Instance&>(), size_t{}) } noexcept -> std::same_as<absl::StatusOr<size_t>>;
+};
 
 // equivalent to sshbuf_put_bignum2_bytes
 inline void writeBignum(Envoy::Buffer::Instance& buffer, std::span<const uint8_t> str) {
@@ -75,8 +46,9 @@ inline void writeBignum(Envoy::Buffer::Instance& buffer, std::span<const uint8_t
   buffer.add(str.data(), str.size());
 }
 
-inline bytes flushToBytes(Envoy::Buffer::Instance& buf) {
-  bytes out;
+template <SshStringType T>
+inline T flushTo(Envoy::Buffer::Instance& buf) {
+  T out;
   size_t n = buf.length();
   out.resize(n);
   buf.copyOut(0, n, out.data());
@@ -84,105 +56,82 @@ inline bytes flushToBytes(Envoy::Buffer::Instance& buf) {
   return out;
 }
 
-inline void flushToBytes(Envoy::Buffer::Instance& buf, bytes& out) {
+template <SshStringType T>
+inline void flushTo(Envoy::Buffer::Instance& buf, T& out) {
   size_t n = buf.length();
   out.resize(n);
   buf.copyOut(0, n, out.data());
   buf.drain(n);
 }
 
-template <typename T>
-concept Encoder = requires(T t) {
-  { t.encode(std::declval<Envoy::Buffer::Instance&>()) };
-};
-
-template <typename T>
-concept Decoder = requires(T t) {
-  { t.decode(std::declval<Envoy::Buffer::Instance&>(), std::declval<size_t>()) };
-};
-
-template <typename T>
-  requires Encoder<T>
-inline bytes encodeToBytes(const T& t) {
+template <SshStringType T>
+inline absl::StatusOr<T> encodeTo(Encoder auto& encoder) {
   Envoy::Buffer::OwnedImpl tmp;
-  t.encode(tmp);
-  return flushToBytes(tmp);
+  auto r = encoder.encode(tmp);
+  if (!r.ok()) {
+    return r.status();
+  }
+  return flushTo<T>(tmp);
 }
 
-template <typename T>
-inline size_t read(Envoy::Buffer::Instance& buffer, T& t, size_t n) = delete;
+template <SshStringType T>
+inline absl::StatusOr<size_t> encodeTo(Encoder auto& encoder, T& out) {
+  Envoy::Buffer::OwnedImpl tmp;
+  auto r = encoder.encode(tmp);
+  if (!r.ok()) {
+    return r.status();
+  }
+  flushTo<T>(tmp, out);
+  return *r;
+}
 
+// Reads a single typed value, draining at most 'limit' bytes from the buffer. Returns the actual
+// number of bytes read, which can be <= limit. Throws an exception if `buffer.length() < limit`.
+template <typename T>
+inline size_t read(Envoy::Buffer::Instance& buffer, T& t, size_t limit) = delete;
+
+// Writes a single typed value to the buffer. Returns the number of bytes written.
 template <typename T>
 inline size_t write(Envoy::Buffer::Instance& buffer, const T& t) = delete;
 
-// read/write uint32
-inline size_t read(Envoy::Buffer::Instance& buffer, uint32_t& t, size_t limit) {
-  if (buffer.length() < limit) {
-    throw EnvoyException("short read");
-  }
-  t = buffer.drainBEInt<uint32_t>();
-  return sizeof(t);
+// read/write integer types
+template <SshIntegerType T>
+inline size_t read(Envoy::Buffer::Instance& buffer, T& t, size_t) {
+  t = buffer.drainBEInt<T>();
+  return sizeof(T);
 }
-inline size_t write(Envoy::Buffer::Instance& buffer, const uint32_t& t) {
-  buffer.writeBEInt<uint32_t>(t);
-  return sizeof(t);
+template <SshIntegerType T>
+inline size_t write(Envoy::Buffer::Instance& buffer, const T& t) {
+  buffer.writeBEInt(t);
+  return sizeof(T);
 }
 
 // read/write bool
 inline size_t read(Envoy::Buffer::Instance& buffer, bool& t, size_t limit) {
   if (buffer.length() < limit) {
-    throw EnvoyException("short read");
+    throw Envoy::EnvoyException("short read");
   }
   t = static_cast<bool>(buffer.drainBEInt<uint8_t>());
   return sizeof(t);
 }
 inline size_t write(Envoy::Buffer::Instance& buffer, const bool& t) {
-  buffer.writeBEInt<uint8_t>(t);
+  buffer.writeBEInt(static_cast<uint8_t>(t));
   return sizeof(t);
 }
 
-// read/write uint8
-inline size_t read(Envoy::Buffer::Instance& buffer, uint8_t& t, size_t limit) {
-  if (buffer.length() < limit) {
-    throw EnvoyException("short read");
-  }
-  t = buffer.drainBEInt<uint8_t>();
-  return sizeof(t);
-}
-
-inline size_t write(Envoy::Buffer::Instance& buffer, const uint8_t& t) {
-  buffer.writeBEInt<uint8_t>(t);
-  return sizeof(t);
-}
-
-// read/write string
-inline size_t read(Envoy::Buffer::Instance& buffer, std::string& t, size_t size) {
+// read/write string types
+template <SshStringType T>
+inline size_t read(Envoy::Buffer::Instance& buffer, T& t, size_t size) {
   if (buffer.length() < size) {
-    throw EnvoyException("short read");
+    throw Envoy::EnvoyException("short read");
   }
   t.resize(size);
   buffer.copyOut(0, size, t.data());
   buffer.drain(size);
   return size;
 }
-
-inline size_t write(Envoy::Buffer::Instance& buffer, const std::string& t) {
-  buffer.add(t.data(), t.size());
-  return t.size();
-}
-
-// read/write bytes
-inline size_t read(Envoy::Buffer::Instance& buffer, bytes& t, size_t size) {
-  if (buffer.length() < size) {
-    throw EnvoyException("short read");
-  }
-  t.resize(size);
-  buffer.copyOut(0, size, t.data());
-  buffer.drain(size);
-  return size;
-}
-
-inline size_t write(Envoy::Buffer::Instance& buffer, const bytes& t) {
+template <SshStringType T>
+inline size_t write(Envoy::Buffer::Instance& buffer, const T& t) {
   buffer.add(t.data(), t.size());
   return t.size();
 }
@@ -191,7 +140,7 @@ inline size_t write(Envoy::Buffer::Instance& buffer, const bytes& t) {
 template <size_t N>
 inline size_t read(Envoy::Buffer::Instance& buffer, fixed_bytes<N>& t, size_t limit) {
   if (buffer.length() < N || N > limit) {
-    throw EnvoyException("short read");
+    throw Envoy::EnvoyException("short read");
   }
   buffer.copyOut(0, N, t.data());
   buffer.drain(N);
@@ -203,56 +152,69 @@ inline size_t write(Envoy::Buffer::Instance& buffer, const fixed_bytes<N>& t) {
   return N;
 }
 
-template <typename T>
-  requires Decoder<T>
-absl::StatusOr<T> readPacket(Envoy::Buffer::Instance& buffer) noexcept {
+template <Decoder T>
+absl::StatusOr<T> decodePacket(Envoy::Buffer::Instance& buffer) noexcept {
+  size_t n = 0;
+  uint32_t packet_length{};
+  uint8_t padding_length{};
+
   try {
-    size_t n = 0;
-    uint32_t packet_length{};
-    uint8_t padding_length{};
     n += read(buffer, packet_length, sizeof(packet_length));
     n += read(buffer, padding_length, sizeof(padding_length));
-    T payload{};
-    {
-      auto payload_expected_size = packet_length - padding_length - 1;
-      auto payload_actual_size = payload.decode(buffer, payload_expected_size);
-      if (payload_actual_size != payload_expected_size) {
-        return absl::InvalidArgumentError(fmt::format(
-            "unexpected packet payload size of {} bytes (expected {})", n, payload_expected_size));
-      }
-      n += payload_actual_size;
-    }
-    bytes padding(padding_length);
-    n += read(buffer, padding, static_cast<size_t>(padding_length));
-    return payload;
-  } catch (const EnvoyException& e) {
-    return absl::InternalError(fmt::format("error decoding packet: {}", e.what()));
+  } catch (const Envoy::EnvoyException& e) {
+    return absl::InvalidArgumentError(fmt::format("error decoding packet: {}", e.what()));
   }
+
+  T payload{};
+  auto payload_expected_size = packet_length - padding_length - 1;
+  auto payload_actual_size = payload.decode(buffer, payload_expected_size);
+  if (!payload_actual_size.ok()) {
+    return payload_actual_size.status();
+  }
+  if (*payload_actual_size != payload_expected_size) {
+    return absl::InvalidArgumentError(fmt::format(
+        "unexpected packet payload size of {} bytes (expected {})", n, payload_expected_size));
+  }
+  n += *payload_actual_size;
+
+  bytes padding(padding_length);
+  try {
+    n += read(buffer, padding, static_cast<size_t>(padding_length));
+  } catch (const Envoy::EnvoyException& e) {
+    return absl::InvalidArgumentError(e.what());
+  }
+  return payload;
 }
 
-template <typename T>
-  requires Encoder<T>
-inline size_t writePacket(Envoy::Buffer::Instance& out, const T& msg,
-                          size_t cipher_block_size = 8, size_t aad_len = 0) {
+template <Encoder T>
+inline absl::StatusOr<size_t> encodePacket(Envoy::Buffer::Instance& out, const T& msg,
+                                           size_t cipher_block_size = 8, size_t aad_len = 0) noexcept {
   Envoy::Buffer::OwnedImpl payloadBytes;
-  size_t payload_length = msg.encode(payloadBytes);
+  auto payload_length = msg.encode(payloadBytes);
+  if (!payload_length.ok()) {
+    return payload_length.status();
+  }
 
   // RFC4253 § 6
-  uint8_t padding_length = cipher_block_size - ((5 + payload_length - aad_len) % cipher_block_size);
+  uint8_t padding_length = cipher_block_size - ((5 + *payload_length - aad_len) % cipher_block_size);
   if (padding_length < 4) {
     padding_length += cipher_block_size;
   }
-  uint32_t packet_length = sizeof(padding_length) + payload_length + padding_length;
+  uint32_t packet_length = sizeof(padding_length) + *payload_length + padding_length;
 
   size_t n = 0;
-  n += write(out, packet_length);
-  n += write(out, padding_length);
-  out.move(payloadBytes);
-  n += payload_length;
+  try {
+    n += write(out, packet_length);
+    n += write(out, padding_length);
+    out.move(payloadBytes);
+    n += *payload_length;
 
-  bytes padding(padding_length, 0);
-  RAND_bytes(padding.data(), padding.size());
-  n += write(out, padding);
+    bytes padding(padding_length, 0);
+    RAND_bytes(padding.data(), padding.size());
+    n += write(out, padding);
+  } catch (const Envoy::EnvoyException& e) {
+    return absl::InvalidArgumentError(e.what());
+  }
   return n;
 }
 
@@ -288,19 +250,25 @@ constexpr inline EncodingOptions operator|(EncodingOptions lhs, EncodingOptions 
       static_cast<std::underlying_type_t<EncodingOptions>>(rhs));
 }
 
-// read function for standard field types
+// read_opt is a wrapper around read() that supports additional encoding options.
+// This specialization handles non-list types as well as strings and 'bytes' (vector<uint8_t>).
 template <EncodingOptions Opt, typename T>
 std::enable_if_t<(!is_vector<T>::value || std::is_same_v<T, bytes>), size_t>
-read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t n) {
+read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) {
   if constexpr (Opt & LengthPrefixed) {
     uint32_t entry_len = buffer.drainBEInt<uint32_t>();
-    return 4 + read(buffer, value, entry_len);
+    auto nread = read(buffer, value, entry_len);
+    if (nread != entry_len) {
+      throw Envoy::EnvoyException("short read in list element");
+    }
+    return 4 + entry_len;
   } else {
-    return read(buffer, value, n);
+    return read(buffer, value, limit);
   }
 }
 
-// write function for standard field types
+// write_opt is a wrapper around write() that supports additional encoding options.
+// This specialization handles non-list types as well as strings and 'bytes' (vector<uint8_t>).
 template <EncodingOptions Opt, typename T>
 std::enable_if_t<(!is_vector<T>::value || std::is_same_v<T, bytes>), size_t>
 write_opt(Envoy::Buffer::Instance& buffer, const T& value) {
@@ -314,52 +282,124 @@ write_opt(Envoy::Buffer::Instance& buffer, const T& value) {
   return write(buffer, value);
 }
 
-// read function for fields of list types, which make use of field options to control list encoding.
+// This specialization of read_opt handles list types (not including strings).
+// The following encoding options can be used:
+// - ListSizePrefixed: if set, prepends a uint32 containing the number of elements in the list.
+// - ListLengthPrefixed: if set, prepends a uint32 containing the total length of all elements
+//   in the list, plus any delimiters between list elements.
+// - CommaDelimited: if set, elements in the list are separated with a ',' character. This option
+//   cannot be used together with LengthPrefixed.
+// - LengthPrefixed: if set, each element will be preceded by a uint32 containing that element's
+//   length. This option cannot be used together with CommaDelimited.
 template <EncodingOptions Opt, typename T>
   requires Reader<typename T::value_type>
 std::enable_if_t<(is_vector<T>::value && !std::is_same_v<T, bytes>), size_t>
 read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) {
+  static_assert(((Opt & (CommaDelimited | LengthPrefixed)) != (CommaDelimited | LengthPrefixed)),
+                "Incompatible options: CommaDelimited | LengthPrefixed");
+  static_assert(((Opt & (CommaDelimited | ListSizePrefixed)) != (CommaDelimited | ListSizePrefixed)),
+                "Incompatible options: CommaDelimited | ListSizePrefixed");
+  if (limit == 0) {
+    return 0;
+  }
   if (buffer.length() < limit) {
-    throw EnvoyException("short read");
+    throw Envoy::EnvoyException("short read");
   }
   using value_type = typename T::value_type;
-  uint32_t list_len{};
+  uint32_t list_size{};
   size_t n = 0;
   if (Opt & ListSizePrefixed) {
-    list_len = buffer.drainBEInt<uint32_t>();
+    list_size = buffer.drainBEInt<uint32_t>();
     n += 4;
+    if (list_size == 0) {
+      return n;
+    }
+    if constexpr (Opt & CommaDelimited) {
+      if (list_size > (limit - n) / 2 - 1) {
+        throw Envoy::EnvoyException("invalid list size");
+      }
+    } else if constexpr (Opt & LengthPrefixed) {
+      if (list_size > (limit - n) / 4) {
+        throw Envoy::EnvoyException("invalid list size");
+      }
+    }
+  } else if (Opt & ListLengthPrefixed) {
+    auto len = buffer.drainBEInt<uint32_t>();
+    n += 4;
+    if (len == 0) {
+      return n;
+    }
+    limit = len;
+    if (buffer.length() < limit) {
+      throw Envoy::EnvoyException("invalid list length");
+    }
   }
   if constexpr (Opt & CommaDelimited) {
-    std::vector<bytes> raw_entries;
-    n += split(buffer, raw_entries, limit - n, ',');
-    for (const auto& raw_entry : raw_entries) {
-      Envoy::Buffer::OwnedImpl tmp; // todo
-      tmp.add(raw_entry.data(), raw_entry.size());
+    ASSERT(limit > 0);
+    size_t accum = 0;
+    for (size_t i = 0; i < limit; i++) {
+      char c = buffer.peekInt<char>(accum);
+      if (c != ',') {
+        ++accum;
+        continue;
+      }
+
+      // RFC4251 § 5
+      if (accum == 0 || i == limit - 1) {
+        throw Envoy::EnvoyException("invalid empty string in comma-separated list");
+      } else if (buffer.peekInt<char>(accum - 1) == 0) {
+        throw Envoy::EnvoyException("invalid null-terminated string in comma-separated list");
+      }
+
       value_type t{};
-      read(tmp, t, tmp.length());
+      auto nread = read(buffer, t, accum);
+      if (nread != accum) {
+        throw Envoy::EnvoyException("short read in list element");
+      }
       value.push_back(std::move(t));
+      accum = 0;
+      buffer.drain(1); // skip the ',' byte (index i)
     }
+    ASSERT(accum > 0);
+    value_type t{};
+    auto nread = read(buffer, t, accum);
+    if (nread != accum) {
+      throw Envoy::EnvoyException("short read in list element");
+    }
+    value.push_back(std::move(t));
+    n += limit;
   } else if constexpr (Opt & LengthPrefixed) {
-    size_t accum = 0;
-    while (accum < limit - n) {
+    while (limit - n > 0) {
+      if constexpr (Opt & ListSizePrefixed) {
+        if (value.size() == list_size) {
+          break;
+        }
+      }
       uint32_t entry_len = buffer.drainBEInt<uint32_t>();
+      n += 4;
       value_type t{};
-      accum += 4 + read(buffer, t, entry_len);
+      size_t nread = read(buffer, t, entry_len);
+      if (nread != entry_len) {
+        throw Envoy::EnvoyException("short read in list element");
+      }
+      n += nread;
       value.push_back(std::move(t));
     }
-    n += accum;
   } else {
-    size_t accum = 0;
-    while (accum < limit - n) {
+    while (limit - n > 0) {
+      if constexpr (Opt & ListSizePrefixed) {
+        if (value.size() == list_size) {
+          break;
+        }
+      }
       value_type t{};
-      accum += read(buffer, t, limit - n - accum);
+      n += read(buffer, t, limit - n);
       value.push_back(std::move(t));
     }
-    n += accum;
   }
-  if (Opt & ListSizePrefixed && value.size() != list_len) {
-    throw EnvoyException(
-        fmt::format("decoded list size {} does not match expected size {}", value.size(), list_len));
+  if (Opt & ListSizePrefixed && value.size() != list_size) {
+    throw Envoy::EnvoyException(
+        fmt::format("decoded list size {} does not match expected size {}", value.size(), list_size));
   }
   return n;
 }
@@ -411,6 +451,58 @@ write_opt(Envoy::Buffer::Instance& buffer, const T& value) {
   return n;
 }
 
-} // namespace wire
+// Utility function to decode a list of Decoder objects in order. The size passed to each Decoder's
+// decode method will be adjusted after each is read. Returns the total number of bytes read.
+template <Decoder... Args>
+absl::StatusOr<size_t> decodeSequence(Envoy::Buffer::Instance& buffer, size_t limit, Args&&... args) noexcept {
+  size_t n = 0;
+  absl::Status stat{};
 
-} // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
+  auto decodeOne = [&](Decoder auto& field) -> bool {
+    auto r = field.decode(buffer, limit - n);
+    if (!r.ok()) {
+      stat = r.status();
+      return false;
+    }
+    n += *r;
+    return true;
+  };
+
+  // This fold expression calls decodeOne for each field, and stops if decodeOne returns false.
+  auto _ = (decodeOne(args) && ...);
+
+  // stat and n are updated from within decodeOne
+  if (!stat.ok()) {
+    return stat;
+  }
+  return n;
+}
+
+// Utility function to encode a list of Encoder objects in order. Returns the total number of bytes
+// written.
+template <Encoder... Args>
+absl::StatusOr<size_t> encodeSequence(Envoy::Buffer::Instance& buffer, const Args&... args) noexcept {
+  size_t n = 0;
+  absl::Status stat{};
+
+  auto encodeOne = [&](Encoder auto& field) -> bool {
+    auto r = field.encode(buffer);
+    if (!r.ok()) {
+      stat = r.status();
+      return false;
+    }
+    n += *r;
+    return true;
+  };
+
+  // This fold expression calls encodeOne for each field, and stops if encodeOne returns false.
+  auto _ = (encodeOne(args) && ...);
+
+  // stat and n are updated from within encodeOne
+  if (!stat.ok()) {
+    return stat;
+  }
+  return n;
+}
+
+} // namespace wire

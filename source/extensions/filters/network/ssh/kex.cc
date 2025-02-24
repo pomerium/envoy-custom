@@ -176,12 +176,15 @@ absl::Status Kex::handleMessage(wire::SshMsg&& msg) noexcept {
     }
     auto& peerKexInit = dynamic_cast<wire::KexInitMessage&>(msg);
 
-    auto raw_peer_kex_init = encodeToBytes(peerKexInit);
+    auto raw_peer_kex_init = peerKexInit.encodeTo<bytes>();
+    if (!raw_peer_kex_init.ok()) {
+      return raw_peer_kex_init.status();
+    }
 
     if (is_server_) {
-      state_->magics.client_kex_init = std::move(raw_peer_kex_init);
+      state_->magics.client_kex_init = std::move(*raw_peer_kex_init);
     } else {
-      state_->magics.server_kex_init = std::move(raw_peer_kex_init);
+      state_->magics.server_kex_init = std::move(*raw_peer_kex_init);
     }
 
     state_->peer_kex = std::move(peerKexInit);
@@ -543,11 +546,14 @@ absl::Status Kex::sendKexInit() noexcept {
               std::back_inserter(*server_kex_init->server_host_key_algorithms));
   }
 
-  auto raw_kex_init = encodeToBytes(*server_kex_init);
+  auto raw_kex_init = server_kex_init->encodeTo<bytes>();
+  if (!raw_kex_init.ok()) {
+    return raw_kex_init.status();
+  }
   if (is_server_) {
-    state_->magics.server_kex_init = std::move(raw_kex_init);
+    state_->magics.server_kex_init = std::move(*raw_kex_init);
   } else {
-    state_->magics.client_kex_init = std::move(raw_kex_init);
+    state_->magics.client_kex_init = std::move(*raw_kex_init);
   }
 
   if (auto err = transport_.sendMessageToConnection(*server_kex_init); !err.ok()) {
