@@ -4,7 +4,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <algorithm>
-#include <initializer_list>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -20,34 +19,38 @@ namespace wire {
 
 template <typename T>
 concept Encoder = requires(T t) {
-  // absl::StatusOr<size_t> encode(Envoy::Buffer::Instance&) noexcept
+  // looks like: absl::StatusOr<size_t> encode(Envoy::Buffer::Instance&) noexcept
   { t.encode(std::declval<Envoy::Buffer::Instance&>()) } noexcept -> std::same_as<absl::StatusOr<size_t>>;
 };
 
 template <typename T>
 concept Decoder = requires(T t) {
-  // absl::StatusOr<size_t> decode(Envoy::Buffer::Instance&, size_t) noexcept
+  // looks like: absl::StatusOr<size_t> decode(Envoy::Buffer::Instance&, size_t) noexcept
   { t.decode(std::declval<Envoy::Buffer::Instance&>(), size_t{}) } noexcept -> std::same_as<absl::StatusOr<size_t>>;
 };
 
 // equivalent to sshbuf_put_bignum2_bytes
-inline void writeBignum(Envoy::Buffer::Instance& buffer, std::span<const uint8_t> str) {
+inline size_t writeBignum(Envoy::Buffer::Instance& buffer, std::span<const uint8_t> in) {
   // skip leading zeros
-  str = str.subspan(std::distance(str.begin(),
-                                  std::find_if(str.begin(), str.end(),
-                                               [](const uint8_t& b) { return b != 0; })));
-  size_t len = str.size();
+  in = in.subspan(std::distance(in.begin(),
+                                std::find_if(in.begin(), in.end(),
+                                             [](const uint8_t& b) { return b != 0; })));
+  size_t in_size = in.size();
   // prepend a zero byte if the most significant bit is set
-  auto prepend = (len > 0 && (str[0] & 0x80) != 0);
-  buffer.writeBEInt<uint32_t>(prepend ? (len + 1) : len);
+  auto prepend = (in_size > 0 && (in[0] & 0x80) != 0);
+  buffer.writeBEInt<uint32_t>(prepend ? (in_size + 1) : in_size);
+  size_t n = 4;
   if (prepend) {
     buffer.writeByte(0);
+    n++;
   }
-  buffer.add(str.data(), str.size());
+  buffer.add(in.data(), in_size);
+  n += in_size;
+  return n;
 }
 
 template <SshStringType T>
-inline T flushTo(Envoy::Buffer::Instance& buf) {
+[[nodiscard]] T flushTo(Envoy::Buffer::Instance& buf) {
   T out;
   size_t n = buf.length();
   out.resize(n);
@@ -57,7 +60,7 @@ inline T flushTo(Envoy::Buffer::Instance& buf) {
 }
 
 template <SshStringType T>
-inline void flushTo(Envoy::Buffer::Instance& buf, T& out) {
+void flushTo(Envoy::Buffer::Instance& buf, T& out) {
   size_t n = buf.length();
   out.resize(n);
   buf.copyOut(0, n, out.data());
@@ -65,7 +68,7 @@ inline void flushTo(Envoy::Buffer::Instance& buf, T& out) {
 }
 
 template <SshStringType T>
-inline absl::StatusOr<T> encodeTo(Encoder auto& encoder) {
+absl::StatusOr<T> encodeTo(Encoder auto& encoder) {
   Envoy::Buffer::OwnedImpl tmp;
   auto r = encoder.encode(tmp);
   if (!r.ok()) {
@@ -75,7 +78,7 @@ inline absl::StatusOr<T> encodeTo(Encoder auto& encoder) {
 }
 
 template <SshStringType T>
-inline absl::StatusOr<size_t> encodeTo(Encoder auto& encoder, T& out) {
+absl::StatusOr<size_t> encodeTo(Encoder auto& encoder, T& out) {
   Envoy::Buffer::OwnedImpl tmp;
   auto r = encoder.encode(tmp);
   if (!r.ok()) {
@@ -88,20 +91,20 @@ inline absl::StatusOr<size_t> encodeTo(Encoder auto& encoder, T& out) {
 // Reads a single typed value, draining at most 'limit' bytes from the buffer. Returns the actual
 // number of bytes read, which can be <= limit. Throws an exception if `buffer.length() < limit`.
 template <typename T>
-inline size_t read(Envoy::Buffer::Instance& buffer, T& t, size_t limit) = delete;
+size_t read(Envoy::Buffer::Instance& buffer, T& t, size_t limit) = delete;
 
 // Writes a single typed value to the buffer. Returns the number of bytes written.
 template <typename T>
-inline size_t write(Envoy::Buffer::Instance& buffer, const T& t) = delete;
+size_t write(Envoy::Buffer::Instance& buffer, const T& t) = delete;
 
 // read/write integer types
 template <SshIntegerType T>
-inline size_t read(Envoy::Buffer::Instance& buffer, T& t, size_t) {
+size_t read(Envoy::Buffer::Instance& buffer, T& t, size_t) {
   t = buffer.drainBEInt<T>();
   return sizeof(T);
 }
 template <SshIntegerType T>
-inline size_t write(Envoy::Buffer::Instance& buffer, const T& t) {
+size_t write(Envoy::Buffer::Instance& buffer, const T& t) {
   buffer.writeBEInt(t);
   return sizeof(T);
 }
@@ -111,17 +114,17 @@ inline size_t read(Envoy::Buffer::Instance& buffer, bool& t, size_t limit) {
   if (buffer.length() < limit) {
     throw Envoy::EnvoyException("short read");
   }
-  t = static_cast<bool>(buffer.drainBEInt<uint8_t>());
+  t = buffer.drainBEInt<uint8_t>() != 0;
   return sizeof(t);
 }
 inline size_t write(Envoy::Buffer::Instance& buffer, const bool& t) {
-  buffer.writeBEInt(static_cast<uint8_t>(t));
+  buffer.writeByte<uint8_t>(t ? 1 : 0);
   return sizeof(t);
 }
 
 // read/write string types
 template <SshStringType T>
-inline size_t read(Envoy::Buffer::Instance& buffer, T& t, size_t size) {
+size_t read(Envoy::Buffer::Instance& buffer, T& t, size_t size) {
   if (buffer.length() < size) {
     throw Envoy::EnvoyException("short read");
   }
@@ -131,14 +134,14 @@ inline size_t read(Envoy::Buffer::Instance& buffer, T& t, size_t size) {
   return size;
 }
 template <SshStringType T>
-inline size_t write(Envoy::Buffer::Instance& buffer, const T& t) {
+size_t write(Envoy::Buffer::Instance& buffer, const T& t) {
   buffer.add(t.data(), t.size());
   return t.size();
 }
 
 // read/write arrays
 template <size_t N>
-inline size_t read(Envoy::Buffer::Instance& buffer, fixed_bytes<N>& t, size_t limit) {
+size_t read(Envoy::Buffer::Instance& buffer, fixed_bytes<N>& t, size_t limit) {
   if (buffer.length() < N || N > limit) {
     throw Envoy::EnvoyException("short read");
   }
@@ -147,7 +150,7 @@ inline size_t read(Envoy::Buffer::Instance& buffer, fixed_bytes<N>& t, size_t li
   return N;
 }
 template <size_t N>
-inline size_t write(Envoy::Buffer::Instance& buffer, const fixed_bytes<N>& t) {
+size_t write(Envoy::Buffer::Instance& buffer, const fixed_bytes<N>& t) {
   buffer.add(t.data(), t.size());
   return N;
 }
@@ -187,8 +190,8 @@ absl::StatusOr<T> decodePacket(Envoy::Buffer::Instance& buffer) noexcept {
 }
 
 template <Encoder T>
-inline absl::StatusOr<size_t> encodePacket(Envoy::Buffer::Instance& out, const T& msg,
-                                           size_t cipher_block_size = 8, size_t aad_len = 0) noexcept {
+absl::StatusOr<size_t> encodePacket(Envoy::Buffer::Instance& out, const T& msg,
+                                    size_t cipher_block_size = 8, size_t aad_len = 0) noexcept {
   Envoy::Buffer::OwnedImpl payloadBytes;
   auto payload_length = msg.encode(payloadBytes);
   if (!payload_length.ok()) {
@@ -469,7 +472,7 @@ absl::StatusOr<size_t> decodeSequence(Envoy::Buffer::Instance& buffer, size_t li
   };
 
   // This fold expression calls decodeOne for each field, and stops if decodeOne returns false.
-  auto _ = (decodeOne(args) && ...);
+  (void)(decodeOne(args) && ...);
 
   // stat and n are updated from within decodeOne
   if (!stat.ok()) {
@@ -496,7 +499,7 @@ absl::StatusOr<size_t> encodeSequence(Envoy::Buffer::Instance& buffer, const Arg
   };
 
   // This fold expression calls encodeOne for each field, and stops if encodeOne returns false.
-  auto _ = (encodeOne(args) && ...);
+  (void)(encodeOne(args) && ...);
 
   // stat and n are updated from within encodeOne
   if (!stat.ok()) {
