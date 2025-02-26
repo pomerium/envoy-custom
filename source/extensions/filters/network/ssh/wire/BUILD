@@ -10,6 +10,7 @@ licenses(["notice"])
 
 envoy_cc_library(
     name = "wire_lib",
+    srcs = [],
     hdrs = [
         "common.h",
         "encoding.h",

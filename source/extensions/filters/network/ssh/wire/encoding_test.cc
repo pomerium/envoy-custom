@@ -1,5 +1,7 @@
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
 #include "source/extensions/filters/network/ssh/wire/field.h"
+#include "source/extensions/filters/network/ssh/wire/messages.h"
+#include "source/extensions/filters/network/ssh/wire/common.h"
 
 #include "gtest/gtest.h"
 #include "gmock/gmock.h"
@@ -7,6 +9,7 @@
 namespace wire {
 
 using testing::Return;
+using testing::Types;
 
 // some test constants from openssh
 static const bytes bn1 = {0x00, 0x00, 0x00};
@@ -379,6 +382,233 @@ TEST(WriteIntTest, Bool) {
     EXPECT_EQ(1, buffer.length());
     EXPECT_EQ(0, buffer.peekBEInt<uint8_t>());
   }
+}
+
+template <typename T>
+class ReadWriteIntTest : public testing::Test {};
+
+using testIntTypes = Types<uint8_t, uint32_t, SshMessageType>;
+TYPED_TEST_SUITE(ReadWriteIntTest, testIntTypes);
+
+TYPED_TEST(ReadWriteIntTest, ReadWrite) {
+  Envoy::Buffer::OwnedImpl buffer;
+  TypeParam in = ~static_cast<TypeParam>(0);
+  EXPECT_NO_THROW({
+    auto r = write(buffer, in);
+    EXPECT_EQ(sizeof(in), r);
+  });
+  EXPECT_EQ(sizeof(in), buffer.length());
+  EXPECT_NO_THROW({
+    TypeParam out{};
+    auto r = read(buffer, out, sizeof(out));
+    EXPECT_EQ(sizeof(out), r);
+    EXPECT_EQ(out, in);
+  });
+  EXPECT_EQ(0, buffer.length());
+}
+
+TYPED_TEST(ReadWriteIntTest, ShortRead) {
+  Envoy::Buffer::OwnedImpl buffer;
+  TypeParam in = ~static_cast<TypeParam>(0);
+  EXPECT_NO_THROW({
+    auto r = write(buffer, in);
+    EXPECT_EQ(sizeof(in), r);
+  });
+  EXPECT_EQ(sizeof(in), buffer.length());
+  buffer.drain(1); // drop 1 byte
+  TypeParam out{};
+  EXPECT_THROW({ (void)read(buffer, out, sizeof(out)); }, Envoy::EnvoyException);
+  EXPECT_EQ(sizeof(in) - 1, buffer.length());
+}
+
+template <typename T>
+class ReadWriteStringsTest : public testing::Test {};
+
+using testStringTypes = Types<std::string, bytes>;
+TYPED_TEST_SUITE(ReadWriteStringsTest, testStringTypes);
+
+TYPED_TEST(ReadWriteStringsTest, ReadWrite) {
+  Envoy::Buffer::OwnedImpl buffer;
+  TypeParam in;
+  in.resize(123);
+  RAND_bytes(reinterpret_cast<uint8_t*>(in.data()), in.size());
+  EXPECT_NO_THROW({
+    auto r = write(buffer, in);
+    EXPECT_EQ(in.size(), r);
+  });
+  EXPECT_EQ(in.size(), buffer.length());
+  EXPECT_NO_THROW({
+    TypeParam out{};
+    auto r = read(buffer, out, in.size());
+    EXPECT_EQ(out.size(), r);
+    EXPECT_EQ(out, in);
+  });
+  EXPECT_EQ(0, buffer.length());
+}
+
+TYPED_TEST(ReadWriteStringsTest, ShortRead) {
+  Envoy::Buffer::OwnedImpl buffer;
+  TypeParam in;
+  in.resize(123);
+  RAND_bytes(reinterpret_cast<uint8_t*>(in.data()), in.size());
+  EXPECT_NO_THROW({
+    auto r = write(buffer, in);
+    EXPECT_EQ(in.size(), r);
+  });
+  EXPECT_EQ(in.size(), buffer.length());
+  buffer.drain(1); // drop 1 byte
+  TypeParam out{};
+  EXPECT_THROW({ (void)read(buffer, out, in.size()); }, Envoy::EnvoyException);
+  EXPECT_EQ(in.size() - 1, buffer.length());
+}
+
+template <typename T>
+class ReadWriteArraysTest : public testing::Test {};
+
+using testArrayTypes = Types<fixed_bytes<1>, fixed_bytes<5>, fixed_bytes<10>, fixed_bytes<100>>;
+TYPED_TEST_SUITE(ReadWriteArraysTest, testArrayTypes);
+
+TYPED_TEST(ReadWriteArraysTest, ReadWrite) {
+  Envoy::Buffer::OwnedImpl buffer;
+  TypeParam in;
+  RAND_bytes(reinterpret_cast<uint8_t*>(in.data()), in.size());
+  EXPECT_NO_THROW({
+    auto r = write(buffer, in);
+    EXPECT_EQ(in.size(), r);
+  });
+  EXPECT_EQ(in.size(), buffer.length());
+  EXPECT_NO_THROW({
+    TypeParam out{};
+    auto r = read(buffer, out, in.size());
+    EXPECT_EQ(out.size(), r);
+    EXPECT_EQ(out, in);
+  });
+  EXPECT_EQ(0, buffer.length());
+}
+
+TYPED_TEST(ReadWriteArraysTest, ShortRead) {
+  Envoy::Buffer::OwnedImpl buffer;
+  TypeParam in;
+  RAND_bytes(reinterpret_cast<uint8_t*>(in.data()), in.size());
+  EXPECT_NO_THROW({
+    auto r = write(buffer, in);
+    EXPECT_EQ(in.size(), r);
+  });
+  EXPECT_EQ(in.size(), buffer.length());
+  {
+    fixed_bytes<in.size() + 1> out{}; // try to read into a larger array
+    EXPECT_THROW({ (void)read(buffer, out, in.size()); }, Envoy::EnvoyException);
+    EXPECT_EQ(in.size(), buffer.length());
+  }
+  {
+    fixed_bytes<in.size() - 1> out{}; // try to read into a smaller array
+    EXPECT_THROW({ (void)read(buffer, out, in.size()); }, Envoy::EnvoyException);
+    EXPECT_EQ(in.size(), buffer.length());
+  }
+  {
+    buffer.drain(1); // drop 1 byte
+    TypeParam out{};
+    EXPECT_THROW({ (void)read(buffer, out, in.size()); }, Envoy::EnvoyException);
+    EXPECT_EQ(in.size() - 1, buffer.length());
+  }
+}
+// decodePacket
+
+struct msgAllTypes : Msg<SshMessageType(200)> {
+  field<bool> Bool;
+  field<fixed_bytes<6>> Array;
+  field<uint64_t> Uint64;
+  field<uint32_t> Uint32;
+  field<uint8_t> Uint8;
+  field<std::string, LengthPrefixed> String;
+  field<string_list, NameListFormat> Strings;
+  field<bytes, LengthPrefixed> Bytes;
+  field<bytes, LengthPrefixed> Bignum;
+
+  bool operator==(const msgAllTypes& other) const = default;
+
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
+    return decodeMsg<type>(buffer, payload_size,
+                           Bool, Array, Uint64, Uint32, Uint8, String, Strings, Bytes, Bignum);
+  }
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
+    return encodeMsg<type>(buffer,
+                           Bool, Array, Uint64, Uint32, Uint8, String, Strings, Bytes, Bignum);
+  }
+};
+TEST(DecodePacketTest, Basic) {
+  msgAllTypes test_msg;
+  test_msg.Bool = true;
+  test_msg.Array = fixed_bytes<6>{1, 2, 3, 4, 5, 6};
+  test_msg.Uint64 = 0xDEADBEEFDEADBEEF;
+  test_msg.Uint32 = 0xDEADBEEF;
+  test_msg.Uint8 = 0xDE;
+  test_msg.String = "asdf";
+  test_msg.Strings = {"str1"s, "str2"s};
+  test_msg.Bytes = bytes{0, 1, 2, 3, 4, 5};
+  test_msg.Bignum = bn_exp2;
+  Envoy::Buffer::OwnedImpl buffer;
+  auto r = encodePacket(buffer, test_msg);
+  EXPECT_TRUE(r.ok());
+  auto expectedWithoutPadding = bytes{
+      //clang-format off
+      0x00, 0x00, 0x00, 0x44,
+      0x05,
+      0xC8,
+      1,
+      1, 2, 3, 4, 5, 6,
+      0xDE, 0xAD, 0xBE, 0xEF, 0xDE, 0xAD, 0xBE, 0xEF,
+      0xDE, 0xAD, 0xBE, 0xEF,
+      0xDE,
+      0x00, 0x00, 0x00, 0x04, 'a', 's', 'd', 'f',
+      0x00, 0x00, 0x00, 0x09, 's', 't', 'r', '1', ',', 's', 't', 'r', '2',
+      0x00, 0x00, 0x00, 0x06, 0, 1, 2, 3, 4, 5,
+      0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x02, 0x01, 0x02,
+      // + 5 bytes random padding
+      //clang-format on
+
+  };
+  auto actualWithoutPadding = to_bytes(buffer.toString());
+  actualWithoutPadding.erase(actualWithoutPadding.end() - 5, actualWithoutPadding.end());
+  EXPECT_EQ(expectedWithoutPadding, actualWithoutPadding);
+
+  {
+    auto r = decodePacket<msgAllTypes>(buffer);
+    EXPECT_TRUE(r.ok());
+    EXPECT_EQ(test_msg, *r);
+  }
+}
+
+TEST(DecodePacketTest, ReadPacketLengthError) {
+}
+
+TEST(DecodePacketTest, ReadPaddingLengthError) {
+}
+
+TEST(DecodePacketTest, DecodeError) {
+}
+
+TEST(DecodePacketTest, PacketPayloadSizeError) {
+}
+
+TEST(DecodePacketTest, ReadPaddingError) {
+}
+
+// encodePacket
+
+TEST(EncodePacketTest, Basic) {
+}
+
+TEST(EncodePacketTest, CipherBlockSize) {
+}
+
+TEST(EncodePacketTest, AadLen) {
+}
+
+TEST(EncodePacketTest, EncodeError) {
+}
+
+TEST(EncodePacketTest, WriteError) {
 }
 
 } // namespace wire

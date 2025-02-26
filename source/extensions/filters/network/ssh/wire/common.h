@@ -128,12 +128,13 @@ constexpr bool values_unique(std::initializer_list<std::string_view> arr) {
 // List of allowed integer types that can be used in SSH messages.
 // This is effectively:
 //  interface SshIntegerType {
-//    ~uint8 | ~uint32
+//    ~uint8 | ~uint32 | ~uint64_t
 //  }
 template <typename T>
 concept SshIntegerType =
     std::same_as<T, uint8_t> ||
     std::same_as<T, uint32_t> ||
+    std::same_as<T, uint64_t> ||
     std::same_as<T, SshMessageType>;
 
 // List of allowed string types that can be used in SSH messages.

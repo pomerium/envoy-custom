@@ -56,6 +56,10 @@ template <SshMessageType MT>
 struct MsgType : public virtual BaseSshMsg {
   static constexpr SshMessageType type = MT;
 
+  bool operator==(const MsgType& other) const {
+    return type == other.type;
+  };
+
   SshMessageType msg_type() const override {
     return type;
   }
@@ -66,7 +70,8 @@ struct MsgType : public virtual BaseSshMsg {
 };
 
 template <SshMessageType T, typename = void>
-struct Msg : SshMsg, MsgType<T> {};
+struct Msg : SshMsg, MsgType<T> {
+};
 
 template <SshMessageType T>
 struct Msg<T, std::enable_if_t<is_channel_msg_v<T>>> : ChannelMsg, MsgType<T> {};

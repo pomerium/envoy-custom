@@ -1,12 +1,18 @@
 #pragma once
 
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
+#include <type_traits>
 
 namespace wire {
 
 template <typename T, EncodingOptions Opt>
 struct field_base {
   T value{};
+  field_base() = default;
+  field_base(const field_base& other)
+      : value(other) {};
+  field_base(field_base&& other)
+      : value(std::move(other.value)) {}
 
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t n = 0) noexcept {
     try {
@@ -45,36 +51,42 @@ struct field_base {
   bool operator==(const field_base& other) const = default;
 
   // assignments to field<T> will assign T using its own assignment operators
-  template <typename U>
-  field_base& operator=(const U& rhs) {
+  field_base& operator=(const T& rhs) {
     value = rhs;
+    return *this;
+  }
+  // assignments to field<T> will assign T using its own assignment operators
+  field_base& operator=(const field_base& rhs) {
+    value = rhs.value;
     return *this;
   }
 
   // same as above, but initializer_list needs its own specialization
-  template <typename U>
-  field_base& operator=(std::initializer_list<U> rhs) {
+  field_base& operator=(std::initializer_list<T> rhs) {
     value = rhs;
     return *this;
   }
 
   // moves to field<T> will assign T using its own move assignment operators
-  template <typename U>
-  field_base& operator=(U&& rhs) {
-    value = std::forward<U>(rhs);
+  field_base& operator=(T&& rhs) {
+    value = std::move(rhs);
     return *this;
   }
 
-  // comparisons between field<T> and U will compare T and U directly
-  template <typename U>
-  auto operator<=>(const U& other) const {
+  // moves to field<T> will assign T using its own move assignment operators
+  field_base& operator=(field_base&& rhs) {
+    value = std::move(rhs.value);
+    return *this;
+  }
+
+  // comparisons between field<T> and T will compare the values directly
+  auto operator<=>(const T& other) const {
     return value <=> other;
   }
 
-  // equality comparison between field<T> and U will compare T and U directly
-  template <typename U>
-  bool operator==(const U& other) const {
-    return value == other;
+  // equality comparison between field<T> and T will compare the values directly
+  bool operator==(const T& t) const {
+    return value == t;
   }
 };
 
@@ -235,7 +247,7 @@ struct sub_message {
     auto index = option_keys.size();
     if (key_field_.has_value()) {
       index = std::distance(option_keys.begin(),
-                            std::find(option_keys.begin(), option_keys.end(), *key_field_));
+                            std::find(option_keys.begin(), option_keys.end(), **key_field_));
     }
     if (index == option_keys.size()) { // not found
       auto data = static_cast<uint8_t*>(buffer.linearize(limit));

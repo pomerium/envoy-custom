@@ -142,7 +142,10 @@ size_t write(Envoy::Buffer::Instance& buffer, const T& t) {
 // read/write arrays
 template <size_t N>
 size_t read(Envoy::Buffer::Instance& buffer, fixed_bytes<N>& t, size_t limit) {
-  if (buffer.length() < N || N > limit) {
+  if (limit != N) {
+    throw Envoy::EnvoyException("incorrect size for read into fixed array");
+  }
+  if (buffer.length() < N) {
     throw Envoy::EnvoyException("short read");
   }
   buffer.copyOut(0, N, t.data());
@@ -311,7 +314,7 @@ read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) {
   using value_type = typename T::value_type;
   uint32_t list_size{};
   size_t n = 0;
-  if (Opt & ListSizePrefixed) {
+  if constexpr (Opt & ListSizePrefixed) {
     list_size = buffer.drainBEInt<uint32_t>();
     n += 4;
     if (list_size == 0) {
@@ -326,7 +329,7 @@ read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) {
         throw Envoy::EnvoyException("invalid list size");
       }
     }
-  } else if (Opt & ListLengthPrefixed) {
+  } else if constexpr (Opt & ListLengthPrefixed) {
     auto len = buffer.drainBEInt<uint32_t>();
     n += 4;
     if (len == 0) {
