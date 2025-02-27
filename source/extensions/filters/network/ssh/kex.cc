@@ -1,13 +1,15 @@
 #include "source/extensions/filters/network/ssh/kex.h"
 
+#include <algorithm>
+
 #include "openssl/curve25519.h"
+#include "openssl/rand.h"
 
 #include "source/common/buffer/buffer_impl.h"
 
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
-#include <algorithm>
 
 extern "C" {
 #include "openssh/sshkey.h"

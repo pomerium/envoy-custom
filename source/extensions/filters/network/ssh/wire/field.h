@@ -23,11 +23,7 @@ struct field_base {
   }
 
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept {
-    try {
-      return write_opt<Opt>(buffer, value);
-    } catch (const Envoy::EnvoyException& e) {
-      return absl::InvalidArgumentError(e.what());
-    }
+    return write_opt<Opt>(buffer, value);
   }
 
   // implicit conversion operator: allow field<T> to be treated as T in some contexts
@@ -136,11 +132,8 @@ private:
       if (!enabled) {
         return 0;
       }
-      try {
-        return write_opt<Opt>(buffer, *vp);
-      } catch (const Envoy::EnvoyException& e) {
-        return absl::InvalidArgumentError(e.what());
-      }
+
+      return write_opt<Opt>(buffer, *vp);
     }
   };
 };
@@ -150,6 +143,9 @@ private:
 // bytes read (including the message type byte).
 template <SshMessageType MT, typename... Fields>
 absl::StatusOr<size_t> decodeMsg(Envoy::Buffer::Instance& buffer, size_t limit, Fields&&... fields) noexcept {
+  if (buffer.length() == 0) {
+    return absl::InvalidArgumentError("short read");
+  }
   if (auto mt = buffer.drainInt<SshMessageType>(); mt != MT) {
     return absl::InvalidArgumentError(
         fmt::format("decoded unexpected message type {}, expected {}",

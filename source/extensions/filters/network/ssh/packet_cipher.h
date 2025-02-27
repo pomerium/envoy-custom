@@ -8,7 +8,6 @@ extern "C" {
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-constexpr auto PACKET_MAX_SIZE = (256 * 1024);
 enum Mode {
   MODE_WRITE = CIPHER_ENCRYPT,
   MODE_READ = CIPHER_DECRYPT,

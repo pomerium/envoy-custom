@@ -74,13 +74,14 @@ void SshClientCodec::decode(Envoy::Buffer::Instance& buffer, bool /*end_stream*/
     auto prev = (*connection_state_->seq_read)++;
     ENVOY_LOG(debug, "read seqnr inc: {} -> {}", prev, *connection_state_->seq_read);
 
-    auto anyMsg = wire::decodePacket<wire::AnyMsg>(dec);
-    if (!anyMsg.ok()) {
-      ENVOY_LOG(error, "ssh: readPacket: {}", anyMsg.status().message());
-      callbacks_->onDecodingFailure(fmt::format("ssh: readPacket: {}", anyMsg.status().message()));
+    wire::AnyMsg anyMsg;
+    auto n = wire::decodePacket<wire::AnyMsg>(dec, anyMsg);
+    if (!n.ok()) {
+      ENVOY_LOG(error, "ssh: readPacket: {}", n.status().message());
+      callbacks_->onDecodingFailure(fmt::format("ssh: readPacket: {}", n.status().message()));
       return;
     }
-    auto msg = anyMsg->unwrap();
+    auto msg = anyMsg.unwrap();
     if (!msg.ok()) {
       ENVOY_LOG(error, "ssh: error decoding message: {}", msg.status().message());
       callbacks_->onDecodingFailure(fmt::format("ssh: error decoding message: {}", msg.status().message()));
@@ -90,7 +91,7 @@ void SshClientCodec::decode(Envoy::Buffer::Instance& buffer, bool /*end_stream*/
       ENVOY_LOG(debug, "resetting read sequence number");
       *connection_state_->seq_read = 0;
     }
-    ENVOY_LOG(debug, "received message: type {}", (*msg)->msg_type());
+    ENVOY_LOG(debug, "received message: size: {}, type: {}", *n, (*msg)->msg_type());
     if (auto err = dispatch(std::move(**msg)); !err.ok()) {
       ENVOY_LOG(error, "ssh: {}", err.message());
       callbacks_->onDecodingFailure(fmt::format("ssh: {}", err.message()));

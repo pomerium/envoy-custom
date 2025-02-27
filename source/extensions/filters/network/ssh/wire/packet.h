@@ -1,0 +1,119 @@
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+
+#include "openssl/rand.h"
+
+#include "source/common/buffer/buffer_impl.h"
+
+#include "source/extensions/filters/network/ssh/wire/util.h"
+#include "source/extensions/filters/network/ssh/wire/encoding.h"
+
+namespace wire {
+
+constexpr uint32_t MaxPacketSize = 256 * 1024;
+constexpr uint32_t MinPacketSize = 4 + 1;
+
+// Returns the padding length according to RFC4253 § 6 for the given payload length, cipher block
+// size, and aad length.
+inline uint8_t paddingLength(uint32_t payload_length, uint32_t cipher_block_size) noexcept {
+  SECURITY_ASSERT((cipher_block_size & (cipher_block_size - 1)) == 0,
+                  fmt::format("bug: invalid cipher block size of {}", cipher_block_size));
+  if (cipher_block_size < 8) [[unlikely]] {
+    cipher_block_size = 8;
+  }
+  uint8_t padding_length = cipher_block_size - ((4 + 1 + payload_length) % cipher_block_size);
+  if (padding_length < 4) {
+    padding_length += cipher_block_size;
+  }
+  return padding_length;
+}
+
+// Returns the payload length according to RFC4253 § 6 for the given packet and padding lengths.
+inline absl::StatusOr<uint32_t> payloadLength(uint32_t packet_length, uint8_t padding_length) noexcept {
+  if (padding_length < 4) [[unlikely]] {
+    return absl::InvalidArgumentError("invalid padding length");
+  }
+  if (packet_length < MinPacketSize || packet_length > MaxPacketSize ||
+      packet_length < (padding_length + sizeof(padding_length))) [[unlikely]] {
+    return absl::InvalidArgumentError("invalid packet length");
+  }
+
+  return packet_length - (padding_length + sizeof(padding_length));
+}
+
+template <Decoder T>
+absl::StatusOr<size_t> decodePacket(Envoy::Buffer::Instance& buffer, T& payload) noexcept {
+  size_t n = 0;
+  uint32_t packet_length{};
+  uint8_t padding_length{};
+
+  try {
+    n += read(buffer, packet_length, sizeof(packet_length));
+    n += read(buffer, padding_length, sizeof(padding_length));
+  } catch (const Envoy::EnvoyException& e) {
+    return absl::InvalidArgumentError(fmt::format("error decoding packet: {}", e.what()));
+  }
+
+  auto expectedPayloadLen = payloadLength(packet_length, padding_length);
+  if (!expectedPayloadLen.ok()) {
+    return expectedPayloadLen.status();
+  }
+  auto actualPayloadLen = payload.decode(buffer, *expectedPayloadLen);
+  if (!actualPayloadLen.ok()) {
+    return actualPayloadLen.status();
+  }
+  if (*actualPayloadLen != *expectedPayloadLen) {
+    return absl::InvalidArgumentError(fmt::format(
+        "unexpected packet payload size of {} bytes (expected {})", n, *expectedPayloadLen));
+  }
+  n += *actualPayloadLen;
+
+  if (buffer.length() < padding_length) {
+    return absl::InvalidArgumentError("short read");
+  }
+  buffer.drain(padding_length);
+  n += padding_length;
+  return n;
+}
+
+template <Encoder T>
+absl::StatusOr<size_t> encodePacket(Envoy::Buffer::Instance& out, const T& msg,
+                                    size_t cipher_block_size = 8,
+                                    size_t aad_len = 0,
+                                    bool random_padding = true) noexcept {
+  Envoy::Buffer::OwnedImpl payloadBytes;
+  auto payload_length = msg.encode(payloadBytes);
+  if (!payload_length.ok()) {
+    return payload_length.status();
+  }
+  if (*payload_length == 0) [[unlikely]] {
+    ENVOY_BUG(false, "encodePacket: message encoded to 0 bytes");
+    return absl::InternalError("message encoded to 0 bytes");
+  }
+
+  uint8_t padding_length = paddingLength(*payload_length - aad_len, cipher_block_size);
+  uint32_t packet_length = sizeof(padding_length) + *payload_length + padding_length;
+
+  if (packet_length > MaxPacketSize) [[unlikely]] {
+    ENVOY_BUG(false, "encodePacket: encoded message is larger than the max packet size");
+    return absl::InternalError("encoded message is larger than the max packet size");
+  }
+
+  size_t n = 0;
+  n += write(out, packet_length);
+  n += write(out, padding_length);
+  out.move(payloadBytes);
+  n += *payload_length;
+
+  bytes padding(padding_length, 0);
+  if (random_padding) {
+    RAND_bytes(padding.data(), padding.size());
+  }
+  n += write(out, padding);
+
+  return n;
+}
+
+} // namespace wire

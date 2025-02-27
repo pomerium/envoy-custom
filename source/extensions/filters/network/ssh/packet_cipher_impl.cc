@@ -71,14 +71,16 @@ absl::Status AEADPacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffer::Ins
   if (cipher_get_length(ctx_.get(), &packlen, seqnum, in_data, in_length) != 0) {
     return absl::AbortedError("packet too small");
   }
-  if (packlen < 5 || packlen > PACKET_MAX_SIZE) {
+  if (packlen < wire::MinPacketSize || packlen > wire::MaxPacketSize) {
+#ifdef SSH_DEBUG_SEQNUM
     for (auto test : std::vector<uint32_t>{seqnum - 1, seqnum + 1, seqnum - 2, seqnum + 2, 0}) {
       if (cipher_get_length(ctx_.get(), &packlen, test, in_data, in_length) == 0 &&
-          packlen < PACKET_MAX_SIZE) {
+          packlen < wire::MaxPacketSize) {
         ENVOY_LOG(warn, "sequence number drift: packet decrypts with seqnr={}, but ours is {}",
                   test, seqnum);
       }
     }
+#endif
     return absl::AbortedError(fmt::format("bad packet length: {} (seqnr {})", packlen, seqnum));
   }
   if (packlen % block_len_ != 0) {

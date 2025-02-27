@@ -4,6 +4,7 @@
 #include <string>
 
 #include "source/extensions/filters/network/ssh/wire/util.h"
+#include "source/extensions/filters/network/ssh/wire/packet.h"
 #include "source/extensions/filters/network/ssh/kex.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
 #include "source/extensions/filters/network/ssh/transport.h"
@@ -43,7 +44,7 @@ public:
   absl::Status decryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
                              Envoy::Buffer::Instance& in) override {
     uint32_t packlen = in.peekBEInt<uint32_t>();
-    if (packlen < 5 || packlen > PACKET_MAX_SIZE) {
+    if (packlen < wire::MinPacketSize || packlen > wire::MaxPacketSize) {
       return absl::AbortedError("invalid packet size");
     }
     auto need = packlen + 4;
@@ -59,6 +60,7 @@ public:
     return absl::OkStatus();
   }
   size_t blockSize() override {
+    // Minimum block size is 8 according to RFC4253 § 6
     return 8;
   }
   size_t aadSize() override {

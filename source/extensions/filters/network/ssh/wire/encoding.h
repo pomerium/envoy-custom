@@ -8,8 +8,6 @@
 #include <type_traits>
 #include <utility>
 
-#include "openssl/rand.h"
-
 #include "source/common/buffer/buffer_impl.h"
 
 #include "source/extensions/filters/network/ssh/wire/util.h"
@@ -142,8 +140,8 @@ size_t write(Envoy::Buffer::Instance& buffer, const T& t) {
 // read/write arrays
 template <size_t N>
 size_t read(Envoy::Buffer::Instance& buffer, fixed_bytes<N>& t, size_t limit) {
-  if (limit != N) {
-    throw Envoy::EnvoyException("incorrect size for read into fixed array");
+  if (limit < N) {
+    throw Envoy::EnvoyException("incomplete read into fixed-size array");
   }
   if (buffer.length() < N) {
     throw Envoy::EnvoyException("short read");
@@ -156,72 +154,6 @@ template <size_t N>
 size_t write(Envoy::Buffer::Instance& buffer, const fixed_bytes<N>& t) {
   buffer.add(t.data(), t.size());
   return N;
-}
-
-template <Decoder T>
-absl::StatusOr<T> decodePacket(Envoy::Buffer::Instance& buffer) noexcept {
-  size_t n = 0;
-  uint32_t packet_length{};
-  uint8_t padding_length{};
-
-  try {
-    n += read(buffer, packet_length, sizeof(packet_length));
-    n += read(buffer, padding_length, sizeof(padding_length));
-  } catch (const Envoy::EnvoyException& e) {
-    return absl::InvalidArgumentError(fmt::format("error decoding packet: {}", e.what()));
-  }
-
-  T payload{};
-  auto payload_expected_size = packet_length - padding_length - 1;
-  auto payload_actual_size = payload.decode(buffer, payload_expected_size);
-  if (!payload_actual_size.ok()) {
-    return payload_actual_size.status();
-  }
-  if (*payload_actual_size != payload_expected_size) {
-    return absl::InvalidArgumentError(fmt::format(
-        "unexpected packet payload size of {} bytes (expected {})", n, payload_expected_size));
-  }
-  n += *payload_actual_size;
-
-  bytes padding(padding_length);
-  try {
-    n += read(buffer, padding, static_cast<size_t>(padding_length));
-  } catch (const Envoy::EnvoyException& e) {
-    return absl::InvalidArgumentError(e.what());
-  }
-  return payload;
-}
-
-template <Encoder T>
-absl::StatusOr<size_t> encodePacket(Envoy::Buffer::Instance& out, const T& msg,
-                                    size_t cipher_block_size = 8, size_t aad_len = 0) noexcept {
-  Envoy::Buffer::OwnedImpl payloadBytes;
-  auto payload_length = msg.encode(payloadBytes);
-  if (!payload_length.ok()) {
-    return payload_length.status();
-  }
-
-  // RFC4253 § 6
-  uint8_t padding_length = cipher_block_size - ((5 + *payload_length - aad_len) % cipher_block_size);
-  if (padding_length < 4) {
-    padding_length += cipher_block_size;
-  }
-  uint32_t packet_length = sizeof(padding_length) + *payload_length + padding_length;
-
-  size_t n = 0;
-  try {
-    n += write(out, packet_length);
-    n += write(out, padding_length);
-    out.move(payloadBytes);
-    n += *payload_length;
-
-    bytes padding(padding_length, 0);
-    RAND_bytes(padding.data(), padding.size());
-    n += write(out, padding);
-  } catch (const Envoy::EnvoyException& e) {
-    return absl::InvalidArgumentError(e.what());
-  }
-  return n;
 }
 
 // NB: all specializations of read/write in this file must be defined before the concept definitions

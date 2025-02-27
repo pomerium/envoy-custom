@@ -1,4 +1,5 @@
 #include "source/extensions/filters/network/ssh/transport.h"
+#include "source/extensions/filters/network/ssh/wire/packet.h"
 
 #include <memory>
 
@@ -8,7 +9,7 @@ absl::StatusOr<size_t> TransportCallbacks::sendMessageToConnection(const wire::S
   const auto& cs = getConnectionState();
 
   Envoy::Buffer::OwnedImpl dec;
-  auto stat = encodePacket(dec, msg, cs.cipher->blockSize(MODE_WRITE), cs.cipher->aadSize(MODE_WRITE));
+  auto stat = wire::encodePacket(dec, msg, cs.cipher->blockSize(MODE_WRITE), cs.cipher->aadSize(MODE_WRITE));
   if (!stat.ok()) {
     return stat.status();
   }
