@@ -109,7 +109,7 @@ struct KexInitMessage : Msg<SshMessageType::KexInit> {
   field<string_list, NameListFormat> compression_algorithms_server_to_client;
   field<string_list, NameListFormat> languages_client_to_server;
   field<string_list, NameListFormat> languages_server_to_client;
-  field<uint8_t> first_kex_packet_follows;
+  field<bool> first_kex_packet_follows;
   field<uint32_t> reserved;
 
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
@@ -652,7 +652,6 @@ struct UserAuthRequestMsg : Msg<SshMessageType::UserAuthRequest> {
       NoneAuthRequestMsg>
       msg{method_name};
 
-  // UserAuthRequestMsg()
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
     return decodeMsg<type>(buffer, payload_size,
                            username,

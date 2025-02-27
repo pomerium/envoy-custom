@@ -122,14 +122,14 @@ inline size_t write(Envoy::Buffer::Instance& buffer, const bool& t) {
 
 // read/write string types
 template <SshStringType T>
-size_t read(Envoy::Buffer::Instance& buffer, T& t, size_t size) {
-  if (buffer.length() < size) {
+size_t read(Envoy::Buffer::Instance& buffer, T& t, size_t limit) {
+  if (buffer.length() < limit) {
     throw Envoy::EnvoyException("short read");
   }
-  t.resize(size);
-  buffer.copyOut(0, size, t.data());
-  buffer.drain(size);
-  return size;
+  t.resize(limit);
+  buffer.copyOut(0, limit, t.data());
+  buffer.drain(limit);
+  return limit;
 }
 template <SshStringType T>
 size_t write(Envoy::Buffer::Instance& buffer, const T& t) {
@@ -188,16 +188,38 @@ constexpr inline EncodingOptions operator|(EncodingOptions lhs, EncodingOptions 
       static_cast<std::underlying_type_t<EncodingOptions>>(rhs));
 }
 
+constexpr inline EncodingOptions operator&(EncodingOptions lhs, EncodingOptions rhs) {
+  return static_cast<EncodingOptions>(
+      static_cast<std::underlying_type_t<EncodingOptions>>(lhs) &
+      static_cast<std::underlying_type_t<EncodingOptions>>(rhs));
+}
+
+constexpr inline EncodingOptions operator~(EncodingOptions opt) {
+  return static_cast<EncodingOptions>(~static_cast<std::underlying_type_t<EncodingOptions>>(opt));
+}
+
+// asserts that the actual encoding options are a subset of the supported encoding options.
+template <EncodingOptions Supported, EncodingOptions Opt>
+constexpr void check_supported_options() {
+  static_assert((Opt & Supported) == Opt, "unsupported options");
+}
+
+template <EncodingOptions Incompatible, EncodingOptions Opt>
+constexpr void check_incompatible_options() {
+  static_assert((Opt & Incompatible) != Incompatible, "incompatible options");
+}
+
 // read_opt is a wrapper around read() that supports additional encoding options.
 // This specialization handles non-list types as well as strings and 'bytes' (vector<uint8_t>).
 template <EncodingOptions Opt, typename T>
 std::enable_if_t<(!is_vector<T>::value || std::is_same_v<T, bytes>), size_t>
-read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) {
+read_opt(Envoy::Buffer::Instance& buffer, T& value, explicit_size_t auto limit) {
+  check_supported_options<LengthPrefixed, Opt>();
   if constexpr (Opt & LengthPrefixed) {
     uint32_t entry_len = buffer.drainBEInt<uint32_t>();
     auto nread = read(buffer, value, entry_len);
     if (nread != entry_len) {
-      throw Envoy::EnvoyException("short read in list element");
+      throw Envoy::EnvoyException("short read");
     }
     return 4 + entry_len;
   } else {
@@ -210,14 +232,16 @@ read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) {
 template <EncodingOptions Opt, typename T>
 std::enable_if_t<(!is_vector<T>::value || std::is_same_v<T, bytes>), size_t>
 write_opt(Envoy::Buffer::Instance& buffer, const T& value) {
+  check_supported_options<LengthPrefixed, Opt>();
   if constexpr (Opt & LengthPrefixed) {
     Envoy::Buffer::OwnedImpl tmp;
     auto size = write(tmp, value);
     buffer.writeBEInt<uint32_t>(size);
     buffer.move(tmp);
     return 4 + size;
+  } else {
+    return write(buffer, value);
   }
-  return write(buffer, value);
 }
 
 // This specialization of read_opt handles list types (not including strings).
@@ -233,10 +257,10 @@ template <EncodingOptions Opt, typename T>
   requires Reader<typename T::value_type>
 std::enable_if_t<(is_vector<T>::value && !std::is_same_v<T, bytes>), size_t>
 read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) {
-  static_assert(((Opt & (CommaDelimited | LengthPrefixed)) != (CommaDelimited | LengthPrefixed)),
-                "Incompatible options: CommaDelimited | LengthPrefixed");
-  static_assert(((Opt & (CommaDelimited | ListSizePrefixed)) != (CommaDelimited | ListSizePrefixed)),
-                "Incompatible options: CommaDelimited | ListSizePrefixed");
+  check_supported_options<(CommaDelimited | LengthPrefixed | ListSizePrefixed | ListLengthPrefixed), Opt>();
+  check_incompatible_options<(CommaDelimited | LengthPrefixed), Opt>();
+  check_incompatible_options<(CommaDelimited | ListSizePrefixed), Opt>();
+
   if (limit == 0) {
     return 0;
   }
@@ -267,15 +291,16 @@ read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) {
     if (len == 0) {
       return n;
     }
-    limit = len;
-    if (buffer.length() < limit) {
+    if (buffer.length() < len) {
       throw Envoy::EnvoyException("invalid list length");
     }
+    limit = len + n;
   }
   if constexpr (Opt & CommaDelimited) {
-    ASSERT(limit > 0);
+    size_t value_read_limit = limit - n;
+    ASSERT(value_read_limit > 0);
     size_t accum = 0;
-    for (size_t i = 0; i < limit; i++) {
+    for (size_t i = 0; i < value_read_limit; i++) {
       char c = buffer.peekInt<char>(accum);
       if (c != ',') {
         ++accum;
@@ -283,7 +308,7 @@ read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) {
       }
 
       // RFC4251 § 5
-      if (accum == 0 || i == limit - 1) {
+      if (accum == 0 || i == value_read_limit - 1) {
         throw Envoy::EnvoyException("invalid empty string in comma-separated list");
       } else if (buffer.peekInt<char>(accum - 1) == 0) {
         throw Envoy::EnvoyException("invalid null-terminated string in comma-separated list");
@@ -291,38 +316,20 @@ read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) {
 
       value_type t{};
       auto nread = read(buffer, t, accum);
-      if (nread != accum) {
-        throw Envoy::EnvoyException("short read in list element");
-      }
+      SECURITY_ASSERT(nread == accum, "buffer concurrent modification detected");
       value.push_back(std::move(t));
       accum = 0;
       buffer.drain(1); // skip the ',' byte (index i)
     }
     ASSERT(accum > 0);
+    if (buffer.peekInt<char>(accum - 1) == 0) {
+      throw Envoy::EnvoyException("invalid null-terminated string in comma-separated list");
+    }
     value_type t{};
     auto nread = read(buffer, t, accum);
-    if (nread != accum) {
-      throw Envoy::EnvoyException("short read in list element");
-    }
+    SECURITY_ASSERT(nread == accum, "buffer concurrent modification detected");
     value.push_back(std::move(t));
-    n += limit;
-  } else if constexpr (Opt & LengthPrefixed) {
-    while (limit - n > 0) {
-      if constexpr (Opt & ListSizePrefixed) {
-        if (value.size() == list_size) {
-          break;
-        }
-      }
-      uint32_t entry_len = buffer.drainBEInt<uint32_t>();
-      n += 4;
-      value_type t{};
-      size_t nread = read(buffer, t, entry_len);
-      if (nread != entry_len) {
-        throw Envoy::EnvoyException("short read in list element");
-      }
-      n += nread;
-      value.push_back(std::move(t));
-    }
+    n += value_read_limit;
   } else {
     while (limit - n > 0) {
       if constexpr (Opt & ListSizePrefixed) {
@@ -330,8 +337,19 @@ read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) {
           break;
         }
       }
+      size_t value_read_limit = limit - n;
+      if constexpr (Opt & LengthPrefixed) {
+        value_read_limit = static_cast<size_t>(buffer.drainBEInt<uint32_t>());
+        n += 4;
+      }
       value_type t{};
-      n += read(buffer, t, limit - n);
+      size_t nread = read(buffer, t, value_read_limit);
+      if constexpr (Opt & LengthPrefixed) {
+        if (nread != value_read_limit) {
+          throw Envoy::EnvoyException("short read in list element");
+        }
+      }
+      n += nread;
       value.push_back(std::move(t));
     }
   }
@@ -347,6 +365,10 @@ template <EncodingOptions Opt, typename T>
   requires Writer<typename T::value_type>
 std::enable_if_t<(is_vector<T>::value && !std::is_same_v<T, bytes>), size_t>
 write_opt(Envoy::Buffer::Instance& buffer, const T& value) {
+  check_supported_options<(CommaDelimited | LengthPrefixed | ListSizePrefixed | ListLengthPrefixed), Opt>();
+  check_incompatible_options<(CommaDelimited | LengthPrefixed), Opt>();
+  check_incompatible_options<(CommaDelimited | ListSizePrefixed), Opt>();
+
   size_t n = 0;
   if constexpr (Opt & ListSizePrefixed) {
     buffer.writeBEInt<uint32_t>(value.size());
@@ -392,7 +414,7 @@ write_opt(Envoy::Buffer::Instance& buffer, const T& value) {
 // Utility function to decode a list of Decoder objects in order. The size passed to each Decoder's
 // decode method will be adjusted after each is read. Returns the total number of bytes read.
 template <Decoder... Args>
-absl::StatusOr<size_t> decodeSequence(Envoy::Buffer::Instance& buffer, size_t limit, Args&&... args) noexcept {
+absl::StatusOr<size_t> decodeSequence(Envoy::Buffer::Instance& buffer, explicit_size_t auto limit, Args&&... args) noexcept {
   size_t n = 0;
   absl::Status stat{};
 

@@ -500,4 +500,386 @@ TYPED_TEST(ReadWriteArraysTest, ShortRead) {
   }
 }
 
+TEST(ReadOptTest, OptNone) {
+  Envoy::Buffer::OwnedImpl buffer;
+  buffer.writeBEInt<uint32_t>(12345);
+  uint32_t out;
+  auto n = read_opt<None>(buffer, out, static_cast<size_t>(4));
+  EXPECT_EQ(4, n);
+  EXPECT_EQ(0, buffer.length());
+  EXPECT_EQ(12345, out);
+}
+
+TEST(ReadOptTest, OptLengthPrefixed) {
+  Envoy::Buffer::OwnedImpl buffer;
+  buffer.writeBEInt<uint32_t>(4);
+  buffer.writeBEInt<uint32_t>(12345);
+  uint32_t out;
+  auto n = read_opt<LengthPrefixed>(buffer, out, static_cast<size_t>(4));
+  EXPECT_EQ(8, n);
+  EXPECT_EQ(0, buffer.length());
+  EXPECT_EQ(12345, out);
+}
+
+TEST(ReadOptTest, OptLengthPrefixedError) {
+  Envoy::Buffer::OwnedImpl buffer;
+  buffer.writeBEInt<uint32_t>(8);
+  buffer.writeBEInt<uint32_t>(12345);
+  uint32_t out;
+  EXPECT_THROW({ (void)read_opt<LengthPrefixed>(buffer, out, static_cast<size_t>(4)); }, Envoy::EnvoyException);
+}
+
+TEST(WriteOptTest, OptLengthPrefixed) {
+  Envoy::Buffer::OwnedImpl buffer;
+  auto r = write_opt<LengthPrefixed>(buffer, static_cast<uint32_t>(12345));
+  EXPECT_EQ(8, r);
+  EXPECT_EQ(8, buffer.length());
+  EXPECT_EQ(4, buffer.drainBEInt<uint32_t>());
+  EXPECT_EQ(12345, buffer.drainBEInt<uint32_t>());
+}
+
+TEST(WriteOptTest, OptNone) {
+  Envoy::Buffer::OwnedImpl buffer;
+  auto r = write_opt<None>(buffer, static_cast<uint32_t>(12345));
+  EXPECT_EQ(4, r);
+  EXPECT_EQ(4, buffer.length());
+  EXPECT_EQ(12345, buffer.drainBEInt<uint32_t>());
+}
+
+TEST(ReadOptTest, List_OptNone_EmptyBuffer) {
+  Envoy::Buffer::OwnedImpl buffer;
+
+  std::vector<uint32_t> out;
+  EXPECT_NO_THROW({
+    auto r = read_opt<None>(buffer, out, 0);
+    EXPECT_EQ(0, r);
+  });
+  EXPECT_THROW({ (void)read_opt<None>(buffer, out, 4); }, Envoy::EnvoyException);
+}
+
+TEST(ReadOptTest, List_OptNone_Read) {
+  Envoy::Buffer::OwnedImpl buffer;
+  buffer.writeBEInt<uint32_t>(1);
+  buffer.writeBEInt<uint32_t>(2);
+  buffer.writeBEInt<uint32_t>(3);
+
+  std::vector<uint32_t> out;
+  auto expected = std::vector<uint32_t>{1, 2, 3};
+  EXPECT_NO_THROW({
+    auto r = read_opt<None>(buffer, out, buffer.length());
+    EXPECT_EQ(12, r);
+
+    EXPECT_EQ(expected, out);
+  });
+}
+
+TEST(ReadOptTest, List_OptListSizePrefixed_Read) {
+  Envoy::Buffer::OwnedImpl buffer;
+  buffer.writeBEInt<uint32_t>(3);
+  buffer.writeBEInt<uint32_t>(1);
+  buffer.writeBEInt<uint32_t>(2);
+  buffer.writeBEInt<uint32_t>(3);
+
+  std::vector<uint32_t> out;
+  auto expected = std::vector<uint32_t>{1, 2, 3};
+  EXPECT_NO_THROW({
+    auto r = read_opt<ListSizePrefixed>(buffer, out, buffer.length());
+    EXPECT_EQ(16, r);
+    EXPECT_EQ(expected, out);
+  });
+}
+
+TEST(ReadOptTest, List_OptListSizePrefixed_ZeroLength) {
+  Envoy::Buffer::OwnedImpl buffer;
+  buffer.writeBEInt<uint32_t>(0);
+
+  std::vector<uint32_t> out;
+  auto expected = std::vector<uint32_t>{};
+  EXPECT_NO_THROW({
+    auto r = read_opt<ListSizePrefixed>(buffer, out, buffer.length());
+    EXPECT_EQ(4, r);
+    EXPECT_EQ(expected, out);
+  });
+}
+
+TEST(ReadOptTest, List_OptListSizePrefixed_Limit) {
+  Envoy::Buffer::OwnedImpl buffer;
+  buffer.writeBEInt<uint32_t>(3);
+  buffer.writeBEInt<uint32_t>(1);
+  buffer.writeBEInt<uint32_t>(2);
+  buffer.writeBEInt<uint32_t>(3);
+  buffer.writeBEInt<uint32_t>(4); // extra unrelated bytes
+
+  std::vector<uint32_t> out;
+  auto expected = std::vector<uint32_t>{1, 2, 3};
+  EXPECT_NO_THROW({
+    auto r = read_opt<ListSizePrefixed>(buffer, out, buffer.length());
+    EXPECT_EQ(16, r);
+    EXPECT_EQ(expected, out);
+    EXPECT_EQ(4, buffer.length());
+  });
+}
+
+TEST(ReadOptTest, List_OptListSizePrefixed_BufferTooSmall) {
+  Envoy::Buffer::OwnedImpl buffer;
+  buffer.writeBEInt<uint32_t>(3);
+  buffer.writeBEInt<uint32_t>(1);
+  buffer.writeBEInt<uint32_t>(2);
+
+  std::vector<uint32_t> out;
+  EXPECT_THROW({ (void)read_opt<ListSizePrefixed>(buffer, out, buffer.length()); }, Envoy::EnvoyException);
+}
+
+TEST(ReadOptTest, List_OptListSizePrefixed_LengthTooLarge) {
+  Envoy::Buffer::OwnedImpl buffer;
+  buffer.writeBEInt<uint32_t>(4);
+  buffer.writeBEInt<uint32_t>(1);
+  buffer.writeBEInt<uint32_t>(2);
+  buffer.writeBEInt<uint32_t>(3);
+
+  std::vector<uint32_t> out;
+  EXPECT_THROW({ (void)read_opt<ListSizePrefixed>(buffer, out, buffer.length()); }, Envoy::EnvoyException);
+}
+
+TEST(WriteOptTest, List_OptNone_Write) {
+  Envoy::Buffer::OwnedImpl buffer;
+  auto expected = std::vector<uint32_t>{1, 2, 3};
+  write_opt<None>(buffer, expected);
+  EXPECT_EQ(12, buffer.length());
+  std::vector<uint32_t> out{
+    buffer.drainBEInt<uint32_t>(),
+    buffer.drainBEInt<uint32_t>(),
+    buffer.drainBEInt<uint32_t>(),
+  };
+  EXPECT_EQ(expected, out);
+}
+
+TEST(ReadOptTest, List_OptListLengthPrefixed_Read) {
+  Envoy::Buffer::OwnedImpl buffer;
+  buffer.writeBEInt<uint32_t>(12);
+  buffer.writeBEInt<uint32_t>(1);
+  buffer.writeBEInt<uint32_t>(2);
+  buffer.writeBEInt<uint32_t>(3);
+
+  std::vector<uint32_t> out;
+  auto expected = std::vector<uint32_t>{1, 2, 3};
+  EXPECT_NO_THROW({
+    auto r = read_opt<ListLengthPrefixed>(buffer, out, buffer.length());
+    EXPECT_EQ(16, r);
+    EXPECT_EQ(expected, out);
+  });
+}
+
+TEST(ReadOptTest, List_OptListLengthPrefixed_ZeroLength) {
+  Envoy::Buffer::OwnedImpl buffer;
+  buffer.writeBEInt<uint32_t>(0);
+
+  std::vector<uint32_t> out;
+  auto expected = std::vector<uint32_t>{};
+  EXPECT_NO_THROW({
+    auto r = read_opt<ListLengthPrefixed>(buffer, out, buffer.length());
+    EXPECT_EQ(4, r);
+    EXPECT_EQ(expected, out);
+  });
+}
+
+TEST(ReadOptTest, List_OptListLengthPrefixed_BufferTooSmall) {
+  Envoy::Buffer::OwnedImpl buffer;
+  buffer.writeBEInt<uint32_t>(12);
+  buffer.writeBEInt<uint32_t>(1);
+  buffer.writeBEInt<uint32_t>(2);
+
+  std::vector<uint32_t> out;
+  EXPECT_THROW({ (void)read_opt<ListLengthPrefixed>(buffer, out, buffer.length()); }, Envoy::EnvoyException);
+}
+
+TEST(ReadOptTest, List_OptListLengthPrefixed_Limit) {
+  Envoy::Buffer::OwnedImpl buffer;
+  buffer.writeBEInt<uint32_t>(12);
+  buffer.writeBEInt<uint32_t>(1);
+  buffer.writeBEInt<uint32_t>(2);
+  buffer.writeBEInt<uint32_t>(3);
+  buffer.writeBEInt<uint32_t>(4); // extra unrelated bytes
+
+  std::vector<uint32_t> out;
+  auto expected = std::vector<uint32_t>{1, 2, 3};
+  EXPECT_NO_THROW({
+    auto r = read_opt<ListLengthPrefixed>(buffer, out, buffer.length());
+    EXPECT_EQ(16, r);
+    EXPECT_EQ(expected, out);
+    EXPECT_EQ(4, buffer.length());
+  });
+}
+
+TEST(ReadOptTest, List_OptListAndElemLengthPrefixed_Read) {
+  Envoy::Buffer::OwnedImpl buffer;
+  buffer.writeBEInt<uint32_t>(24);
+  buffer.writeBEInt<uint32_t>(4);
+  buffer.writeBEInt<uint32_t>(1);
+  buffer.writeBEInt<uint32_t>(4);
+  buffer.writeBEInt<uint32_t>(2);
+  buffer.writeBEInt<uint32_t>(4);
+  buffer.writeBEInt<uint32_t>(3);
+
+  std::vector<uint32_t> out;
+  auto expected = std::vector<uint32_t>{1, 2, 3};
+  EXPECT_NO_THROW({
+    auto r = read_opt<(ListLengthPrefixed | LengthPrefixed)>(buffer, out, buffer.length());
+    EXPECT_EQ(28, r);
+    EXPECT_EQ(expected, out);
+  });
+}
+
+TEST(ReadOptTest, List_OptListAndElemLengthPrefixed_ListElemLenTooSmall) {
+  Envoy::Buffer::OwnedImpl buffer;
+  buffer.writeBEInt<uint32_t>(16);
+  buffer.writeBEInt<uint32_t>(4);
+  buffer.writeBEInt<uint32_t>(1);
+  buffer.writeBEInt<uint32_t>(3);
+  buffer.writeBEInt<uint32_t>(2);
+
+  std::vector<uint32_t> out;
+  auto expected = std::vector<uint32_t>{1, 2};
+  EXPECT_THROW({ (void)read_opt<(ListLengthPrefixed | LengthPrefixed)>(
+                     buffer, out, buffer.length()); }, Envoy::EnvoyException);
+}
+
+TEST(ReadOptTest, List_OptCommaDelimited_Read) {
+  Envoy::Buffer::OwnedImpl buffer;
+  buffer.add("foo,bar,baz");
+
+  std::vector<std::string> out;
+  auto expected = std::vector<std::string>{"foo", "bar", "baz"};
+  EXPECT_NO_THROW({
+    auto r = read_opt<CommaDelimited>(buffer, out, buffer.length());
+    EXPECT_EQ(11, r);
+    EXPECT_EQ(expected, out);
+  });
+}
+
+TEST(ReadOptTest, List_OptCommaDelimited_EmptyElement) {
+  for (const auto& str : {"foo,bar,",
+                          "foo,,bar",
+                          ",foo,bar",
+                          ",,",
+                          ",foo,",
+                          "foo,,",
+                          ",,foo"}) {
+    Envoy::Buffer::OwnedImpl buffer;
+    buffer.add(str);
+    std::vector<std::string> out;
+    EXPECT_THROW({ (void)read_opt<CommaDelimited>(buffer, out, buffer.length()); }, Envoy::EnvoyException);
+  }
+}
+
+TEST(ReadOptTest, List_OptCommaDelimited_NullTerminatedElement) {
+  for (const auto& i : {
+         std::tuple{"foo,bar,baz\0", 12},
+         std::tuple{"foo,bar\0,baz", 12},
+         std::tuple{"foo\0,bar,baz", 12},
+         std::tuple{"foo\0,bar\0,baz\0", 14},
+         std::tuple{"foo\0,bar,baz\0", 13},
+         std::tuple{"foo,bar\0,baz\0", 13},
+         std::tuple{"foo\0,bar\0,baz", 13},
+       }) {
+    auto [str, len] = i;
+    Envoy::Buffer::OwnedImpl buffer;
+    buffer.add(str, len);
+    std::vector<std::string> out;
+    EXPECT_THROW({ (void)read_opt<CommaDelimited>(buffer, out, buffer.length()); }, Envoy::EnvoyException);
+  }
+}
+
+TEST(ReadOptTest, List_OptCommaDelimited_NullInsideElement) {
+  for (const auto& i : {
+         std::tuple{"f\0o", 3},
+         std::tuple{"foo,b\0r", 7},
+         std::tuple{"f\0o,b\0r", 7},
+         std::tuple{"f\0o", 3},
+         std::tuple{"foo,b\0r,baz", 11},
+       }) {
+    auto [str, len] = i;
+    Envoy::Buffer::OwnedImpl buffer;
+    buffer.add(str, len);
+    std::vector<std::string> out;
+    EXPECT_NO_THROW({ (void)read_opt<CommaDelimited>(buffer, out, buffer.length()); });
+  }
+}
+
+TEST(EncodeSequenceTest, Basic) {
+  field<uint32_t> f1;
+  field<std::string, LengthPrefixed> f2;
+  f1 = 5;
+  f2 = "test"s;
+  Envoy::Buffer::OwnedImpl buffer;
+  auto r = encodeSequence(buffer, f1, f2);
+  EXPECT_TRUE(r.ok());
+  EXPECT_EQ(12, *r);
+  EXPECT_EQ(12, buffer.length());
+}
+
+TEST(EncodeSequenceTest, Error) {
+  field<uint32_t> f1;
+  field<std::string, LengthPrefixed> f2;
+  mock_err_encoder f3;
+  EXPECT_CALL(f3, encode).WillRepeatedly(Return(absl::InternalError("test")));
+  f1 = 5;
+  f2 = "test"s;
+  {
+    Envoy::Buffer::OwnedImpl buffer;
+    auto r = encodeSequence(buffer, f1, f2, f3);
+    EXPECT_FALSE(r.ok());
+  }
+  {
+    Envoy::Buffer::OwnedImpl buffer;
+    auto r = encodeSequence(buffer, f1, f3, f2);
+    EXPECT_FALSE(r.ok());
+  }
+  {
+    Envoy::Buffer::OwnedImpl buffer;
+    auto r = encodeSequence(buffer, f3, f1, f2);
+    EXPECT_FALSE(r.ok());
+  }
+}
+
+TEST(DecodeSequenceTest, Basic) {
+  Envoy::Buffer::OwnedImpl buffer;
+  buffer.add(bytes{0, 0, 0, 5, 0, 0, 0, 4, 't', 'e', 's', 't'}.data(), 12);
+  field<uint32_t> f1;
+  field<std::string, LengthPrefixed> f2;
+  auto r = decodeSequence(buffer, buffer.length(), f1, f2);
+  EXPECT_TRUE(r.ok());
+  EXPECT_EQ(12, *r);
+  EXPECT_EQ(0, buffer.length());
+  EXPECT_EQ(5, f1.value);
+  EXPECT_EQ("test", f2.value);
+}
+
+TEST(DecodeSequenceTest, Error) {
+  field<uint32_t> f1;
+  field<std::string, LengthPrefixed> f2;
+  mock_err_encoder f3;
+  EXPECT_CALL(f3, decode).WillRepeatedly(Return(absl::InternalError("test")));
+  auto encodedData = bytes{0, 0, 0, 5, 0, 0, 0, 4, 't', 'e', 's', 't'};
+
+  {
+    Envoy::Buffer::OwnedImpl buffer;
+    buffer.add(encodedData.data(), encodedData.size());
+    auto r = decodeSequence(buffer, buffer.length(), f1, f2, f3);
+    EXPECT_FALSE(r.ok());
+  }
+  {
+    Envoy::Buffer::OwnedImpl buffer;
+    buffer.add(encodedData.data(), encodedData.size());
+    auto r = decodeSequence(buffer, buffer.length(), f1, f3, f2);
+    EXPECT_FALSE(r.ok());
+  }
+  {
+    Envoy::Buffer::OwnedImpl buffer;
+    buffer.add(encodedData.data(), encodedData.size());
+    auto r = decodeSequence(buffer, buffer.length(), f3, f1, f2);
+    EXPECT_FALSE(r.ok());
+  }
+}
+
 } // namespace wire::test

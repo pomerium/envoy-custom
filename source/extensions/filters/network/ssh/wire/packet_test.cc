@@ -50,19 +50,19 @@ msgAllTypes newTestMsg1() {
 }
 
 const auto testMsg1Expected = bytes{
-    0x00, 0x00, 0x00, 0x44,                                              // message length
-    0x05,                                                                // padding length
-    0xC8,                                                                // message id (200)
-    1,                                                                   // bool
-    1, 2, 3, 4, 5, 6,                                                    // array
-    0xDE, 0xAD, 0xBE, 0xEF, 0xDE, 0xAD, 0xBE, 0xEF,                      // uint64
-    0xDE, 0xAD, 0xBE, 0xEF,                                              // uint32
-    0xDE,                                                                // len || uint8
-    0x00, 0x00, 0x00, 0x04, 'a', 's', 'd', 'f',                          // len || string
-    0x00, 0x00, 0x00, 0x09, 's', 't', 'r', '1', ',', 's', 't', 'r', '2', // len || strings (comma separated)
-    0x00, 0x00, 0x00, 0x06, 0, 1, 2, 3, 4, 5,                            // len || bytes
-    0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x02, 0x01, 0x02,          // len || bignum
-    0x00, 0x00, 0x00, 0x00, 0x00                                         // padding (not random for test)
+  0x00, 0x00, 0x00, 0x44,                                              // message length
+  0x05,                                                                // padding length
+  0xC8,                                                                // message id (200)
+  1,                                                                   // bool
+  1, 2, 3, 4, 5, 6,                                                    // array
+  0xDE, 0xAD, 0xBE, 0xEF, 0xDE, 0xAD, 0xBE, 0xEF,                      // uint64
+  0xDE, 0xAD, 0xBE, 0xEF,                                              // uint32
+  0xDE,                                                                // len || uint8
+  0x00, 0x00, 0x00, 0x04, 'a', 's', 'd', 'f',                          // len || string
+  0x00, 0x00, 0x00, 0x09, 's', 't', 'r', '1', ',', 's', 't', 'r', '2', // len || strings (comma separated)
+  0x00, 0x00, 0x00, 0x06, 0, 1, 2, 3, 4, 5,                            // len || bytes
+  0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x02, 0x01, 0x02,          // len || bignum
+  0x00, 0x00, 0x00, 0x00, 0x00                                         // padding (not random for test)
 };
 } // namespace
 
@@ -321,9 +321,10 @@ TEST(EncodePacketTest, Encode_EmptyPayloadError) {
       .WillOnce(Return(0));
 
   Envoy::Buffer::OwnedImpl buffer;
+
   auto r = encodePacket(buffer, e);
   EXPECT_FALSE(r.ok());
-  EXPECT_EQ(absl::InternalError("message encoded to 0 bytes"), r.status());
+  EXPECT_EQ(absl::InvalidArgumentError("message encoded to 0 bytes"), r.status());
 }
 
 TEST(EncodePacketTest, Encode_PayloadTooLargeError) {
@@ -335,7 +336,7 @@ TEST(EncodePacketTest, Encode_PayloadTooLargeError) {
   Envoy::Buffer::OwnedImpl buffer;
   auto r = encodePacket(buffer, e);
   EXPECT_FALSE(r.ok());
-  EXPECT_EQ(absl::InternalError("encoded message is larger than the max packet size"), r.status());
+  EXPECT_EQ(absl::InvalidArgumentError("encoded message is larger than the max packet size"), r.status());
 }
 
 TEST(EncodePacketTest, Encode_EncoderError) {

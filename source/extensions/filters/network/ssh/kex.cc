@@ -111,7 +111,7 @@ absl::Status Curve25519Sha256KexAlgorithm::HandleClientRecv(const wire::SshMsg& 
 
   result_.reset(new kex_result_t);
   result_->Algorithms = *algs_;
-  result_->HostKeyBlob = *serverMsg.host_key;
+  result_->HostKeyBlob = serverMsg.host_key;
 
   Envoy::Buffer::OwnedImpl exchangeHash;
   magics_->encode(exchangeHash);
@@ -141,9 +141,9 @@ absl::Status Curve25519Sha256KexAlgorithm::HandleClientRecv(const wire::SshMsg& 
 
   result_->H = to_bytes(digest);
   result_->K = to_bytes(shared_secret);
-  result_->Signature = *serverMsg.signature;
+  result_->Signature = serverMsg.signature;
   result_->Hash = SHA256;
-  result_->EphemeralPubKey = *serverMsg.ephemeral_pub_key;
+  result_->EphemeralPubKey = serverMsg.ephemeral_pub_key;
   // session id is not set here
 
   return absl::OkStatus();
@@ -496,8 +496,8 @@ absl::Status Kex::loadSshKeyPair(std::string_view privKeyPath, std::string_view 
     return pub.status();
   }
   host_keys_.emplace_back(host_keypair_t{
-      .priv = std::move(*priv),
-      .pub = std::move(*pub),
+    .priv = std::move(*priv),
+    .pub = std::move(*pub),
   });
   return absl::OkStatus();
 }

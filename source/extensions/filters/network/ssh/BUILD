@@ -41,6 +41,10 @@ envoy_cc_library(
         "transport.h",
         "version_exchange.h",
     ],
+    copts = [
+        "-Wimplicit-fallthrough",
+        "-Wimplicit-int-conversion",
+    ],
     repository = "@envoy",
     deps = [
         ":ssh_cc_proto",

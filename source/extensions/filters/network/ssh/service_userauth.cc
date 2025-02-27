@@ -212,11 +212,11 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::SshMsg&& msg) {
         1,
         {transport_.authState().username},
         {
-            openssh::ExtensionNoTouchRequired,
-            openssh::ExtensionPermitX11Forwarding,
-            openssh::ExtensionPermitPortForwarding,
-            openssh::ExtensionPermitPty,
-            openssh::ExtensionPermitUserRc,
+          openssh::ExtensionNoTouchRequired,
+          openssh::ExtensionPermitX11Forwarding,
+          openssh::ExtensionPermitPortForwarding,
+          openssh::ExtensionPermitPty,
+          openssh::ExtensionPermitUserRc,
         },
         absl::Hours(24),
         ca_user_key_);

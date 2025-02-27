@@ -14,7 +14,7 @@ struct field_base {
   field_base(field_base&& other)
       : value(std::move(other.value)) {}
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t n = 0) noexcept {
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t n) noexcept {
     try {
       return read_opt<Opt>(buffer, value, n);
     } catch (const Envoy::EnvoyException& e) {
@@ -109,8 +109,8 @@ struct field<T, Opt, std::enable_if_t<(Opt & Conditional) != 0>> : field_base<T,
 
   auto enable_if(bool condition) const {
     return codec{
-        .enabled = condition,
-        .vp = const_cast<T*>(&value),
+      .enabled = condition,
+      .vp = const_cast<T*>(&value),
     };
   }
 
@@ -118,12 +118,12 @@ private:
   struct codec {
     bool enabled;
     T* vp;
-    absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t n = 0) noexcept {
+    absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t n) noexcept {
       if (!enabled) {
         return 0;
       }
       try {
-        return read_opt<Opt>(buffer, *vp, n);
+        return read_opt<(Opt & ~Conditional)>(buffer, *vp, n);
       } catch (const Envoy::EnvoyException& e) {
         return absl::InvalidArgumentError(e.what());
       }
@@ -133,7 +133,7 @@ private:
         return 0;
       }
 
-      return write_opt<Opt>(buffer, *vp);
+      return write_opt<(Opt & ~Conditional)>(buffer, *vp);
     }
   };
 };
@@ -142,7 +142,7 @@ private:
 // message type is validated to ensure it matches the expected type. Returns the total number of
 // bytes read (including the message type byte).
 template <SshMessageType MT, typename... Fields>
-absl::StatusOr<size_t> decodeMsg(Envoy::Buffer::Instance& buffer, size_t limit, Fields&&... fields) noexcept {
+absl::StatusOr<size_t> decodeMsg(Envoy::Buffer::Instance& buffer, explicit_size_t auto limit, Fields&&... fields) noexcept {
   if (buffer.length() == 0) {
     return absl::InvalidArgumentError("short read");
   }

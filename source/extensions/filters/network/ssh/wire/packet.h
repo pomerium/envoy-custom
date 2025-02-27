@@ -23,11 +23,11 @@ inline uint8_t paddingLength(uint32_t payload_length, uint32_t cipher_block_size
   if (cipher_block_size < 8) [[unlikely]] {
     cipher_block_size = 8;
   }
-  uint8_t padding_length = cipher_block_size - ((4 + 1 + payload_length) % cipher_block_size);
+  uint32_t padding_length = cipher_block_size - ((4 + 1 + payload_length) % cipher_block_size);
   if (padding_length < 4) {
     padding_length += cipher_block_size;
   }
-  return padding_length;
+  return static_cast<uint8_t>(padding_length);
 }
 
 // Returns the payload length according to RFC4253 § 6 for the given packet and padding lengths.
@@ -89,16 +89,14 @@ absl::StatusOr<size_t> encodePacket(Envoy::Buffer::Instance& out, const T& msg,
     return payload_length.status();
   }
   if (*payload_length == 0) [[unlikely]] {
-    ENVOY_BUG(false, "encodePacket: message encoded to 0 bytes");
-    return absl::InternalError("message encoded to 0 bytes");
+    return absl::InvalidArgumentError("message encoded to 0 bytes");
   }
 
   uint8_t padding_length = paddingLength(*payload_length - aad_len, cipher_block_size);
   uint32_t packet_length = sizeof(padding_length) + *payload_length + padding_length;
 
   if (packet_length > MaxPacketSize) [[unlikely]] {
-    ENVOY_BUG(false, "encodePacket: encoded message is larger than the max packet size");
-    return absl::InternalError("encoded message is larger than the max packet size");
+    return absl::InvalidArgumentError("encoded message is larger than the max packet size");
   }
 
   size_t n = 0;

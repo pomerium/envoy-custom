@@ -5,6 +5,7 @@ ColumnLimit: 0
 DerivePointerAlignment: false
 PointerAlignment: Left
 SortIncludes: false
+BracedInitializerIndentWidth: 2
 
 AlignTrailingComments:
   Kind: Always
