@@ -3,6 +3,7 @@
 #include "absl/status/statusor.h"
 
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
+#include "envoy/config/core/v3/base.pb.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "source/extensions/filters/network/ssh/wire/util.h"
 #include "source/extensions/filters/network/ssh/frame.h"
@@ -56,6 +57,7 @@ struct AuthState {
   string_list auth_methods;
   bytes public_key;
   std::unique_ptr<pomerium::extensions::ssh::Permissions> permissions;
+  std::unique_ptr<envoy::config::core::v3::Metadata> metadata;
 
   std::unique_ptr<AuthState> clone();
 };

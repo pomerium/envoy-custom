@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package pomerium.extensions.ssh;
 
+import "envoy/config/core/v3/base.proto";
 import "envoy/config/core/v3/grpc_service.proto";
 import "google/protobuf/any.proto";
 import "google/protobuf/timestamp.proto";
@@ -137,10 +138,11 @@ message AuthenticationResponse {
 // successfully authenticated. Each method contains implementation-specific
 // metadata that can be processed by Envoy.
 message AllowResponse {
-  string                 username        = 1;
-  string                 hostname        = 2;
-  repeated AllowedMethod allowed_methods = 3;
-  Target                 target          = 4;
+  string                        username        = 1;
+  string                        hostname        = 2;
+  repeated AllowedMethod        allowed_methods = 3;
+  Target                        target          = 4;
+  envoy.config.core.v3.Metadata set_metadata    = 5;
 }
 
 enum Target {

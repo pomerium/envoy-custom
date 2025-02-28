@@ -37,9 +37,14 @@ ChannelStreamServiceClient::~ChannelStreamServiceClient() {
   stream_ = nullptr;
 }
 
-Grpc::AsyncStream<ChannelMessage>* ChannelStreamServiceClient::start(ChannelStreamCallbacks* callbacks) {
+Grpc::AsyncStream<ChannelMessage>* ChannelStreamServiceClient::start(
+    ChannelStreamCallbacks* callbacks, Envoy::OptRef<envoy::config::core::v3::Metadata> metadata) {
   callbacks_ = callbacks;
-  stream_ = client_.start(method_manage_stream_, *this, Http::AsyncClient::StreamOptions{});
+  Http::AsyncClient::StreamOptions opts;
+  if (metadata.has_value()) {
+    opts.setMetadata(*metadata);
+  }
+  stream_ = client_.start(method_manage_stream_, *this, opts);
   return &stream_;
 }
 

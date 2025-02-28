@@ -34,7 +34,7 @@ AEADPacketCipher::AEADPacketCipher(const char* cipher_name, bytes /*iv*/, bytes 
   iv_len_ = cipher_ivlen(cipher);
   aad_len_ = 4;
   sshcipher_ctx* cipher_ctx;
-  cipher_init(&cipher_ctx, cipher, key.data(), key.size(), nullptr, 0, mode);
+  cipher_init(&cipher_ctx, cipher, key.data(), static_cast<uint32_t>(key.size()), nullptr, 0, mode);
   ctx_.reset(cipher_ctx);
 }
 
@@ -42,14 +42,16 @@ absl::Status AEADPacketCipher::encryptPacket(uint32_t seqnum, Envoy::Buffer::Ins
                                              Envoy::Buffer::Instance& in) {
 
   auto in_length = in.length();
-  auto in_data = static_cast<uint8_t*>(in.linearize(in_length));
-  uint32_t packlen = in_length;
+  auto in_data = static_cast<uint8_t*>(in.linearize(static_cast<uint32_t>(in_length)));
+  uint32_t packlen = static_cast<uint32_t>(in_length);
 
   bytes out_data;
   out_data.resize(packlen + auth_len_);
 
-  auto r = cipher_crypt(ctx_.get(), seqnum, out_data.data(), in_data, packlen - aad_len_, aad_len_,
-                        auth_len_);
+  auto r = cipher_crypt(ctx_.get(), seqnum, out_data.data(), in_data,
+                        static_cast<uint32_t>(packlen - aad_len_),
+                        static_cast<uint32_t>(aad_len_),
+                        static_cast<uint32_t>(auth_len_));
   if (r != 0) {
     return absl::AbortedError(fmt::format("cipher_crypt failed: {}", ssh_err(r)));
   }
@@ -66,9 +68,9 @@ absl::Status AEADPacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffer::Ins
   }
 
   auto in_length = in.length();
-  auto in_data = static_cast<uint8_t*>(in.linearize(in_length));
+  auto in_data = static_cast<uint8_t*>(in.linearize(static_cast<uint32_t>(in_length)));
   uint32_t packlen = 0;
-  if (cipher_get_length(ctx_.get(), &packlen, seqnum, in_data, in_length) != 0) {
+  if (cipher_get_length(ctx_.get(), &packlen, seqnum, in_data, static_cast<uint32_t>(in_length)) != 0) {
     return absl::AbortedError("packet too small");
   }
   if (packlen < wire::MinPacketSize || packlen > wire::MaxPacketSize) {
@@ -94,7 +96,8 @@ absl::Status AEADPacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffer::Ins
   bytes out_data;
   out_data.resize(packlen + aad_len_);
 
-  auto r = cipher_crypt(ctx_.get(), seqnum, out_data.data(), in_data, packlen, aad_len_, auth_len_);
+  auto r = cipher_crypt(ctx_.get(), seqnum, out_data.data(), in_data, packlen,
+                        static_cast<uint32_t>(aad_len_), static_cast<uint32_t>(auth_len_));
   if (r != 0) {
     return absl::AbortedError(fmt::format("cipher_crypt failed: {}", ssh_err(r)));
   }

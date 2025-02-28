@@ -3,11 +3,13 @@
 #include <cerrno>
 #include <cstddef>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <sshkey.h>
 #include <unistd.h>
 
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
+#include "envoy/config/core/v3/base.pb.h"
 #include "envoy/network/connection.h"
 #include "source/common/buffer/buffer_impl.h"
 #include "source/extensions/filters/network/generic_proxy/codec_callbacks.h"
@@ -298,7 +300,8 @@ void SshServerCodec::initUpstream(AuthStateSharedPtr downstreamState) {
     break;
   }
   case ChannelMode::Hijacked: {
-    downstream_state_->hijacked_stream = channel_client_->start(connection_service_.get());
+    downstream_state_->hijacked_stream = channel_client_->start(
+        connection_service_.get(), makeOptRefFromPtr(downstreamState->metadata.get()));
     auto _ = sendMessageToConnection(wire::EmptyMsg<wire::SshMessageType::UserAuthSuccess>{});
     break;
   }

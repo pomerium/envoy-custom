@@ -1,6 +1,7 @@
 #include "source/extensions/filters/network/ssh/service_userauth.h"
 
 #include <cstdlib>
+#include <memory>
 
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
@@ -165,6 +166,9 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
           memcpy(state->public_key.data(), pubkey.public_key().data(), pubkey.public_key().size());
           state->permissions.reset(pubkey.release_permissions());
         }
+      }
+      if (allow.has_set_metadata()) {
+        state->metadata.reset(allow.release_set_metadata());
       }
       transport_.initUpstream(std::move(state));
       return absl::OkStatus();

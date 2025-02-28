@@ -57,7 +57,7 @@ absl::Status Curve25519Sha256KexAlgorithm::HandleServerRecv(const wire::SshMsg& 
 
   fixed_bytes<SSH_DIGEST_MAX_LENGTH> digest_buf;
   size_t digest_len = sizeof(digest_buf);
-  auto buf = exchangeHash.linearize(exchangeHash.length());
+  auto buf = exchangeHash.linearize(static_cast<uint32_t>(exchangeHash.length()));
   auto hash_alg = kex_hash_from_name(algs_->kex.c_str());
   ssh_digest_memory(hash_alg, buf, exchangeHash.length(), digest_buf.data(), digest_len);
   exchangeHash.drain(exchangeHash.length());
@@ -122,7 +122,7 @@ absl::Status Curve25519Sha256KexAlgorithm::HandleClientRecv(const wire::SshMsg& 
 
   fixed_bytes<SSH_DIGEST_MAX_LENGTH> digest_buf;
   size_t digest_len = digest_buf.size();
-  auto buf = exchangeHash.linearize(exchangeHash.length());
+  auto buf = exchangeHash.linearize(static_cast<uint32_t>(exchangeHash.length()));
   auto hash_alg = kex_hash_from_name(algs_->kex.c_str());
   ssh_digest_memory(hash_alg, buf, exchangeHash.length(), digest_buf.data(), digest_len);
   exchangeHash.drain(exchangeHash.length());
