@@ -11,9 +11,7 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 class UserAuthService : public Service,
                         public Logger::Loggable<Logger::Id::filter> {
 public:
-  constexpr virtual std::string name() override {
-    return "ssh-userauth";
-  };
+  constexpr std::string name() override { return "ssh-userauth"; };
   UserAuthService(TransportCallbacks& callbacks, Api::Api& api);
   void registerMessageHandlers(SshMessageDispatcher& dispatcher) const override;
   absl::Status requestService() override;

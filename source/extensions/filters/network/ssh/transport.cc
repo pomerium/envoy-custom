@@ -9,7 +9,7 @@ absl::StatusOr<size_t> TransportCallbacks::sendMessageToConnection(const wire::S
   const auto& cs = getConnectionState();
 
   Envoy::Buffer::OwnedImpl dec;
-  auto stat = wire::encodePacket(dec, msg, cs.cipher->blockSize(MODE_WRITE), cs.cipher->aadSize(MODE_WRITE));
+  auto stat = wire::encodePacket(dec, msg, cs.cipher->blockSize(ModeWrite), cs.cipher->aadSize(ModeWrite));
   if (!stat.ok()) {
     return stat.status();
   }

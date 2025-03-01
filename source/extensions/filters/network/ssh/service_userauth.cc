@@ -17,12 +17,12 @@ UserAuthService::UserAuthService(TransportCallbacks& callbacks, Api::Api& api)
     : transport_(callbacks), api_(api) {
   {
     auto privKey = openssh::SSHKey::fromPrivateKeyFile(transport_.codecConfig().user_ca_key().private_key_file());
-    THROW_IF_NOT_OK(privKey.status());
+    THROW_IF_NOT_OK_REF(privKey.status());
     ca_user_key_ = std::move(*privKey);
   }
   {
     auto pubKey = openssh::SSHKey::fromPublicKeyFile(transport_.codecConfig().user_ca_key().public_key_file());
-    THROW_IF_NOT_OK(pubKey.status());
+    THROW_IF_NOT_OK_REF(pubKey.status());
     ca_user_pubkey_ = std::move(*pubKey);
   }
 }
@@ -48,10 +48,10 @@ absl::Status UserAuthService::requestService() {
 absl::Status DownstreamUserAuthService::handleMessage(wire::SshMsg&& msg) {
   switch (msg.msg_type()) {
   case wire::SshMessageType::UserAuthRequest: {
-    const auto& userAuthMsg = dynamic_cast<const wire::UserAuthRequestMsg&>(msg);
+    auto& userAuthMsg = dynamic_cast<const wire::UserAuthRequestMsg&>(msg);
 
     const std::vector<absl::string_view> parts =
-        absl::StrSplit(*userAuthMsg.username, absl::MaxSplits("@", 1));
+        absl::StrSplit(*userAuthMsg.username, absl::MaxSplits('@', 1));
     std::string username, hostname;
     if (parts.size() == 2) {
       username = parts[0];
@@ -65,23 +65,30 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::SshMsg&& msg) {
     auth_req.set_username(username);
 
     return userAuthMsg.msg.visit(
-        [&](const wire::PubKeyUserAuthRequestMsg& pubkeyReq) {
-          auto userPubKey = openssh::SSHKey::fromBlob(pubkeyReq.public_key);
+        [&](const wire::PubKeyUserAuthRequestMsg& pubkey_req) {
+          auto userPubKey = openssh::SSHKey::fromBlob(pubkey_req.public_key);
+          if (!userPubKey.ok()) {
+            return userPubKey.status();
+          }
           wire::UserAuthBannerMsg banner{};
+          auto fingerprint = userPubKey->fingerprint();
+          if (!fingerprint.ok()) {
+            return fingerprint.status();
+          }
           auto msgDump = fmt::format("\r\nmethod:   {}"
                                      "\r\nusername: {}"
                                      "\r\nhostname: {}"
                                      "\r\nkeyalg:   {}"
                                      "\r\npubkey:   {}",
                                      userAuthMsg.method_name, username, hostname,
-                                     pubkeyReq.public_key_alg, userPubKey->fingerprint());
+                                     pubkey_req.public_key_alg, *fingerprint);
           banner.message =
               "\r\n====== TEST BANNER ======" + msgDump + "\r\n=========================\r\n";
           auto _ = transport_.sendMessageToConnection(banner);
 
           PublicKeyMethodRequest method_req;
-          method_req.set_public_key(pubkeyReq.public_key->data(), pubkeyReq.public_key->size());
-          method_req.set_public_key_alg(pubkeyReq.public_key_alg);
+          method_req.set_public_key(pubkey_req.public_key->data(), pubkey_req.public_key->size());
+          method_req.set_public_key_alg(pubkey_req.public_key_alg);
           auth_req.mutable_method_request()->PackFrom(method_req);
 
           pomerium::extensions::ssh::ClientMessage clientMsg;
@@ -90,9 +97,9 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::SshMsg&& msg) {
 
           return absl::OkStatus();
         },
-        [&](const wire::KeyboardInteractiveUserAuthRequestMsg& interactiveReq) {
+        [&](const wire::KeyboardInteractiveUserAuthRequestMsg& interactive_req) {
           KeyboardInteractiveMethodRequest method_req;
-          for (const auto& sm : *interactiveReq.submethods) {
+          for (const auto& sm : *interactive_req.submethods) {
             method_req.add_submethods(sm);
           }
           auth_req.mutable_method_request()->PackFrom(method_req);
@@ -108,7 +115,7 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::SshMsg&& msg) {
           failure.methods = {"publickey"s, "keyboard-interactive"s};
           return transport_.sendMessageToConnection(failure).status();
         },
-        [&](std::monostate) {
+        [&](auto) {
           ENVOY_LOG(debug, "unsupported user auth request {}", userAuthMsg.method_name);
           return absl::UnimplementedError("unknown or unsupported auth method");
         });
@@ -174,14 +181,14 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
       return absl::OkStatus();
     }
     case AuthenticationResponse::kDeny: {
-      auto deny = authResp.deny();
+      const auto& deny = authResp.deny();
       wire::UserAuthFailureMsg failure;
       auto methods = deny.methods();
       failure.methods = string_list(methods.begin(), methods.end());
       return transport_.sendMessageToConnection(failure).status();
     }
     case AuthenticationResponse::kInfoRequest: {
-      auto infoReq = authResp.info_request();
+      const auto& infoReq = authResp.info_request();
       if (infoReq.method() == "keyboard-interactive") {
         KeyboardInteractiveInfoPrompts server_req;
         infoReq.request().UnpackTo(&server_req);
@@ -190,7 +197,7 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
         client_req.name = server_req.name();
         client_req.instruction = server_req.instruction();
         for (const auto& prompt : server_req.prompts()) {
-          wire::userAuthInfoPrompt p;
+          wire::UserAuthInfoPrompt p;
           p.prompt = prompt.prompt();
           p.echo = prompt.echo();
           client_req.prompts->push_back(std::move(p));
@@ -256,7 +263,7 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::SshMsg&& msg) {
     (void)pubkeyOkMsg;
     // compute signature
     Envoy::Buffer::OwnedImpl buf;
-    wire::write_opt<wire::LengthPrefixed>(buf, transport_.getKexResult().SessionID);
+    wire::write_opt<wire::LengthPrefixed>(buf, transport_.getKexResult().session_id);
     pending_req_->msg.get<wire::PubKeyUserAuthRequestMsg>().has_signature = true; // see PubKeyUserAuthRequestMsg::writeExtra
     auto stat = pending_req_->encode(buf);
     if (!stat.ok()) {

@@ -6,8 +6,13 @@
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-ConnectionService::ConnectionService(TransportCallbacks& callbacks, Api::Api& api, AccessLog::AccessLogFileSharedPtr access_log)
-    : transport_(callbacks), api_(api), access_log_(access_log) {
+ConnectionService::ConnectionService(
+    TransportCallbacks& callbacks,
+    Api::Api& api,
+    AccessLog::AccessLogFileSharedPtr access_log)
+    : transport_(callbacks),
+      api_(api),
+      access_log_(access_log) {
   (void)api_;
 }
 
@@ -153,17 +158,17 @@ absl::Status UpstreamConnectionService::handleMessage(wire::SshMsg&& msg) {
   switch (msg.msg_type()) {
   case wire::SshMessageType::ChannelOpenConfirmation: {
     transport_.forward(
-        std::make_unique<SSHResponseCommonFrame>(streamId, dynamic_cast<wire::ChannelOpenConfirmationMsg&&>(msg)));
+        std::make_unique<SSHResponseCommonFrame>(streamId, dynamic_cast<wire::ChannelOpenConfirmationMsg&&>(std::move(msg))));
     break;
   }
   case wire::SshMessageType::ChannelOpenFailure: {
     transport_.forward(
-        std::make_unique<SSHResponseCommonFrame>(streamId, dynamic_cast<wire::ChannelOpenFailureMsg&&>(msg)));
+        std::make_unique<SSHResponseCommonFrame>(streamId, dynamic_cast<wire::ChannelOpenFailureMsg&&>(std::move(msg))));
     break;
   }
   case wire::SshMessageType::ChannelWindowAdjust: {
     transport_.forward(
-        std::make_unique<SSHResponseCommonFrame>(streamId, dynamic_cast<wire::ChannelWindowAdjustMsg&&>(msg)));
+        std::make_unique<SSHResponseCommonFrame>(streamId, dynamic_cast<wire::ChannelWindowAdjustMsg&&>(std::move(msg))));
     break;
   }
   case wire::SshMessageType::ChannelData: {
@@ -181,25 +186,25 @@ absl::Status UpstreamConnectionService::handleMessage(wire::SshMsg&& msg) {
       tmp.drain(tmp.length());
     }
     transport_.forward(
-        std::make_unique<SSHResponseCommonFrame>(streamId, dynamic_cast<wire::ChannelDataMsg&&>(msg)));
+        std::make_unique<SSHResponseCommonFrame>(streamId, dynamic_cast<wire::ChannelDataMsg&&>(std::move(msg))));
 
     break;
   }
   case wire::SshMessageType::ChannelExtendedData: {
     transport_.forward(
-        std::make_unique<SSHResponseCommonFrame>(streamId, dynamic_cast<wire::ChannelExtendedDataMsg&&>(msg)));
+        std::make_unique<SSHResponseCommonFrame>(streamId, dynamic_cast<wire::ChannelExtendedDataMsg&&>(std::move(msg))));
 
     break;
   }
   case wire::SshMessageType::ChannelEOF: {
     transport_.forward(
-        std::make_unique<SSHResponseCommonFrame>(streamId, dynamic_cast<wire::ChannelEOFMsg&&>(msg)));
+        std::make_unique<SSHResponseCommonFrame>(streamId, dynamic_cast<wire::ChannelEOFMsg&&>(std::move(msg))));
 
     break;
   }
   case wire::SshMessageType::ChannelClose: {
     transport_.forward(
-        std::make_unique<SSHResponseCommonFrame>(streamId, dynamic_cast<wire::ChannelCloseMsg&&>(msg)));
+        std::make_unique<SSHResponseCommonFrame>(streamId, dynamic_cast<wire::ChannelCloseMsg&&>(std::move(msg))));
 
     break;
   }
@@ -226,19 +231,19 @@ absl::Status UpstreamConnectionService::handleMessage(wire::SshMsg&& msg) {
       tmp.drain(tmp.length());
     }
     transport_.forward(
-        std::make_unique<SSHResponseCommonFrame>(streamId, dynamic_cast<wire::ChannelRequestMsg&&>(msg)));
+        std::make_unique<SSHResponseCommonFrame>(streamId, dynamic_cast<wire::ChannelRequestMsg&&>(std::move(msg))));
 
     break;
   }
   case wire::SshMessageType::ChannelSuccess: {
     transport_.forward(
-        std::make_unique<SSHResponseCommonFrame>(streamId, dynamic_cast<wire::ChannelSuccessMsg&&>(msg)));
+        std::make_unique<SSHResponseCommonFrame>(streamId, dynamic_cast<wire::ChannelSuccessMsg&&>(std::move(msg))));
 
     break;
   }
   case wire::SshMessageType::ChannelFailure: {
     transport_.forward(
-        std::make_unique<SSHResponseCommonFrame>(streamId, dynamic_cast<wire::ChannelFailureMsg&&>(msg)));
+        std::make_unique<SSHResponseCommonFrame>(streamId, dynamic_cast<wire::ChannelFailureMsg&&>(std::move(msg))));
 
     break;
   }
@@ -248,10 +253,10 @@ absl::Status UpstreamConnectionService::handleMessage(wire::SshMsg&& msg) {
   return absl::OkStatus();
 }
 
-void DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) {
-  switch (message->message_case()) {
+void DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& msg) { // NOLINT
+  switch (msg->message_case()) {
   case pomerium::extensions::ssh::ChannelMessage::kRawBytes: {
-    auto anyMsg = wire::AnyMsg::fromString(message->raw_bytes().value());
+    auto anyMsg = wire::AnyMsg::fromString(msg->raw_bytes().value());
     if (!anyMsg.ok()) {
       ENVOY_LOG(error, "received invalid channel message");
       return; // TODO: wire up status here
@@ -261,7 +266,7 @@ void DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<ChannelMess
   }
   case pomerium::extensions::ssh::ChannelMessage::kChannelControl: {
     pomerium::extensions::ssh::SSHChannelControlAction ctrl_action;
-    message->channel_control().control_action().UnpackTo(&ctrl_action);
+    msg->channel_control().control_action().UnpackTo(&ctrl_action);
     switch (ctrl_action.action_case()) {
     case pomerium::extensions::ssh::SSHChannelControlAction::kHandOff: {
       const auto& handOffMsg = ctrl_action.hand_off();

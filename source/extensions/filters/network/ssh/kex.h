@@ -39,35 +39,35 @@ static const string_list preferredCiphers = {cipherChacha20Poly1305, cipherAES12
 
 // TODO: non-AEAD cipher support
 static const string_list supportedMACs{
-    // "hmac-sha2-256-etm@openssh.com",
-    // "hmac-sha2-512-etm@openssh.com",
-    // "hmac-sha2-256",
-    // "hmac-sha2-512",
-    // "hmac-sha1",
-    // "hmac-sha1-96",
+  // "hmac-sha2-256-etm@openssh.com",
+  // "hmac-sha2-512-etm@openssh.com",
+  // "hmac-sha2-256",
+  // "hmac-sha2-512",
+  // "hmac-sha1",
+  // "hmac-sha1-96",
 };
 
 // from go ssh/common.go
 static const std::set<std::string> aeadCiphers = {
-    cipherAES128GCM,
-    cipherAES256GCM,
-    cipherChacha20Poly1305,
+  cipherAES128GCM,
+  cipherAES256GCM,
+  cipherChacha20Poly1305,
 };
 
-struct direction_algorithms_t {
+struct DirectionAlgorithms {
   std::string cipher;
   std::string mac;
   std::string compression;
 };
 
-struct algorithms_t {
+struct Algorithms {
   std::string kex;
   std::string host_key;
-  direction_algorithms_t w;
-  direction_algorithms_t r;
+  DirectionAlgorithms w;
+  DirectionAlgorithms r;
 };
 
-struct handshake_magics_t {
+struct HandshakeMagics {
   std::string client_version;
   std::string server_version;
   bytes client_kex_init;
@@ -81,24 +81,24 @@ struct handshake_magics_t {
   }
 };
 
-enum hash_function {
+enum HashFunction {
   SHA256 = SSH_DIGEST_SHA256,
   SHA512 = SSH_DIGEST_SHA512,
 };
 
-struct kex_result_t {
-  bytes H; // exchange hash
-  bytes K; // raw shared secret, not encoded as a length-prefixed bignum
-  bytes HostKeyBlob;
-  bytes Signature;
-  hash_function Hash;
-  bytes SessionID;
-  bytes EphemeralPubKey;
-  algorithms_t Algorithms;
+struct KexResult {
+  bytes exchange_hash; // 'H'
+  bytes shared_secret; // 'K'; not encoded as a length-prefixed bignum
+  bytes host_key_blob;
+  bytes signature;
+  HashFunction hash;
+  bytes session_id;
+  bytes ephemeral_pub_key;
+  Algorithms algorithms;
 
-  void EncodeSharedSecret(bytes& out) {
+  void encodeSharedSecret(bytes& out) {
     Envoy::Buffer::OwnedImpl tmp;
-    wire::writeBignum(tmp, K);
+    wire::writeBignum(tmp, shared_secret);
     wire::flushTo<bytes>(tmp, out);
   }
 };
@@ -107,19 +107,19 @@ class KexAlgorithm : public Logger::Loggable<Logger::Id::filter> {
   friend class Kex;
 
 public:
-  KexAlgorithm(const handshake_magics_t* magics, const algorithms_t* algs,
+  KexAlgorithm(const HandshakeMagics* magics, const Algorithms* algs,
                const host_keypair_t* signer)
       : magics_(magics), algs_(algs), signer_(signer) {}
   virtual ~KexAlgorithm() = default;
 
-  virtual absl::Status HandleServerRecv(const wire::SshMsg& msg) PURE;
-  virtual absl::StatusOr<std::unique_ptr<wire::SshMsg>> HandleClientSend() PURE;
-  virtual absl::Status HandleClientRecv(const wire::SshMsg& msg) PURE;
-  virtual std::shared_ptr<kex_result_t>&& Result() PURE;
+  virtual absl::Status handleServerRecv(const wire::SshMsg& msg) PURE;
+  virtual absl::StatusOr<std::unique_ptr<wire::SshMsg>> handleClientSend() PURE;
+  virtual absl::Status handleClientRecv(const wire::SshMsg& msg) PURE;
+  virtual std::shared_ptr<KexResult>&& result() PURE;
 
 protected:
-  const handshake_magics_t* magics_;
-  const algorithms_t* algs_;
+  const HandshakeMagics* magics_;
+  const Algorithms* algs_;
   const host_keypair_t* signer_;
 
   bool shouldIgnorePacket() {
@@ -138,7 +138,7 @@ private:
   }
 };
 
-struct curve25519_keypair_t {
+struct Curve25519Keypair {
   std::array<uint8_t, 32> priv;
   std::array<uint8_t, 32> pub;
 };
@@ -149,21 +149,21 @@ class Curve25519Sha256KexAlgorithm : public KexAlgorithm {
 public:
   using KexAlgorithm::KexAlgorithm;
 
-  absl::Status HandleServerRecv(const wire::SshMsg& msg) override;
-  absl::StatusOr<std::unique_ptr<wire::SshMsg>> HandleClientSend() override;
-  absl::Status HandleClientRecv(const wire::SshMsg& msg) override;
+  absl::Status handleServerRecv(const wire::SshMsg& msg) override;
+  absl::StatusOr<std::unique_ptr<wire::SshMsg>> handleClientSend() override;
+  absl::Status handleClientRecv(const wire::SshMsg& msg) override;
 
-  std::shared_ptr<kex_result_t>&& Result() override;
+  std::shared_ptr<KexResult>&& result() override;
 
 private:
-  std::shared_ptr<kex_result_t> result_;
-  curve25519_keypair_t client_keypair_;
+  std::shared_ptr<KexResult> result_;
+  Curve25519Keypair client_keypair_;
 
   absl::Status buildResult(uint8_t client_pub_key[32], uint8_t shared_secret[32],
-                           curve25519_keypair_t server_keypair);
+                           Curve25519Keypair server_keypair);
 };
 
-struct kex_state_t {
+struct KexState {
   bool is_server{};
   bool client_has_ext_info{};
   bool server_has_ext_info{};
@@ -171,13 +171,13 @@ struct kex_state_t {
   bool ext_info_received{};
   wire::KexInitMessage our_kex{};
   wire::KexInitMessage peer_kex{};
-  algorithms_t negotiated_algorithms{};
-  handshake_magics_t magics{};
-  std::optional<bytes> session_id{};
+  Algorithms negotiated_algorithms{};
+  HandshakeMagics magics{};
+  std::optional<bytes> session_id;
   uint32_t flags{};
 
   std::unique_ptr<KexAlgorithm> alg_impl;
-  std::shared_ptr<kex_result_t> kex_result;
+  std::shared_ptr<KexResult> kex_result;
 
   bool kex_init_sent{};
   bool kex_init_received{};
@@ -197,47 +197,55 @@ struct kex_state_t {
 };
 
 static const string_list rsaSha2256HostKeyAlgs = {
-    "rsa-sha2-256",
-    "rsa-sha2-256-cert-v01@openssh.com",
+  "rsa-sha2-256",
+  "rsa-sha2-256-cert-v01@openssh.com",
 };
 
 static const string_list rsaSha2512HostKeyAlgs = {
-    "rsa-sha2-512",
-    "rsa-sha2-512-cert-v01@openssh.com",
+  "rsa-sha2-512",
+  "rsa-sha2-512-cert-v01@openssh.com",
 };
 
-inline string_list algorithmsForKeyFormat(std::string_view keyFormat) {
-  if (keyFormat == "ssh-rsa") {
+inline string_list algorithmsForKeyFormat(std::string_view key_format) {
+  if (key_format == "ssh-rsa") {
     return {"rsa-sha2-256", "rsa-sha2-512", "ssh-rsa"};
-  } else if (keyFormat == "ssh-rsa-cert-v01@openssh.com") {
+  } else if (key_format == "ssh-rsa-cert-v01@openssh.com") {
     return {"rsa-sha2-256-cert-v01@openssh.com", "rsa-sha2-512-cert-v01@openssh.com",
             "ssh-rsa-cert-v01@openssh.com"};
   }
-  return {std::string(keyFormat)};
+  return {std::string(key_format)};
 }
 
 class KexCallbacks {
 public:
   virtual ~KexCallbacks() = default;
-  virtual void setKexResult(std::shared_ptr<kex_result_t> kex_result) PURE;
+  virtual void setKexResult(std::shared_ptr<KexResult> kex_result) PURE;
+};
+
+enum class KexMode {
+  None = 0,
+  Server = 1,
+  Client = 2,
 };
 
 class Kex : public VersionExchangeCallbacks,
             public SshMessageHandler,
             public Logger::Loggable<Logger::Id::filter> {
 public:
-  Kex(TransportCallbacks& transportCallbacks, KexCallbacks& kexCallbacks, Filesystem::Instance& fs,
-      bool isServer);
+  Kex(TransportCallbacks& transport_callbacks,
+      KexCallbacks& kex_callbacks,
+      Filesystem::Instance& fs,
+      KexMode mode);
 
   absl::Status doInitialKex(Envoy::Buffer::Instance& buffer) noexcept;
-  absl::StatusOr<algorithms_t> negotiateAlgorithms() noexcept;
+  absl::StatusOr<Algorithms> negotiateAlgorithms() noexcept;
   absl::StatusOr<std::unique_ptr<KexAlgorithm>> newAlgorithmImpl();
   const host_keypair_t* pickHostKey(std::string_view alg);
   const host_keypair_t* getHostKey(std::string_view pkalg);
   absl::StatusOr<std::string> findCommon(std::string_view what, const string_list& client,
                                          const string_list& server);
   absl::Status loadHostKeys();
-  absl::Status loadSshKeyPair(std::string_view privKeyPath, std::string_view pubKeyPath);
+  absl::Status loadSshKeyPair(std::string_view priv_key_path, std::string_view pub_key_path);
   void registerMessageHandlers(MessageDispatcher<wire::SshMsg>& dispatcher) const override {
     dispatcher.registerHandler(wire::SshMessageType::KexInit, this);
     dispatcher.registerHandler(wire::SshMessageType::KexECDHInit, this);
@@ -253,7 +261,7 @@ private:
 
   TransportCallbacks& transport_;
   KexCallbacks& kex_callbacks_;
-  std::unique_ptr<kex_state_t> state_;
+  std::unique_ptr<KexState> state_;
   Filesystem::Instance& fs_;
   bool is_server_;
   std::vector<host_keypair_t> host_keys_;

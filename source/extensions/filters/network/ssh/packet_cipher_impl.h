@@ -68,21 +68,21 @@ public:
   }
 };
 
-void generateKeyMaterial(bytes& out, const bytes& tag, kex_result_t* kex_result);
+void generateKeyMaterial(bytes& out, const bytes& tag, KexResult* kex_result);
 
-struct cipher_mode_t {
+struct CipherMode {
   size_t keySize;
   size_t ivSize;
 
   std::function<std::unique_ptr<DirectionalPacketCipher>(bytes, bytes, Mode)> create;
 };
-static const std::map<std::string, cipher_mode_t> cipherModes{
-    {cipherChacha20Poly1305, {64, 0, [](bytes iv, bytes key, Mode mode) {
-                                return std::make_unique<Chacha20Poly1305Cipher>(iv, key, mode);
-                              }}}};
+static const std::map<std::string, CipherMode> cipherModes{
+  {cipherChacha20Poly1305, {64, 0, [](bytes iv, bytes key, Mode mode) {
+                              return std::make_unique<Chacha20Poly1305Cipher>(iv, key, mode);
+                            }}}};
 
-std::unique_ptr<PacketCipher> NewPacketCipher(direction_t read, direction_t write,
-                                              kex_result_t* kex_result);
+std::unique_ptr<PacketCipher> newPacketCipher(direction_t read, direction_t write,
+                                              KexResult* kex_result);
 
-std::unique_ptr<PacketCipher> NewUnencrypted();
+std::unique_ptr<PacketCipher> newUnencrypted();
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

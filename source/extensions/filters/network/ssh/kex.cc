@@ -1,6 +1,7 @@
 #include "source/extensions/filters/network/ssh/kex.h"
 
 #include <algorithm>
+#include <memory>
 
 #include "openssl/curve25519.h"
 #include "openssl/rand.h"
@@ -19,7 +20,7 @@ extern "C" {
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-absl::Status Curve25519Sha256KexAlgorithm::HandleServerRecv(const wire::SshMsg& msg) {
+absl::Status Curve25519Sha256KexAlgorithm::handleServerRecv(const wire::SshMsg& msg) {
   const auto& peerMsg = dynamic_cast<const wire::KexEcdhInitMessage&>(msg);
 
   if (auto sz = peerMsg.client_pub_key->size(); sz != 32) {
@@ -29,7 +30,7 @@ absl::Status Curve25519Sha256KexAlgorithm::HandleServerRecv(const wire::SshMsg& 
   fixed_bytes<32> client_pub_key;
   std::copy_n(peerMsg.client_pub_key->begin(), 32, client_pub_key.begin());
 
-  curve25519_keypair_t server_keypair;
+  Curve25519Keypair server_keypair;
   kexc25519_keygen(server_keypair.priv.data(), server_keypair.pub.data());
 
   fixed_bytes<32> shared_secret;
@@ -40,17 +41,17 @@ absl::Status Curve25519Sha256KexAlgorithm::HandleServerRecv(const wire::SshMsg& 
     return absl::AbortedError("peer's curve25519 public value has wrong order");
   }
 
-  result_.reset(new kex_result_t);
-  result_->Algorithms = *algs_;
+  result_ = std::make_shared<KexResult>();
+  result_->algorithms = *algs_;
   auto blob = signer_->pub.toBlob();
   if (!blob.ok()) {
     return blob.status();
   }
-  result_->HostKeyBlob = *blob;
+  result_->host_key_blob = *blob;
 
   Envoy::Buffer::OwnedImpl exchangeHash;
   magics_->encode(exchangeHash);
-  wire::write_opt<wire::LengthPrefixed>(exchangeHash, result_->HostKeyBlob);
+  wire::write_opt<wire::LengthPrefixed>(exchangeHash, result_->host_key_blob);
   wire::write_opt<wire::LengthPrefixed>(exchangeHash, client_pub_key);
   wire::write_opt<wire::LengthPrefixed>(exchangeHash, server_keypair.pub);
   wire::writeBignum(exchangeHash, shared_secret);
@@ -69,19 +70,19 @@ absl::Status Curve25519Sha256KexAlgorithm::HandleServerRecv(const wire::SshMsg& 
     return sig.status();
   }
 
-  result_->H = to_bytes(digest);
-  result_->K = to_bytes(shared_secret);
+  result_->exchange_hash = to_bytes(digest);
+  result_->shared_secret = to_bytes(shared_secret);
 
-  result_->Signature = *sig;
-  result_->Hash = SHA256;
-  result_->EphemeralPubKey = to_bytes(server_keypair.pub);
+  result_->signature = *sig;
+  result_->hash = SHA256;
+  result_->ephemeral_pub_key = to_bytes(server_keypair.pub);
   // session id is not set here
 
   return absl::OkStatus();
 }
 
-absl::StatusOr<std::unique_ptr<wire::SshMsg>> Curve25519Sha256KexAlgorithm::HandleClientSend() {
-  curve25519_keypair_t client_keypair;
+absl::StatusOr<std::unique_ptr<wire::SshMsg>> Curve25519Sha256KexAlgorithm::handleClientSend() {
+  Curve25519Keypair client_keypair;
   kexc25519_keygen(client_keypair.priv.data(), client_keypair.pub.data());
   client_keypair_ = client_keypair;
   auto msg = std::make_unique<wire::KexEcdhInitMessage>();
@@ -90,7 +91,7 @@ absl::StatusOr<std::unique_ptr<wire::SshMsg>> Curve25519Sha256KexAlgorithm::Hand
   return msg;
 }
 
-absl::Status Curve25519Sha256KexAlgorithm::HandleClientRecv(const wire::SshMsg& msg) {
+absl::Status Curve25519Sha256KexAlgorithm::handleClientRecv(const wire::SshMsg& msg) {
   auto& serverMsg = dynamic_cast<const wire::KexEcdhReplyMsg&>(msg);
 
   if (auto sz = serverMsg.ephemeral_pub_key->size(); sz != 32) {
@@ -109,13 +110,13 @@ absl::Status Curve25519Sha256KexAlgorithm::HandleClientRecv(const wire::SshMsg& 
     return absl::AbortedError("peer's curve25519 public value has wrong order");
   }
 
-  result_.reset(new kex_result_t);
-  result_->Algorithms = *algs_;
-  result_->HostKeyBlob = serverMsg.host_key;
+  result_ = std::make_shared<KexResult>();
+  result_->algorithms = *algs_;
+  result_->host_key_blob = serverMsg.host_key;
 
   Envoy::Buffer::OwnedImpl exchangeHash;
   magics_->encode(exchangeHash);
-  wire::write_opt<wire::LengthPrefixed>(exchangeHash, result_->HostKeyBlob);
+  wire::write_opt<wire::LengthPrefixed>(exchangeHash, result_->host_key_blob);
   wire::write_opt<wire::LengthPrefixed>(exchangeHash, client_keypair_.pub);
   wire::write_opt<wire::LengthPrefixed>(exchangeHash, server_pub_key);
   wire::writeBignum(exchangeHash, shared_secret);
@@ -139,24 +140,26 @@ absl::Status Curve25519Sha256KexAlgorithm::HandleClientRecv(const wire::SshMsg& 
     return stat;
   }
 
-  result_->H = to_bytes(digest);
-  result_->K = to_bytes(shared_secret);
-  result_->Signature = serverMsg.signature;
-  result_->Hash = SHA256;
-  result_->EphemeralPubKey = serverMsg.ephemeral_pub_key;
+  result_->exchange_hash = to_bytes(digest);
+  result_->shared_secret = to_bytes(shared_secret);
+  result_->signature = serverMsg.signature;
+  result_->hash = SHA256;
+  result_->ephemeral_pub_key = serverMsg.ephemeral_pub_key;
   // session id is not set here
 
   return absl::OkStatus();
 }
 
-std::shared_ptr<kex_result_t>&& Curve25519Sha256KexAlgorithm::Result() {
+std::shared_ptr<KexResult>&& Curve25519Sha256KexAlgorithm::result() {
   return std::move(result_);
 };
 
-Kex::Kex(TransportCallbacks& transportCallbacks, KexCallbacks& kexCallbacks,
-         Filesystem::Instance& fs, bool isServer)
-    : transport_(transportCallbacks), kex_callbacks_(kexCallbacks),
-      state_(std::make_unique<kex_state_t>()), fs_(fs), is_server_(isServer) {
+Kex::Kex(TransportCallbacks& transport_callbacks, KexCallbacks& kex_callbacks,
+         Filesystem::Instance& fs, KexMode mode)
+    : transport_(transport_callbacks), kex_callbacks_(kex_callbacks),
+      state_(std::make_unique<KexState>()),
+      fs_(fs),
+      is_server_(mode == KexMode::Server) {
   THROW_IF_NOT_OK(loadHostKeys());
 }
 
@@ -222,7 +225,7 @@ absl::Status Kex::handleMessage(wire::SshMsg&& msg) noexcept {
       state_->alg_impl = std::move(*algImpl);
 
       if (!is_server_) {
-        auto stat = state_->alg_impl->HandleClientSend();
+        auto stat = state_->alg_impl->handleClientSend();
         if (!stat.ok()) {
           return stat.status();
         }
@@ -251,32 +254,32 @@ absl::Status Kex::handleMessage(wire::SshMsg&& msg) noexcept {
     }
 
     if (is_server_) {
-      auto stat = state_->alg_impl->HandleServerRecv(msg);
+      auto stat = state_->alg_impl->handleServerRecv(msg);
       if (!stat.ok()) {
         return stat;
       }
     } else {
-      auto stat = state_->alg_impl->HandleClientRecv(msg);
+      auto stat = state_->alg_impl->handleClientRecv(msg);
       if (!stat.ok()) {
         return stat;
       }
     }
 
-    state_->kex_result = state_->alg_impl->Result();
+    state_->kex_result = state_->alg_impl->result();
     state_->alg_impl.reset();
 
     if (is_server_) {
       if (!state_->kex_reply_sent) {
         auto firstKeyExchange = !state_->session_id.has_value();
         if (firstKeyExchange) {
-          state_->session_id = state_->kex_result->H;
+          state_->session_id = state_->kex_result->exchange_hash;
         }
-        state_->kex_result->SessionID = state_->session_id.value();
+        state_->kex_result->session_id = state_->session_id.value();
 
         wire::KexEcdhReplyMsg reply;
-        reply.host_key = state_->kex_result->HostKeyBlob;
-        reply.ephemeral_pub_key = state_->kex_result->EphemeralPubKey;
-        reply.signature = state_->kex_result->Signature;
+        reply.host_key = state_->kex_result->host_key_blob;
+        reply.ephemeral_pub_key = state_->kex_result->ephemeral_pub_key;
+        reply.signature = state_->kex_result->signature;
         if (auto err = transport_.sendMessageToConnection(reply); !err.ok()) {
           return err.status();
         }
@@ -297,9 +300,9 @@ absl::Status Kex::handleMessage(wire::SshMsg&& msg) noexcept {
     } else {
       auto firstKeyExchange = !state_->session_id.has_value();
       if (firstKeyExchange) {
-        state_->session_id = state_->kex_result->H;
+        state_->session_id = state_->kex_result->exchange_hash;
       }
-      state_->kex_result->SessionID = state_->session_id.value();
+      state_->kex_result->session_id = state_->session_id.value();
 
       auto newkeys = wire::EmptyMsg<wire::SshMessageType::NewKeys>{};
       if (auto err = transport_.sendMessageToConnection(newkeys); !err.ok()) {
@@ -311,7 +314,7 @@ absl::Status Kex::handleMessage(wire::SshMsg&& msg) noexcept {
   return absl::OkStatus();
 }
 
-absl::StatusOr<algorithms_t> Kex::negotiateAlgorithms() noexcept {
+absl::StatusOr<Algorithms> Kex::negotiateAlgorithms() noexcept {
   if (is_server_) {
     state_->client_has_ext_info = absl::c_contains(*state_->peer_kex.kex_algorithms, "ext-info-c");
     state_->kex_strict =
@@ -338,7 +341,7 @@ absl::StatusOr<algorithms_t> Kex::negotiateAlgorithms() noexcept {
   }
 
   // logic below is translated from go ssh/common.go findAgreedAlgorithms
-  algorithms_t result{};
+  Algorithms result{};
   {
     auto common_kex =
         findCommon("key exchange", state_->peer_kex.kex_algorithms, state_->our_kex.kex_algorithms);
@@ -356,7 +359,7 @@ absl::StatusOr<algorithms_t> Kex::negotiateAlgorithms() noexcept {
     result.host_key = *common_host_key;
   }
 
-  direction_algorithms_t *stoc, *ctos;
+  DirectionAlgorithms *stoc, *ctos;
   if (is_server_) {
     stoc = &result.w;
     ctos = &result.r;
@@ -486,12 +489,12 @@ absl::Status Kex::loadHostKeys() {
   return absl::OkStatus();
 }
 
-absl::Status Kex::loadSshKeyPair(std::string_view privKeyPath, std::string_view pubKeyPath) {
-  auto priv = openssh::SSHKey::fromPrivateKeyFile(privKeyPath);
+absl::Status Kex::loadSshKeyPair(std::string_view priv_key_path, std::string_view pub_key_path) {
+  auto priv = openssh::SSHKey::fromPrivateKeyFile(priv_key_path);
   if (!priv.ok()) {
     return priv.status();
   }
-  auto pub = openssh::SSHKey::fromPublicKeyFile(pubKeyPath);
+  auto pub = openssh::SSHKey::fromPublicKeyFile(pub_key_path);
   if (!pub.ok()) {
     return pub.status();
   }
@@ -502,27 +505,27 @@ absl::Status Kex::loadSshKeyPair(std::string_view privKeyPath, std::string_view 
   return absl::OkStatus();
 }
 
-bool kex_state_t::kexHasExtInfoInAuth() const {
+bool KexState::kexHasExtInfoInAuth() const {
   return (flags & KEX_HAS_EXT_INFO_IN_AUTH) != 0;
 }
 
-void kex_state_t::setKexHasExtInfoInAuth() {
+void KexState::setKexHasExtInfoInAuth() {
   flags |= KEX_HAS_EXT_INFO_IN_AUTH;
 }
 
-bool kex_state_t::kexRSASHA2256Supported() const {
+bool KexState::kexRSASHA2256Supported() const {
   return (flags & KEX_RSA_SHA2_256_SUPPORTED) != 0;
 }
 
-void kex_state_t::setKexRSASHA2256Supported() {
+void KexState::setKexRSASHA2256Supported() {
   flags |= KEX_RSA_SHA2_256_SUPPORTED;
 }
 
-bool kex_state_t::kexRSASHA2512Supported() const {
+bool KexState::kexRSASHA2512Supported() const {
   return (flags & KEX_RSA_SHA2_512_SUPPORTED) != 0;
 }
 
-void kex_state_t::setKexRSASHA2512Supported() {
+void KexState::setKexRSASHA2512Supported() {
   flags |= KEX_RSA_SHA2_512_SUPPORTED;
 }
 

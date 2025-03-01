@@ -39,6 +39,7 @@ envoy_cc_library(
         "service_connection.h",
         "service_userauth.h",
         "transport.h",
+        "transport_base.h",
         "version_exchange.h",
     ],
     copts = [

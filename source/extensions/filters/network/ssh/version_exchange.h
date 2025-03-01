@@ -16,6 +16,10 @@ class TransportCallbacks;
 class VersionExchanger {
 public:
   VersionExchanger(TransportCallbacks& callbacks, VersionExchangeCallbacks& handshakeCallbacks);
+
+  bool versionWritten() { return did_write_version_; }
+  bool versionRead() { return did_read_version_; }
+
   absl::StatusOr<size_t> writeVersion(std::string_view ours);
   absl::Status readVersion(Envoy::Buffer::Instance& buffer);
 
@@ -24,6 +28,10 @@ protected:
   std::string our_version_;
   TransportCallbacks& transport_;
   VersionExchangeCallbacks& version_exchange_callbacks_;
+
+private:
+  bool did_write_version_{false};
+  bool did_read_version_{false};
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

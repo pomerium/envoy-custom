@@ -4,8 +4,8 @@
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-SSHRequestHeaderFrame::SSHRequestHeaderFrame(AuthStateSharedPtr downstreamState)
-    : downstream_state_(downstreamState) {}
+SSHRequestHeaderFrame::SSHRequestHeaderFrame(AuthStateSharedPtr downstream_state)
+    : downstream_state_(downstream_state) {}
 
 std::string_view SSHRequestHeaderFrame::host() const {
   return downstream_state_->hostname;
@@ -57,24 +57,24 @@ const wire::SshMsg& SSHResponseCommonFrame::message() const {
 
 FrameFlags SSHResponseHeaderFrame::frameFlags() const {
   if (raw_flags_.has_value()) {
-    return FrameFlags(stream_id_, raw_flags_.value(), 0);
+    return {stream_id_, raw_flags_.value(), 0};
   }
   if (!status().ok()) {
-    return FrameFlags(stream_id_, FrameFlags::FLAG_END_STREAM);
+    return {stream_id_, FrameFlags::FLAG_END_STREAM};
   }
-  return FrameFlags(stream_id_, 0, 0);
+  return {stream_id_, 0, 0};
 }
 
 FrameFlags SSHRequestCommonFrame::frameFlags() const {
-  return FrameFlags(stream_id_, 0, 0);
+  return {stream_id_, 0, 0};
 }
 
 FrameFlags SSHResponseCommonFrame::frameFlags() const {
-  return FrameFlags(stream_id_, 0, 0);
+  return {stream_id_, 0, 0};
 }
 
 FrameFlags SSHRequestHeaderFrame::frameFlags() const {
-  return FrameFlags(downstream_state_->stream_id, 0, 0);
+  return {downstream_state_->stream_id, 0, 0};
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

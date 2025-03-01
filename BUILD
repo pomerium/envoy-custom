@@ -57,6 +57,7 @@ configure_make(
         cp -L *.h $INSTALLDIR/include/openssh && \
         cp -L openbsd-compat/*.h $INSTALLDIR/include/openssh/openbsd-compat &&
     """,
+    set_file_prefix_map = True,
     targets = [
         "",
     ],

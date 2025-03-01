@@ -27,7 +27,7 @@ using fixed_bytes_view = std::span<const uint8_t, N>;
 using string_list = std::vector<std::string>;
 using bytes_list = std::vector<bytes>;
 
-inline bytes to_bytes(const auto& view) {
+inline bytes to_bytes(const auto& view) { // NOLINT
   return bytes{view.begin(), view.end()};
 }
 
@@ -60,9 +60,9 @@ concept explicit_size_t = explicit_t<size_t, T>;
 
 namespace {
 
-class bytesViewBufferFragment : public Envoy::Buffer::BufferFragment {
+class BytesViewBufferFragment : public Envoy::Buffer::BufferFragment {
 public:
-  bytesViewBufferFragment(const void* data, size_t size)
+  BytesViewBufferFragment(const void* data, size_t size)
       : data_(data), size_(size) {}
 
   const void* data() const override { return data_; }
@@ -99,9 +99,9 @@ concept byteArrayLike = requires(T t) {
 //
 template <byteArrayLike T, typename F>
   requires std::invocable<F, Envoy::Buffer::Instance&>
-decltype(auto) with_buffer_view(const T& b, F func) {
+decltype(auto) with_buffer_view(const T& b, F func) { // NOLINT
   Envoy::Buffer::OwnedImpl buffer;
-  bytesViewBufferFragment fragment(b.data(), b.size());
+  BytesViewBufferFragment fragment(b.data(), b.size());
   buffer.addBufferFragment(fragment);
   return func(buffer);
 }

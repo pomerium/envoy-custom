@@ -25,7 +25,7 @@ using AuthStateSharedPtr = std::shared_ptr<AuthState>;
 
 class SSHRequestHeaderFrame : public GenericProxy::RequestHeaderFrame, public SSHStreamFrame {
 public:
-  SSHRequestHeaderFrame(AuthStateSharedPtr downstreamState);
+  SSHRequestHeaderFrame(AuthStateSharedPtr downstream_state);
   std::string_view host() const override;
   std::string_view protocol() const override;
   const AuthStateSharedPtr& authState() const;
@@ -42,9 +42,9 @@ class SSHResponseCommonFrame : public GenericProxy::ResponseCommonFrame, public 
 
 public:
   template <typename T>
-  SSHResponseCommonFrame(uint64_t streamId, T&& msg)
-      : msg_(std::make_unique<T>(std::move(msg))),
-        stream_id_(streamId) {}
+  SSHResponseCommonFrame(uint64_t stream_id, T&& msg)
+      : msg_(std::make_unique<T>(std::forward<T>(msg))),
+        stream_id_(stream_id) {}
 
   FrameKind frameKind() const override;
   const wire::SshMsg& message() const;
@@ -60,10 +60,10 @@ public:
   SSHResponseHeaderFrame() = delete;
 
   template <typename T>
-  SSHResponseHeaderFrame(uint64_t streamId, StreamStatus status, T&& msg)
+  SSHResponseHeaderFrame(uint64_t stream_id, StreamStatus status, T&& msg)
       : status_(status),
-        msg_(std::make_unique<T>(std::move(msg))),
-        stream_id_(streamId) {}
+        msg_(std::make_unique<T>(std::forward<T>(msg))),
+        stream_id_(stream_id) {}
 
   StreamStatus status() const override;
   std::string_view protocol() const override;
@@ -82,18 +82,18 @@ private:
   StreamStatus status_;
   std::unique_ptr<wire::SshMsg> msg_;
   uint64_t stream_id_;
-  std::optional<uint32_t> raw_flags_{};
+  std::optional<uint32_t> raw_flags_;
 };
 
 class SSHRequestCommonFrame : public GenericProxy::RequestCommonFrame, public SSHStreamFrame {
 public:
-  SSHRequestCommonFrame(uint64_t streamId, std::unique_ptr<wire::SshMsg> msg)
-      : msg_(std::move(msg)), stream_id_(streamId) {}
+  SSHRequestCommonFrame(uint64_t stream_id, std::unique_ptr<wire::SshMsg> msg)
+      : msg_(std::move(msg)), stream_id_(stream_id) {}
 
   template <typename T>
-  SSHRequestCommonFrame(uint64_t streamId, T&& msg)
-      : msg_(std::make_unique<T>(std::move(msg))),
-        stream_id_(streamId) {}
+  SSHRequestCommonFrame(uint64_t stream_id, T&& msg)
+      : msg_(std::make_unique<T>(std::forward<T>(msg))),
+        stream_id_(stream_id) {}
   FrameKind frameKind() const override;
   const wire::SshMsg& message() const;
   FrameFlags frameFlags() const override;

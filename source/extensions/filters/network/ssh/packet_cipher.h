@@ -9,8 +9,8 @@ extern "C" {
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 enum Mode {
-  MODE_WRITE = CIPHER_ENCRYPT,
-  MODE_READ = CIPHER_DECRYPT,
+  ModeWrite = CIPHER_ENCRYPT,
+  ModeRead = CIPHER_DECRYPT,
 };
 
 class DirectionalPacketCipher {

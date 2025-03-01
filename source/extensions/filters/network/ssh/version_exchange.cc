@@ -4,10 +4,15 @@
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 VersionExchanger::VersionExchanger(TransportCallbacks& callbacks,
-                                   VersionExchangeCallbacks& handshakeCallbacks)
-    : transport_(callbacks), version_exchange_callbacks_(handshakeCallbacks) {}
+                                   VersionExchangeCallbacks& handshake_callbacks)
+    : transport_(callbacks), version_exchange_callbacks_(handshake_callbacks) {}
 
 absl::Status VersionExchanger::readVersion(Envoy::Buffer::Instance& buffer) {
+  if (did_read_version_) {
+    return absl::FailedPreconditionError("version already written");
+  }
+  did_read_version_ = true;
+
   static const size_t max_version_string_bytes = 255;
   bool ok{};
   while (buffer.length() > 0 && their_version_.length() < max_version_string_bytes) {
@@ -42,6 +47,11 @@ absl::Status VersionExchanger::readVersion(Envoy::Buffer::Instance& buffer) {
 }
 
 absl::StatusOr<size_t> VersionExchanger::writeVersion(std::string_view ours) {
+  if (did_write_version_) {
+    return absl::FailedPreconditionError("version already written");
+  }
+  did_write_version_ = true;
+
   our_version_ = ours;
   Envoy::Buffer::OwnedImpl w;
   w.add(ours);

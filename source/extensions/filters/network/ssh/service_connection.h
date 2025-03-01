@@ -16,13 +16,11 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 class ConnectionService : public Service {
 public:
-  constexpr virtual std::string name() override {
-    return "ssh-connection";
-  };
+  constexpr std::string name() override { return "ssh-connection"; };
 
   ConnectionService(TransportCallbacks& callbacks, Api::Api& api,
                     AccessLog::AccessLogFileSharedPtr access_log);
-  ~ConnectionService() {
+  ~ConnectionService() override {
     if (access_log_) {
       access_log_->flush();
     }

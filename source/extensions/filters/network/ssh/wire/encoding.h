@@ -213,7 +213,7 @@ constexpr void check_incompatible_options() {
 // This specialization handles non-list types as well as strings and 'bytes' (vector<uint8_t>).
 template <EncodingOptions Opt, typename T>
 std::enable_if_t<(!is_vector<T>::value || std::is_same_v<T, bytes>), size_t>
-read_opt(Envoy::Buffer::Instance& buffer, T& value, explicit_size_t auto limit) {
+read_opt(Envoy::Buffer::Instance& buffer, T& value, explicit_size_t auto limit) { // NOLINT
   check_supported_options<LengthPrefixed, Opt>();
   if constexpr (Opt & LengthPrefixed) {
     uint32_t entry_len = buffer.drainBEInt<uint32_t>();
@@ -231,7 +231,7 @@ read_opt(Envoy::Buffer::Instance& buffer, T& value, explicit_size_t auto limit) 
 // This specialization handles non-list types as well as strings and 'bytes' (vector<uint8_t>).
 template <EncodingOptions Opt, typename T>
 std::enable_if_t<(!is_vector<T>::value || std::is_same_v<T, bytes>), size_t>
-write_opt(Envoy::Buffer::Instance& buffer, const T& value) {
+write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT
   check_supported_options<LengthPrefixed, Opt>();
   if constexpr (Opt & LengthPrefixed) {
     Envoy::Buffer::OwnedImpl tmp;
@@ -256,7 +256,7 @@ write_opt(Envoy::Buffer::Instance& buffer, const T& value) {
 template <EncodingOptions Opt, typename T>
   requires Reader<typename T::value_type>
 std::enable_if_t<(is_vector<T>::value && !std::is_same_v<T, bytes>), size_t>
-read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) {
+read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NOLINT
   check_supported_options<(CommaDelimited | LengthPrefixed | ListSizePrefixed | ListLengthPrefixed), Opt>();
   check_incompatible_options<(CommaDelimited | LengthPrefixed), Opt>();
   check_incompatible_options<(CommaDelimited | ListSizePrefixed), Opt>();
@@ -364,7 +364,7 @@ read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) {
 template <EncodingOptions Opt, typename T>
   requires Writer<typename T::value_type>
 std::enable_if_t<(is_vector<T>::value && !std::is_same_v<T, bytes>), size_t>
-write_opt(Envoy::Buffer::Instance& buffer, const T& value) {
+write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT
   check_supported_options<(CommaDelimited | LengthPrefixed | ListSizePrefixed | ListLengthPrefixed), Opt>();
   check_incompatible_options<(CommaDelimited | LengthPrefixed), Opt>();
   check_incompatible_options<(CommaDelimited | ListSizePrefixed), Opt>();
@@ -418,7 +418,7 @@ absl::StatusOr<size_t> decodeSequence(Envoy::Buffer::Instance& buffer, explicit_
   size_t n = 0;
   absl::Status stat{};
 
-  auto decodeOne = [&](Decoder auto& field) -> bool {
+  auto decodeOne = [&](Decoder auto&& field) -> bool {
     auto r = field.decode(buffer, limit - n);
     if (!r.ok()) {
       stat = r.status();
@@ -429,7 +429,7 @@ absl::StatusOr<size_t> decodeSequence(Envoy::Buffer::Instance& buffer, explicit_
   };
 
   // This fold expression calls decodeOne for each field, and stops if decodeOne returns false.
-  (void)(decodeOne(args) && ...);
+  (void)(decodeOne(std::forward<Args>(args)) && ...);
 
   // stat and n are updated from within decodeOne
   if (!stat.ok()) {

@@ -4,6 +4,7 @@
 #include "source/extensions/filters/network/ssh/wire/field.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
+#include "source/extensions/filters/network/ssh/wire/util.h"
 
 #include "openssl/rand.h"
 

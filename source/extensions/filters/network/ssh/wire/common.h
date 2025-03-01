@@ -77,7 +77,7 @@ template <> struct is_channel_msg<SshMessageType::ChannelClose> : std::true_type
 template <> struct is_channel_msg<SshMessageType::ChannelSuccess> : std::true_type {};
 template <> struct is_channel_msg<SshMessageType::ChannelFailure> : std::true_type {};
 
-inline auto format_as(SshMessageType mt) {
+inline constexpr auto format_as(SshMessageType mt) {
   return fmt::underlying(mt);
 }
 

@@ -14,13 +14,13 @@
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 struct direction_t {
-  bytes iv_tag;
-  bytes key_tag;
-  bytes mac_key_tag;
+  char iv_tag;
+  char key_tag;
+  char mac_key_tag;
 };
 
-static const direction_t clientKeys{{'A'}, {'C'}, {'E'}};
-static const direction_t serverKeys{{'B'}, {'D'}, {'F'}};
+static constexpr direction_t clientKeys{'A', 'C', 'E'};
+static constexpr direction_t serverKeys{'B', 'D', 'F'};
 
 class PacketCipher;
 
@@ -72,7 +72,7 @@ public:
   virtual void forward(std::unique_ptr<SSHStreamFrame> frame) PURE;
   virtual void writeToConnection(Envoy::Buffer::Instance& buf) const PURE;
 
-  virtual const kex_result_t& getKexResult() const PURE;
+  virtual const KexResult& getKexResult() const PURE;
   virtual absl::StatusOr<bytes> signWithHostKey(bytes_view<> in) const PURE;
   virtual const AuthState& authState() const PURE;
   virtual AuthState& authState() PURE;
@@ -82,10 +82,10 @@ protected:
   virtual const connection_state_t& getConnectionState() const PURE;
 };
 
-class DownstreamTransportCallbacks : public TransportCallbacks {
+class DownstreamTransportCallbacks : public virtual TransportCallbacks {
 public:
   using TransportCallbacks::TransportCallbacks;
-  virtual void initUpstream(AuthStateSharedPtr downstreamState) PURE;
+  virtual void initUpstream(AuthStateSharedPtr downstream_state) PURE;
   virtual void sendMgmtClientMessage(const ClientMessage& msg) PURE;
 };
 

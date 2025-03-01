@@ -16,10 +16,10 @@ CodecFactoryPtr SshCodecFactoryConfig::createCodecFactory(
 
   auto access_log_srv = context.accessLogManager().createAccessLog(
       Filesystem::FilePathAndType(Filesystem::DestinationType::File, "/tmp/recording.server.bin"));
-  THROW_IF_NOT_OK(access_log_srv.status());
+  THROW_IF_NOT_OK_REF(access_log_srv.status());
   auto access_log_client = context.accessLogManager().createAccessLog(
       Filesystem::FilePathAndType(Filesystem::DestinationType::File, "/tmp/recording.client.bin"));
-  THROW_IF_NOT_OK(access_log_srv.status());
+  THROW_IF_NOT_OK_REF(access_log_srv.status());
 
   auto createClient = [&context, shared_config]() {
     return context.clusterManager().grpcAsyncClientManager().getOrCreateRawAsyncClient(
@@ -44,7 +44,7 @@ SshCodecFactory::SshCodecFactory(Api::Api& api,
 }
 
 ServerCodecPtr SshCodecFactory::createServerCodec() const {
-  return std::make_unique<SshServerCodec>(api_, config_, create_grpc_client_, access_log_server_);
+  return std::make_unique<SshServerCodec>(api_, config_, access_log_server_, create_grpc_client_);
 }
 
 ClientCodecPtr SshCodecFactory::createClientCodec() const {

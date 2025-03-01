@@ -13,6 +13,7 @@ extern "C" {
 #include "openssh/cipher.h"
 #include "openssh/ssherr.h"
 #include "openssh/authfile.h"
+#include "openssh/digest.h"
 }
 
 namespace openssh {
@@ -89,7 +90,7 @@ inline absl::StatusCode statusCodeFromErr(int n) {
 }
 
 inline absl::Status statusFromErr(int n) {
-  return absl::Status(statusCodeFromErr(n), ssh_err(n));
+  return {statusCodeFromErr(n), ssh_err(n)};
 }
 
 static constexpr auto ExtensionNoTouchRequired = "no-touch-required";
@@ -151,8 +152,13 @@ public:
     return !this->operator==(other);
   }
 
-  std::string fingerprint(sshkey_fp_rep representation = SSH_FP_DEFAULT) const {
-    return sshkey_fingerprint(key_.get(), keyType(), representation);
+  absl::StatusOr<std::string> fingerprint(sshkey_fp_rep representation = SSH_FP_DEFAULT) const {
+    // TODO: make the hash algorithm configurable?
+    char* fp = sshkey_fingerprint(key_.get(), SSH_FP_HASH_DEFAULT, representation);
+    if (fp == nullptr) {
+      return absl::InvalidArgumentError("sshkey_fingerprint_raw failed");
+    }
+    return std::string(fp);
   }
 
   std::string_view name() const {
@@ -180,7 +186,7 @@ public:
     }
     key_->cert->type = SSH2_CERT_TYPE_USER;
     key_->cert->serial = serial;
-    key_->cert->nprincipals = principals.size();
+    key_->cert->nprincipals = static_cast<uint32_t>(principals.size());
     char** principals_arr = new char*[principals.size()];
     for (size_t i = 0; i < principals.size(); i++) {
       principals_arr[i] = strdup(principals[i].c_str());
@@ -190,7 +196,7 @@ public:
     std::sort(extensions.begin(), extensions.end());
     for (const auto& ext : extensions) {
       sshbuf_put_cstring(key_->cert->extensions, ext.c_str());
-      sshbuf_put_string(key_->cert->extensions, 0, 0);
+      sshbuf_put_string(key_->cert->extensions, nullptr, 0);
     }
 
     key_->cert->valid_after = absl::ToUnixSeconds(absl::Now());

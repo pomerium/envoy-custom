@@ -11,7 +11,7 @@ struct field_base {
   field_base() = default;
   field_base(const field_base& other)
       : value(other) {};
-  field_base(field_base&& other)
+  field_base(field_base&& other) noexcept
       : value(std::move(other.value)) {}
 
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t n) noexcept {
@@ -51,11 +51,7 @@ struct field_base {
     value = rhs;
     return *this;
   }
-  // assignments to field<T> will assign T using its own assignment operators
-  field_base& operator=(const field_base& rhs) {
-    value = rhs.value;
-    return *this;
-  }
+  field_base& operator=(const field_base& rhs) = default;
 
   // same as above, but initializer_list needs its own specialization
   field_base& operator=(std::initializer_list<T> rhs) {
@@ -70,7 +66,7 @@ struct field_base {
   }
 
   // moves to field<T> will assign T using its own move assignment operators
-  field_base& operator=(field_base&& rhs) {
+  field_base& operator=(field_base&& rhs) noexcept {
     value = std::move(rhs.value);
     return *this;
   }
@@ -107,15 +103,15 @@ struct field<T, Opt, std::enable_if_t<(Opt & Conditional) != 0>> : field_base<T,
   using field_base<T, Opt>::value;
   using field_base<T, Opt>::operator=;
 
-  auto enable_if(bool condition) const {
-    return codec{
+  auto enableIf(bool condition) const {
+    return conditional_encoder{
       .enabled = condition,
       .vp = const_cast<T*>(&value),
     };
   }
 
 private:
-  struct codec {
+  struct conditional_encoder {
     bool enabled;
     T* vp;
     absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t n) noexcept {
@@ -202,13 +198,18 @@ struct sub_message {
   // unknown holds raw bytes for an unknown message type.
   std::optional<bytes> unknown;
 
+  sub_message(const sub_message&) = delete;
+  sub_message(sub_message&&) = default;
+  sub_message& operator=(const sub_message&) = delete;
+  sub_message& operator=(sub_message&&) = default;
+
   explicit sub_message(field<std::string, LengthPrefixed>& key_field)
       : key_field_(key_field) {};
 
   explicit sub_message(defer_decoding_t) {};
 
   // set_key_field updates the key field used to decode the message.
-  void set_key_field(field<std::string, LengthPrefixed>& key_field) {
+  void setKeyField(field<std::string, LengthPrefixed>& key_field) {
     key_field_.emplace(key_field);
   }
 
@@ -217,8 +218,8 @@ struct sub_message {
   template <typename T>
   std::enable_if_t<(std::is_same_v<std::decay_t<T>, Options> || ...), sub_message&>
   operator=(T&& other) {
-    // set the object in the variant
-    oneof = std::forward<T>(other);
+    // Forward 'other' into the variant using a copy if it is T&, or a move if it is T&&.
+    oneof.template emplace<std::decay_t<T>>(std::forward<T>(other));
     // update the key field
     key_field_->value = std::decay_t<T>::submsg_key;
     return *this;
@@ -320,7 +321,7 @@ private:
         Options opt; // 'Options' is a placeholder, substituted for one of the contained types
         auto n = opt.decode(buffer, limit);
         if (n.ok()) {
-          oneof = std::move(opt);
+          oneof.template emplace<Options>(std::move(opt));
         }
         return n;
       }...}; // the expression preceding '...' is repeated for each type in Options.

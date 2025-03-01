@@ -41,15 +41,15 @@ message_case_type_t<T> messageCase(const T& msg);
 template <typename T>
 class MessageDispatcher {
 public:
-  void registerHandler(message_case_type_t<T> messageType, const MessageHandler<T>* handler) {
-    if (dispatch_.contains(messageType)) {
+  void registerHandler(message_case_type_t<T> message_type, const MessageHandler<T>* handler) {
+    if (dispatch_.contains(message_type)) {
       PANIC("bug: duplicate registration of message type");
     }
-    dispatch_[messageType] = const_cast<MessageHandler<T>*>(handler);
+    dispatch_[message_type] = const_cast<MessageHandler<T>*>(handler);
   }
 
-  void unregisterHandler(message_case_type_t<T> messageType) {
-    dispatch_.erase(messageType);
+  void unregisterHandler(message_case_type_t<T> message_type) {
+    dispatch_.erase(message_type);
   }
 
   void installMiddleware(MessageMiddleware<T>* middleware) {
@@ -77,7 +77,7 @@ protected:
         }
       }
     }
-    return dispatch_[mt]->handleMessage(std::forward<T>(msg));
+    return dispatch_[mt]->handleMessage(std::move(msg));
   }
   std::list<MessageMiddleware<T>*> middlewares_;
   std::unordered_map<message_case_type_t<T>, MessageHandler<T>*> dispatch_;

@@ -108,7 +108,7 @@ absl::Status AEADPacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffer::Ins
   return absl::OkStatus();
 }
 
-void generateKeyMaterial(bytes& out, const bytes& tag, kex_result_t* kex_result) {
+void generateKeyMaterial(bytes& out, char tag, KexResult* kex_result) {
   // translated from go ssh/transport.go
   bytes digestsSoFar;
   std::string x;
@@ -117,7 +117,7 @@ void generateKeyMaterial(bytes& out, const bytes& tag, kex_result_t* kex_result)
   while (out.size() < out.capacity()) {
     size_t digest_size;
     bssl::ScopedEVP_MD_CTX ctx;
-    switch (kex_result->Hash) {
+    switch (kex_result->hash) {
     case SHA256:
       EVP_DigestInit(ctx.get(), EVP_sha256());
       digest_size = 32;
@@ -130,12 +130,12 @@ void generateKeyMaterial(bytes& out, const bytes& tag, kex_result_t* kex_result)
       throw EnvoyException("unsupported hash algorithm");
     }
     bytes encoded_k;
-    kex_result->EncodeSharedSecret(encoded_k);
+    kex_result->encodeSharedSecret(encoded_k);
     EVP_DigestUpdate(ctx.get(), encoded_k.data(), encoded_k.size());
-    EVP_DigestUpdate(ctx.get(), kex_result->H.data(), kex_result->H.size());
+    EVP_DigestUpdate(ctx.get(), kex_result->exchange_hash.data(), kex_result->exchange_hash.size());
     if (digestsSoFar.size() == 0) {
-      EVP_DigestUpdate(ctx.get(), tag.data(), tag.size());
-      EVP_DigestUpdate(ctx.get(), kex_result->SessionID.data(), kex_result->SessionID.size());
+      EVP_DigestUpdate(ctx.get(), &tag, 1);
+      EVP_DigestUpdate(ctx.get(), kex_result->session_id.data(), kex_result->session_id.size());
     } else {
       EVP_DigestUpdate(ctx.get(), digestsSoFar.data(), digestsSoFar.size());
     }
@@ -149,13 +149,13 @@ void generateKeyMaterial(bytes& out, const bytes& tag, kex_result_t* kex_result)
   }
 }
 
-std::unique_ptr<PacketCipher> NewPacketCipher(direction_t d_read, direction_t d_write,
-                                              kex_result_t* kex_result) {
-  if (cipherModes.contains(kex_result->Algorithms.r.cipher) &&
-      cipherModes.contains(kex_result->Algorithms.w.cipher)) {
+std::unique_ptr<PacketCipher> newPacketCipher(direction_t d_read, direction_t d_write,
+                                              KexResult* kex_result) {
+  if (cipherModes.contains(kex_result->algorithms.r.cipher) &&
+      cipherModes.contains(kex_result->algorithms.w.cipher)) {
 
-    auto readMode = cipherModes.at(kex_result->Algorithms.r.cipher);
-    auto writeMode = cipherModes.at(kex_result->Algorithms.w.cipher);
+    const auto& readMode = cipherModes.at(kex_result->algorithms.r.cipher);
+    const auto& writeMode = cipherModes.at(kex_result->algorithms.w.cipher);
 
     bytes readIv;
     readIv.reserve(readMode.ivSize);
@@ -173,17 +173,17 @@ std::unique_ptr<PacketCipher> NewPacketCipher(direction_t d_read, direction_t d_
     writeKey.reserve(writeMode.keySize);
     generateKeyMaterial(writeKey, d_write.key_tag, kex_result);
 
-    return std::make_unique<PacketCipher>(readMode.create(readIv, readKey, MODE_READ),
-                                          writeMode.create(writeIv, writeKey, MODE_WRITE));
+    return std::make_unique<PacketCipher>(readMode.create(readIv, readKey, ModeRead),
+                                          writeMode.create(writeIv, writeKey, ModeWrite));
   }
   throw EnvoyException("unsupported algorithm"); // shouldn't get here ideally
 }
 
 size_t PacketCipher::blockSize(Mode mode) {
   switch (mode) {
-  case MODE_READ:
+  case ModeRead:
     return read_->blockSize();
-  case MODE_WRITE:
+  case ModeWrite:
     return write_->blockSize();
   }
   throw EnvoyException("unknown mode");
@@ -191,9 +191,9 @@ size_t PacketCipher::blockSize(Mode mode) {
 
 size_t PacketCipher::aadSize(Mode mode) {
   switch (mode) {
-  case MODE_READ:
+  case ModeRead:
     return read_->aadSize();
-  case MODE_WRITE:
+  case ModeWrite:
     return write_->aadSize();
   }
   throw EnvoyException("unknown mode");
@@ -206,7 +206,7 @@ size_t AEADPacketCipher::aadSize() {
   return aad_len_;
 };
 
-std::unique_ptr<PacketCipher> NewUnencrypted() {
+std::unique_ptr<PacketCipher> newUnencrypted() {
   return std::make_unique<PacketCipher>(std::make_unique<NoCipher>(), std::make_unique<NoCipher>());
 }
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

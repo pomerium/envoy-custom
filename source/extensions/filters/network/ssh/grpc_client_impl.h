@@ -8,7 +8,7 @@
 #include "source/extensions/filters/network/ssh/message_handler.h"
 
 namespace pomerium::extensions::ssh {
-inline auto format_as(ServerMessage::MessageCase mt) {
+inline constexpr auto format_as(ServerMessage::MessageCase mt) {
   return fmt::underlying(mt);
 }
 } // namespace pomerium::extensions::ssh
@@ -38,7 +38,7 @@ class StreamManagementServiceClient : public Grpc::AsyncStreamCallbacks<ServerMe
                                       public Logger::Loggable<Logger::Id::filter> {
 public:
   StreamManagementServiceClient(Grpc::RawAsyncClientSharedPtr client);
-  ~StreamManagementServiceClient();
+  ~StreamManagementServiceClient() override;
 
   void connect();
 
@@ -52,8 +52,8 @@ public:
 private:
   void onReceiveMessage(Grpc::ResponsePtr<ServerMessage>&& message) override;
   void onCreateInitialMetadata(Http::RequestHeaderMap&) override {}
-  void onReceiveInitialMetadata(Http::ResponseHeaderMapPtr&&) override {}
-  void onReceiveTrailingMetadata(Http::ResponseTrailerMapPtr&&) override {}
+  void onReceiveInitialMetadata([[maybe_unused]] Http::ResponseHeaderMapPtr&&) override {}
+  void onReceiveTrailingMetadata([[maybe_unused]] Http::ResponseTrailerMapPtr&&) override {}
   void onRemoteClose(Grpc::Status::GrpcStatus status, const std::string& err) override {
     if (on_remote_close_) {
       on_remote_close_(status, err);
@@ -76,15 +76,15 @@ class ChannelStreamServiceClient : public Grpc::AsyncStreamCallbacks<ChannelMess
                                    public Logger::Loggable<Logger::Id::filter> {
 public:
   ChannelStreamServiceClient(Grpc::RawAsyncClientSharedPtr client);
-  ~ChannelStreamServiceClient();
+  ~ChannelStreamServiceClient() override;
   Grpc::AsyncStream<ChannelMessage>* start(ChannelStreamCallbacks* callbacks,
                                            Envoy::OptRef<envoy::config::core::v3::Metadata> metadata);
 
 private:
   void onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) override;
   void onCreateInitialMetadata(Http::RequestHeaderMap&) override {}
-  void onReceiveInitialMetadata(Http::ResponseHeaderMapPtr&&) override {}
-  void onReceiveTrailingMetadata(Http::ResponseTrailerMapPtr&&) override {}
+  void onReceiveInitialMetadata([[maybe_unused]] Http::ResponseHeaderMapPtr&&) override {}
+  void onReceiveTrailingMetadata([[maybe_unused]] Http::ResponseTrailerMapPtr&&) override {}
   void onRemoteClose(Grpc::Status::GrpcStatus, const std::string&) override {
     stream_.resetStream();
     callbacks_ = nullptr;
