@@ -108,10 +108,10 @@ absl::Status AEADPacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffer::Ins
   return absl::OkStatus();
 }
 
+namespace {
 void generateKeyMaterial(bytes& out, char tag, KexResult* kex_result) {
   // translated from go ssh/transport.go
   bytes digestsSoFar;
-  std::string x;
 
   using namespace std::placeholders;
   while (out.size() < out.capacity()) {
@@ -148,6 +148,7 @@ void generateKeyMaterial(bytes& out, char tag, KexResult* kex_result) {
     }
   }
 }
+} // namespace
 
 std::unique_ptr<PacketCipher> newPacketCipher(direction_t d_read, direction_t d_write,
                                               KexResult* kex_result) {

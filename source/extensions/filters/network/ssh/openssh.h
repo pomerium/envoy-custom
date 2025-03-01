@@ -110,18 +110,18 @@ public:
   explicit SSHKey(sshkey* key)
       : key_(key) {}
 
-  static absl::StatusOr<SSHKey> fromPrivateKeyFile(std::string_view filepath) {
+  static absl::StatusOr<SSHKey> fromPrivateKeyFile(const std::string& filepath) {
     sshkey* key;
-    auto err = sshkey_load_private(filepath.data(), nullptr, &key, nullptr);
+    auto err = sshkey_load_private(filepath.c_str(), nullptr, &key, nullptr);
     if (err != 0) {
       return statusFromErr(err);
     }
     return SSHKey(key);
   }
 
-  static absl::StatusOr<SSHKey> fromPublicKeyFile(std::string_view filepath) {
+  static absl::StatusOr<SSHKey> fromPublicKeyFile(const std::string& filepath) {
     sshkey* key;
-    auto err = sshkey_load_public(filepath.data(), &key, nullptr);
+    auto err = sshkey_load_public(filepath.c_str(), &key, nullptr);
     if (err != 0) {
       return statusFromErr(err);
     }
@@ -161,7 +161,7 @@ public:
     return std::string(fp);
   }
 
-  std::string_view name() const {
+  std::string name() const {
     return sshkey_ssh_name(key_.get());
   }
 

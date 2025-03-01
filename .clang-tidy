@@ -10,6 +10,8 @@ Checks: >
   abseil-string-find-startswith,
   abseil-upgrade-duration-conversions,
   bugprone-*,
+  -bugprone-switch-missing-default-case,
+  -bugprone-branch-clone,
   clang-analyzer-core.DivideZero,
   misc-unused-using-decls,
   modernize-*
