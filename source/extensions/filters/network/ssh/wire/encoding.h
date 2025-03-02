@@ -97,7 +97,11 @@ size_t write(Envoy::Buffer::Instance& buffer, const T& t) = delete;
 
 // read/write integer types
 template <SshIntegerType T>
-size_t read(Envoy::Buffer::Instance& buffer, T& t, size_t) {
+size_t read(Envoy::Buffer::Instance& buffer, T& t, size_t limit) {
+  if (limit == 0 || buffer.length() < limit) {
+    // zero-length integral types are not allowed
+    throw Envoy::EnvoyException("short read");
+  }
   t = buffer.drainBEInt<T>();
   return sizeof(T);
 }
@@ -109,7 +113,8 @@ size_t write(Envoy::Buffer::Instance& buffer, const T& t) {
 
 // read/write bool
 inline size_t read(Envoy::Buffer::Instance& buffer, bool& t, size_t limit) {
-  if (buffer.length() < limit) {
+  if (limit == 0 || buffer.length() < limit) {
+    // zero-length integral types are not allowed
     throw Envoy::EnvoyException("short read");
   }
   t = buffer.drainBEInt<uint8_t>() != 0;
@@ -123,6 +128,9 @@ inline size_t write(Envoy::Buffer::Instance& buffer, const bool& t) {
 // read/write string types
 template <SshStringType T>
 size_t read(Envoy::Buffer::Instance& buffer, T& t, size_t limit) {
+  if (limit == 0) {
+    return 0; // zero-length strings are allowed
+  }
   if (buffer.length() < limit) {
     throw Envoy::EnvoyException("short read");
   }
@@ -184,14 +192,14 @@ enum EncodingOptions : uint32_t {
 
 constexpr inline EncodingOptions operator|(EncodingOptions lhs, EncodingOptions rhs) {
   return static_cast<EncodingOptions>(
-      static_cast<std::underlying_type_t<EncodingOptions>>(lhs) |
-      static_cast<std::underlying_type_t<EncodingOptions>>(rhs));
+    static_cast<std::underlying_type_t<EncodingOptions>>(lhs) |
+    static_cast<std::underlying_type_t<EncodingOptions>>(rhs));
 }
 
 constexpr inline EncodingOptions operator&(EncodingOptions lhs, EncodingOptions rhs) {
   return static_cast<EncodingOptions>(
-      static_cast<std::underlying_type_t<EncodingOptions>>(lhs) &
-      static_cast<std::underlying_type_t<EncodingOptions>>(rhs));
+    static_cast<std::underlying_type_t<EncodingOptions>>(lhs) &
+    static_cast<std::underlying_type_t<EncodingOptions>>(rhs));
 }
 
 constexpr inline EncodingOptions operator~(EncodingOptions opt) {
@@ -215,10 +223,16 @@ template <EncodingOptions Opt, typename T>
 std::enable_if_t<(!is_vector<T>::value || std::is_same_v<T, bytes>), size_t>
 read_opt(Envoy::Buffer::Instance& buffer, T& value, explicit_size_t auto limit) { // NOLINT
   check_supported_options<LengthPrefixed, Opt>();
+  if (limit == 0) {
+    return 0;
+  }
+  if (buffer.length() < limit) {
+    throw Envoy::EnvoyException("short read");
+  }
   if constexpr (Opt & LengthPrefixed) {
     uint32_t entry_len = buffer.drainBEInt<uint32_t>();
     auto nread = read(buffer, value, entry_len);
-    if (nread != entry_len) {
+    if (nread != entry_len) [[unlikely]] {
       throw Envoy::EnvoyException("short read");
     }
     return 4 + entry_len;
@@ -355,7 +369,7 @@ read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NOLINT
   }
   if (Opt & ListSizePrefixed && value.size() != list_size) {
     throw Envoy::EnvoyException(
-        fmt::format("decoded list size {} does not match expected size {}", value.size(), list_size));
+      fmt::format("decoded list size {} does not match expected size {}", value.size(), list_size));
   }
   return n;
 }
@@ -415,15 +429,20 @@ write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT
 // decode method will be adjusted after each is read. Returns the total number of bytes read.
 template <Decoder... Args>
 absl::StatusOr<size_t> decodeSequence(Envoy::Buffer::Instance& buffer, explicit_size_t auto limit, Args&&... args) noexcept {
+  if (buffer.length() < limit) {
+    return absl::InvalidArgumentError("short read");
+  }
   size_t n = 0;
   absl::Status stat{};
 
   auto decodeOne = [&](Decoder auto&& field) -> bool {
+    // NB: (limit-n) is allowed to be zero here
     auto r = field.decode(buffer, limit - n);
     if (!r.ok()) {
       stat = r.status();
       return false;
     }
+    SECURITY_ASSERT(*r <= limit - n, "decode() returned value >= limit");
     n += *r;
     return true;
   };

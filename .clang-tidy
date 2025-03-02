@@ -12,6 +12,7 @@ Checks: >
   bugprone-*,
   -bugprone-switch-missing-default-case,
   -bugprone-branch-clone,
+  -bugprone-easily-swappable-parameters,
   clang-analyzer-core.DivideZero,
   misc-unused-using-decls,
   modernize-*

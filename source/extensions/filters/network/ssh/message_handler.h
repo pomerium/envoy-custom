@@ -83,15 +83,15 @@ protected:
   std::unordered_map<message_case_type_t<T>, MessageHandler<T>*> dispatch_;
 };
 
-using SshMessageDispatcher = MessageDispatcher<wire::SshMsg>;
-using SshMessageHandler = MessageHandler<wire::SshMsg>;
-using SshMessageMiddleware = MessageMiddleware<wire::SshMsg>;
+using SshMessageDispatcher = MessageDispatcher<wire::Message>;
+using SshMessageHandler = MessageHandler<wire::Message>;
+using SshMessageMiddleware = MessageMiddleware<wire::Message>;
 
 template <>
-struct message_case_type<wire::SshMsg> : std::type_identity<wire::SshMessageType> {};
+struct message_case_type<wire::Message> : std::type_identity<wire::SshMessageType> {};
 
 template <>
-inline wire::SshMessageType messageCase(const wire::SshMsg& msg) {
+inline wire::SshMessageType messageCase(const wire::Message& msg) {
   return msg.msg_type();
 }
 

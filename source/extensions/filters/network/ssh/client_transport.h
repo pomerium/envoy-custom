@@ -25,7 +25,7 @@ public:
   GenericProxy::EncodingResult encode(const GenericProxy::StreamFrame& frame,
                                       GenericProxy::EncodingContext& ctx) override;
 
-  absl::Status handleMessage(wire::SshMsg&& msg) override;
+  absl::Status handleMessage(wire::Message&& msg) override;
   absl::StatusOr<bytes> signWithHostKey(bytes_view<> in) const override;
   const AuthState& authState() const override;
   AuthState& authState() override;
@@ -36,8 +36,8 @@ protected:
 
 private:
   void writeToConnection(Envoy::Buffer::Instance& buf) const override;
-  void registerMessageHandlers(MessageDispatcher<wire::SshMsg>& dispatcher) const override;
-  bool interceptMessage(wire::SshMsg& ssh_msg) override;
+  void registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) const override;
+  bool interceptMessage(wire::Message& ssh_msg) override;
 
   AuthStateSharedPtr downstream_state_;
   std::unique_ptr<UpstreamUserAuthService> user_auth_svc_;

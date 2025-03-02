@@ -49,7 +49,7 @@ public:
         transport_(dynamic_cast<DownstreamTransportCallbacks&>(callbacks)) {}
 
   void onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) override;
-  absl::Status handleMessage(wire::SshMsg&& msg) override;
+  absl::Status handleMessage(wire::Message&& msg) override;
 
   void registerMessageHandlers(SshMessageDispatcher& dispatcher) const override;
 
@@ -57,10 +57,11 @@ private:
   DownstreamTransportCallbacks& transport_;
 };
 
-class UpstreamConnectionService : public ConnectionService {
+class UpstreamConnectionService : public ConnectionService,
+                                  public Logger::Loggable<Logger::Id::filter> {
 public:
   using ConnectionService::ConnectionService;
-  absl::Status handleMessage(wire::SshMsg&& msg) override;
+  absl::Status handleMessage(wire::Message&& msg) override;
   void registerMessageHandlers(SshMessageDispatcher& dispatcher) const override;
 };
 

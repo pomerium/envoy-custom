@@ -16,7 +16,7 @@ absl::Status VersionExchanger::readVersion(Envoy::Buffer::Instance& buffer) {
   static const size_t max_version_string_bytes = 255;
   bool ok{};
   while (buffer.length() > 0 && their_version_.length() < max_version_string_bytes) {
-    auto b = buffer.drainInt<uint8_t>();
+    auto b = buffer.drainInt<char>();
     if (b == '\n') {
       if (!their_version_.starts_with("SSH-")) {
         their_version_.clear();

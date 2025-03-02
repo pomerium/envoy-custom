@@ -93,7 +93,7 @@ GenericProxy::ResponsePtr SshServerCodec::respond(absl::Status status, absl::str
     // downstream().sendMessage(dc);
 
     return std::make_unique<SSHResponseHeaderFrame>(
-        req.frameFlags().streamId(), StreamStatus(SSH2_DISCONNECT_SERVICE_NOT_AVAILABLE, false), std::move(dc));
+      req.frameFlags().streamId(), StreamStatus(SSH2_DISCONNECT_SERVICE_NOT_AVAILABLE, false), std::move(dc));
   } else {
     // auto m = AnyMsg::fromString(data);
     // switch (m.msg_type()) {
@@ -110,24 +110,21 @@ GenericProxy::ResponsePtr SshServerCodec::respond(absl::Status status, absl::str
   return nullptr; // todo
 }
 
-absl::Status SshServerCodec::handleMessage(wire::SshMsg&& msg) {
-  switch (msg.msg_type()) {
-  case wire::SshMessageType::ServiceRequest: {
-    const auto& req = dynamic_cast<const wire::ServiceRequestMsg&>(msg);
-    if (service_names_.contains(req.service_name)) {
-      wire::ServiceAcceptMsg accept;
-      accept.service_name = req.service_name;
-      return sendMessageToConnection(accept).status();
-    } else {
-      return absl::UnavailableError("service not available");
-    }
-    ENVOY_LOG(debug, "received SshMessageType::ServiceRequest");
-
-    break;
-  }
-  case wire::SshMessageType::GlobalRequest: {
-    const auto& globalReq = dynamic_cast<const wire::GlobalRequestMsg&>(msg);
-    auto stat = globalReq.msg.visit(
+absl::Status SshServerCodec::handleMessage(wire::Message&& msg) {
+  return msg.visit(
+    [&](wire::ServiceRequestMsg& msg) {
+      if (service_names_.contains(msg.service_name)) {
+        wire::ServiceAcceptMsg accept;
+        accept.service_name = msg.service_name;
+        return sendMessageToConnection(accept).status();
+      } else {
+        return absl::UnavailableError("service not available");
+      }
+      ENVOY_LOG(debug, "received SshMessageType::ServiceRequest");
+      return absl::OkStatus();
+    },
+    [&](wire::GlobalRequestMsg& msg) {
+      auto stat = msg.msg.visit(
         [&](const wire::HostKeysProveRequestMsg& msg) {
           auto resp = handleHostKeysProve(msg);
           if (!resp.ok()) {
@@ -142,51 +139,45 @@ absl::Status SshServerCodec::handleMessage(wire::SshMsg&& msg) {
           // ignore this for now
           return absl::OkStatus();
         },
-        [&](auto) {
-          ENVOY_LOG(debug, "ignoring global request {}", globalReq.request_name);
+        [&](auto&) {
+          ENVOY_LOG(debug, "ignoring global request {}", msg.request_name);
           return absl::OkStatus();
         });
-    if (!stat.ok()) {
-      return stat;
-    }
-    forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id,
-                                                    dynamic_cast<wire::GlobalRequestMsg&&>(std::move(msg))));
+      if (!stat.ok()) {
+        return stat;
+      }
+      forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id, std::move(msg)));
 
-    return absl::OkStatus();
-  }
-  case wire::SshMessageType::RequestSuccess: {
-    forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id,
-                                                    dynamic_cast<wire::GlobalRequestSuccessMsg&&>(std::move(msg))));
-    return absl::OkStatus();
-  }
-  case wire::SshMessageType::RequestFailure: {
-    forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id,
-                                                    dynamic_cast<wire::GlobalRequestFailureMsg&&>(std::move(msg))));
-    return absl::OkStatus();
-  }
-  case wire::SshMessageType::Ignore: {
-    forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id,
-                                                    dynamic_cast<wire::IgnoreMsg&&>(std::move(msg))));
-    return absl::OkStatus();
-  }
-  case wire::SshMessageType::Debug: {
-    forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id,
-                                                    dynamic_cast<wire::DebugMsg&&>(std::move(msg))));
-    return absl::OkStatus();
-  }
-  case wire::SshMessageType::Unimplemented: {
-    forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id,
-                                                    dynamic_cast<wire::UnimplementedMsg&&>(std::move(msg))));
-    return absl::OkStatus();
-  }
-  case wire::SshMessageType::Disconnect: {
-    ENVOY_LOG(info, "received disconnect: {}", dynamic_cast<wire::DisconnectMsg&&>(std::move(msg)).description);
-    return absl::CancelledError("disconnected");
-  }
-  default:
-    break;
-  }
-  return absl::OkStatus();
+      return absl::OkStatus();
+    },
+    [&](wire::GlobalRequestSuccessMsg& msg) {
+      forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id, std::move(msg)));
+      return absl::OkStatus();
+    },
+    [&](wire::GlobalRequestFailureMsg& msg) {
+      forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id, std::move(msg)));
+      return absl::OkStatus();
+    },
+    [&](wire::IgnoreMsg& msg) {
+      forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id, std::move(msg)));
+      return absl::OkStatus();
+    },
+    [&](wire::DebugMsg& msg) {
+      forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id, std::move(msg)));
+      return absl::OkStatus();
+    },
+    [&](wire::UnimplementedMsg& msg) {
+      forward(std::make_unique<SSHRequestCommonFrame>(downstream_state_->stream_id, std::move(msg)));
+      return absl::OkStatus();
+    },
+    [&](wire::DisconnectMsg& msg) {
+      ENVOY_LOG(info, "received disconnect: {}", msg.description);
+      return absl::CancelledError("disconnected");
+    },
+    [](auto&) {
+      ENVOY_LOG(error, "unknown message");
+      return absl::OkStatus();
+    });
 }
 
 absl::Status SshServerCodec::handleMessage(Grpc::ResponsePtr<ServerMessage>&& msg) { // NOLINT
@@ -217,7 +208,7 @@ void SshServerCodec::initUpstream(AuthStateSharedPtr downstream_state) {
   }
   case ChannelMode::Hijacked: {
     downstream_state_->hijacked_stream = channel_client_->start(
-        connection_service_.get(), makeOptRefFromPtr(downstream_state->metadata.get()));
+      connection_service_.get(), makeOptRefFromPtr(downstream_state->metadata.get()));
     auto _ = sendMessageToConnection(wire::EmptyMsg<wire::SshMessageType::UserAuthSuccess>{});
     break;
   }
@@ -253,13 +244,13 @@ void SshServerCodec::forward(std::unique_ptr<SSHStreamFrame> frame) {
   switch (frame->frameKind()) {
   case FrameKind::RequestHeader: {
     auto framePtr =
-        std::unique_ptr<RequestHeaderFrame>(dynamic_cast<RequestHeaderFrame*>(frame.release()));
+      std::unique_ptr<RequestHeaderFrame>(dynamic_cast<RequestHeaderFrame*>(frame.release()));
     callbacks_->onDecodingSuccess(std::move(framePtr));
     break;
   }
   case FrameKind::RequestCommon: {
     auto framePtr =
-        std::unique_ptr<RequestCommonFrame>(dynamic_cast<RequestCommonFrame*>(frame.release()));
+      std::unique_ptr<RequestCommonFrame>(dynamic_cast<RequestCommonFrame*>(frame.release()));
     callbacks_->onDecodingSuccess(std::move(framePtr));
     break;
   }

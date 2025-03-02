@@ -16,6 +16,7 @@ envoy_cc_library(
         "common.h",
         "encoding.h",
         "field.h",
+        "message_traits.h",
         "messages.h",
         "packet.h",
         "util.h",
@@ -33,6 +34,7 @@ envoy_cc_test(
     name = "wire_lib_test",
     srcs = [
         "encoding_test.cc",
+        "messages_test.cc",
         "packet_test.cc",
     ],
     repository = "@envoy",

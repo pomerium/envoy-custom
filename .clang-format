@@ -6,6 +6,7 @@ DerivePointerAlignment: false
 PointerAlignment: Left
 SortIncludes: false
 BracedInitializerIndentWidth: 2
+ContinuationIndentWidth: 2
 
 AlignTrailingComments:
   Kind: Always

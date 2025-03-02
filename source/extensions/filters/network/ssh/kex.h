@@ -112,9 +112,9 @@ public:
       : magics_(magics), algs_(algs), signer_(signer) {}
   virtual ~KexAlgorithm() = default;
 
-  virtual absl::Status handleServerRecv(const wire::SshMsg& msg) PURE;
-  virtual absl::StatusOr<std::unique_ptr<wire::SshMsg>> handleClientSend() PURE;
-  virtual absl::Status handleClientRecv(const wire::SshMsg& msg) PURE;
+  virtual absl::Status handleServerRecv(const wire::Message& msg) PURE;
+  virtual absl::StatusOr<wire::Message> handleClientSend() PURE;
+  virtual absl::Status handleClientRecv(const wire::Message& msg) PURE;
   virtual std::shared_ptr<KexResult>&& result() PURE;
 
 protected:
@@ -149,9 +149,9 @@ class Curve25519Sha256KexAlgorithm : public KexAlgorithm {
 public:
   using KexAlgorithm::KexAlgorithm;
 
-  absl::Status handleServerRecv(const wire::SshMsg& msg) override;
-  absl::StatusOr<std::unique_ptr<wire::SshMsg>> handleClientSend() override;
-  absl::Status handleClientRecv(const wire::SshMsg& msg) override;
+  absl::Status handleServerRecv(const wire::Message& msg) override;
+  absl::StatusOr<wire::Message> handleClientSend() override;
+  absl::Status handleClientRecv(const wire::Message& msg) override;
 
   std::shared_ptr<KexResult>&& result() override;
 
@@ -241,12 +241,12 @@ public:
   absl::StatusOr<Algorithms> negotiateAlgorithms() noexcept;
   absl::StatusOr<std::unique_ptr<KexAlgorithm>> newAlgorithmImpl();
   const host_keypair_t* pickHostKey(std::string_view alg);
-  const host_keypair_t* getHostKey(std::string_view pkalg);
+  const host_keypair_t* getHostKey(const std::string& pkalg);
   absl::StatusOr<std::string> findCommon(std::string_view what, const string_list& client,
                                          const string_list& server);
   absl::Status loadHostKeys();
-  absl::Status loadSshKeyPair(std::string_view priv_key_path, std::string_view pub_key_path);
-  void registerMessageHandlers(MessageDispatcher<wire::SshMsg>& dispatcher) const override {
+  absl::Status loadSshKeyPair(const std::string& priv_key_path, const std::string& pub_key_path);
+  void registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) const override {
     dispatcher.registerHandler(wire::SshMessageType::KexInit, this);
     dispatcher.registerHandler(wire::SshMessageType::KexECDHInit, this);
     dispatcher.registerHandler(wire::SshMessageType::KexECDHReply, this);
@@ -256,7 +256,7 @@ public:
   void setVersionStrings(const std::string& ours, const std::string& peer) override;
 
 private:
-  absl::Status handleMessage(wire::SshMsg&& msg) noexcept override;
+  absl::Status handleMessage(wire::Message&& msg) noexcept override;
   absl::Status sendKexInit() noexcept;
 
   TransportCallbacks& transport_;

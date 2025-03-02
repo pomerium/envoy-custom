@@ -8,7 +8,6 @@
 #include "absl/status/statusor.h" // IWYU pragma: keep
 #include "fmt/std.h"              // IWYU pragma: keep
 
-#include "source/common/common/assert.h"
 #include "source/common/buffer/buffer_impl.h"
 
 using namespace std::literals;
@@ -105,3 +104,75 @@ decltype(auto) with_buffer_view(const T& b, F func) { // NOLINT
   buffer.addBufferFragment(fragment);
   return func(buffer);
 }
+
+// type_or_value_type<T> is equivalent to T, unless T is a vector<U>, in which case it will be
+// equivalent to U. This is used to check that for some field<T>, T can be encoded/decoded; but
+// lists are handled in a generic way, so we only need to check that the contents of the list
+// can be encoded/decoded, not that specific list.
+template <typename T>
+struct type_or_value_type : std::type_identity<T> {};
+
+template <typename T, typename Allocator>
+struct type_or_value_type<std::vector<T, Allocator>> : std::type_identity<T> {};
+
+template <typename T>
+using type_or_value_type_t = type_or_value_type<T>::type;
+
+// is_vector<T> is true if T is a vector of any type, otherwise false. This is used to enable
+// decoding logic for fields of list types.
+template <typename T>
+struct is_vector : std::false_type {};
+
+template <typename T, typename Allocator>
+struct is_vector<std::vector<T, Allocator>> : std::true_type {};
+
+// all_values_equal is true if every value in Actual is equal to Expected, otherwise false.
+template <auto Expected, auto... Actual>
+constexpr bool all_values_equal = ((Expected == Actual) && ...);
+
+// values_unique returns true if there are no duplicates in the list, otherwise false.
+template <typename T>
+constexpr bool all_values_unique(std::initializer_list<T> arr) {
+  for (size_t i = 0; i < arr.size(); ++i) {
+    for (size_t j = i + 1; j < arr.size(); ++j) {
+      if (*(arr.begin() + i) == *(arr.begin() + j)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+template <typename First, typename... Rest>
+constexpr bool all_types_equal_to = (std::is_same_v<First, Rest> && ...);
+
+template <typename... Rest>
+constexpr bool all_types_equal = all_types_equal_to<Rest...>;
+
+template <typename First, typename... Rest>
+constexpr bool all_types_unique = sizeof...(Rest) == 0 ||
+                                  ((!std::is_same_v<First, Rest> && ...) && all_types_unique<Rest...>);
+
+template <typename T, typename... Ts>
+struct index_of_type {
+  static constexpr std::array<bool, sizeof...(Ts)> checks = {std::is_same_v<T, Ts>...};
+  static constexpr size_t value = [] {
+    auto it = std::find(checks.begin(), checks.end(), true);
+    if (it == checks.end()) {
+      static_assert("type not in list");
+    }
+    return std::distance(checks.begin(), it);
+  }();
+};
+
+template <typename T, typename... Ts>
+constexpr bool contains_type = (std::is_same_v<std::decay_t<T>, Ts> || ...);
+
+template <typename... Ts>
+struct first_type;
+
+template <typename First, typename... Rest>
+struct first_type<First, Rest...> : std::type_identity<First> {};
+
+template <typename... Ts>
+using first_type_t = first_type<Ts...>::type;

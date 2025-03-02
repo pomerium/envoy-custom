@@ -7,8 +7,6 @@
 
 namespace wire::test {
 
-using testing::Return;
-using testing::Types;
 // decodePacket
 
 struct msgAllTypes : Msg<SshMessageType(200)> {
@@ -25,12 +23,12 @@ struct msgAllTypes : Msg<SshMessageType(200)> {
   bool operator==(const msgAllTypes& other) const = default;
 
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg<type>(buffer, payload_size,
-                           Bool, Array, Uint64, Uint32, Uint8, String, Strings, Bytes, Bignum);
+    return decodeMsg(buffer, type, payload_size,
+                     Bool, Array, Uint64, Uint32, Uint8, String, Strings, Bytes, Bignum);
   }
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg<type>(buffer,
-                           Bool, Array, Uint64, Uint32, Uint8, String, Strings, Bytes, Bignum);
+    return encodeMsg(buffer, type,
+                     Bool, Array, Uint64, Uint32, Uint8, String, Strings, Bytes, Bignum);
   }
 };
 
@@ -105,8 +103,8 @@ TEST(DecodePacketTest, DecodeError) {
   mock_err_encoder m;
 
   EXPECT_CALL(m, decode)
-      .Times(1)
-      .WillOnce(Return(absl::InternalError("test")));
+    .Times(1)
+    .WillOnce(Return(absl::InternalError("test")));
 
   EXPECT_NO_THROW({
     auto r = decodePacket(buffer, m);
@@ -121,8 +119,8 @@ TEST(DecodePacketTest, PacketPayloadSizeError) {
   mock_err_encoder m;
 
   EXPECT_CALL(m, decode)
-      .Times(1)
-      .WillOnce(Return(999)); // wrong size
+    .Times(1)
+    .WillOnce(Return(999)); // wrong size
 
   EXPECT_NO_THROW({
     auto r = decodePacket(buffer, m);
@@ -140,8 +138,8 @@ TEST(DecodePacketTest, ReadPaddingError) {
   mock_err_encoder m;
 
   EXPECT_CALL(m, decode)
-      .Times(1)
-      .WillOnce(Return(0x44 - 0x5 - 1));
+    .Times(1)
+    .WillOnce(Return(0x44 - 0x5 - 1));
 
   EXPECT_NO_THROW({
     auto r = decodePacket(buffer, m);
@@ -196,7 +194,7 @@ TEST(DecodePacketTest, InvalidPacket_BufferUnderflow) {
     msgAllTypes m;
     auto r = decodePacket(buffer, m);
     EXPECT_FALSE(r.ok());
-    EXPECT_EQ(r.status().message(), "error decoding packet: buffer underflow");
+    EXPECT_EQ(r.status().message(), "error decoding packet: short read");
   });
 }
 
@@ -235,9 +233,9 @@ TEST(EncodePacketTest, RandomPadding) {
                          actualWithoutPadding.begin(), actualWithoutPadding.end()));
 
   auto zerosPadding = std::span{testMsg1Expected.data(), testMsg1Expected.size()}
-                          .subspan(testMsg1Expected.size() - 5);
+                        .subspan(testMsg1Expected.size() - 5);
   auto actualPadding = std::span{encoded.data(), encoded.size()}
-                           .subspan(encoded.size() - 5);
+                         .subspan(encoded.size() - 5);
   EXPECT_FALSE(std::equal(zerosPadding.begin(), zerosPadding.end(),
                           actualPadding.begin(), actualPadding.end()));
 }
@@ -268,27 +266,27 @@ TEST_P(PaddingLengthTest, PaddingLength) {
 
 INSTANTIATE_TEST_SUITE_P(PaddingLengthTestSuite, PaddingLengthTest,
                          ::testing::Values(
-                             std::tuple{10, 8, 9},            // (4+1+10)=15, next mult of 8 s.t. padlen >= 4 is 24
-                             std::tuple{15, 16, 12},          // (4+1+15)=20, next mult of 16 s.t. padlen >= 4 is 32
-                             std::tuple{0, 8, 11},            // (4+1+0)=5, next mult is 16
-                             std::tuple{0, 4, 11},            // (4+1+0)=5, next mult is 16 (block size increased to 8)
-                             std::tuple{20, 8, 7},            // (4+1+20)=25, next mult is 32
-                             std::tuple{25, 16, 18},          // (4+1+25)=30, next mult is 48
-                             std::tuple{50, 32, 9},           // (4+1+50)=55, next mult is 64
-                             std::tuple{100, 64, 23},         // (4+1+100)=105, next mult is 128
-                             std::tuple{1, 8, 10},            // (4+1+1)=6, next mult is 16
-                             std::tuple{7, 8, 4},             // (4+1+7)=12, next mult is 16
-                             std::tuple{8, 8, 11},            // (4+1+8)=13, next mult is 24
-                             std::tuple{9, 8, 10},            // (4+1+9)=14, next mult is 24
-                             std::tuple{31, 32, 28},          // (4+1+31)=36, next mult is 64
-                             std::tuple{63, 64, 60},          // (4+1+63)=68, next mult is 128
-                             std::tuple{127, 128, 124},       // (4+1+127)=132, next mult is 256
-                             std::tuple{3, 4, 8},             // (4+1+3)=8, next mult is 16 (block size increased to 8)
-                             std::tuple{3, 8, 8},             // (4+1+3)=8, next mult is 16
-                             std::tuple{16 - 5, 16, 16},      // same as above, for block size=16
-                             std::tuple{32 - 5, 32, 32},      // same as above, for block size=32
-                             std::tuple{64 - 5, 64, 64},      // same as above, for block size=64
-                             std::tuple{128 - 5, 128, 128})); // same as above, for block size=128
+                           std::tuple{10, 8, 9},            // (4+1+10)=15, next mult of 8 s.t. padlen >= 4 is 24
+                           std::tuple{15, 16, 12},          // (4+1+15)=20, next mult of 16 s.t. padlen >= 4 is 32
+                           std::tuple{0, 8, 11},            // (4+1+0)=5, next mult is 16
+                           std::tuple{0, 4, 11},            // (4+1+0)=5, next mult is 16 (block size increased to 8)
+                           std::tuple{20, 8, 7},            // (4+1+20)=25, next mult is 32
+                           std::tuple{25, 16, 18},          // (4+1+25)=30, next mult is 48
+                           std::tuple{50, 32, 9},           // (4+1+50)=55, next mult is 64
+                           std::tuple{100, 64, 23},         // (4+1+100)=105, next mult is 128
+                           std::tuple{1, 8, 10},            // (4+1+1)=6, next mult is 16
+                           std::tuple{7, 8, 4},             // (4+1+7)=12, next mult is 16
+                           std::tuple{8, 8, 11},            // (4+1+8)=13, next mult is 24
+                           std::tuple{9, 8, 10},            // (4+1+9)=14, next mult is 24
+                           std::tuple{31, 32, 28},          // (4+1+31)=36, next mult is 64
+                           std::tuple{63, 64, 60},          // (4+1+63)=68, next mult is 128
+                           std::tuple{127, 128, 124},       // (4+1+127)=132, next mult is 256
+                           std::tuple{3, 4, 8},             // (4+1+3)=8, next mult is 16 (block size increased to 8)
+                           std::tuple{3, 8, 8},             // (4+1+3)=8, next mult is 16
+                           std::tuple{16 - 5, 16, 16},      // same as above, for block size=16
+                           std::tuple{32 - 5, 32, 32},      // same as above, for block size=32
+                           std::tuple{64 - 5, 64, 64},      // same as above, for block size=64
+                           std::tuple{128 - 5, 128, 128})); // same as above, for block size=128
 
 class PayloadLengthTest
     : public testing::TestWithParam<std::tuple<uint32_t /*packet_length*/,
@@ -302,23 +300,23 @@ TEST_P(PayloadLengthTest, PayloadLength) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    PayloadLengthTestSuite, PayloadLengthTest,
-    ::testing::Values(
-        std::tuple{0, 0, absl::InvalidArgumentError("invalid padding length")},
-        std::tuple{0, 4, absl::InvalidArgumentError("invalid packet length")},
-        std::tuple{16, 16, absl::InvalidArgumentError("invalid packet length")},
-        std::tuple{MaxPacketSize + 1, 4, absl::InvalidArgumentError("invalid packet length")},
-        std::tuple{MaxPacketSize - 3, 4, MaxPacketSize - 8},
-        std::tuple{MaxPacketSize - 1, 4, MaxPacketSize - 6},
-        std::tuple{16, 15, 0},
-        std::tuple{17, 15, 1},
-        std::tuple{1000, 255, 744}));
+  PayloadLengthTestSuite, PayloadLengthTest,
+  ::testing::Values(
+    std::tuple{0, 0, absl::InvalidArgumentError("invalid padding length")},
+    std::tuple{0, 4, absl::InvalidArgumentError("invalid packet length")},
+    std::tuple{16, 16, absl::InvalidArgumentError("invalid packet length")},
+    std::tuple{MaxPacketSize + 1, 4, absl::InvalidArgumentError("invalid packet length")},
+    std::tuple{MaxPacketSize - 3, 4, MaxPacketSize - 8},
+    std::tuple{MaxPacketSize - 1, 4, MaxPacketSize - 6},
+    std::tuple{16, 15, 0},
+    std::tuple{17, 15, 1},
+    std::tuple{1000, 255, 744}));
 
 TEST(EncodePacketTest, Encode_EmptyPayloadError) {
   mock_err_encoder e;
   EXPECT_CALL(e, encode)
-      .Times(1)
-      .WillOnce(Return(0));
+    .Times(1)
+    .WillOnce(Return(0));
 
   Envoy::Buffer::OwnedImpl buffer;
 
@@ -330,8 +328,8 @@ TEST(EncodePacketTest, Encode_EmptyPayloadError) {
 TEST(EncodePacketTest, Encode_PayloadTooLargeError) {
   mock_err_encoder e;
   EXPECT_CALL(e, encode)
-      .Times(1)
-      .WillOnce(Return(MaxPacketSize - 1));
+    .Times(1)
+    .WillOnce(Return(MaxPacketSize - 1));
 
   Envoy::Buffer::OwnedImpl buffer;
   auto r = encodePacket(buffer, e);
@@ -342,8 +340,8 @@ TEST(EncodePacketTest, Encode_PayloadTooLargeError) {
 TEST(EncodePacketTest, Encode_EncoderError) {
   mock_err_encoder e;
   EXPECT_CALL(e, encode)
-      .Times(1)
-      .WillOnce(Return(absl::InternalError("test")));
+    .Times(1)
+    .WillOnce(Return(absl::InternalError("test")));
 
   Envoy::Buffer::OwnedImpl buffer;
   auto r = encodePacket(buffer, e);
