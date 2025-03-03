@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 #include "envoy/buffer/buffer.h"
 
 extern "C" {

@@ -1,5 +1,6 @@
 #include "source/extensions/filters/network/ssh/kex.h"
 
+#include <cstdint>
 #include <algorithm>
 #include <memory>
 

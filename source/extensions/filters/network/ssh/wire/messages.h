@@ -5,10 +5,10 @@
 #include <string>
 #include <utility>
 
-#include "common.h"
 #include "source/common/buffer/buffer_impl.h"
 
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
+#include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/field.h"
 #include "source/extensions/filters/network/ssh/wire/message_traits.h"
 
@@ -88,7 +88,7 @@ struct Msg<MT> : ChannelMsg, MsgType<MT> {
 template <SshMessageType MT, typename T, size_t Index>
 struct OverloadMsg : T {
   using submsg_group = detail::OverloadGroup<MT>;
-  static constexpr auto submsg_key = Index;
+  static constexpr uint64_t submsg_key = Index; // NB: this must be uint64_t; size_t is not an allowed field type
   static constexpr auto submsg_key_encoding = None;
 
   OverloadMsg() = default;
@@ -110,7 +110,7 @@ struct OverloadedMessage : Msg<first_type_t<Ts...>::type> {
 
 private:
   sub_message<overload_opt_for<Ts>...> message_{defer_decoding};
-  std::optional<field<size_t>> key_;
+  std::optional<field<uint64_t>> key_;
 
   template <typename T>
   static constexpr bool has_overload() {
@@ -123,7 +123,7 @@ public:
   template <typename T>
     requires (has_overload<std::decay_t<T>>())
   explicit OverloadedMessage(T&& msg) {
-    key_ = field<size_t>{};
+    key_ = field<uint64_t>{};
     message_.setKeyField(*key_);
     message_ = overload_opt_for<std::decay_t<T>>{std::forward<T>(msg)};
   }
@@ -133,7 +133,7 @@ public:
   Envoy::OptRef<T> resolve() {
     constexpr auto index = index_of_type<T, Ts...>::value;
     if (!key_.has_value()) {
-      key_ = field<size_t>{};
+      key_ = field<uint64_t>{};
       *key_ = index;
       message_.setKeyField(*key_);
       auto stat = message_.decodeUnknown();

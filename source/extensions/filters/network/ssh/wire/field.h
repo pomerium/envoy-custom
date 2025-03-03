@@ -1,12 +1,14 @@
 #pragma once
 
-#include "common.h"
-#include "source/extensions/filters/network/ssh/wire/encoding.h"
-#include "util.h"
+#include <cstdint>
 #include <tuple>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
+
+#include "source/extensions/filters/network/ssh/wire/common.h"
+#include "source/extensions/filters/network/ssh/wire/encoding.h"
+#include "source/extensions/filters/network/ssh/wire/util.h"
 
 namespace wire {
 

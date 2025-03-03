@@ -1,10 +1,9 @@
 #pragma once
 
+#include <cstdint>
 #include <cstddef>
-#include <functional>
 #include <memory>
 #include <string>
-#include <netinet/in.h>
 
 #include "envoy/filesystem/filesystem.h"
 

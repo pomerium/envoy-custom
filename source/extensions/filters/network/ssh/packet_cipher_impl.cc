@@ -1,5 +1,6 @@
 #include "source/extensions/filters/network/ssh/packet_cipher_impl.h"
 
+#include <cstdint>
 #include <algorithm>
 #include <iterator>
 

@@ -1,6 +1,7 @@
 #pragma once
 
-#include <cstdio> // IWYU pragma: keep
+#include <cstdint> // IWYU pragma: keep
+#include <cstdio>  // IWYU pragma: keep
 
 #include "source/common/common/c_smart_ptr.h"
 #include "source/extensions/filters/network/ssh/wire/util.h"

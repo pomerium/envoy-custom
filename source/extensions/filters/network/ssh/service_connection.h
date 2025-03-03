@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 
 #include "api/extensions/filters/network/ssh/ssh.pb.h"

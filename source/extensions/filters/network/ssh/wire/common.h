@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include "fmt/format.h"
 
 namespace wire {
