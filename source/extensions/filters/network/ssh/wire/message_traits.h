@@ -67,14 +67,15 @@ using visitor_info_t = visitor_info<decltype(&std::decay_t<F>::operator())>;
 template <typename F>
 using visitor_arg_type_t = visitor_info_t<F>::arg_type;
 
-template <typename F, typename = void>
+template <typename F>
 struct single_visitor : F {
   static constexpr bool selected_overload = false;
   using F::operator();
 };
 
 template <typename F>
-struct single_visitor<F, std::enable_if_t<is_overload<visitor_arg_type_t<F>>>> : private F {
+  requires is_overload<visitor_arg_type_t<F>>
+struct single_visitor<F> : private F {
   single_visitor(F f)
       : F(f) {};
 
@@ -84,6 +85,7 @@ struct single_visitor<F, std::enable_if_t<is_overload<visitor_arg_type_t<F>>>> :
   static constexpr bool selected_overload = true;
   using arg = visitor_arg_type_t<F>;
   using overload = overload_for_t<arg>;
+
   decltype(auto) operator()(const overload& o) const {
     return F::operator()(const_cast<overload&>(o).template resolve<arg>());
   }
@@ -91,6 +93,7 @@ struct single_visitor<F, std::enable_if_t<is_overload<visitor_arg_type_t<F>>>> :
     return F::operator()(o.template resolve<arg>());
   }
 };
+
 template <typename... Fs>
 struct top_level_message_visitor : single_visitor<Fs>... {
   top_level_message_visitor(Fs... ts)

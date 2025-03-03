@@ -70,7 +70,7 @@ struct MsgType : public virtual BaseSshMsg {
   }
 };
 
-template <SshMessageType MT, typename = void>
+template <SshMessageType MT>
 struct Msg : SshMsg, MsgType<MT> {
   using submsg_group = detail::TopLevelMessageGroup;
   static constexpr auto submsg_key = MT;
@@ -78,7 +78,8 @@ struct Msg : SshMsg, MsgType<MT> {
 };
 
 template <SshMessageType MT>
-struct Msg<MT, std::enable_if_t<detail::is_channel_msg_v<MT>>> : ChannelMsg, MsgType<MT> {
+  requires detail::is_channel_msg_v<MT>
+struct Msg<MT> : ChannelMsg, MsgType<MT> {
   using submsg_group = detail::TopLevelMessageGroup;
   static constexpr auto submsg_key = MT;
   static constexpr auto submsg_key_encoding = None;
@@ -119,14 +120,16 @@ private:
 public:
   OverloadedMessage() = default;
 
-  template <typename T, typename = std::enable_if_t<has_overload<std::decay_t<T>>()>>
+  template <typename T>
+    requires (has_overload<std::decay_t<T>>())
   explicit OverloadedMessage(T&& msg) {
     key_ = field<size_t>{};
     message_.setKeyField(*key_);
     message_ = overload_opt_for<std::decay_t<T>>{std::forward<T>(msg)};
   }
 
-  template <typename T, typename = std::enable_if_t<has_overload<T>()>>
+  template <typename T>
+    requires (has_overload<T>())
   Envoy::OptRef<T> resolve() {
     constexpr auto index = index_of_type<T, Ts...>::value;
     if (!key_.has_value()) {
@@ -914,7 +917,8 @@ struct Message : SshMsg {
 
   Message() = default;
 
-  template <typename T, typename = std::enable_if_t<!std::is_same_v<T, Message>>>
+  template <typename T>
+    requires (!std::same_as<T, Message>)
   Message(T&& msg) {
     if constexpr (!std::is_same_v<std::decay_t<T>, detail::overload_for_t<std::decay_t<T>>>) {
       message = detail::overload_for_t<std::decay_t<T>>{std::forward<T>(msg)};

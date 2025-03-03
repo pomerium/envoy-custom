@@ -20,5 +20,8 @@ AlignConsecutiveShortCaseStatements:
   AcrossEmptyLines: false
   AcrossComments: false
 
+SpaceBeforeParens: Custom
+SpaceBeforeParensOptions:
+  AfterRequiresInClause: true
 ---
 

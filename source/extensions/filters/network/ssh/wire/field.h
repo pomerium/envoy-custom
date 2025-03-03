@@ -87,14 +87,14 @@ struct field_base {
   }
 };
 
-template <typename T, EncodingOptions Opt = None, typename = void>
+template <typename T, EncodingOptions Opt = None>
   requires ReadWriter<type_or_value_type_t<T>>
 struct field;
 
 // normal field (not conditional)
 template <typename T, EncodingOptions Opt>
-  requires ReadWriter<type_or_value_type_t<T>>
-struct field<T, Opt, std::enable_if_t<(Opt & Conditional) == 0>> : field_base<T, Opt> {
+  requires ReadWriter<type_or_value_type_t<T>> && ((Opt & Conditional) == 0)
+struct field<T, Opt> : field_base<T, Opt> {
   static_assert(sizeof(field_base<T, Opt>) == sizeof(T));
   using field_base<T, Opt>::value;
   using field_base<T, Opt>::operator=;
@@ -102,8 +102,8 @@ struct field<T, Opt, std::enable_if_t<(Opt & Conditional) == 0>> : field_base<T,
 
 // conditional field
 template <typename T, EncodingOptions Opt>
-  requires ReadWriter<type_or_value_type_t<T>>
-struct field<T, Opt, std::enable_if_t<(Opt & Conditional) != 0>> : field_base<T, Opt> {
+  requires ReadWriter<type_or_value_type_t<T>> && ((Opt & Conditional) != 0)
+struct field<T, Opt> : field_base<T, Opt> {
   static_assert(sizeof(field_base<T, Opt>) == sizeof(T));
   using field_base<T, Opt>::value;
   using field_base<T, Opt>::operator=;
@@ -253,8 +253,8 @@ struct sub_message {
   // Assignment operator for any type in the options list. When a message is assigned, the
   // key field in the containing message is updated with the new message's key.
   template <typename T>
-  std::enable_if_t<has_option<T>(), sub_message&>
-  operator=(T&& other) {
+    requires (has_option<T>())
+  sub_message& operator=(T&& other) {
     // Forward 'other' into the variant using a copy if it is T&, or a move if it is T&&.
     oneof.template emplace<std::decay_t<T>>(std::forward<T>(other));
     // update the key field

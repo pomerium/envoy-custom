@@ -57,7 +57,7 @@ TEST(MessageTest, Visit) {
         return SshMessageType::KexECDHInit;
       },
       [&](Envoy::OptRef<const UserAuthPubKeyOkMsg> _) {
-        return SshMessageType::KexECDHInit;
+        return SshMessageType::UserAuthPubKeyOk;
       },
       [&](const auto&) {
         return SshMessageType::Invalid;
@@ -95,6 +95,10 @@ TEST(MessageTest, Visit) {
   KexEcdhInitMessage kex_ecdh_init_msg;
   msg = kex_ecdh_init_msg;
   EXPECT_EQ(SshMessageType::KexECDHInit, visitor());
+
+  UserAuthPubKeyOkMsg user_auth_pubkey_ok_msg;
+  msg = user_auth_pubkey_ok_msg;
+  EXPECT_EQ(SshMessageType::UserAuthPubKeyOk, visitor());
 };
 
 } // namespace wire::test

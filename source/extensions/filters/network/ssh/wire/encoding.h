@@ -220,8 +220,8 @@ constexpr void check_incompatible_options() {
 // read_opt is a wrapper around read() that supports additional encoding options.
 // This specialization handles non-list types as well as strings and 'bytes' (vector<uint8_t>).
 template <EncodingOptions Opt, typename T>
-std::enable_if_t<(!is_vector<T>::value || std::is_same_v<T, bytes>), size_t>
-read_opt(Envoy::Buffer::Instance& buffer, T& value, explicit_size_t auto limit) { // NOLINT
+  requires (!is_vector<T>::value || std::is_same_v<T, bytes>)
+size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, explicit_size_t auto limit) { // NOLINT
   check_supported_options<LengthPrefixed, Opt>();
   if (limit == 0) {
     return 0;
@@ -244,8 +244,8 @@ read_opt(Envoy::Buffer::Instance& buffer, T& value, explicit_size_t auto limit) 
 // write_opt is a wrapper around write() that supports additional encoding options.
 // This specialization handles non-list types as well as strings and 'bytes' (vector<uint8_t>).
 template <EncodingOptions Opt, typename T>
-std::enable_if_t<(!is_vector<T>::value || std::is_same_v<T, bytes>), size_t>
-write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT
+  requires (!is_vector<T>::value || std::is_same_v<T, bytes>)
+size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT
   check_supported_options<LengthPrefixed, Opt>();
   if constexpr (Opt & LengthPrefixed) {
     Envoy::Buffer::OwnedImpl tmp;
@@ -268,9 +268,9 @@ write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT
 // - LengthPrefixed: if set, each element will be preceded by a uint32 containing that element's
 //   length. This option cannot be used together with CommaDelimited.
 template <EncodingOptions Opt, typename T>
-  requires Reader<typename T::value_type>
-std::enable_if_t<(is_vector<T>::value && !std::is_same_v<T, bytes>), size_t>
-read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NOLINT
+  requires Reader<typename T::value_type> &&
+           (is_vector<T>::value && !std::is_same_v<T, bytes>)
+size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NOLINT
   check_supported_options<(CommaDelimited | LengthPrefixed | ListSizePrefixed | ListLengthPrefixed), Opt>();
   check_incompatible_options<(CommaDelimited | LengthPrefixed), Opt>();
   check_incompatible_options<(CommaDelimited | ListSizePrefixed), Opt>();
@@ -376,9 +376,9 @@ read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NOLINT
 
 // write function for fields of list types
 template <EncodingOptions Opt, typename T>
-  requires Writer<typename T::value_type>
-std::enable_if_t<(is_vector<T>::value && !std::is_same_v<T, bytes>), size_t>
-write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT
+  requires Writer<typename T::value_type> &&
+           (is_vector<T>::value && !std::is_same_v<T, bytes>)
+size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT
   check_supported_options<(CommaDelimited | LengthPrefixed | ListSizePrefixed | ListLengthPrefixed), Opt>();
   check_incompatible_options<(CommaDelimited | LengthPrefixed), Opt>();
   check_incompatible_options<(CommaDelimited | ListSizePrefixed), Opt>();
