@@ -139,7 +139,7 @@ absl::Status SshServerCodec::handleMessage(wire::Message&& msg) {
           // ignore this for now
           return absl::OkStatus();
         },
-        [&](auto&) {
+        [&msg](auto&) {
           ENVOY_LOG(debug, "ignoring global request {}", msg.request_name);
           return absl::OkStatus();
         });
@@ -238,7 +238,7 @@ AuthState& SshServerCodec::authState() {
 }
 
 void SshServerCodec::forward(std::unique_ptr<SSHStreamFrame> frame) {
-  if (authState().handoff_info.handoff_in_progress) {
+  if (authState().handoff_info.handoff_in_progress) [[unlikely]] {
     PANIC("forward() called during handoff, this should not happen");
   }
   switch (frame->frameKind()) {

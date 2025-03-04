@@ -81,7 +81,7 @@ absl::Status Curve25519Sha256KexAlgorithm::handleServerRecv(const wire::Message&
 
       return absl::OkStatus();
     },
-    [&](auto&) {
+    [&msg](auto&) {
       return absl::InvalidArgumentError(fmt::format("unexpected message received during key exchange: {}", msg.msg_type()));
     });
 }
@@ -157,7 +157,7 @@ absl::Status Curve25519Sha256KexAlgorithm::handleClientRecv(const wire::Message&
 
       return absl::OkStatus();
     },
-    [&](const auto&) {
+    [&msg](const auto&) {
       return absl::InvalidArgumentError(fmt::format("unexpected message received during key exchange: {}", msg.msg_type()));
     });
 }

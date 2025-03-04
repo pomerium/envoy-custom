@@ -43,15 +43,15 @@ class SSHResponseCommonFrame : public GenericProxy::ResponseCommonFrame, public 
 public:
   template <typename T>
   SSHResponseCommonFrame(uint64_t stream_id, T&& msg)
-      : msg_(std::make_unique<T>(std::forward<T>(msg))),
+      : msg_(std::make_unique<wire::Message>(std::forward<T>(msg))),
         stream_id_(stream_id) {}
 
   FrameKind frameKind() const override;
-  const wire::SshMsg& message() const;
+  const wire::Message& message() const;
   FrameFlags frameFlags() const override;
 
 private:
-  std::unique_ptr<wire::SshMsg> msg_;
+  std::unique_ptr<wire::Message> msg_;
   uint64_t stream_id_;
 };
 
@@ -62,13 +62,13 @@ public:
   template <typename T>
   SSHResponseHeaderFrame(uint64_t stream_id, StreamStatus status, T&& msg)
       : status_(status),
-        msg_(std::make_unique<T>(std::forward<T>(msg))),
+        msg_(std::make_unique<wire::Message>(std::forward<T>(msg))),
         stream_id_(stream_id) {}
 
   StreamStatus status() const override;
   std::string_view protocol() const override;
   FrameFlags frameFlags() const override;
-  const wire::SshMsg& message() const;
+  const wire::Message& message() const;
   FrameKind frameKind() const override;
 
   void setRawFlags(uint32_t raw_flags) {
@@ -80,26 +80,26 @@ public:
 
 private:
   StreamStatus status_;
-  std::unique_ptr<wire::SshMsg> msg_;
+  std::unique_ptr<wire::Message> msg_;
   uint64_t stream_id_;
   std::optional<uint32_t> raw_flags_;
 };
 
 class SSHRequestCommonFrame : public GenericProxy::RequestCommonFrame, public SSHStreamFrame {
 public:
-  SSHRequestCommonFrame(uint64_t stream_id, std::unique_ptr<wire::SshMsg> msg)
+  SSHRequestCommonFrame(uint64_t stream_id, std::unique_ptr<wire::Message> msg)
       : msg_(std::move(msg)), stream_id_(stream_id) {}
 
   template <typename T>
   SSHRequestCommonFrame(uint64_t stream_id, T&& msg)
-      : msg_(std::make_unique<T>(std::forward<T>(msg))),
+      : msg_(std::make_unique<wire::Message>(std::forward<T>(msg))),
         stream_id_(stream_id) {}
   FrameKind frameKind() const override;
-  const wire::SshMsg& message() const;
+  const wire::Message& message() const;
   FrameFlags frameFlags() const override;
 
 private:
-  std::unique_ptr<wire::SshMsg> msg_;
+  std::unique_ptr<wire::Message> msg_;
   uint64_t stream_id_;
 };
 

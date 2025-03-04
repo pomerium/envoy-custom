@@ -13,23 +13,6 @@ struct SubMsgGroup {};
 
 enum class TopLevelMessageGroup {};
 
-template <SshMessageType T>
-struct is_channel_msg : std::false_type {};
-
-template <SshMessageType T>
-inline constexpr bool is_channel_msg_v = is_channel_msg<T>::value;
-
-template <> struct is_channel_msg<SshMessageType::ChannelRequest> : std::true_type {};
-template <> struct is_channel_msg<SshMessageType::ChannelOpenConfirmation> : std::true_type {};
-template <> struct is_channel_msg<SshMessageType::ChannelOpenFailure> : std::true_type {};
-template <> struct is_channel_msg<SshMessageType::ChannelWindowAdjust> : std::true_type {};
-template <> struct is_channel_msg<SshMessageType::ChannelData> : std::true_type {};
-template <> struct is_channel_msg<SshMessageType::ChannelExtendedData> : std::true_type {};
-template <> struct is_channel_msg<SshMessageType::ChannelEOF> : std::true_type {};
-template <> struct is_channel_msg<SshMessageType::ChannelClose> : std::true_type {};
-template <> struct is_channel_msg<SshMessageType::ChannelSuccess> : std::true_type {};
-template <> struct is_channel_msg<SshMessageType::ChannelFailure> : std::true_type {};
-
 template <typename T>
 struct overload_for : std::type_identity<T> {};
 

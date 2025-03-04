@@ -177,11 +177,11 @@ public:
   }
 
   absl::Status convertToSignedUserCertificate(
-      uint64_t serial,
-      string_list principals,
-      string_list extensions,
-      absl::Duration valid_duration,
-      const SSHKey& signer) {
+    uint64_t serial,
+    string_list principals,
+    string_list extensions,
+    absl::Duration valid_duration,
+    const SSHKey& signer) {
     if (auto err = sshkey_to_certified(key_.get()); err != 0) {
       return statusFromErr(err);
     }

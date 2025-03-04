@@ -46,10 +46,11 @@ GenericProxy::EncodingResult SshClientCodec::encode(const GenericProxy::StreamFr
   }
   case FrameKind::RequestCommon: {
     const auto& msg = dynamic_cast<const SSHRequestCommonFrame&>(frame).message();
-    if (channel_id_remap_enabled_ && msg.isChannelMessage()) {
-      auto& channelMsg = const_cast<wire::ChannelMsg&>(dynamic_cast<const wire::ChannelMsg&>(msg));
-      channelMsg.getRecipientChannel() = channel_id_mappings_.at(channelMsg.getRecipientChannel());
-    }
+    const_cast<wire::Message&>(msg).visit(
+      [&](wire::ChannelMsg auto& msg) {
+        msg.getRecipientChannel() = channel_id_mappings_.at(msg.getRecipientChannel());
+      },
+      [](auto&) {});
     return sendMessageToConnection(msg);
   }
   default:
@@ -141,16 +142,6 @@ void SshClientCodec::forward(std::unique_ptr<SSHStreamFrame> frame) {
     auto framePtr =
       std::unique_ptr<ResponseCommonFrame>(dynamic_cast<ResponseCommonFrame*>(frame.release()));
     callbacks_->onDecodingSuccess(std::move(framePtr));
-    // auto framePtr = dynamic_cast<SSHResponseCommonFrame*>(frame.release());
-    // if (authState().channel_mode == ChannelMode::Handoff && !sent_response_header_frame_) {
-    //   // we haven't yet sent a response header frame after handoff, transform the first one
-    //   // into a header frame
-    //   callbacks_->onDecodingSuccess(
-    //       std::unique_ptr<ResponseHeaderFrame>(new SSHResponseHeaderFrame(framePtr, StreamStatus(0, true))));
-    //   sent_response_header_frame_ = true;
-    //   return;
-    // }
-    // callbacks_->onDecodingSuccess(std::unique_ptr<ResponseCommonFrame>(framePtr));
     break;
   }
   default:
@@ -253,7 +244,7 @@ bool SshClientCodec::interceptMessage(wire::Message& ssh_msg) {
       }
       return true;
     },
-    [&](auto&) {
+    [](auto&) {
       return true;
     });
 }

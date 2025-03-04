@@ -274,7 +274,7 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
       pending_req_->msg.get<wire::PubKeyUserAuthRequestMsg>().signature = *sig;
       return transport_.sendMessageToConnection(*pending_req_).status();
     },
-    [&](wire::UserAuthBannerMsg& msg) {
+    [](wire::UserAuthBannerMsg& msg) {
       ENVOY_LOG(info, "banner: \n{}", msg.message);
       return absl::OkStatus();
     },
