@@ -217,11 +217,18 @@ void SshServerCodec::initUpstream(AuthStateSharedPtr s) {
   case ChannelMode::Hijacked: {
     if (auth_state_->allow_response->target_case() == pomerium::extensions::ssh::AllowResponse::kInternal) {
       const auto& internal = auth_state_->allow_response->internal();
-      Envoy::OptRef<const envoy::config::core::v3::Metadata> optional_metadata;
+      std::optional<envoy::config::core::v3::Metadata> optional_metadata;
       if (internal.has_set_metadata()) {
-        optional_metadata = makeOptRef(internal.set_metadata());
+        optional_metadata = internal.set_metadata();
       }
-      auth_state_->hijacked_stream = channel_client_->start(connection_service_.get(), optional_metadata);
+      channel_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus, std::string err) {
+        wire::DisconnectMsg dc;
+        dc.reason_code = SSH2_DISCONNECT_BY_APPLICATION;
+        dc.description = err; // todo: unsure if we want to propagate this message in all cases
+        auto _ = sendMessageToConnection(dc);
+        callbacks_->connection()->close(Network::ConnectionCloseType::FlushWrite, err);
+      });
+      auth_state_->hijacked_stream = channel_client_->start(connection_service_.get(), std::move(optional_metadata));
       auto _ = sendMessageToConnection(wire::UserAuthSuccessMsg{});
     } else {
       ENVOY_LOG(error, "wrong target mode in AllowResponse for internal session");
@@ -229,6 +236,10 @@ void SshServerCodec::initUpstream(AuthStateSharedPtr s) {
     }
   } break;
   case ChannelMode::Handoff: {
+    channel_client_->setOnRemoteCloseCallback(nullptr);
+    if (auto s = auth_state_->hijacked_stream.lock(); s) {
+      s->resetStream();
+    }
     auto frame = std::make_unique<SSHRequestHeaderFrame>(auth_state_);
     callbacks_->connection()->readDisable(true);
     callbacks_->onDecodingSuccess(std::move(frame));

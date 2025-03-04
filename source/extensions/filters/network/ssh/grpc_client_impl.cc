@@ -1,4 +1,6 @@
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
+#include "envoy/http/header_map.h"
+#include "source/common/config/metadata.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 using namespace pomerium::extensions::ssh;
@@ -46,14 +48,22 @@ ChannelStreamServiceClient::ChannelStreamServiceClient(Grpc::RawAsyncClientShare
       client_(client) {}
 
 std::weak_ptr<Grpc::AsyncStream<ChannelMessage>> ChannelStreamServiceClient::start(
-  ChannelStreamCallbacks* callbacks, Envoy::OptRef<const envoy::config::core::v3::Metadata> metadata) {
+  ChannelStreamCallbacks* callbacks, std::optional<envoy::config::core::v3::Metadata> metadata) {
   callbacks_ = callbacks;
-  Http::AsyncClient::StreamOptions opts;
   if (metadata.has_value()) {
-    opts.setMetadata(*metadata);
+    metadata_ = std::move(metadata);
   }
+  Http::AsyncClient::StreamOptions opts;
   stream_ = std::make_shared<Grpc::AsyncStream<ChannelMessage>>(client_.start(method_manage_stream_, *this, opts));
   return stream_;
+}
+
+void ChannelStreamServiceClient::onCreateInitialMetadata(Http::RequestHeaderMap& headers) {
+  if (metadata_.has_value()) {
+    auto id = Envoy::Config::Metadata::metadataValue(&*metadata_, "pomerium.ssh", "pomerium-session-id");
+    ENVOY_LOG(error, "ChannelStreamServiceClient::onCreateInitialMetadata {}", id.string_value());
+    headers.setCopy(Http::LowerCaseString("pomerium-session-id"), id.string_value());
+  }
 }
 
 void ChannelStreamServiceClient::onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) {
@@ -66,6 +76,10 @@ void ChannelStreamServiceClient::onRemoteClose(Grpc::Status::GrpcStatus, const s
     stream_ = nullptr;
   }
   callbacks_ = nullptr;
+}
+
+void ChannelStreamServiceClient::setOnRemoteCloseCallback(std::function<void(Grpc::Status::GrpcStatus, std::string)> cb) {
+  on_remote_close_ = cb;
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

@@ -100,9 +100,6 @@ void DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<ChannelMess
     switch (ctrl_action.action_case()) {
     case pomerium::extensions::ssh::SSHChannelControlAction::kHandOff: {
       auto* handOffMsg = ctrl_action.mutable_hand_off();
-      if (auto s = transport_.authState().hijacked_stream.lock(); s) {
-        s->resetStream();
-      }
       auto newState = transport_.authState().clone();
       switch (handOffMsg->upstream_auth().target_case()) {
       case pomerium::extensions::ssh::AllowResponse::kUpstream: {
