@@ -93,6 +93,7 @@ private:
   Grpc::AsyncStream<ChannelMessage> stream_;
   Grpc::AsyncClient<ChannelMessage, ChannelMessage> client_;
   ChannelStreamCallbacks* callbacks_;
+  Envoy::OptRef<envoy::config::core::v3::Metadata> metadata_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

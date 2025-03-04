@@ -19,13 +19,7 @@ class ConnectionService : public Service {
 public:
   constexpr std::string name() override { return "ssh-connection"; };
 
-  ConnectionService(TransportCallbacks& callbacks, Api::Api& api,
-                    AccessLog::AccessLogFileSharedPtr access_log);
-  ~ConnectionService() override {
-    if (access_log_) {
-      access_log_->flush();
-    }
-  }
+  ConnectionService(TransportCallbacks& callbacks, Api::Api& api);
 
   absl::Status requestService() override {
     wire::ServiceRequestMsg req;
@@ -36,17 +30,14 @@ public:
 protected:
   TransportCallbacks& transport_;
   Api::Api& api_;
-
-  AccessLog::AccessLogFileSharedPtr access_log_;
 };
 
 class DownstreamConnectionService : public ConnectionService,
                                     public ChannelStreamCallbacks,
                                     public Logger::Loggable<Logger::Id::filter> {
 public:
-  DownstreamConnectionService(TransportCallbacks& callbacks, Api::Api& api,
-                              AccessLog::AccessLogFileSharedPtr access_log)
-      : ConnectionService(callbacks, api, access_log),
+  DownstreamConnectionService(TransportCallbacks& callbacks, Api::Api& api)
+      : ConnectionService(callbacks, api),
         transport_(dynamic_cast<DownstreamTransportCallbacks&>(callbacks)) {}
 
   void onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) override;

@@ -332,6 +332,29 @@ struct PtyReqChannelRequestMsg : SubMsg<SshMessageType::ChannelRequest, Key("pty
   }
 };
 
+struct WindowDimensionChangeChannelRequestMsg : SubMsg<SshMessageType::ChannelRequest, Key("window-change")> {
+  field<uint32_t> width_columns;
+  field<uint32_t> height_rows;
+  field<uint32_t> width_px;
+  field<uint32_t> height_px;
+
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
+    return decodeSequence(buffer, payload_size,
+                          width_columns,
+                          height_rows,
+                          width_px,
+                          height_px);
+  }
+
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
+    return encodeSequence(buffer,
+                          width_columns,
+                          height_rows,
+                          width_px,
+                          height_px);
+  }
+};
+
 struct ChannelRequestMsg : Msg<SshMessageType::ChannelRequest> {
   field<uint32_t> recipient_channel;
   field<std::string, LengthPrefixed> request_type;
@@ -435,7 +458,7 @@ struct ChannelWindowAdjustMsg : Msg<SshMessageType::ChannelWindowAdjust> {
 
 struct ChannelDataMsg : Msg<SshMessageType::ChannelData> {
   field<uint32_t> recipient_channel;
-  field<bytes> data;
+  field<bytes, LengthPrefixed> data;
 
   field<uint32_t>& getRecipientChannel() {
     return recipient_channel;
@@ -456,7 +479,7 @@ struct ChannelDataMsg : Msg<SshMessageType::ChannelData> {
 struct ChannelExtendedDataMsg : Msg<SshMessageType::ChannelExtendedData> {
   field<uint32_t> recipient_channel;
   field<uint32_t> data_type_code;
-  field<bytes> data;
+  field<bytes, LengthPrefixed> data;
 
   field<uint32_t>& getRecipientChannel() {
     return recipient_channel;

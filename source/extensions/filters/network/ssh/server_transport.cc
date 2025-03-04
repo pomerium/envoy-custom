@@ -30,9 +30,8 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 SshServerCodec::SshServerCodec(Api::Api& api,
                                std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                               AccessLog::AccessLogFileSharedPtr access_log,
                                CreateGrpcClientFunc create_grpc_client)
-    : TransportBase(api, std::move(config), std::move(access_log)),
+    : TransportBase(api, std::move(config)),
       DownstreamTransportCallbacks(*this) {
   auto grpcClient = create_grpc_client();
   THROW_IF_NOT_OK_REF(grpcClient.status());
@@ -43,7 +42,7 @@ SshServerCodec::SshServerCodec(Api::Api& api,
   user_auth_service_ = std::make_unique<DownstreamUserAuthService>(*this, api);
   user_auth_service_->registerMessageHandlers(*this);
   user_auth_service_->registerMessageHandlers(*mgmt_client_);
-  connection_service_ = std::make_unique<DownstreamConnectionService>(*this, api, access_log_);
+  connection_service_ = std::make_unique<DownstreamConnectionService>(*this, api);
   connection_service_->registerMessageHandlers(*this);
 
   service_names_.insert(user_auth_service_->name());

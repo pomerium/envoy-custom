@@ -11,14 +11,17 @@ envoy_cc_library(
     name = "session_recording_filter",
     srcs = [
         "config.cc",
+        "recorder.cc",
     ],
     hdrs = [
         "config.h",
+        "recorder.h",
     ],
     repository = "@envoy",
     deps = [
         ":session_recording_cc_proto",
         "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "@envoy//source/common/json:json_streamer_lib",
         "@envoy//source/extensions/filters/network/generic_proxy/interface:filter_interface",
     ],
 )

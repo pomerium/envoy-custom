@@ -23,7 +23,6 @@ class SshServerCodec : public virtual Logger::Loggable<Logger::Id::filter>,
 public:
   SshServerCodec(Api::Api& api,
                  std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                 AccessLog::AccessLogFileSharedPtr access_log,
                  CreateGrpcClientFunc create_grpc_client);
 
   void setCodecCallbacks(GenericProxy::ServerCodecCallbacks& callbacks) override;
@@ -53,7 +52,7 @@ private:
     dispatcher.registerHandler(wire::SshMessageType::Disconnect, this);
   }
   void registerMessageHandlers(
-      MessageDispatcher<Grpc::ResponsePtr<ServerMessage>>& dispatcher) const override {
+    MessageDispatcher<Grpc::ResponsePtr<ServerMessage>>& dispatcher) const override {
     dispatcher.registerHandler(ServerMessage::MessageCase::kStreamControl, this);
   }
 

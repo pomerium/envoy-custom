@@ -2,7 +2,8 @@ syntax = "proto3";
 
 package pomerium.extensions.ssh.filters.session_recording;
 
-
 option go_package = "github.com/pomerium/envoy-custom/api/extensions/filters/network/ssh/filters/session_recording";
 
-message Config {}
+message Config {
+  string access_log_storage_dir = 1;
+}

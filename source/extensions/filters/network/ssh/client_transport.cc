@@ -8,13 +8,11 @@
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-SshClientCodec::SshClientCodec(Api::Api& api,
-                               std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                               AccessLog::AccessLogFileSharedPtr access_log)
-    : TransportBase(api, std::move(config), std::move(access_log)) {
+SshClientCodec::SshClientCodec(Api::Api& api, std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config)
+    : TransportBase(api, std::move(config)) {
   user_auth_svc_ = std::make_unique<UpstreamUserAuthService>(*this, api);
   user_auth_svc_->registerMessageHandlers(*this);
-  connection_svc_ = std::make_unique<UpstreamConnectionService>(*this, api, access_log_);
+  connection_svc_ = std::make_unique<UpstreamConnectionService>(*this, api);
   connection_svc_->registerMessageHandlers(*this);
 
   services_[user_auth_svc_->name()] = user_auth_svc_.get();
@@ -46,11 +44,13 @@ GenericProxy::EncodingResult SshClientCodec::encode(const GenericProxy::StreamFr
   }
   case FrameKind::RequestCommon: {
     const auto& msg = dynamic_cast<const SSHRequestCommonFrame&>(frame).message();
-    const_cast<wire::Message&>(msg).visit(
-      [&](wire::ChannelMsg auto& msg) {
-        msg.getRecipientChannel() = channel_id_mappings_.at(msg.getRecipientChannel());
-      },
-      [](auto&) {});
+    if (channel_id_remap_enabled_) {
+      const_cast<wire::Message&>(msg).visit(
+        [&](wire::ChannelMsg auto& msg) {
+          msg.getRecipientChannel() = channel_id_mappings_.at(msg.getRecipientChannel());
+        },
+        [](auto&) {});
+    }
     return sendMessageToConnection(msg);
   }
   default:

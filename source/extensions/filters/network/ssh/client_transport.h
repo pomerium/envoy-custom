@@ -19,8 +19,7 @@ class SshClientCodec : public virtual Logger::Loggable<Logger::Id::filter>,
                        public SshMessageMiddleware {
 public:
   SshClientCodec(Api::Api& api,
-                 std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                 AccessLog::AccessLogFileSharedPtr access_log);
+                 std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config);
 
   GenericProxy::EncodingResult encode(const GenericProxy::StreamFrame& frame,
                                       GenericProxy::EncodingContext& ctx) override;

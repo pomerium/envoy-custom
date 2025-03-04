@@ -38,9 +38,8 @@ class TransportBase : public Codec,
                       public virtual Logger::Loggable<Logger::Id::filter> {
 public:
   TransportBase(Api::Api& api,
-                std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                AccessLog::AccessLogFileSharedPtr access_log)
-      : api_(api), config_(config), access_log_(access_log) {}
+                std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config)
+      : api_(api), config_(config) {}
   using Callbacks = codec_traits<Codec>::callbacks_type;
 
   void setCodecCallbacks(Callbacks& callbacks) override {
@@ -158,7 +157,6 @@ protected:
 
   Api::Api& api_;
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config_;
-  AccessLog::AccessLogFileSharedPtr access_log_;
 
   std::unique_ptr<VersionExchanger> version_exchanger_;
   std::unique_ptr<Kex> kex_;
