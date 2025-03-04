@@ -110,7 +110,7 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
         },
         [&](const wire::NoneAuthRequestMsg&) {
           wire::UserAuthFailureMsg failure;
-          failure.methods = {"publickey"s, "keyboard-interactive"s};
+          failure.methods = {"publickey"s};
           return transport_.sendMessageToConnection(failure).status();
         },
         [&](const auto&) {

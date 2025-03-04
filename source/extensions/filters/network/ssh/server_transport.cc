@@ -209,10 +209,21 @@ void SshServerCodec::initUpstream(AuthStateSharedPtr downstream_state) {
   case ChannelMode::Hijacked: {
     downstream_state_->hijacked_stream = channel_client_->start(
       connection_service_.get(), makeOptRefFromPtr(downstream_state->metadata.get()));
+    channel_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus, std::string err) {
+      wire::DisconnectMsg dc;
+      dc.reason_code = SSH2_DISCONNECT_BY_APPLICATION; // todo
+      dc.description = err;
+      auto _ = sendMessageToConnection(dc);
+      callbacks_->connection()->close(Network::ConnectionCloseType::FlushWrite, err);
+    });
     auto _ = sendMessageToConnection(wire::EmptyMsg<wire::SshMessageType::UserAuthSuccess>{});
     break;
   }
   case ChannelMode::Handoff: {
+    channel_client_->setOnRemoteCloseCallback(nullptr);
+    downstream_state_->hijacked_stream->resetStream();
+    downstream_state_->hijacked_stream = nullptr;
+
     auto frame = std::make_unique<SSHRequestHeaderFrame>(downstream_state);
     callbacks_->connection()->readDisable(true);
     callbacks_->onDecodingSuccess(std::move(frame));

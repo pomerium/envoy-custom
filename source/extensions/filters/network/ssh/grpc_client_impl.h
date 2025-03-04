@@ -79,13 +79,19 @@ public:
   ~ChannelStreamServiceClient() override;
   Grpc::AsyncStream<ChannelMessage>* start(ChannelStreamCallbacks* callbacks,
                                            Envoy::OptRef<envoy::config::core::v3::Metadata> metadata);
+  void setOnRemoteCloseCallback(std::function<void(Grpc::Status::GrpcStatus, std::string)> cb) {
+    on_remote_close_ = cb;
+  }
 
 private:
   void onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) override;
-  void onCreateInitialMetadata(Http::RequestHeaderMap&) override {}
+  void onCreateInitialMetadata(Http::RequestHeaderMap&) override;
   void onReceiveInitialMetadata([[maybe_unused]] Http::ResponseHeaderMapPtr&&) override {}
   void onReceiveTrailingMetadata([[maybe_unused]] Http::ResponseTrailerMapPtr&&) override {}
-  void onRemoteClose(Grpc::Status::GrpcStatus, const std::string&) override {
+  void onRemoteClose(Grpc::Status::GrpcStatus status, const std::string& err) override {
+    if (on_remote_close_) {
+      on_remote_close_(status, err);
+    }
     stream_.resetStream();
     callbacks_ = nullptr;
   }
@@ -93,6 +99,8 @@ private:
   Grpc::AsyncStream<ChannelMessage> stream_;
   Grpc::AsyncClient<ChannelMessage, ChannelMessage> client_;
   ChannelStreamCallbacks* callbacks_;
+  Envoy::OptRef<envoy::config::core::v3::Metadata> metadata_;
+  std::function<void(Grpc::Status::GrpcStatus, std::string)> on_remote_close_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
