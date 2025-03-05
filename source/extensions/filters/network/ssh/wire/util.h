@@ -30,6 +30,11 @@ inline bytes to_bytes(const auto& view) { // NOLINT
   return bytes{view.begin(), view.end()};
 }
 
+inline bytes linearize_to_bytes(Envoy::Buffer::Instance& buffer, size_t len) { // NOLINT
+  auto lp = static_cast<uint8_t*>(buffer.linearize(len));
+  return bytes(lp, lp + len); // NOLINT
+}
+
 // explicit_t can be used to prevent implicit conversions in non-constructor function args, by
 // requiring that the type of the value passed by the caller is exactly the same as the requested
 // type.

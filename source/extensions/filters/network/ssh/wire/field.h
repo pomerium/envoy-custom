@@ -231,7 +231,6 @@ struct sub_message {
   template <typename T>
   static constexpr bool has_option() {
     return contains_type<T, Options...>;
-    // return (std::is_same_v<std::decay_t<T>, Options> || ...);
   }
 
   // oneof holds one of the messages in Options, or the empty (std::monostate) value.
@@ -257,11 +256,19 @@ struct sub_message {
   template <typename T>
     requires (has_option<T>())
   sub_message& operator=(T&& other) {
+    reset(std::forward<T>(other));
+    return *this;
+  }
+
+  // Sets or updates the stored sub-message. This also updates the key field in the containing
+  // message with the new message's key.
+  template <typename T>
+    requires (has_option<T>())
+  void reset(T&& other) {
     // Forward 'other' into the variant using a copy if it is T&, or a move if it is T&&.
     oneof.template emplace<std::decay_t<T>>(std::forward<T>(other));
     // update the key field
     key_field_->value = std::decay_t<T>::submsg_key;
-    return *this;
   }
 
   // wrappers around std::get to obtain the value in the variant for a specific type.
@@ -292,8 +299,7 @@ struct sub_message {
       PANIC("bug: missing call to setKeyField");
     }
     if (it == option_index_lookup.end()) { // not found
-      auto data = static_cast<uint8_t*>(buffer.linearize(limit));
-      unknown_ = std::make_shared<bytes>(data, data + limit);
+      unknown_ = std::make_shared<bytes>(linearize_to_bytes(buffer, limit));
       buffer.drain(limit);
       oneof = std::monostate{}; // reset the oneof
       return limit;

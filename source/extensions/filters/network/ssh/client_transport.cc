@@ -45,7 +45,7 @@ GenericProxy::EncodingResult SshClientCodec::encode(const GenericProxy::StreamFr
   case FrameKind::RequestCommon: {
     const auto& msg = dynamic_cast<const SSHRequestCommonFrame&>(frame).message();
     if (channel_id_remap_enabled_) {
-      const_cast<wire::Message&>(msg).visit(
+      const_cast<wire::Message&>(msg).visit( // NOLINT
         [&](wire::ChannelMsg auto& msg) {
           msg.getRecipientChannel() = channel_id_mappings_.at(msg.getRecipientChannel());
         },

@@ -61,15 +61,15 @@ struct MsgType : public virtual BaseSshMsg {
 template <SshMessageType MT>
 struct Msg : SshMsg, MsgType<MT> {
   using submsg_group = detail::TopLevelMessageGroup;
-  static constexpr auto submsg_key = MT;
-  static constexpr auto submsg_key_encoding = None;
+  static constexpr SshMessageType submsg_key = MT;
+  static constexpr EncodingOptions submsg_key_encoding = None;
 };
 
 template <SshMessageType MT, typename T, size_t Index>
 struct OverloadMsg : T {
   using submsg_group = detail::OverloadGroup<MT>;
   static constexpr uint64_t submsg_key = Index; // NB: this must be uint64_t; size_t is not an allowed field type
-  static constexpr auto submsg_key_encoding = None;
+  static constexpr EncodingOptions submsg_key_encoding = None;
 
   OverloadMsg() = default;
 
@@ -110,7 +110,7 @@ public:
   explicit OverloadedMessage(T&& msg) {
     key_ = field<uint64_t>{};
     message_.setKeyField(*key_);
-    message_ = overload_opt_for<std::decay_t<T>>{std::forward<T>(msg)};
+    message_.reset(overload_opt_for<std::decay_t<T>>{std::forward<T>(msg)});
   }
 
   template <typename T>
@@ -140,10 +140,10 @@ public:
 template <auto N>
 struct Key {
   constexpr Key(const char (&str)[N]) {
-    std::copy_n(str, N, value);
+    std::copy_n(static_cast<const char*>(str), N, static_cast<char*>(value));
   }
   constexpr std::string_view to_string() const {
-    return value;
+    return static_cast<const char*>(value);
   }
   char value[N];
 };
@@ -152,8 +152,8 @@ template <SshMessageType MT, auto Key>
 struct SubMsg {
   virtual ~SubMsg() = default;
   using submsg_group = detail::SubMsgGroup<MT>;
-  static constexpr auto submsg_key = Key.to_string();
-  static constexpr auto submsg_key_encoding = LengthPrefixed;
+  static constexpr std::string_view submsg_key = Key.to_string();
+  static constexpr EncodingOptions submsg_key_encoding = LengthPrefixed;
 
   virtual absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) PURE;
   virtual absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const PURE;

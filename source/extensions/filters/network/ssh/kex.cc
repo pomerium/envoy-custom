@@ -370,14 +370,8 @@ absl::StatusOr<Algorithms> Kex::negotiateAlgorithms() noexcept {
     result.host_key = *common_host_key;
   }
 
-  DirectionAlgorithms *stoc, *ctos;
-  if (is_server_) {
-    stoc = &result.w;
-    ctos = &result.r;
-  } else {
-    stoc = &result.r;
-    ctos = &result.w;
-  }
+  DirectionAlgorithms* stoc = is_server_ ? &result.w : &result.r;
+  DirectionAlgorithms* ctos = is_server_ ? &result.r : &result.w;
 
   {
     auto common_cipher = findCommon("client to server cipher",

@@ -15,6 +15,8 @@ envoy_cc_library(
     ],
     hdrs = [
         "config.h",
+        "formatter.h",
+        "formatter_asciicast.h",
         "recorder.h",
     ],
     repository = "@envoy",

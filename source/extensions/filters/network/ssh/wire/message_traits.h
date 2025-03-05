@@ -70,7 +70,8 @@ struct single_visitor<F> : private F {
   using overload = overload_for_t<arg>;
 
   decltype(auto) operator()(const overload& o) const {
-    return F::operator()(const_cast<overload&>(o).template resolve<arg>());
+    // TODO: replace this usage of const_cast
+    return F::operator()(const_cast<overload&>(o).template resolve<arg>()); // NOLINT
   }
   decltype(auto) operator()(overload& o) const {
     return F::operator()(o.template resolve<arg>());

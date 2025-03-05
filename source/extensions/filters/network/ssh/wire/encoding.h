@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <algorithm>
+#include <optional>
 #include <string>
 #include <type_traits>
 #include <utility>
