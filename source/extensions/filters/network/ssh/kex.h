@@ -111,9 +111,9 @@ public:
       : magics_(magics), algs_(algs), signer_(signer) {}
   virtual ~KexAlgorithm() = default;
 
-  virtual absl::Status handleServerRecv(const wire::Message& msg) PURE;
+  virtual absl::Status handleServerRecv(wire::Message& msg) PURE;
   virtual absl::StatusOr<wire::Message> handleClientSend() PURE;
-  virtual absl::Status handleClientRecv(const wire::Message& msg) PURE;
+  virtual absl::Status handleClientRecv(wire::Message& msg) PURE;
   virtual std::shared_ptr<KexResult>&& result() PURE;
 
 protected:
@@ -148,9 +148,9 @@ class Curve25519Sha256KexAlgorithm : public KexAlgorithm {
 public:
   using KexAlgorithm::KexAlgorithm;
 
-  absl::Status handleServerRecv(const wire::Message& msg) override;
+  absl::Status handleServerRecv(wire::Message& msg) override;
   absl::StatusOr<wire::Message> handleClientSend() override;
-  absl::Status handleClientRecv(const wire::Message& msg) override;
+  absl::Status handleClientRecv(wire::Message& msg) override;
 
   std::shared_ptr<KexResult>&& result() override;
 

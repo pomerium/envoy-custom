@@ -112,7 +112,7 @@ public:
       : key_(key) {}
 
   static absl::StatusOr<SSHKey> fromPrivateKeyFile(const std::string& filepath) {
-    sshkey* key;
+    sshkey* key = nullptr;
     auto err = sshkey_load_private(filepath.c_str(), nullptr, &key, nullptr);
     if (err != 0) {
       return statusFromErr(err);
@@ -121,7 +121,7 @@ public:
   }
 
   static absl::StatusOr<SSHKey> fromPublicKeyFile(const std::string& filepath) {
-    sshkey* key;
+    sshkey* key = nullptr;
     auto err = sshkey_load_public(filepath.c_str(), &key, nullptr);
     if (err != 0) {
       return statusFromErr(err);
@@ -130,7 +130,7 @@ public:
   }
 
   static absl::StatusOr<SSHKey> fromBlob(const bytes& public_key) {
-    sshkey* key;
+    sshkey* key = nullptr;
     if (auto err = sshkey_from_blob(public_key.data(), public_key.size(), &key); err != 0) {
       return statusFromErr(err);
     }
@@ -138,7 +138,7 @@ public:
   }
 
   static absl::StatusOr<SSHKey> generate(sshkey_types type, uint32_t bits) {
-    sshkey* key;
+    sshkey* key = nullptr;
     if (auto err = sshkey_generate(type, bits, &key); err != 0) {
       return statusFromErr(err);
     }
@@ -188,11 +188,11 @@ public:
     key_->cert->type = SSH2_CERT_TYPE_USER;
     key_->cert->serial = serial;
     key_->cert->nprincipals = static_cast<uint32_t>(principals.size());
-    char** principals_arr = new char*[principals.size()];
+    auto principals_arr = std::make_unique<char*[]>(principals.size());
     for (size_t i = 0; i < principals.size(); i++) {
       principals_arr[i] = strdup(principals[i].c_str());
     }
-    key_->cert->principals = principals_arr;
+    key_->cert->principals = principals_arr.release();
     key_->cert->extensions = sshbuf_new();
     std::sort(extensions.begin(), extensions.end());
     for (const auto& ext : extensions) {
@@ -217,23 +217,23 @@ public:
   }
 
   absl::StatusOr<bytes> toBlob() const {
-    uint8_t* buf;
-    size_t len;
+    uint8_t* buf = nullptr;
+    size_t len = 0;
     if (auto err = sshkey_to_blob(key_.get(), &buf, &len); err != 0) {
       return statusFromErr(err);
     }
-    return bytes{buf, buf + len};
+    return to_bytes(unsafe_forge_span(buf, len));
   }
 
   absl::StatusOr<bytes> sign(bytes_view<> payload) const {
-    uint8_t* sig;
-    size_t len;
+    uint8_t* sig = nullptr;
+    size_t len = 0;
     auto err = sshkey_sign(key_.get(), &sig, &len, payload.data(), payload.size(),
                            nullptr, nullptr, nullptr, 0);
     if (err != 0) {
       return statusFromErr(err);
     }
-    return bytes{sig, sig + len};
+    return to_bytes(unsafe_forge_span(sig, len));
   }
 
   absl::Status verify(bytes_view<> signature, bytes_view<> payload) {

@@ -64,15 +64,11 @@ struct single_visitor<F> : private F {
 
   static_assert(std::is_same_v<typename visitor_info_t<F>::arg_type_with_cv_optref,
                                Envoy::OptRef<typename visitor_info_t<F>::arg_type_with_cv>>,
-                "overloaded messages must be visited as Envoy::OptRef<T> or Envoy::OptRef<const T>");
+                "overloaded messages must be visited as Envoy::OptRef<T>");
   static constexpr bool selected_overload = true;
   using arg = visitor_arg_type_t<F>;
   using overload = overload_for_t<arg>;
 
-  decltype(auto) operator()(const overload& o) const {
-    // TODO: replace this usage of const_cast
-    return F::operator()(const_cast<overload&>(o).template resolve<arg>()); // NOLINT
-  }
   decltype(auto) operator()(overload& o) const {
     return F::operator()(o.template resolve<arg>());
   }

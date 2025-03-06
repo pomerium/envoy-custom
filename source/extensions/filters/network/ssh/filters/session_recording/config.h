@@ -2,11 +2,14 @@
 
 #include <memory>
 
+#pragma clang unsafe_buffer_usage begin
 #include "source/extensions/filters/network/generic_proxy/interface/filter.h"
 #include "api/extensions/filters/network/ssh/filters/session_recording/session_recording.pb.h"
+#pragma clang unsafe_buffer_usage end
+
+#include "source/extensions/filters/network/ssh/filters/session_recording/recorder.h"
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/transport.h"
-#include "source/extensions/filters/network/ssh/filters/session_recording/recorder.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::StreamFilters::SessionRecording {
 

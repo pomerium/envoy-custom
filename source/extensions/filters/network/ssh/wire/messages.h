@@ -5,7 +5,9 @@
 #include <string>
 #include <utility>
 
+#pragma clang unsafe_buffer_usage begin
 #include "source/common/buffer/buffer_impl.h"
+#pragma clang unsafe_buffer_usage end
 
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
@@ -937,12 +939,8 @@ struct Message : SshMsg {
 
   SshMessageType msg_type() const override { return message_type; }
 
-  decltype(auto) visit(auto... args) {
-    return std::visit(detail::top_level_message_visitor{args...}, message.oneof);
-  }
-
-  decltype(auto) visit(auto... args) const {
-    return std::visit(detail::top_level_message_visitor{args...}, message.oneof);
+  decltype(auto) visit(this auto& self, auto... args) {
+    return std::visit(detail::top_level_message_visitor{args...}, self.message.oneof);
   }
 
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {

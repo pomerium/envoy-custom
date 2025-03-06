@@ -1,7 +1,10 @@
 #pragma once
 
-#include "source/extensions/filters/network/ssh/filters/session_recording/formatter.h"
+#pragma clang unsafe_buffer_usage begin
 #include "source/common/json/json_streamer.h"
+#pragma clang unsafe_buffer_usage end
+
+#include "source/extensions/filters/network/ssh/filters/session_recording/formatter.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::StreamFilters::SessionRecording {
 
@@ -37,9 +40,9 @@ public:
       header->addKey("version");
       header->addNumber(2ul);
       header->addKey("width");
-      header->addNumber(static_cast<uint64_t>(msg.width_columns));
+      header->addNumber(static_cast<uint64_t>(*msg.width_columns));
       header->addKey("height");
-      header->addNumber(static_cast<uint64_t>(msg.height_rows));
+      header->addNumber(static_cast<uint64_t>(*msg.height_rows));
       header->addKey("timestamp");
       header->addNumber(absl::ToUnixSeconds(this->startTime()));
       header->addKey("env");

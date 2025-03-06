@@ -8,7 +8,7 @@ EXTENSIONS = {
     # "envoy.access_loggers.fluentd": "//source/extensions/access_loggers/fluentd:config",
     "envoy.access_loggers.http_grpc": "//source/extensions/access_loggers/grpc:http_config",
     "envoy.access_loggers.tcp_grpc": "//source/extensions/access_loggers/grpc:tcp_config",
-    "envoy.access_loggers.open_telemetry": "//source/extensions/access_loggers/open_telemetry:config",
+    # "envoy.access_loggers.open_telemetry": "//source/extensions/access_loggers/open_telemetry:config",
     "envoy.access_loggers.stdout": "//source/extensions/access_loggers/stream:config",
     "envoy.access_loggers.stderr": "//source/extensions/access_loggers/stream:config",
     # "envoy.access_loggers.wasm": "//source/extensions/access_loggers/wasm:config",
@@ -119,7 +119,7 @@ EXTENSIONS = {
     # HTTP filters
     #
     "envoy.filters.http.adaptive_concurrency": "//source/extensions/filters/http/adaptive_concurrency:config",
-    "envoy.filters.http.admission_control": "//source/extensions/filters/http/admission_control:config",
+    # "envoy.filters.http.admission_control": "//source/extensions/filters/http/admission_control:config",
     "envoy.filters.http.alternate_protocols_cache": "//source/extensions/filters/http/alternate_protocols_cache:config",
     # "envoy.filters.http.api_key_auth": "//source/extensions/filters/http/api_key_auth:config",
     # "envoy.filters.http.aws_lambda": "//source/extensions/filters/http/aws_lambda:config",
@@ -139,7 +139,7 @@ EXTENSIONS = {
     "envoy.filters.http.decompressor": "//source/extensions/filters/http/decompressor:config",
     # "envoy.filters.http.dynamic_forward_proxy": "//source/extensions/filters/http/dynamic_forward_proxy:config",
     "envoy.filters.http.ext_authz": "//source/extensions/filters/http/ext_authz:config",
-    "envoy.filters.http.ext_proc": "//source/extensions/filters/http/ext_proc:config",
+    # "envoy.filters.http.ext_proc": "//source/extensions/filters/http/ext_proc:config",
     "envoy.filters.http.fault": "//source/extensions/filters/http/fault:config",
     "envoy.filters.http.file_system_buffer": "//source/extensions/filters/http/file_system_buffer:config",
     # "envoy.filters.http.gcp_authn": "//source/extensions/filters/http/gcp_authn:config",
@@ -156,7 +156,7 @@ EXTENSIONS = {
     # "envoy.filters.http.ip_tagging": "//source/extensions/filters/http/ip_tagging:config",
     # "envoy.filters.http.json_to_metadata": "//source/extensions/filters/http/json_to_metadata:config",
     # "envoy.filters.http.jwt_authn": "//source/extensions/filters/http/jwt_authn:config",
-    "envoy.filters.http.rate_limit_quota": "//source/extensions/filters/http/rate_limit_quota:config",
+    # "envoy.filters.http.rate_limit_quota": "//source/extensions/filters/http/rate_limit_quota:config",
     # Disabled by default. kill_request is not built into most prebuilt images.
     # For instructions for building with disabled-by-default filters enabled, see
     # https://github.com/envoyproxy/envoy/blob/main/bazel/README.md#enabling-and-disabling-extensions
@@ -337,7 +337,7 @@ EXTENSIONS = {
     #
     # Rate limit descriptors
     #
-    "envoy.rate_limit_descriptors.expr": "//source/extensions/rate_limit_descriptors/expr:config",
+    # "envoy.rate_limit_descriptors.expr": "//source/extensions/rate_limit_descriptors/expr:config",
 
     #
     # IO socket
@@ -399,7 +399,7 @@ EXTENSIONS = {
     #
     # Formatter
     #
-    "envoy.formatter.cel": "//source/extensions/formatter/cel:config",
+    # "envoy.formatter.cel": "//source/extensions/formatter/cel:config",
     "envoy.formatter.metadata": "//source/extensions/formatter/metadata:config",
     "envoy.formatter.req_without_query": "//source/extensions/formatter/req_without_query:config",
 

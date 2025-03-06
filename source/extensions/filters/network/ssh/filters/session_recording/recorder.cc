@@ -44,7 +44,7 @@ void SessionRecorder::onStreamEnd(const Codec::SSHResponseHeaderFrame& frame) {
   stopOnce();
 }
 
-void SessionRecorder::handleDownstreamToUpstreamMessage(const wire::Message& msg) {
+void SessionRecorder::handleDownstreamToUpstreamMessage(wire::Message& msg) {
   if (!isRecording()) {
     return;
   }
@@ -65,7 +65,7 @@ void SessionRecorder::handleDownstreamToUpstreamMessage(const wire::Message& msg
     [&](const auto&) {});
 }
 
-void SessionRecorder::handleUpstreamToDownstreamMessage(const wire::Message& msg) {
+void SessionRecorder::handleUpstreamToDownstreamMessage(wire::Message& msg) {
   if (!isRecording()) {
     return;
   }

@@ -33,8 +33,8 @@ AEADPacketCipher::AEADPacketCipher(const char* cipher_name, bytes /*iv*/, bytes 
   block_len_ = cipher_blocksize(cipher);
   auth_len_ = cipher_authlen(cipher);
   iv_len_ = cipher_ivlen(cipher);
-  aad_len_ = 4;
-  sshcipher_ctx* cipher_ctx;
+  aad_len_ = 4; // NOLINT // TODO
+  sshcipher_ctx* cipher_ctx = nullptr;
   cipher_init(&cipher_ctx, cipher, key.data(), static_cast<uint32_t>(key.size()), nullptr, 0, mode);
   ctx_.reset(cipher_ctx);
 }
@@ -116,7 +116,7 @@ void generateKeyMaterial(bytes& out, char tag, KexResult* kex_result) {
 
   using namespace std::placeholders;
   while (out.size() < out.capacity()) {
-    size_t digest_size;
+    size_t digest_size = 0;
     bssl::ScopedEVP_MD_CTX ctx;
     switch (kex_result->hash) {
     case SHA256:

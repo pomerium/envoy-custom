@@ -1,6 +1,8 @@
 #pragma once
 
-#include "envoy/buffer/buffer.h"
+#pragma clang unsafe_buffer_usage begin
+#include "source/common/buffer/buffer_impl.h"
+#pragma clang unsafe_buffer_usage end
 
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"

@@ -34,20 +34,16 @@ struct field_base {
   }
 
   // implicit conversion operator: allow field<T> to be treated as T in some contexts
-  operator T() const& { return value; }
-  operator T() & { return value; }
+  operator T(this auto& self) { return self.value; }
 
   // arrow operator: allow using -> to access the value stored in a field
-  T* operator->() { return &value; }
-  const T* operator->() const { return &value; }
+  auto* operator->(this auto& self) { return &self.value; }
 
   // dereference operator: allow using * to access the value stored in a field
-  T& operator*() { return value; }
-  const T& operator*() const { return value; }
+  auto& operator*(this auto& self) { return self.value; }
 
   // index operator: allow using [] to index into the vector of a field<vector<T>>
-  auto operator[](int i) const { return value[i]; }
-  auto operator[](int i) { return value[i]; }
+  auto& operator[](this auto& self, int i) { return self.value[i]; }
 
   // default comparison operators: comparing fields will compare their values
   auto operator<=>(const field_base& other) const = default;
@@ -273,14 +269,9 @@ struct sub_message {
 
   // wrappers around std::get to obtain the value in the variant for a specific type.
   template <typename T>
-  decltype(auto) get() { return std::get<T>(oneof); }
-  template <typename T>
-  decltype(auto) get() const { return std::get<T>(oneof); }
-
+  decltype(auto) get(this auto& self) { return std::get<T>(self.oneof); }
   template <size_t I>
-  decltype(auto) get() { return std::get<I + 1>(oneof); }
-  template <size_t I>
-  decltype(auto) get() const { return std::get<I + 1>(oneof); }
+  decltype(auto) get(this auto& self) { return std::get<I + 1>(self.oneof); }
 
   // Reads from the buffer and decodes the contained message. The type is determined by the
   // current value of the key field. It is expected that the key field has already been decoded.
@@ -306,8 +297,7 @@ struct sub_message {
     } else if (unknown_) {
       unknown_ = nullptr;
     }
-    // this is just "decoders[index](...)" but initializer lists have no [] operator for some reason
-    return (*(decoders.begin() + it->second))(oneof, buffer, limit);
+    return decoders[it->second](oneof, buffer, limit);
   }
 
   // Encodes the currently stored message and writes it to the buffer. If no message is stored,
@@ -324,7 +314,7 @@ struct sub_message {
     }
     // subtract 1 from the index because monostate is index 0, so the index of our option types
     // in the variant effectively starts at 1.
-    return (*(encoders.begin() + index - 1))(oneof, buffer);
+    return encoders[index - 1](oneof, buffer);
   }
 
   // Decodes the message contained in the unknown bytes field.
@@ -346,16 +336,8 @@ struct sub_message {
   // A "default" case can be provided by passing a lambda of the form
   //  [](auto msg) { ... }
   // and will be invoked if none of the other lambdas match.
-  decltype(auto) visit(auto... fns) const {
-    return std::visit(overloads{fns...}, oneof);
-  }
-
-  // Wrapper around std::visit for a mutable sub_message. This operates the same as the const
-  // variation of this function, except the parameters to passed lambda functions must not be
-  // const-qualified. That is, they must have the form:
-  //  [](T& msg) { ... }
-  decltype(auto) visit(auto... fns) {
-    return std::visit(overloads{fns...}, oneof);
+  decltype(auto) visit(this auto& self, auto... fns) {
+    return std::visit(overloads{fns...}, self.oneof);
   }
 
 private:
@@ -390,7 +372,7 @@ private:
   // Encoders is a list constructed the same way as decoders, but for writing the messages instead.
   // The encoder for each type is retrieved using std::get<T>(variant), which returns the value
   // for that type (and asserts that it is the actual type stored in the variant).
-  static constexpr auto encoders =
+  static constexpr std::array encoders =
     {+[](const oneof_type& oneof, Envoy::Buffer::Instance& buffer) noexcept -> absl::StatusOr<size_t> {
       return std::get<Options>(oneof).encode(buffer);
     }...};

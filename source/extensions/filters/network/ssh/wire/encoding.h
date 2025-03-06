@@ -37,7 +37,7 @@ inline size_t writeBignum(Envoy::Buffer::Instance& buffer, std::span<const uint8
   size_t in_size = in.size();
   // prepend a zero byte if the most significant bit is set
   auto prepend = (in_size > 0 && (in[0] & 0x80) != 0);
-  buffer.writeBEInt<uint32_t>(prepend ? (in_size + 1) : in_size);
+  buffer.writeBEInt(static_cast<uint32_t>(prepend ? (in_size + 1) : in_size));
   size_t n = 4;
   if (prepend) {
     buffer.writeByte(0);
@@ -251,7 +251,7 @@ size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT
   if constexpr (Opt & LengthPrefixed) {
     Envoy::Buffer::OwnedImpl tmp;
     auto size = write(tmp, value);
-    buffer.writeBEInt<uint32_t>(size);
+    buffer.writeBEInt(static_cast<uint32_t>(size));
     buffer.move(tmp);
     return 4 + size;
   } else {
@@ -386,7 +386,7 @@ size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT
 
   size_t n = 0;
   if constexpr (Opt & ListSizePrefixed) {
-    buffer.writeBEInt<uint32_t>(value.size());
+    buffer.writeBEInt(static_cast<uint32_t>(value.size()));
     n += 4;
   } else if constexpr (Opt & ListLengthPrefixed) {
     uint32_t sum = 0;
@@ -400,7 +400,7 @@ size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT
     } else if constexpr (Opt & LengthPrefixed) {
       sum += 4 * value.size(); // size prefixes
     }
-    buffer.writeBEInt<uint32_t>(sum);
+    buffer.writeBEInt(static_cast<uint32_t>(sum));
     n += 4;
   }
   if constexpr (Opt & CommaDelimited) {
@@ -415,7 +415,7 @@ size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT
     Envoy::Buffer::OwnedImpl tmp;
     for (size_t i = 0; i < value.size(); i++) {
       n += 4 + write(tmp, value.at(i));
-      buffer.writeBEInt<uint32_t>(tmp.length());
+      buffer.writeBEInt(static_cast<uint32_t>(tmp.length()));
       buffer.move(tmp);
     }
   } else {

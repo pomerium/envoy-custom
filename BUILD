@@ -33,7 +33,6 @@ configure_make(
         "--with-ssl-dir=$$EXT_BUILD_DEPS",
         "--without-zlib",
         "--with-sandbox=no",
-        "--enable-sk=no",
     ],
     defines = [
         "WITH_OPENSSL=1",

@@ -227,14 +227,14 @@ TEST(EncodePacketTest, RandomPadding) {
   EXPECT_TRUE(r.ok());
 
   const auto encoded = flushTo<bytes>(buffer);
-  auto expectedWithoutPadding = std::span{testMsg1Expected.data(), testMsg1Expected.size() - 5};
-  auto actualWithoutPadding = std::span{encoded.data(), encoded.size() - 5};
+  auto expectedWithoutPadding = unsafe_forge_span(testMsg1Expected.data(), testMsg1Expected.size() - 5);
+  auto actualWithoutPadding = unsafe_forge_span(encoded.data(), encoded.size() - 5);
   EXPECT_TRUE(std::equal(expectedWithoutPadding.begin(), expectedWithoutPadding.end(),
                          actualWithoutPadding.begin(), actualWithoutPadding.end()));
 
-  auto zerosPadding = std::span{testMsg1Expected.data(), testMsg1Expected.size()}
+  auto zerosPadding = unsafe_forge_span(testMsg1Expected.data(), testMsg1Expected.size())
                         .subspan(testMsg1Expected.size() - 5);
-  auto actualPadding = std::span{encoded.data(), encoded.size()}
+  auto actualPadding = unsafe_forge_span(encoded.data(), encoded.size())
                          .subspan(encoded.size() - 5);
   EXPECT_FALSE(std::equal(zerosPadding.begin(), zerosPadding.end(),
                           actualPadding.begin(), actualPadding.end()));

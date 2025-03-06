@@ -47,7 +47,7 @@ public:
         stream_id_(stream_id) {}
 
   FrameKind frameKind() const override;
-  const wire::Message& message() const;
+  wire::Message& message() const;
   FrameFlags frameFlags() const override;
 
 private:
@@ -68,7 +68,7 @@ public:
   StreamStatus status() const override;
   std::string_view protocol() const override;
   FrameFlags frameFlags() const override;
-  const wire::Message& message() const;
+  wire::Message& message() const;
   FrameKind frameKind() const override;
 
   void setRawFlags(uint32_t raw_flags) {
@@ -95,7 +95,7 @@ public:
       : msg_(std::make_unique<wire::Message>(std::forward<T>(msg))),
         stream_id_(stream_id) {}
   FrameKind frameKind() const override;
-  const wire::Message& message() const;
+  wire::Message& message() const;
   FrameFlags frameFlags() const override;
 
 private:

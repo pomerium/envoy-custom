@@ -21,9 +21,9 @@ extern "C" {
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-absl::Status Curve25519Sha256KexAlgorithm::handleServerRecv(const wire::Message& msg) {
+absl::Status Curve25519Sha256KexAlgorithm::handleServerRecv(wire::Message& msg) {
   return msg.visit(
-    [&](Envoy::OptRef<const wire::KexEcdhInitMessage> msg) {
+    [&](Envoy::OptRef<wire::KexEcdhInitMessage> msg) {
       if (auto sz = msg->client_pub_key->size(); sz != 32) {
         return absl::AbortedError(
           fmt::format("invalid peer public key size (expected 32, got {})", sz));
@@ -96,9 +96,9 @@ absl::StatusOr<wire::Message> Curve25519Sha256KexAlgorithm::handleClientSend() {
   return msg;
 }
 
-absl::Status Curve25519Sha256KexAlgorithm::handleClientRecv(const wire::Message& msg) {
+absl::Status Curve25519Sha256KexAlgorithm::handleClientRecv(wire::Message& msg) {
   return msg.visit(
-    [&](Envoy::OptRef<const wire::KexEcdhReplyMsg> msg) {
+    [&](Envoy::OptRef<wire::KexEcdhReplyMsg> msg) {
       if (!msg.has_value()) {
         return absl::InvalidArgumentError("unexpected KexEcdhReplyMsg received");
       }
@@ -157,7 +157,7 @@ absl::Status Curve25519Sha256KexAlgorithm::handleClientRecv(const wire::Message&
 
       return absl::OkStatus();
     },
-    [&msg](const auto&) {
+    [&msg](auto&) {
       return absl::InvalidArgumentError(fmt::format("unexpected message received during key exchange: {}", msg.msg_type()));
     });
 }

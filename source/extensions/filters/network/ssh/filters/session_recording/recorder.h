@@ -16,8 +16,8 @@ public:
 
   absl::Status onStreamBegin(const Codec::SSHRequestHeaderFrame& frame, Filesystem::FilePtr file);
   void onStreamEnd(const Codec::SSHResponseHeaderFrame& frame);
-  void handleDownstreamToUpstreamMessage(const wire::Message& msg);
-  void handleUpstreamToDownstreamMessage(const wire::Message& msg);
+  void handleDownstreamToUpstreamMessage(wire::Message& msg);
+  void handleUpstreamToDownstreamMessage(wire::Message& msg);
 
 private:
   void stopOnce();

@@ -40,7 +40,7 @@ inline absl::StatusOr<uint32_t> payloadLength(uint32_t packet_length, uint8_t pa
     return absl::InvalidArgumentError("invalid packet length");
   }
 
-  return packet_length - (padding_length + sizeof(padding_length));
+  return packet_length - (padding_length + 1);
 }
 
 template <Decoder T>
@@ -66,7 +66,7 @@ absl::StatusOr<size_t> decodePacket(Envoy::Buffer::Instance& buffer, T& payload)
   }
   if (*actualPayloadLen != *expectedPayloadLen) {
     return absl::InvalidArgumentError(fmt::format(
-        "unexpected packet payload size of {} bytes (expected {})", n, *expectedPayloadLen));
+      "unexpected packet payload size of {} bytes (expected {})", n, *expectedPayloadLen));
   }
   n += *actualPayloadLen;
 
@@ -92,8 +92,11 @@ absl::StatusOr<size_t> encodePacket(Envoy::Buffer::Instance& out, const T& msg,
     return absl::InvalidArgumentError("message encoded to 0 bytes");
   }
 
-  uint8_t padding_length = paddingLength(*payload_length - aad_len, cipher_block_size);
-  uint32_t packet_length = sizeof(padding_length) + *payload_length + padding_length;
+  uint8_t padding_length = paddingLength(static_cast<uint32_t>(*payload_length - aad_len),
+                                         static_cast<uint32_t>(cipher_block_size));
+  uint32_t packet_length = static_cast<uint32_t>(*payload_length) +
+                           static_cast<uint32_t>(sizeof(padding_length)) +
+                           static_cast<uint32_t>(padding_length);
 
   if (packet_length > MaxPacketSize) [[unlikely]] {
     return absl::InvalidArgumentError("encoded message is larger than the max packet size");

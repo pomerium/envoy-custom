@@ -2,7 +2,9 @@ workspace(name = "pomerium_envoy")
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
-envoy_version = "1.33.0"
+envoy_version = "182e0dd26d878bc015a1286f2815676080cecf17"
+
+openssh_version = "V_9_9_P1"
 
 http_archive(
     name = "envoy",
@@ -10,10 +12,13 @@ http_archive(
         "-p1",
     ],
     patch_tool = "patch",
-    patches = [],
-    sha256 = "f9e0d838eff2a3e8ede4273313db592aada4392d85865d7b2ce752fbd9da3591",
+    patches = [
+        "//patches/envoy:0001-revert-deps-drop-BoringSSL-linkstatic-patch-38621.patch",
+        "//patches/envoy:0002-bump-dependencies.patch",
+    ],
+    sha256 = "b3a396974b06568ff0ab6528ad19ed02697a8402d822d0556815c5eba95edf6c",
     strip_prefix = "envoy-" + envoy_version,
-    url = "https://github.com/envoyproxy/envoy/archive/refs/tags/v" + envoy_version + ".zip",
+    url = "https://github.com/envoyproxy/envoy/archive/" + envoy_version + ".zip",
 )
 
 local_repository(
@@ -55,9 +60,9 @@ envoy_http_archive(
             license = "BSD",
             license_url = "https://github.com/openssh/openssh-portable/blob/master/LICENCE",
             project_name = "openssh-portable",
-            sha256 = "c58bcdfd89a37002e4c23b31a0f47ea215dbe43b107c7bd850759843bc460126",
-            strip_prefix = "openssh-portable-master",
-            urls = ["https://github.com/openssh/openssh-portable/archive/refs/heads/master.zip"],
+            sha256 = "fe3b5bb5087b516f9f0793b9b5f6289a34c44bd1ebd751b4cec93b97c80da112",
+            strip_prefix = "openssh-portable-" + openssh_version,
+            urls = ["https://github.com/openssh/openssh-portable/archive/" + openssh_version + ".zip"],
             version = "master",
         ),
     ),
@@ -66,6 +71,6 @@ envoy_http_archive(
     ],
     patch_tool = "patch",
     patches = [
-        "//:patches/0001-openssh-libcrypto-rename.patch",
+        "//patches/openssh:0001-openssh-libcrypto-rename.patch",
     ],
 )

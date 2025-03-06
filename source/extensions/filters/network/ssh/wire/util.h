@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <concepts>
 #include <vector>
 #include <string>
@@ -8,7 +9,9 @@
 #include "absl/status/statusor.h" // IWYU pragma: keep
 #include "fmt/std.h"              // IWYU pragma: keep
 
+#pragma clang unsafe_buffer_usage begin
 #include "source/common/buffer/buffer_impl.h"
+#pragma clang unsafe_buffer_usage end
 
 using namespace std::literals;
 
@@ -27,13 +30,22 @@ using string_list = std::vector<std::string>;
 using bytes_list = std::vector<bytes>;
 
 inline bytes to_bytes(const auto& view) { // NOLINT
-  return bytes{view.begin(), view.end()};
+  return {view.begin(), view.end()};
 }
 
 inline bytes linearize_to_bytes(Envoy::Buffer::Instance& buffer, size_t len) { // NOLINT
-  auto lp = static_cast<uint8_t*>(buffer.linearize(len));
-  return bytes(lp, lp + len); // NOLINT
+  bytes out(len, 0);
+  buffer.copyOut(0, len, out.data());
+  return out;
 }
+
+#pragma clang unsafe_buffer_usage begin
+// https://clang.llvm.org/docs/SafeBuffers.html
+template <typename T>
+constexpr std::span<T> unsafe_forge_span(T* pointer, size_t size) {
+  return std::span(pointer, size);
+}
+#pragma clang unsafe_buffer_usage end
 
 // explicit_t can be used to prevent implicit conversions in non-constructor function args, by
 // requiring that the type of the value passed by the caller is exactly the same as the requested
@@ -140,7 +152,7 @@ template <typename T>
 constexpr bool all_values_unique(std::initializer_list<T> arr) {
   for (size_t i = 0; i < arr.size(); ++i) {
     for (size_t j = i + 1; j < arr.size(); ++j) {
-      if (*(arr.begin() + i) == *(arr.begin() + j)) {
+      if (*std::next(arr.begin(), i) == *std::next(arr.begin(), j)) {
         return false;
       }
     }
