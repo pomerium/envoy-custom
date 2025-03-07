@@ -1,6 +1,5 @@
 #pragma once
 
-#include "envoy/network/connection.h"
 #include "source/extensions/filters/network/generic_proxy/codec_callbacks.h"
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
 

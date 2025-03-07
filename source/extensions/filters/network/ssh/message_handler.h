@@ -1,4 +1,5 @@
 #pragma once
+
 #include <unordered_map>
 #include <utility>
 
@@ -7,6 +8,7 @@
 
 #include "envoy/common/pure.h"
 #include "source/common/common/assert.h"
+
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {

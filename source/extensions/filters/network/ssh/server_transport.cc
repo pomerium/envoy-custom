@@ -22,10 +22,6 @@
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
 
-#include <openssl/bn.h>
-#include <openssl/evp.h>
-#include <openssl/rand.h>
-
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 SshServerCodec::SshServerCodec(Api::Api& api,

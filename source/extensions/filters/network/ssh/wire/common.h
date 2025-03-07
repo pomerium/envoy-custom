@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <vector>
 #include <string>
+
 #include "fmt/format.h"
 
 namespace wire {

@@ -1,9 +1,9 @@
 #include "source/extensions/filters/network/ssh/service_connection.h"
 
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
-#include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
-#include "transport.h"
+#include "source/extensions/filters/network/ssh/frame.h"
+#include "source/extensions/filters/network/ssh/transport.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 

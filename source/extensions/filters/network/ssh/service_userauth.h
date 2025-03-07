@@ -1,7 +1,7 @@
 #pragma once
 
-#include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
+#include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "source/extensions/filters/network/ssh/service.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
@@ -36,7 +36,7 @@ public:
   absl::Status handleMessage(wire::Message&& msg) override;
 
   void registerMessageHandlers(
-      StreamMgmtServerMessageDispatcher& dispatcher) const override;
+    StreamMgmtServerMessageDispatcher& dispatcher) const override;
   absl::Status
   handleMessage(Grpc::ResponsePtr<ServerMessage>&& message) override;
 
