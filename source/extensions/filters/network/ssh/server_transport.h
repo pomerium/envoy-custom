@@ -1,5 +1,6 @@
 #pragma once
 
+#include "envoy/network/connection.h"
 #include "source/extensions/filters/network/generic_proxy/codec_callbacks.h"
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
 
@@ -10,6 +11,7 @@
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/transport_base.h"
 #include "source/extensions/filters/network/ssh/wire/util.h"
+#include "source/extensions/filters/network/ssh/shared.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -23,7 +25,8 @@ class SshServerCodec : public virtual Logger::Loggable<Logger::Id::filter>,
 public:
   SshServerCodec(Api::Api& api,
                  std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                 CreateGrpcClientFunc create_grpc_client);
+                 CreateGrpcClientFunc create_grpc_client,
+                 std::shared_ptr<ThreadLocal::TypedSlot<SharedThreadLocalData>> slot_ptr);
 
   void setCodecCallbacks(GenericProxy::ServerCodecCallbacks& callbacks) override;
 
@@ -39,6 +42,7 @@ public:
   void forward(std::unique_ptr<SSHStreamFrame> frame) override;
 
 private:
+  void initServices();
   absl::Status handleMessage(wire::Message&& msg) override;
   absl::Status handleMessage(Grpc::ResponsePtr<ServerMessage>&& msg) override;
   void registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) const override {
@@ -61,7 +65,8 @@ private:
   absl::StatusOr<std::unique_ptr<wire::HostKeysProveResponseMsg>>
   handleHostKeysProve(const wire::HostKeysProveRequestMsg& msg);
 
-  AuthStateSharedPtr downstream_state_;
+  std::shared_ptr<ThreadLocal::TypedSlot<SharedThreadLocalData>> tls_;
+  AuthStateSharedPtr auth_state_;
   std::set<std::string> service_names_;
   std::unique_ptr<DownstreamUserAuthService> user_auth_service_;
   std::unique_ptr<DownstreamConnectionService> connection_service_;

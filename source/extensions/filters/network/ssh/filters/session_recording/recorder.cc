@@ -49,20 +49,20 @@ void SessionRecorder::handleDownstreamToUpstreamMessage(wire::Message& msg) {
     return;
   }
   msg.visit(
-    [&](const wire::ChannelRequestMsg& msg) {
+    [&](wire::ChannelRequestMsg& msg) {
       msg.msg.visit(
-        [&](const wire::PtyReqChannelRequestMsg& msg) {
+        [&](wire::PtyReqChannelRequestMsg& msg) {
           formatter_->writeHeader(msg);
         },
-        [&](const wire::WindowDimensionChangeChannelRequestMsg& msg) {
+        [&](wire::WindowDimensionChangeChannelRequestMsg& msg) {
           formatter_->writeResizeEvent(msg);
         },
-        [&](const auto&) {});
+        [&](auto&) {});
     },
-    [&](const wire::ChannelDataMsg& msg) {
+    [&](wire::ChannelDataMsg& msg) {
       formatter_->writeInputEvent(msg);
     },
-    [&](const auto&) {});
+    [&](auto&) {});
 }
 
 void SessionRecorder::handleUpstreamToDownstreamMessage(wire::Message& msg) {
@@ -70,10 +70,10 @@ void SessionRecorder::handleUpstreamToDownstreamMessage(wire::Message& msg) {
     return;
   }
   msg.visit(
-    [&](const wire::ChannelDataMsg& msg) {
+    [&](wire::ChannelDataMsg& msg) {
       formatter_->writeOutputEvent(msg);
     },
-    [&](const auto&) {});
+    [&](auto&) {});
 }
 
 bool SessionRecorder::isRecording() {

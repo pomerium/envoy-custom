@@ -46,6 +46,11 @@ public:
       : msg_(std::make_unique<wire::Message>(std::forward<T>(msg))),
         stream_id_(stream_id) {}
 
+  template <typename T>
+  SSHResponseCommonFrame(const SSHResponseCommonFrame& other)
+      : msg_(std::make_unique<wire::Message>(other.msg_->message.get<T>())) {
+  }
+
   FrameKind frameKind() const override;
   wire::Message& message() const;
   FrameFlags frameFlags() const override;
@@ -70,6 +75,10 @@ public:
   FrameFlags frameFlags() const override;
   wire::Message& message() const;
   FrameKind frameKind() const override;
+
+  uint64_t streamId() const {
+    return stream_id_;
+  }
 
   void setRawFlags(uint32_t raw_flags) {
     raw_flags_ = raw_flags;
@@ -97,6 +106,9 @@ public:
   FrameKind frameKind() const override;
   wire::Message& message() const;
   FrameFlags frameFlags() const override;
+  uint64_t streamId() const {
+    return stream_id_;
+  }
 
 private:
   std::unique_ptr<wire::Message> msg_;

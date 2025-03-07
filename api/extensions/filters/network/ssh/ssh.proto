@@ -75,6 +75,7 @@ message StreamEvent {
   oneof event {
     DownstreamConnectEvent      downstream_connected    = 1;
     DownstreamDisconnectedEvent downstream_disconnected = 2;
+    UpstreamConnectEvent        upstream_connected      = 3;
   }
 }
 
@@ -86,6 +87,10 @@ message DownstreamConnectEvent {
 message DownstreamDisconnectedEvent {
   string reason = 1; // example, could also be an enum
   // [other disconnect info as needed]
+}
+
+message UpstreamConnectEvent {
+  uint64 stream_id = 1;
 }
 
 // AuthenticationRequest is sent by Envoy to Pomerium when the downstream
@@ -149,6 +154,7 @@ enum Target {
   UnknownTarget = 0;
   Upstream      = 1;
   Internal      = 2;
+  Mirror        = 3;
 }
 
 message AllowedMethod {

@@ -232,7 +232,15 @@ struct sub_message {
   // oneof holds one of the messages in Options, or the empty (std::monostate) value.
   std::variant<std::monostate, Options...> oneof;
 
-  sub_message(const sub_message&) = delete;
+  sub_message(const sub_message& other) {
+    if (other.unknown_) {
+      unknown_ = std::make_shared<bytes>(*other.unknown_);
+    } else {
+      Envoy::Buffer::OwnedImpl tmp;
+      (void)other.encode(tmp); // TODO: handle this error?
+      unknown_ = std::make_shared<bytes>(flushTo<bytes>(tmp));
+    }
+  }
   sub_message(sub_message&&) = default;
   sub_message& operator=(const sub_message&) = delete;
   sub_message& operator=(sub_message&&) = default;
@@ -250,7 +258,7 @@ struct sub_message {
   // Assignment operator for any type in the options list. When a message is assigned, the
   // key field in the containing message is updated with the new message's key.
   template <typename T>
-    requires (has_option<T>())
+    requires (has_option<std::decay_t<T>>())
   sub_message& operator=(T&& other) {
     reset(std::forward<T>(other));
     return *this;
@@ -259,7 +267,7 @@ struct sub_message {
   // Sets or updates the stored sub-message. This also updates the key field in the containing
   // message with the new message's key.
   template <typename T>
-    requires (has_option<T>())
+    requires (has_option<std::decay_t<T>>())
   void reset(T&& other) {
     // Forward 'other' into the variant using a copy if it is T&, or a move if it is T&&.
     oneof.template emplace<std::decay_t<T>>(std::forward<T>(other));

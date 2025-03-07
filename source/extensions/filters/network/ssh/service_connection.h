@@ -7,6 +7,7 @@
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/service.h"
 #include "source/extensions/filters/network/ssh/transport.h"
+#include "source/extensions/filters/network/ssh/multiplexer.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 
 extern "C" {
@@ -14,6 +15,8 @@ extern "C" {
 }
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
+
+using Envoy::Event::Dispatcher;
 
 class ConnectionService : public Service {
 public:
@@ -36,25 +39,42 @@ class DownstreamConnectionService : public ConnectionService,
                                     public ChannelStreamCallbacks,
                                     public Logger::Loggable<Logger::Id::filter> {
 public:
-  DownstreamConnectionService(TransportCallbacks& callbacks, Api::Api& api)
+  DownstreamConnectionService(TransportCallbacks& callbacks,
+                              Api::Api& api,
+                              std::shared_ptr<ThreadLocal::TypedSlot<SharedThreadLocalData>> slot_ptr)
       : ConnectionService(callbacks, api),
-        transport_(dynamic_cast<DownstreamTransportCallbacks&>(callbacks)) {}
+        transport_(dynamic_cast<DownstreamTransportCallbacks&>(callbacks)),
+        slot_ptr_(slot_ptr) {}
 
   void onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) override;
   absl::Status handleMessage(wire::Message&& msg) override;
 
   void registerMessageHandlers(SshMessageDispatcher& dispatcher) const override;
+  void beginStream(const AuthState& auth_state, Dispatcher& dispatcher);
 
 private:
   DownstreamTransportCallbacks& transport_;
+  std::shared_ptr<ThreadLocal::TypedSlot<SharedThreadLocalData>> slot_ptr_;
+  std::shared_ptr<SessionMultiplexer> multiplexer_;
 };
 
 class UpstreamConnectionService : public ConnectionService,
                                   public Logger::Loggable<Logger::Id::filter> {
 public:
-  using ConnectionService::ConnectionService;
+  UpstreamConnectionService(
+    TransportCallbacks& callbacks,
+    Api::Api& api,
+    std::shared_ptr<ThreadLocal::TypedSlot<SharedThreadLocalData>> slot_ptr)
+      : ConnectionService(callbacks, api),
+        slot_ptr_(slot_ptr) {}
   absl::Status handleMessage(wire::Message&& msg) override;
   void registerMessageHandlers(SshMessageDispatcher& dispatcher) const override;
+  void beginStream(const AuthState& auth_state, Dispatcher& dispatcher);
+  void onDisconnect();
+
+private:
+  std::shared_ptr<ThreadLocal::TypedSlot<SharedThreadLocalData>> slot_ptr_;
+  std::shared_ptr<SessionMultiplexer> multiplexer_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

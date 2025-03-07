@@ -154,12 +154,33 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
       state->username = allow.username();
       state->stream_id = api_.randomGenerator().random();
       switch (allow.target()) {
-      case pomerium::extensions::ssh::Upstream:
+      case pomerium::extensions::ssh::Upstream: {
         state->channel_mode = ChannelMode::Normal;
+        state->multiplexing_info = MultiplexingInfo{
+          .mode = MultiplexingMode::Source,
+          .transport_callbacks = &transport_,
+        };
         break;
-      case pomerium::extensions::ssh::Internal:
+      }
+      case pomerium::extensions::ssh::Internal: {
         state->channel_mode = ChannelMode::Hijacked;
         break;
+      }
+      case pomerium::extensions::ssh::Mirror: {
+        auto _ = transport_.sendMessageToConnection(wire::UserAuthSuccessMsg());
+
+        state->channel_mode = ChannelMode::Multiplex;
+        uint64_t id = 0;
+        if (!absl::SimpleAtoi(state->hostname, &id)) { // TODO
+          return absl::InvalidArgumentError("invalid session id");
+        }
+        state->multiplexing_info = MultiplexingInfo{
+          .mode = MultiplexingMode::Mirror,
+          .source_stream_id = id,
+          .transport_callbacks = &transport_,
+        };
+        break;
+      }
       default:
         return absl::InternalError("invalid target");
       }

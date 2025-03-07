@@ -334,6 +334,18 @@ struct PtyReqChannelRequestMsg : SubMsg<SshMessageType::ChannelRequest, Key("pty
   }
 };
 
+struct ShellChannelRequestMsg : SubMsg<SshMessageType::ChannelRequest, Key("shell")> {
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
+    (void)buffer;
+    (void)payload_size;
+    return 0;
+  }
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
+    (void)buffer;
+    return 0;
+  }
+};
+
 struct WindowDimensionChangeChannelRequestMsg : SubMsg<SshMessageType::ChannelRequest, Key("window-change")> {
   field<uint32_t> width_columns;
   field<uint32_t> height_rows;
@@ -361,7 +373,20 @@ struct ChannelRequestMsg : Msg<SshMessageType::ChannelRequest> {
   field<uint32_t> recipient_channel;
   field<std::string, LengthPrefixed> request_type;
   field<bool> want_reply;
-  sub_message<PtyReqChannelRequestMsg> msg{request_type};
+  sub_message<PtyReqChannelRequestMsg, ShellChannelRequestMsg> msg{request_type};
+
+  ChannelRequestMsg() = default;
+  ChannelRequestMsg(ChannelRequestMsg&&) = default;
+  ChannelRequestMsg& operator=(const ChannelRequestMsg&) = delete;
+  ChannelRequestMsg& operator=(ChannelRequestMsg&&) = default;
+  ChannelRequestMsg(const ChannelRequestMsg& other)
+      : recipient_channel(other.recipient_channel),
+        request_type(other.request_type),
+        want_reply(other.want_reply),
+        msg(other.msg) {
+    msg.setKeyField(request_type);
+    auto _ = msg.decodeUnknown(); // TODO: handle this error
+  }
 
   field<uint32_t>& getRecipientChannel() {
     return recipient_channel;
@@ -928,12 +953,12 @@ struct Message : SshMsg {
   Message() = default;
 
   template <typename T>
-    requires (!std::same_as<T, Message>)
+    requires (!std::same_as<std::decay_t<T>, Message>)
   Message(T&& msg) {
     if constexpr (!std::is_same_v<std::decay_t<T>, detail::overload_for_t<std::decay_t<T>>>) {
-      message = detail::overload_for_t<std::decay_t<T>>{std::forward<T>(msg)};
+      message.reset(detail::overload_for_t<std::decay_t<T>>{std::forward<T>(msg)});
     } else {
-      message = std::forward<T>(msg);
+      message.reset(std::forward<T>(msg));
     }
   }
 

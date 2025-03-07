@@ -3,6 +3,7 @@
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
+#include "transport.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -40,6 +41,9 @@ absl::Status DownstreamConnectionService::handleMessage(wire::Message&& msg) {
     *channel_msg.mutable_raw_bytes() = b;
     authState.hijacked_stream->sendMessage(channel_msg, false);
     return absl::OkStatus();
+  } else if (authState.channel_mode == ChannelMode::Multiplex) {
+    multiplexer_->handleDownstreamToUpstreamMessage(msg);
+    return absl::OkStatus();
   }
   auto streamId = authState.stream_id;
   return msg.visit(
@@ -74,6 +78,10 @@ absl::Status UpstreamConnectionService::handleMessage(wire::Message&& msg) {
   const auto& authState = transport_.authState();
   auto streamId = authState.stream_id;
 
+  if (authState.multiplexing_info.mode == MultiplexingMode::Source) {
+    multiplexer_->handleUpstreamToDownstreamMessage(msg);
+  }
+
   return msg.visit(
     [&](wire::ChannelMsg auto& msg) {
       transport_.forward(std::make_unique<SSHResponseCommonFrame>(streamId, std::move(msg)));
@@ -107,6 +115,10 @@ void DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<ChannelMess
       auto newState = transport_.authState().clone();
       newState->handoff_info.handoff_in_progress = true;
       newState->channel_mode = ChannelMode::Handoff;
+      newState->multiplexing_info = MultiplexingInfo{
+        .mode = MultiplexingMode::Source,
+        .transport_callbacks = &transport_,
+      };
       if (handOffMsg.has_downstream_channel_info()) {
         newState->handoff_info.channel_info = std::make_unique<pomerium::extensions::ssh::SSHDownstreamChannelInfo>();
         newState->handoff_info.channel_info->MergeFrom(handOffMsg.downstream_channel_info());
@@ -136,4 +148,22 @@ void DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<ChannelMess
   }
 }
 
+void DownstreamConnectionService::beginStream(const AuthState& auth_state, Dispatcher& dispatcher) {
+  if (!multiplexer_) {
+    multiplexer_ = std::make_shared<SessionMultiplexer>(api_, slot_ptr_, dispatcher);
+  }
+  multiplexer_->onStreamBegin(auth_state);
+}
+
+void UpstreamConnectionService::beginStream(const AuthState& auth_state, Dispatcher& dispatcher) {
+  if (!multiplexer_) {
+    multiplexer_ = std::make_shared<SessionMultiplexer>(api_, slot_ptr_, dispatcher);
+  }
+  multiplexer_->onStreamBegin(auth_state);
+}
+void UpstreamConnectionService::onDisconnect() {
+  if (multiplexer_) {
+    multiplexer_->onStreamEnd();
+  }
+}
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

@@ -37,12 +37,25 @@ enum class ChannelMode {
   Normal = 1,
   Hijacked = 2,
   Handoff = 3,
+  Multiplex = 4,
 };
 
-struct handoff_info_t {
+enum class MultiplexingMode {
+  None = 0,
+  Source = 1,
+  Mirror = 2,
+};
+
+struct HandoffInfo {
   bool handoff_in_progress{false};
   std::unique_ptr<pomerium::extensions::ssh::SSHDownstreamChannelInfo> channel_info;
   std::unique_ptr<pomerium::extensions::ssh::SSHDownstreamPTYInfo> pty_info;
+};
+
+struct MultiplexingInfo {
+  MultiplexingMode mode{MultiplexingMode::None};
+  std::optional<uint64_t> source_stream_id{std::nullopt};
+  TransportCallbacks* transport_callbacks{nullptr}; // TODO: this is awkward
 };
 
 struct AuthState {
@@ -50,7 +63,8 @@ struct AuthState {
   uint64_t stream_id; // unique stream id for both connections
   ChannelMode channel_mode;
   Grpc::AsyncStream<pomerium::extensions::ssh::ChannelMessage>* hijacked_stream;
-  handoff_info_t handoff_info;
+  HandoffInfo handoff_info;
+  MultiplexingInfo multiplexing_info;
 
   std::string username;
   std::string hostname;

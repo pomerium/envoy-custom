@@ -8,17 +8,26 @@
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-SshClientCodec::SshClientCodec(Api::Api& api, std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config)
-    : TransportBase(api, std::move(config)) {
-  user_auth_svc_ = std::make_unique<UpstreamUserAuthService>(*this, api);
+SshClientCodec::SshClientCodec(
+  Api::Api& api,
+  std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
+  std::shared_ptr<ThreadLocal::TypedSlot<SharedThreadLocalData>> slot_ptr)
+    : TransportBase(api, std::move(config)),
+      tls_(slot_ptr) {}
+
+void SshClientCodec::setCodecCallbacks(GenericProxy::ClientCodecCallbacks& callbacks) {
+  TransportBase::setCodecCallbacks(callbacks);
+  initServices();
+}
+void SshClientCodec::initServices() {
+  user_auth_svc_ = std::make_unique<UpstreamUserAuthService>(*this, api_);
   user_auth_svc_->registerMessageHandlers(*this);
-  connection_svc_ = std::make_unique<UpstreamConnectionService>(*this, api);
+  connection_svc_ = std::make_unique<UpstreamConnectionService>(*this, api_, tls_);
   connection_svc_->registerMessageHandlers(*this);
 
   services_[user_auth_svc_->name()] = user_auth_svc_.get();
   services_[connection_svc_->name()] = connection_svc_.get();
 }
-
 void SshClientCodec::registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) const {
   dispatcher.registerHandler(wire::SshMessageType::ServiceAccept, this);
   dispatcher.registerHandler(wire::SshMessageType::GlobalRequest, this);
@@ -40,10 +49,18 @@ GenericProxy::EncodingResult SshClientCodec::encode(const GenericProxy::StreamFr
       channel_id_remap_enabled_ = true;
       installMiddleware(this);
     }
+    if (downstream_state_->multiplexing_info.mode == MultiplexingMode::Source) {
+      connection_svc_->beginStream(*downstream_state_, callbacks_->connection()->dispatcher());
+      callbacks_->connection()->addConnectionCallbacks(*this);
+    }
     return version_exchanger_->writeVersion(downstream_state_->server_version);
   }
   case FrameKind::RequestCommon: {
-    const auto& msg = dynamic_cast<const SSHRequestCommonFrame&>(frame).message();
+    const auto& sshFrame = dynamic_cast<const SSHRequestCommonFrame&>(frame);
+    if (drop_stream_ids_.contains(sshFrame.streamId())) {
+      return absl::OkStatus(); // drop the frame
+    }
+    const auto& msg = sshFrame.message();
     if (channel_id_remap_enabled_) {
       const_cast<wire::Message&>(msg).visit( // NOLINT
         [&](wire::ChannelMsg auto& msg) {
@@ -254,6 +271,12 @@ void SshClientCodec::onInitialKexDone() {
     ENVOY_LOG(error, "error requesting user auth: {}", stat.message());
     callbacks_->onDecodingFailure(fmt::format("error requesting user auth: {}", stat.message()));
     return;
+  }
+}
+
+void SshClientCodec::onEvent(Network::ConnectionEvent event) {
+  if (event == Network::ConnectionEvent::RemoteClose || event == Network::ConnectionEvent::LocalClose) {
+    connection_svc_->onDisconnect();
   }
 }
 
