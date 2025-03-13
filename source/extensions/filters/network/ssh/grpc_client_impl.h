@@ -80,7 +80,7 @@ public:
   ChannelStreamServiceClient(Grpc::RawAsyncClientSharedPtr client);
   ~ChannelStreamServiceClient() override;
   Grpc::AsyncStream<ChannelMessage>* start(ChannelStreamCallbacks* callbacks,
-                                           Envoy::OptRef<envoy::config::core::v3::Metadata> metadata);
+                                           Envoy::OptRef<const envoy::config::core::v3::Metadata> metadata);
 
 private:
   void onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) override;

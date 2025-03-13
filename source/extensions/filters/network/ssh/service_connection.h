@@ -41,7 +41,7 @@ class DownstreamConnectionService : public ConnectionService,
 public:
   DownstreamConnectionService(TransportCallbacks& callbacks,
                               Api::Api& api,
-                              std::shared_ptr<ThreadLocal::TypedSlot<SharedThreadLocalData>> slot_ptr)
+                              std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr)
       : ConnectionService(callbacks, api),
         transport_(dynamic_cast<DownstreamTransportCallbacks&>(callbacks)),
         slot_ptr_(slot_ptr) {}
@@ -50,31 +50,33 @@ public:
   absl::Status handleMessage(wire::Message&& msg) override;
 
   void registerMessageHandlers(SshMessageDispatcher& dispatcher) const override;
-  void beginStream(const AuthState& auth_state, Dispatcher& dispatcher);
+  void onStreamBegin(const AuthState& auth_state, Dispatcher& dispatcher);
+  void onStreamEnd();
 
 private:
   DownstreamTransportCallbacks& transport_;
-  std::shared_ptr<ThreadLocal::TypedSlot<SharedThreadLocalData>> slot_ptr_;
-  std::shared_ptr<SessionMultiplexer> multiplexer_;
+  std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr_;
+  std::shared_ptr<SourceDownstreamSessionMultiplexer> source_multiplexer_;
+  std::shared_ptr<MirrorSessionMultiplexer> mirror_multiplexer_;
 };
 
 class UpstreamConnectionService : public ConnectionService,
                                   public Logger::Loggable<Logger::Id::filter> {
 public:
   UpstreamConnectionService(
-    TransportCallbacks& callbacks,
+    UpstreamTransportCallbacks& callbacks,
     Api::Api& api,
-    std::shared_ptr<ThreadLocal::TypedSlot<SharedThreadLocalData>> slot_ptr)
+    std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr)
       : ConnectionService(callbacks, api),
         slot_ptr_(slot_ptr) {}
   absl::Status handleMessage(wire::Message&& msg) override;
   void registerMessageHandlers(SshMessageDispatcher& dispatcher) const override;
-  void beginStream(const AuthState& auth_state, Dispatcher& dispatcher);
-  void onDisconnect();
+  void onStreamBegin(const AuthState& auth_state, Dispatcher& dispatcher);
+  void onStreamEnd();
 
 private:
-  std::shared_ptr<ThreadLocal::TypedSlot<SharedThreadLocalData>> slot_ptr_;
-  std::shared_ptr<SessionMultiplexer> multiplexer_;
+  std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr_;
+  std::shared_ptr<SourceUpstreamSessionMultiplexer> source_multiplexer_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

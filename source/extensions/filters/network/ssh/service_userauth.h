@@ -23,6 +23,7 @@ protected:
   openssh::SSHKey ca_user_pubkey_;
   std::unique_ptr<wire::UserAuthRequestMsg> pending_req_;
   openssh::SSHKey pending_user_key_;
+  std::optional<uint64_t> stream_id_;
 };
 
 class DownstreamUserAuthService : public UserAuthService,

@@ -20,23 +20,23 @@ CodecFactoryPtr SshCodecFactoryConfig::createCodecFactory(
   };
 
   auto sharedSessions = std::make_shared<absl::node_hash_map<uint64_t, std::shared_ptr<ActiveSession>>>();
-  auto slotPtr = std::make_shared<ThreadLocal::TypedSlot<SharedThreadLocalData>>(context.threadLocal());
-  slotPtr->set([sharedSessions](Dispatcher& /*dispatcher*/) -> std::shared_ptr<SharedThreadLocalData> {
-    return std::make_shared<SharedThreadLocalData>(sharedSessions);
+  auto slotPtr = std::make_unique<ThreadLocal::TypedSlot<ThreadLocalData>>(context.threadLocal());
+  slotPtr->set([sharedSessions](Dispatcher& /*dispatcher*/) -> std::unique_ptr<ThreadLocalData> {
+    return std::make_unique<ThreadLocalData>(sharedSessions);
   });
 
-  return std::make_unique<SshCodecFactory>(context.api(), conf, slotPtr, createClient);
+  return std::make_unique<SshCodecFactory>(context.api(), conf, std::move(slotPtr), createClient);
 }
 
 REGISTER_FACTORY(SshCodecFactoryConfig, CodecFactoryConfig);
 
 SshCodecFactory::SshCodecFactory(Api::Api& api,
                                  std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                                 std::shared_ptr<ThreadLocal::TypedSlot<SharedThreadLocalData>> slot_ptr,
+                                 std::unique_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr,
                                  CreateGrpcClientFunc create_grpc_client)
     : api_(api),
       config_(config),
-      slot_ptr_(slot_ptr),
+      slot_ptr_(std::move(slot_ptr)),
       create_grpc_client_(create_grpc_client) {
 }
 

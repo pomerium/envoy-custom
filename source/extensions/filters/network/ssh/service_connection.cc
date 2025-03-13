@@ -1,6 +1,7 @@
 #include "source/extensions/filters/network/ssh/service_connection.h"
 
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
+#include "source/extensions/filters/network/ssh/multiplexer.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/transport.h"
@@ -41,10 +42,20 @@ absl::Status DownstreamConnectionService::handleMessage(wire::Message&& msg) {
     *channel_msg.mutable_raw_bytes() = b;
     authState.hijacked_stream->sendMessage(channel_msg, false);
     return absl::OkStatus();
-  } else if (authState.channel_mode == ChannelMode::Multiplex) {
-    multiplexer_->handleDownstreamToUpstreamMessage(msg);
-    return absl::OkStatus();
   }
+  switch (authState.multiplexing_info.multiplex_mode) {
+  case MultiplexMode::Mirror:
+    return mirror_multiplexer_->handleDownstreamToUpstreamMessage(msg);
+  case MultiplexMode::Source:
+    if (auto r = source_multiplexer_->handleDownstreamToUpstreamMessage(msg); !r.ok()) {
+      return r;
+    }
+    // keep going
+    break;
+  default:
+    break;
+  }
+
   auto streamId = authState.stream_id;
   return msg.visit(
     [&](wire::ChannelOpenMsg& msg) {
@@ -78,8 +89,10 @@ absl::Status UpstreamConnectionService::handleMessage(wire::Message&& msg) {
   const auto& authState = transport_.authState();
   auto streamId = authState.stream_id;
 
-  if (authState.multiplexing_info.mode == MultiplexingMode::Source) {
-    multiplexer_->handleUpstreamToDownstreamMessage(msg);
+  if (authState.multiplexing_info.multiplex_mode == MultiplexMode::Source) {
+    if (auto r = source_multiplexer_->handleUpstreamToDownstreamMessage(msg); !r.ok()) {
+      return r;
+    }
   }
 
   return msg.visit(
@@ -109,61 +122,83 @@ void DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<ChannelMess
     msg->channel_control().control_action().UnpackTo(&ctrl_action);
     switch (ctrl_action.action_case()) {
     case pomerium::extensions::ssh::SSHChannelControlAction::kHandOff: {
-      const auto& handOffMsg = ctrl_action.hand_off();
+      auto* handOffMsg = ctrl_action.mutable_hand_off();
       transport_.authState().hijacked_stream->resetStream();
       transport_.authState().hijacked_stream = nullptr;
       auto newState = transport_.authState().clone();
       newState->handoff_info.handoff_in_progress = true;
       newState->channel_mode = ChannelMode::Handoff;
-      newState->multiplexing_info = MultiplexingInfo{
-        .mode = MultiplexingMode::Source,
-        .transport_callbacks = &transport_,
-      };
-      if (handOffMsg.has_downstream_channel_info()) {
-        newState->handoff_info.channel_info = std::make_unique<pomerium::extensions::ssh::SSHDownstreamChannelInfo>();
-        newState->handoff_info.channel_info->MergeFrom(handOffMsg.downstream_channel_info());
+      if (handOffMsg->upstream_auth().upstream().allow_mirror_connections()) {
+        newState->multiplexing_info.multiplex_mode = MultiplexMode::Source;
       }
-      if (handOffMsg.has_downstream_pty_info()) {
-        newState->handoff_info.pty_info = std::make_unique<pomerium::extensions::ssh::SSHDownstreamPTYInfo>();
-        newState->handoff_info.pty_info->MergeFrom(handOffMsg.downstream_pty_info());
+      if (handOffMsg->has_downstream_channel_info()) {
+        newState->handoff_info.channel_info.reset(handOffMsg->release_downstream_channel_info());
       }
-      if (handOffMsg.has_upstream_auth()) {
-        newState->username = handOffMsg.upstream_auth().username();
-        newState->hostname = handOffMsg.upstream_auth().hostname();
+      if (handOffMsg->has_downstream_pty_info()) {
+        newState->handoff_info.pty_info.reset(handOffMsg->release_downstream_pty_info());
+      }
+      if (handOffMsg->has_upstream_auth()) {
+        newState->allow_response.reset(handOffMsg->release_upstream_auth());
       }
       transport_.initUpstream(std::move(newState));
-
-      break;
-    }
-    case pomerium::extensions::ssh::SSHChannelControlAction::kDisconnect:
-      // TODO
-      PANIC("unimplemented");
+    } break;
+    case pomerium::extensions::ssh::SSHChannelControlAction::kDisconnect: {
+      const auto& disconnectMsg = ctrl_action.disconnect();
+      wire::DisconnectMsg msg;
+      msg.reason_code = disconnectMsg.reason_code();
+      msg.description = disconnectMsg.description();
+      (void)transport_.sendMessageToConnection(msg); // TODO
+    } break;
     case pomerium::extensions::ssh::SSHChannelControlAction::ACTION_NOT_SET:
       break;
     }
-    break;
-  }
+  } break;
   case pomerium::extensions::ssh::ChannelMessage::MESSAGE_NOT_SET:
     break;
   }
 }
 
-void DownstreamConnectionService::beginStream(const AuthState& auth_state, Dispatcher& dispatcher) {
-  if (!multiplexer_) {
-    multiplexer_ = std::make_shared<SessionMultiplexer>(api_, slot_ptr_, dispatcher);
+void DownstreamConnectionService::onStreamBegin(const AuthState& auth_state, Dispatcher& dispatcher) {
+  switch (auth_state.multiplexing_info.multiplex_mode) {
+  case Codec::MultiplexMode::Mirror:
+    if (!mirror_multiplexer_) {
+      mirror_multiplexer_ = std::make_shared<MirrorSessionMultiplexer>(api_, transport_, slot_ptr_, dispatcher);
+      mirror_multiplexer_->onStreamBegin(auth_state);
+    }
+    break;
+  case Codec::MultiplexMode::Source:
+    if (!source_multiplexer_) {
+      source_multiplexer_ = std::make_shared<SourceDownstreamSessionMultiplexer>();
+      (*slot_ptr_)->awaitSession(auth_state.stream_id, source_multiplexer_);
+    }
+    break;
+  default:
+    break;
   }
-  multiplexer_->onStreamBegin(auth_state);
 }
 
-void UpstreamConnectionService::beginStream(const AuthState& auth_state, Dispatcher& dispatcher) {
-  if (!multiplexer_) {
-    multiplexer_ = std::make_shared<SessionMultiplexer>(api_, slot_ptr_, dispatcher);
+void DownstreamConnectionService::onStreamEnd() {
+  if (source_multiplexer_) {
+    source_multiplexer_->onStreamEnd();
+    source_multiplexer_ = nullptr;
   }
-  multiplexer_->onStreamBegin(auth_state);
-}
-void UpstreamConnectionService::onDisconnect() {
-  if (multiplexer_) {
-    multiplexer_->onStreamEnd();
+  if (mirror_multiplexer_) {
+    mirror_multiplexer_->onStreamEnd();
+    mirror_multiplexer_ = nullptr;
   }
 }
+void UpstreamConnectionService::onStreamBegin(const AuthState& auth_state, Dispatcher& dispatcher) {
+  if (!source_multiplexer_) {
+    source_multiplexer_ = std::make_shared<SourceUpstreamSessionMultiplexer>(api_, transport_, slot_ptr_, dispatcher);
+  }
+  source_multiplexer_->onStreamBegin(auth_state);
+}
+
+void UpstreamConnectionService::onStreamEnd() {
+  if (source_multiplexer_) {
+    source_multiplexer_->onStreamEnd();
+    source_multiplexer_ = nullptr;
+  }
+}
+
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

@@ -25,7 +25,7 @@ class SshCodecFactory : public CodecFactory {
 public:
   SshCodecFactory(Api::Api& api,
                   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                  std::shared_ptr<ThreadLocal::TypedSlot<SharedThreadLocalData>> slot_ptr,
+                  std::unique_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr,
                   CreateGrpcClientFunc create_grpc_client);
   ServerCodecPtr createServerCodec() const override;
   ClientCodecPtr createClientCodec() const override;
@@ -33,7 +33,7 @@ public:
 private:
   Api::Api& api_;
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config_;
-  std::shared_ptr<ThreadLocal::TypedSlot<SharedThreadLocalData>> slot_ptr_;
+  std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr_;
   CreateGrpcClientFunc create_grpc_client_;
 };
 

@@ -49,7 +49,7 @@ public:
     kex_->registerMessageHandlers(*this);
     version_exchanger_ = std::make_unique<VersionExchanger>(*this, *kex_);
 
-    auto defaultState = new connection_state_t{};
+    auto defaultState = new ConnectionState{};
     defaultState->cipher = newUnencrypted();
     defaultState->direction_read = codec_traits<Codec>::direction_read;
     defaultState->direction_write = codec_traits<Codec>::direction_write;
@@ -92,7 +92,7 @@ public:
         return;
       }
       auto prev = (*connection_state_->seq_read)++;
-      ENVOY_LOG(debug, "read seqnr inc: {} -> {}", prev, *connection_state_->seq_read);
+      ENVOY_LOG(trace, "read seqnr inc: {} -> {}", prev, *connection_state_->seq_read);
 
       wire::Message msg;
       auto n = wire::decodePacket(dec, msg);
@@ -101,17 +101,11 @@ public:
         callbacks_->onDecodingFailure(fmt::format("ssh: readPacket: {}", n.status().message()));
         return;
       }
-      // auto msg = anyMsg.unwrap();
-      // if (!msg.ok()) {
-      //   ENVOY_LOG(error, "ssh: error decoding message: {}", msg.status().message());
-      //   callbacks_->onDecodingFailure(fmt::format("ssh: error decoding message: {}", msg.status().message()));
-      //   return;
-      // }
       if (msg.msg_type() == wire::SshMessageType::NewKeys) {
         ENVOY_LOG(debug, "resetting read sequence number");
         *connection_state_->seq_read = 0;
       }
-      ENVOY_LOG(debug, "received message: size: {}, type: {}", *n, msg.msg_type());
+      ENVOY_LOG(trace, "received message: size: {}, type: {}", *n, msg.msg_type());
       if (auto err = onMessageDecoded(std::move(msg)); !err.ok()) {
         ENVOY_LOG(error, "ssh: {}", err.message());
         callbacks_->onDecodingFailure(fmt::format("ssh: {}", err.message()));
@@ -134,7 +128,7 @@ public:
   const KexResult& getKexResult() const override {
     return *kex_result_;
   }
-  const connection_state_t& getConnectionState() const override {
+  const ConnectionState& getConnectionState() const override {
     return *connection_state_;
   }
 
@@ -161,7 +155,7 @@ protected:
   std::unique_ptr<VersionExchanger> version_exchanger_;
   std::unique_ptr<Kex> kex_;
   std::shared_ptr<KexResult> kex_result_;
-  std::unique_ptr<connection_state_t> connection_state_;
+  std::unique_ptr<ConnectionState> connection_state_;
 
   std::string server_version_{"SSH-2.0-Envoy"};
 

@@ -3,6 +3,7 @@ syntax = "proto3";
 package pomerium.extensions.ssh;
 
 import "envoy/config/core/v3/base.proto";
+import "envoy/config/core/v3/extension.proto";
 import "envoy/config/core/v3/grpc_service.proto";
 import "google/protobuf/any.proto";
 import "google/protobuf/timestamp.proto";
@@ -143,18 +144,32 @@ message AuthenticationResponse {
 // successfully authenticated. Each method contains implementation-specific
 // metadata that can be processed by Envoy.
 message AllowResponse {
-  string                        username        = 1;
-  string                        hostname        = 2;
-  repeated AllowedMethod        allowed_methods = 3;
-  Target                        target          = 4;
-  envoy.config.core.v3.Metadata set_metadata    = 5;
+  string username = 1;
+  oneof target {
+    UpstreamTarget      upstream       = 2;
+    InternalTarget      internal       = 3;
+    MirrorSessionTarget mirror_session = 4;
+  }
 }
 
-enum Target {
-  UnknownTarget = 0;
-  Upstream      = 1;
-  Internal      = 2;
-  Mirror        = 3;
+message UpstreamTarget {
+  string                                             hostname                 = 1;
+  bool                                               allow_mirror_connections = 2;
+  repeated AllowedMethod                             allowed_methods          = 3;
+  repeated envoy.config.core.v3.TypedExtensionConfig extensions               = 4;
+}
+
+message InternalTarget {
+  envoy.config.core.v3.Metadata set_metadata = 1;
+}
+
+message MirrorSessionTarget {
+  enum Mode {
+    ReadOnly  = 0;
+    ReadWrite = 1;
+  }
+  uint64 source_id = 1;
+  Mode   mode      = 2;
 }
 
 message AllowedMethod {
@@ -209,7 +224,8 @@ message SSHDownstreamPTYInfo {
 
 message SSHChannelControlAction {
   message Disconnect {
-    string reason = 1;
+    uint32 reason_code = 1;
+    string description = 2;
   }
 
   message HandOffUpstream {
@@ -278,17 +294,4 @@ message Permissions {
   map<string, string> force_env             = 11;
   optional bool       require_user_presence = 12;
   optional bool       require_verify        = 13;
-}
-
-message RecordingFrame {
-  message ChannelRequest {
-    string request_type = 1;
-    bytes  request      = 2;
-  }
-
-  google.protobuf.Timestamp timestamp = 1;
-  oneof kind {
-    bytes          raw_data        = 2;
-    ChannelRequest channel_request = 3;
-  }
 }

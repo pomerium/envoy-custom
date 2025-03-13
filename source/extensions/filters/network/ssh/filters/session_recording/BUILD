@@ -10,10 +10,12 @@ licenses(["notice"])
 envoy_cc_library(
     name = "session_recording_filter",
     srcs = [
+        "admin_api.cc",
         "config.cc",
         "recorder.cc",
     ],
     hdrs = [
+        "admin_api.h",
         "config.h",
         "formatter.h",
         "formatter_asciicast.h",
@@ -23,7 +25,9 @@ envoy_cc_library(
     deps = [
         ":session_recording_cc_proto",
         "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "//source/extensions/filters/network/ssh/filters/session_recording/web:assets",
         "@envoy//source/common/json:json_streamer_lib",
+        "@envoy//source/common/runtime:runtime_lib",
         "@envoy//source/extensions/filters/network/generic_proxy/interface:filter_interface",
     ],
 )

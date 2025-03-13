@@ -1,4 +1,6 @@
 #include "source/extensions/filters/network/ssh/filters/session_recording/config.h"
+#include "source/extensions/filters/network/ssh/filters/session_recording/admin_api.h"
+#include "source/extensions/filters/network/ssh/transport.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::StreamFilters::SessionRecording {
 
@@ -21,6 +23,9 @@ void SessionRecordingFilter::setEncoderFilterCallbacks(EncoderFilterCallback& ca
 }
 
 HeaderFilterStatus SessionRecordingFilter::decodeHeaderFrame(RequestHeaderFrame& frame) {
+  if (!enabled_) {
+    return HeaderFilterStatus::Continue;
+  }
   auto stat = initializeRecording(frame);
   if (!stat.ok()) {
     decoder_callbacks_->dispatcher().post([this, stat] {
@@ -36,6 +41,9 @@ HeaderFilterStatus SessionRecordingFilter::decodeHeaderFrame(RequestHeaderFrame&
 }
 
 CommonFilterStatus SessionRecordingFilter::decodeCommonFrame(RequestCommonFrame& frame) {
+  if (!enabled_) {
+    return CommonFilterStatus::Continue;
+  }
   // this downcast is safe; SSHRequestCommonFrame is the only implementation of RequestCommonFrame
   auto& sshFrame = static_cast<const Codec::SSHRequestCommonFrame&>(frame);
   recorder_->handleDownstreamToUpstreamMessage(sshFrame.message());
@@ -43,6 +51,9 @@ CommonFilterStatus SessionRecordingFilter::decodeCommonFrame(RequestCommonFrame&
 }
 
 HeaderFilterStatus SessionRecordingFilter::encodeHeaderFrame(ResponseHeaderFrame& frame) {
+  if (!enabled_) {
+    return HeaderFilterStatus::Continue;
+  }
   if (frame.frameFlags().endStream()) {
     auto& sshFrame = static_cast<const Codec::SSHResponseHeaderFrame&>(frame);
     recorder_->onStreamEnd(sshFrame);
@@ -51,6 +62,9 @@ HeaderFilterStatus SessionRecordingFilter::encodeHeaderFrame(ResponseHeaderFrame
 };
 
 CommonFilterStatus SessionRecordingFilter::encodeCommonFrame(ResponseCommonFrame& frame) {
+  if (!enabled_) {
+    return CommonFilterStatus::Continue;
+  }
   auto& sshFrame = static_cast<const Codec::SSHResponseCommonFrame&>(frame);
   recorder_->handleUpstreamToDownstreamMessage(sshFrame.message());
   return CommonFilterStatus::Continue;
@@ -60,11 +74,36 @@ absl::Status SessionRecordingFilter::initializeRecording(RequestHeaderFrame& fra
   // this downcast is safe; SSHRequestHeaderFrame is the only implementation of RequestHeaderFrame
   const auto& sshFrame = static_cast<const Codec::SSHRequestHeaderFrame&>(frame);
   const auto& state = sshFrame.authState();
+  if (!state->allow_response) {
+    return absl::InternalError("failed to initialize filter: missing AllowResponse in auth state");
+  }
+  if (!state->allow_response->has_upstream()) {
+    return absl::InternalError("failed to initialize filter: upstream not set");
+  }
+  bool shouldRecord{false};
+  for (const auto& ext : state->allow_response->upstream().extensions()) {
+    if (ext.has_typed_config()) {
+      const auto& typedConfig = ext.typed_config();
+      if (typedConfig.Is<UpstreamTargetExtensionConfig>()) {
+        UpstreamTargetExtensionConfig cfg;
+        if (!typedConfig.UnpackTo(&cfg)) {
+          return absl::InternalError("error decoding UpstreamTargetExtensionConfig in AllowResponse");
+        }
+        shouldRecord = cfg.record_session();
+        break;
+      }
+    }
+  }
+  enabled_ = shouldRecord;
+  if (!enabled_) {
+    return absl::OkStatus();
+  }
+
   auto filename = fmt::format("{}/session-{}-at-{}-{}.cast",
                               config_->access_log_storage_dir(),
-                              state->username,
-                              state->hostname,
-                              state->stream_id);
+                              state->allow_response->username(),
+                              state->allow_response->upstream().hostname(),
+                              absl::ToUnixNanos(absl::Now()));
   // createFile doesn't actually create the file on disk, interestingly enough. It is created by
   // passing the Create flag to open().
   auto file = api_.fileSystem().createFile(
@@ -76,8 +115,7 @@ absl::Status SessionRecordingFilter::initializeRecording(RequestHeaderFrame& fra
               file->path(), err.err_->getErrorDetails());
     return absl::InternalError("internal error");
   }
-
-  return recorder_->onStreamBegin(sshFrame, std::move(file));
+  return recorder_->onStreamBegin(sshFrame, std::move(file), decoder_callbacks_->dispatcher());
 }
 
 FilterFactoryCb
@@ -85,10 +123,11 @@ SessionRecordingFilterFactory::createFilterFactoryFromProto(const Protobuf::Mess
                                                             const std::string&,
                                                             Server::Configuration::FactoryContext& ctx) {
   auto conf = std::make_shared<Config>(dynamic_cast<const Config&>(config));
+  auto admin_api = std::make_shared<AdminApi>(conf, ctx);
 
-  return [&ctx, conf](FilterChainFactoryCallbacks& callbacks) {
-    callbacks.addFilter(std::make_shared<SessionRecordingFilter>(
-      ctx.serverFactoryContext().api(), conf));
+  return [&ctx, conf, admin_api = admin_api](FilterChainFactoryCallbacks& callbacks) {
+    auto filter = std::make_shared<SessionRecordingFilter>(ctx.serverFactoryContext().api(), conf);
+    callbacks.addFilter(filter);
   };
 }
 

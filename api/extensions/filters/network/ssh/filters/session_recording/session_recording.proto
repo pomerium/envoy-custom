@@ -7,3 +7,9 @@ option go_package = "github.com/pomerium/envoy-custom/api/extensions/filters/net
 message Config {
   string access_log_storage_dir = 1;
 }
+
+// This extension is added to [pomerium.extensions.ssh.UpstreamTarget] to enable session recording
+// and configure related options.
+message UpstreamTargetExtensionConfig {
+  bool record_session = 1;
+}

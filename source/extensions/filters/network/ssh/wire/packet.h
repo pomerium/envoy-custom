@@ -3,9 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "openssl/rand.h"
-
 #include "source/common/buffer/buffer_impl.h"
+#include "source/common/common/random_generator.h"
 
 #include "source/extensions/filters/network/ssh/wire/util.h"
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
@@ -108,11 +107,14 @@ absl::StatusOr<size_t> encodePacket(Envoy::Buffer::Instance& out, const T& msg,
   out.move(payloadBytes);
   n += *payload_length;
 
-  bytes padding(padding_length, 0);
+  std::vector<uint64_t> padding((padding_length / 8) + ((padding_length % 8) == 0 ? 0 : 1), 0);
   if (random_padding) {
-    RAND_bytes(padding.data(), padding.size());
+    for (size_t i = 0; i < padding.size(); i++) {
+      padding[i] = Envoy::Random::RandomUtility::random();
+    }
   }
-  n += write(out, padding);
+  out.add(std::string_view(unsafe_forge_span(reinterpret_cast<char*>(padding.data()), padding_length)));
+  n += padding_length;
 
   return n;
 }

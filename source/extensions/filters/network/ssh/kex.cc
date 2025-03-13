@@ -8,7 +8,6 @@
 #include "openssl/rand.h"
 
 #include "source/common/buffer/buffer_impl.h"
-
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
@@ -299,8 +298,7 @@ absl::Status Kex::handleMessage(wire::Message&& msg) noexcept {
         }
 
         if (!state_->kex_newkeys_sent) {
-          auto newkeys = wire::EmptyMsg<wire::SshMessageType::NewKeys>{};
-          if (auto err = transport_.sendMessageToConnection(newkeys); !err.ok()) {
+          if (auto err = transport_.sendMessageToConnection(wire::NewKeysMsg{}); !err.ok()) {
             return err.status();
           }
           state_->kex_newkeys_sent = true;
@@ -315,8 +313,7 @@ absl::Status Kex::handleMessage(wire::Message&& msg) noexcept {
         }
         state_->kex_result->session_id = state_->session_id.value();
 
-        auto newkeys = wire::EmptyMsg<wire::SshMessageType::NewKeys>{};
-        if (auto err = transport_.sendMessageToConnection(newkeys); !err.ok()) {
+        if (auto err = transport_.sendMessageToConnection(wire::NewKeysMsg{}); !err.ok()) {
           return err.status();
         }
         state_->kex_newkeys_sent = true;
@@ -451,7 +448,7 @@ absl::StatusOr<std::unique_ptr<KexAlgorithm>> Kex::newAlgorithmImpl() {
   if (state_->negotiated_algorithms.kex == kexAlgoCurve25519SHA256 ||
       state_->negotiated_algorithms.kex == kexAlgoCurve25519SHA256LibSSH) {
     auto hostKey = pickHostKey(state_->negotiated_algorithms.host_key);
-    if (!hostKey) {
+    if (hostKey == nullptr) {
       return absl::AbortedError(fmt::format("no matching host key for algorithm: {}",
                                             state_->negotiated_algorithms.host_key));
     }

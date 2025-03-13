@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <style>
+    /*%asciinema_player.css%*/
+  </style>
+  <style>
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      margin: 0;
+    }
+
+    #player {
+      height: 100%;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="player"></div>
+  <script>/*%asciinema_player.min.js%*/</script>
+  <script lang="js">
+    AsciinemaPlayer.create(
+      {
+        url: '/session_recordings/get?recording_name=' +
+          new URLSearchParams(window.location.search).get('recording_name')
+      },
+      document.getElementById('player'),
+      {
+        fit: 'both',
+        theme: 'nord',
+        terminalLineHeight: 1.1,
+        controls: true
+      }
+    );
+  </script>
+</body>
+
+</html>

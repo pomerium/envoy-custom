@@ -45,6 +45,7 @@ envoy_cc_library(
         "transport.h",
         "transport_base.h",
         "version_exchange.h",
+        "vt_buffer.h",
     ],
     copts = [
         "-Wimplicit-fallthrough",
@@ -53,6 +54,7 @@ envoy_cc_library(
     repository = "@envoy",
     deps = [
         ":ssh_cc_proto",
+        "//:libvterm",
         "//:openssh",
         "//source/extensions/filters/network/ssh/wire:wire_lib",
         "@envoy//envoy/buffer:buffer_interface",

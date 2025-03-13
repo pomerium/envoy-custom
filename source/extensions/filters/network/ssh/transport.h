@@ -24,7 +24,7 @@ static constexpr direction_t serverKeys{'B', 'D', 'F'};
 
 class PacketCipher;
 
-struct connection_state_t {
+struct ConnectionState {
   std::unique_ptr<PacketCipher> cipher;
   std::shared_ptr<uint32_t> seq_read;
   std::shared_ptr<uint32_t> seq_write;
@@ -37,13 +37,18 @@ enum class ChannelMode {
   Normal = 1,
   Hijacked = 2,
   Handoff = 3,
-  Multiplex = 4,
+  Mirror = 4,
 };
 
-enum class MultiplexingMode {
+enum class MultiplexMode {
   None = 0,
   Source = 1,
   Mirror = 2,
+};
+
+enum class ReadWriteMode {
+  ReadOnly = 0,
+  ReadWrite = 1,
 };
 
 struct HandoffInfo {
@@ -53,9 +58,9 @@ struct HandoffInfo {
 };
 
 struct MultiplexingInfo {
-  MultiplexingMode mode{MultiplexingMode::None};
-  std::optional<uint64_t> source_stream_id{std::nullopt};
-  TransportCallbacks* transport_callbacks{nullptr}; // TODO: this is awkward
+  MultiplexMode multiplex_mode{MultiplexMode::None};
+  ReadWriteMode rw_mode{ReadWriteMode::ReadOnly};
+  uint64_t source_stream_id{};
 };
 
 struct AuthState {
@@ -66,12 +71,7 @@ struct AuthState {
   HandoffInfo handoff_info;
   MultiplexingInfo multiplexing_info;
 
-  std::string username;
-  std::string hostname;
-  string_list auth_methods;
-  bytes public_key;
-  std::unique_ptr<pomerium::extensions::ssh::Permissions> permissions;
-  std::unique_ptr<envoy::config::core::v3::Metadata> metadata;
+  std::unique_ptr<pomerium::extensions::ssh::AllowResponse> allow_response;
 
   std::unique_ptr<AuthState> clone();
 };
@@ -81,7 +81,7 @@ using AuthStateSharedPtr = std::shared_ptr<AuthState>;
 class TransportCallbacks : public virtual Logger::Loggable<Logger::Id::filter> {
 public:
   virtual ~TransportCallbacks() = default;
-  absl::StatusOr<size_t> sendMessageToConnection(const wire::SshMsg& msg);
+  virtual absl::StatusOr<size_t> sendMessageToConnection(const wire::Message& msg);
 
   virtual void forward(std::unique_ptr<SSHStreamFrame> frame) PURE;
   virtual void writeToConnection(Envoy::Buffer::Instance& buf) const PURE;
@@ -93,7 +93,7 @@ public:
   virtual const pomerium::extensions::ssh::CodecConfig& codecConfig() const PURE;
 
 protected:
-  virtual const connection_state_t& getConnectionState() const PURE;
+  virtual const ConnectionState& getConnectionState() const PURE;
 };
 
 class DownstreamTransportCallbacks : public virtual TransportCallbacks {
@@ -101,6 +101,11 @@ public:
   using TransportCallbacks::TransportCallbacks;
   virtual void initUpstream(AuthStateSharedPtr downstream_state) PURE;
   virtual void sendMgmtClientMessage(const ClientMessage& msg) PURE;
+};
+
+class UpstreamTransportCallbacks : public virtual TransportCallbacks {
+public:
+  using TransportCallbacks::TransportCallbacks;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

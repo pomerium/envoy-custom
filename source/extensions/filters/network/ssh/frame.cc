@@ -8,7 +8,10 @@ SSHRequestHeaderFrame::SSHRequestHeaderFrame(AuthStateSharedPtr downstream_state
     : downstream_state_(downstream_state) {}
 
 std::string_view SSHRequestHeaderFrame::host() const {
-  return downstream_state_->hostname;
+  if (downstream_state_->allow_response->has_upstream()) {
+    return downstream_state_->allow_response->upstream().hostname();
+  }
+  return "";
 };
 
 std::string_view SSHRequestHeaderFrame::protocol() const {

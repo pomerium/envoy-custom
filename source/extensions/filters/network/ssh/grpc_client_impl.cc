@@ -1,13 +1,11 @@
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 
-#include "api/extensions/filters/network/ssh/ssh.pb.h"
-
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 using namespace pomerium::extensions::ssh;
 
 StreamManagementServiceClient::StreamManagementServiceClient(Grpc::RawAsyncClientSharedPtr client)
     : method_manage_stream_(*Protobuf::DescriptorPool::generated_pool()->FindMethodByName(
-          "pomerium.extensions.ssh.StreamManagement.ManageStream")),
+        "pomerium.extensions.ssh.StreamManagement.ManageStream")),
       client_(client) {}
 
 StreamManagementServiceClient::~StreamManagementServiceClient() {
@@ -30,7 +28,7 @@ void StreamManagementServiceClient::onReceiveMessage(Grpc::ResponsePtr<ServerMes
 
 ChannelStreamServiceClient::ChannelStreamServiceClient(Grpc::RawAsyncClientSharedPtr client)
     : method_manage_stream_(*Protobuf::DescriptorPool::generated_pool()->FindMethodByName(
-          "pomerium.extensions.ssh.StreamManagement.ServeChannel")),
+        "pomerium.extensions.ssh.StreamManagement.ServeChannel")),
       client_(client) {}
 
 ChannelStreamServiceClient::~ChannelStreamServiceClient() {
@@ -38,7 +36,7 @@ ChannelStreamServiceClient::~ChannelStreamServiceClient() {
 }
 
 Grpc::AsyncStream<ChannelMessage>* ChannelStreamServiceClient::start(
-    ChannelStreamCallbacks* callbacks, Envoy::OptRef<envoy::config::core::v3::Metadata> metadata) {
+  ChannelStreamCallbacks* callbacks, Envoy::OptRef<const envoy::config::core::v3::Metadata> metadata) {
   callbacks_ = callbacks;
   Http::AsyncClient::StreamOptions opts;
   if (metadata.has_value()) {

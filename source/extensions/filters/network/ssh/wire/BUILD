@@ -26,6 +26,7 @@ envoy_cc_library(
         "@envoy//envoy/buffer:buffer_interface",
         "@envoy//source/common/buffer:buffer_lib",
         "@envoy//source/common/common:fmt_lib",
+        "@envoy//source/common/common:random_generator_lib",
         "@envoy//source/common/common:utility_lib",
     ],
 )

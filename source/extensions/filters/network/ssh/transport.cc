@@ -2,11 +2,12 @@
 
 #include <memory>
 
+#include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "source/extensions/filters/network/ssh/wire/packet.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-absl::StatusOr<size_t> TransportCallbacks::sendMessageToConnection(const wire::SshMsg& msg) {
+absl::StatusOr<size_t> TransportCallbacks::sendMessageToConnection(const wire::Message& msg) {
   const auto& cs = getConnectionState();
 
   Envoy::Buffer::OwnedImpl dec;
@@ -37,20 +38,15 @@ std::unique_ptr<AuthState> AuthState::clone() {
   newState->hijacked_stream = hijacked_stream;
   if (handoff_info.channel_info) {
     newState->handoff_info.channel_info = std::make_unique<pomerium::extensions::ssh::SSHDownstreamChannelInfo>();
-    newState->handoff_info.channel_info->MergeFrom(*handoff_info.channel_info);
+    newState->handoff_info.channel_info->CopyFrom(*handoff_info.channel_info);
   }
   if (handoff_info.pty_info) {
     newState->handoff_info.pty_info = std::make_unique<pomerium::extensions::ssh::SSHDownstreamPTYInfo>();
-    newState->handoff_info.pty_info->MergeFrom(*handoff_info.pty_info);
+    newState->handoff_info.pty_info->CopyFrom(*handoff_info.pty_info);
   }
-  newState->username = username;
-  newState->hostname = hostname;
-  newState->auth_methods = auth_methods;
-  newState->public_key = public_key;
-  if (permissions) {
-    auto newPermissions = new pomerium::extensions::ssh::Permissions;
-    newPermissions->MergeFrom(*permissions);
-    newState->permissions.reset(newPermissions);
+  if (allow_response) {
+    newState->allow_response = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
+    newState->allow_response->CopyFrom(*allow_response);
   }
   return newState;
 }

@@ -43,7 +43,7 @@ inline bytes linearize_to_bytes(Envoy::Buffer::Instance& buffer, size_t len) { /
 // https://clang.llvm.org/docs/SafeBuffers.html
 template <typename T>
 constexpr std::span<T> unsafe_forge_span(T* pointer, size_t size) {
-  return std::span(pointer, size);
+  return {pointer, size};
 }
 #pragma clang unsafe_buffer_usage end
 
@@ -193,3 +193,10 @@ struct first_type<First, Rest...> : std::type_identity<First> {};
 
 template <typename... Ts>
 using first_type_t = first_type<Ts...>::type;
+
+// used in std::visit to hold a list of lambda functions
+// from https://en.cppreference.com/w/cpp/utility/variant/visit
+template <typename... Ts>
+struct overloads : Ts... {
+  using Ts::operator()...;
+};

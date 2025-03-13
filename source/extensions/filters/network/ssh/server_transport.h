@@ -20,12 +20,13 @@ class DownstreamConnectionService;
 class SshServerCodec : public virtual Logger::Loggable<Logger::Id::filter>,
                        public TransportBase<ServerCodec>,
                        public DownstreamTransportCallbacks,
+                       public Network::ConnectionCallbacks,
                        public StreamMgmtServerMessageHandler {
 public:
   SshServerCodec(Api::Api& api,
                  std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
                  CreateGrpcClientFunc create_grpc_client,
-                 std::shared_ptr<ThreadLocal::TypedSlot<SharedThreadLocalData>> slot_ptr);
+                 std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr);
 
   void setCodecCallbacks(GenericProxy::ServerCodecCallbacks& callbacks) override;
 
@@ -39,6 +40,10 @@ public:
   const AuthState& authState() const override;
   AuthState& authState() override;
   void forward(std::unique_ptr<SSHStreamFrame> frame) override;
+
+  void onEvent(Network::ConnectionEvent event) override;
+  void onAboveWriteBufferHighWatermark() override {}
+  void onBelowWriteBufferLowWatermark() override {}
 
 private:
   void initServices();
@@ -64,7 +69,7 @@ private:
   absl::StatusOr<std::unique_ptr<wire::HostKeysProveResponseMsg>>
   handleHostKeysProve(const wire::HostKeysProveRequestMsg& msg);
 
-  std::shared_ptr<ThreadLocal::TypedSlot<SharedThreadLocalData>> tls_;
+  std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> tls_;
   AuthStateSharedPtr auth_state_;
   std::set<std::string> service_names_;
   std::unique_ptr<DownstreamUserAuthService> user_auth_service_;

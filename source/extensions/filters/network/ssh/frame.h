@@ -31,7 +31,7 @@ public:
   const AuthStateSharedPtr& authState() const;
   FrameFlags frameFlags() const override;
 
-  FrameKind frameKind() const override;
+  FrameKind frameKind() const final;
 
 private:
   AuthStateSharedPtr downstream_state_;
@@ -51,7 +51,7 @@ public:
       : msg_(std::make_unique<wire::Message>(other.msg_->message.get<T>())) {
   }
 
-  FrameKind frameKind() const override;
+  FrameKind frameKind() const final;
   wire::Message& message() const;
   FrameFlags frameFlags() const override;
 
@@ -74,7 +74,7 @@ public:
   std::string_view protocol() const override;
   FrameFlags frameFlags() const override;
   wire::Message& message() const;
-  FrameKind frameKind() const override;
+  FrameKind frameKind() const final;
 
   uint64_t streamId() const {
     return stream_id_;
@@ -103,7 +103,7 @@ public:
   SSHRequestCommonFrame(uint64_t stream_id, T&& msg)
       : msg_(std::make_unique<wire::Message>(std::forward<T>(msg))),
         stream_id_(stream_id) {}
-  FrameKind frameKind() const override;
+  FrameKind frameKind() const final;
   wire::Message& message() const;
   FrameFlags frameFlags() const override;
   uint64_t streamId() const {

@@ -373,7 +373,7 @@ struct ChannelRequestMsg : Msg<SshMessageType::ChannelRequest> {
   field<uint32_t> recipient_channel;
   field<std::string, LengthPrefixed> request_type;
   field<bool> want_reply;
-  sub_message<PtyReqChannelRequestMsg, ShellChannelRequestMsg> msg{request_type};
+  sub_message<PtyReqChannelRequestMsg, ShellChannelRequestMsg, WindowDimensionChangeChannelRequestMsg> msg{request_type};
 
   ChannelRequestMsg() = default;
   ChannelRequestMsg(ChannelRequestMsg&&) = default;
@@ -952,9 +952,27 @@ struct Message : SshMsg {
 
   Message() = default;
 
+  Message(const Message& other)
+      : message_type(other.message_type),
+        message(other.message) {
+    message.setKeyField(message_type);
+    auto _ = message.decodeUnknown();
+  }
+
   template <typename T>
     requires (!std::same_as<std::decay_t<T>, Message>)
   Message(T&& msg) {
+    reset(std::forward<T>(msg));
+  }
+
+  template <typename T>
+  Message& operator=(T&& msg) {
+    reset(std::forward<T>(msg));
+    return *this;
+  }
+
+  template <typename T>
+  void reset(T&& msg) {
     if constexpr (!std::is_same_v<std::decay_t<T>, detail::overload_for_t<std::decay_t<T>>>) {
       message.reset(detail::overload_for_t<std::decay_t<T>>{std::forward<T>(msg)});
     } else {

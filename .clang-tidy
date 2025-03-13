@@ -1,7 +1,5 @@
 Checks: >
-  -clang-analyzer-core.NonNullParamChecker,
-  -clang-analyzer-optin.cplusplus.UninitializedObject,
-  -clang-diagnostic-builtin-macro-redefined,
+  clang-analyzer-core.*,
   abseil-duration-*,
   abseil-faster-strsplit-delimiter,
   abseil-no-namespace,
@@ -24,11 +22,10 @@ Checks: >
   readability-redundant-member-init,
   readability-redundant-smartptr-get,
   readability-redundant-string-cstr,
+  readability-implicit-bool-conversion,
   cppcoreguidelines-missing-std-forward,
   cppcoreguidelines-init-variables,
-  cppcoreguidelines-prefer-member-initializer,
   cppcoreguidelines-pro-bounds-array-to-pointer-decay,
-  cppcoreguidelines-pro-bounds-constant-array-index,
   cppcoreguidelines-pro-type-const-cast,
   misc-const-correctness,
   misc-header-include-cycle,
@@ -101,10 +98,11 @@ CheckOptions:
   - key: readability-identifier-naming.ConstexprFunctionCase
     value: "lower_case"
 
-HeaderFilterRegex: "^./source/.*|^./contrib/.*|^./test/.*|^./envoy/.*"
+HeaderFilterRegex: "^./source/.*"
+ExcludeHeaderFilterRegex: "^.*external/.*"
 
 UseColor: true
-
+SystemHeaders: false
 WarningsAsErrors: "*"
 ## The version here is arbitrary since any change to this file will
 ## trigger a full run of clang-tidy against all files.

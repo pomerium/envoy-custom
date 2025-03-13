@@ -8,12 +8,11 @@
 #pragma clang unsafe_buffer_usage end
 
 #include "source/extensions/filters/network/ssh/filters/session_recording/recorder.h"
-#include "source/extensions/filters/network/ssh/frame.h"
-#include "source/extensions/filters/network/ssh/transport.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::StreamFilters::SessionRecording {
 
 using pomerium::extensions::ssh::filters::session_recording::Config;
+using pomerium::extensions::ssh::filters::session_recording::UpstreamTargetExtensionConfig;
 
 class SessionRecordingFilter : public StreamFilter, public Logger::Loggable<Logger::Id::filter> {
 public:
@@ -29,7 +28,7 @@ public:
 
 private:
   absl::Status initializeRecording(RequestHeaderFrame& frame);
-
+  bool enabled_{false};
   Api::Api& api_;
   std::shared_ptr<Config> config_;
   DecoderFilterCallback* decoder_callbacks_;
@@ -37,8 +36,7 @@ private:
   std::unique_ptr<SessionRecorder> recorder_;
 };
 
-class SessionRecordingFilterFactory : public NamedFilterConfigFactory {
-
+class SessionRecordingFilterFactory : public NamedFilterConfigFactory, public Logger::Loggable<Logger::Id::filter> {
 public:
   FilterFactoryCb
   createFilterFactoryFromProto(const Protobuf::Message& config, const std::string&,

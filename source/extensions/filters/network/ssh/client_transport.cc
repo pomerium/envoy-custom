@@ -11,7 +11,7 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 SshClientCodec::SshClientCodec(
   Api::Api& api,
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-  std::shared_ptr<ThreadLocal::TypedSlot<SharedThreadLocalData>> slot_ptr)
+  std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr)
     : TransportBase(api, std::move(config)),
       tls_(slot_ptr) {}
 
@@ -43,38 +43,42 @@ GenericProxy::EncodingResult SshClientCodec::encode(const GenericProxy::StreamFr
                                                     GenericProxy::EncodingContext& ctx) {
   switch (dynamic_cast<const SSHStreamFrame&>(frame).frameKind()) {
   case FrameKind::RequestHeader: {
-    auto& reqHeader = dynamic_cast<const SSHRequestHeaderFrame&>(frame);
+    auto& reqHeader = static_cast<const SSHRequestHeaderFrame&>(frame);
     downstream_state_ = reqHeader.authState();
     if (downstream_state_->channel_mode == ChannelMode::Handoff) {
       channel_id_remap_enabled_ = true;
       installMiddleware(this);
     }
-    if (downstream_state_->multiplexing_info.mode == MultiplexingMode::Source) {
-      connection_svc_->beginStream(*downstream_state_, callbacks_->connection()->dispatcher());
+    if (downstream_state_->multiplexing_info.multiplex_mode == MultiplexMode::Source) {
+      connection_svc_->onStreamBegin(*downstream_state_, callbacks_->connection()->dispatcher());
       callbacks_->connection()->addConnectionCallbacks(*this);
     }
     return version_exchanger_->writeVersion(downstream_state_->server_version);
   }
   case FrameKind::RequestCommon: {
-    const auto& sshFrame = dynamic_cast<const SSHRequestCommonFrame&>(frame);
-    if (drop_stream_ids_.contains(sshFrame.streamId())) {
-      return absl::OkStatus(); // drop the frame
-    }
-    const auto& msg = sshFrame.message();
-    if (channel_id_remap_enabled_) {
-      const_cast<wire::Message&>(msg).visit( // NOLINT
-        [&](wire::ChannelMsg auto& msg) {
-          msg.getRecipientChannel() = channel_id_mappings_.at(msg.getRecipientChannel());
-        },
-        [](auto&) {});
-    }
-    return sendMessageToConnection(msg);
+    const auto& sshFrame = static_cast<const SSHRequestCommonFrame&>(frame);
+    return sendMessageToConnection(sshFrame.message());
   }
   default:
     throw EnvoyException("bug: unknown frame kind");
   }
   (void)ctx;
   return absl::OkStatus();
+}
+
+absl::StatusOr<size_t> SshClientCodec::sendMessageToConnection(const wire::Message& msg) {
+  if (channel_id_remap_enabled_) {
+    const_cast<wire::Message&>(msg).visit( // NOLINT
+      [&](wire::ChannelMsg auto& msg) {
+        auto& recipient_channel = msg.getRecipientChannel();
+        auto it = channel_id_mappings_.find(recipient_channel);
+        if (it != channel_id_mappings_.end()) {
+          recipient_channel = it->second;
+        }
+      },
+      [](auto&) {});
+  }
+  return UpstreamTransportCallbacks::sendMessageToConnection(msg);
 }
 
 absl::Status SshClientCodec::handleMessage(wire::Message&& msg) {
@@ -149,18 +153,12 @@ AuthState& SshClientCodec::authState() {
 
 void SshClientCodec::forward(std::unique_ptr<SSHStreamFrame> frame) {
   switch (frame->frameKind()) {
-  case FrameKind::ResponseHeader: {
-    auto framePtr =
-      std::unique_ptr<ResponseHeaderFrame>(dynamic_cast<SSHResponseHeaderFrame*>(frame.release()));
-    callbacks_->onDecodingSuccess(std::move(framePtr));
+  case FrameKind::ResponseHeader:
+    callbacks_->onDecodingSuccess(std::unique_ptr<ResponseHeaderFrame>(dynamic_cast<SSHResponseHeaderFrame*>(frame.release())));
     break;
-  }
-  case FrameKind::ResponseCommon: {
-    auto framePtr =
-      std::unique_ptr<ResponseCommonFrame>(dynamic_cast<ResponseCommonFrame*>(frame.release()));
-    callbacks_->onDecodingSuccess(std::move(framePtr));
+  case FrameKind::ResponseCommon:
+    callbacks_->onDecodingSuccess(std::unique_ptr<ResponseCommonFrame>(dynamic_cast<ResponseCommonFrame*>(frame.release())));
     break;
-  }
   default:
     PANIC("bug: wrong frame type passed to SshClientCodec::forward");
   }
@@ -276,7 +274,7 @@ void SshClientCodec::onInitialKexDone() {
 
 void SshClientCodec::onEvent(Network::ConnectionEvent event) {
   if (event == Network::ConnectionEvent::RemoteClose || event == Network::ConnectionEvent::LocalClose) {
-    connection_svc_->onDisconnect();
+    connection_svc_->onStreamEnd();
   }
 }
 

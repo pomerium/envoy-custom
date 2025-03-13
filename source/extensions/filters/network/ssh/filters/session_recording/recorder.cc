@@ -22,14 +22,13 @@ void SessionRecorder::stopOnce() {
     file_->close();
   }
 }
-absl::Status SessionRecorder::onStreamBegin(const Codec::SSHRequestHeaderFrame& frame, Filesystem::FilePtr file) {
+absl::Status SessionRecorder::onStreamBegin(const Codec::SSHRequestHeaderFrame& frame, Filesystem::FilePtr file, Envoy::Event::Dispatcher& dispatcher) {
   started_ = true;
   file_ = std::move(file);
-  (void)frame;
   ENVOY_LOG(info, "session recording started (path={})", file_->path());
 
-  auto fileOutput = std::make_unique<FileOutput>(*file_);
-  formatter_.reset(new AsciicastFormatter(std::move(fileOutput)));
+  formatter_ = std::make_unique<AsciicastFormatter<BufferedFileOutput>>(
+    std::make_unique<BufferedFileOutput>(*file_, dispatcher));
 
   if (frame.authState()->channel_mode == Codec::ChannelMode::Handoff) {
     // if the channel is in handoff mode, the client has already sent its pty info and it will

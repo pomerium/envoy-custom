@@ -1,0 +1,41 @@
+diff --git a/Makefile b/Makefile
+index 6fa64db..6aba290 100644
+--- a/Makefile
++++ b/Makefile
+@@ -25,8 +25,8 @@ endif
+
+ CFILES=$(sort $(wildcard src/*.c))
+ HFILES=$(sort $(wildcard include/*.h))
+-OBJECTS=$(CFILES:.c=.lo)
+-LIBRARY=libvterm.la
++OBJECTS=$(CFILES:.c=.o)
++LIBRARY=libvterm.a
+
+ BINFILES_SRC=$(sort $(wildcard bin/*.c))
+ BINFILES=$(BINFILES_SRC:.c=)
+@@ -52,12 +52,12 @@ MAN3DIR=$(MANDIR)/man3
+ all: $(LIBRARY) $(BINFILES)
+
+ $(LIBRARY): $(OBJECTS)
+-	@echo LINK $@
+-	@$(LIBTOOL) --mode=link --tag=CC $(CC) -rpath $(LIBDIR) -version-info $(VERSION_CURRENT):$(VERSION_REVISION):$(VERSION_AGE) -o $@ $^ $(LDFLAGS)
++	@echo AR $@
++	@ar rcs $@ $^
+
+-src/%.lo: src/%.c $(HFILES_INT)
++src/%.o: src/%.c $(HFILES_INT)
+ 	@echo CC $<
+-	@$(LIBTOOL) --mode=compile --tag=CC $(CC) $(CFLAGS) -o $@ -c $<
++	$(CC) $(CFLAGS) -o $@ -c $<
+
+ src/encoding/%.inc: src/encoding/%.tbl
+ 	@echo TBL $<
+@@ -66,7 +66,7 @@ src/encoding/%.inc: src/encoding/%.tbl
+ src/fullwidth.inc:
+ 	@perl find-wide-chars.pl >$@
+
+-src/encoding.lo: $(INCFILES)
++src/encoding.o: $(INCFILES)
+
+ bin/%: bin/%.c $(LIBRARY)
+ 	@echo CC $<

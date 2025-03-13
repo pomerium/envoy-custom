@@ -13,7 +13,7 @@ class AsciicastFormatter : public OutputBufferFormatter<T> {
 public:
   AsciicastFormatter(std::unique_ptr<T> output_buffer)
       : OutputBufferFormatter<T>(std::move(output_buffer)),
-        streamer_(std::make_unique<Json::StreamerBase<T>>(this->output())) {}
+        streamer_(std::make_unique<Json::StreamerBase<T&>>(this->output())) {}
 
   void writeHeader(const pomerium::extensions::ssh::SSHDownstreamPTYInfo& handoff_info) override {
     {
@@ -86,7 +86,7 @@ private:
     return absl::ToDoubleSeconds(absl::Now() - this->startTime());
   }
 
-  std::unique_ptr<Json::StreamerBase<T>> streamer_;
+  std::unique_ptr<Json::StreamerBase<T&>> streamer_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::StreamFilters::SessionRecording

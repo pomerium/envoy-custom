@@ -1,7 +1,10 @@
 #pragma once
 
-#include "source/extensions/filters/network/ssh/wire/messages.h"
+#pragma clang unsafe_buffer_usage begin
 #include "api/extensions/filters/network/ssh/filters/session_recording/session_recording.pb.h"
+#pragma clang unsafe_buffer_usage end
+
+#include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/filters/session_recording/formatter.h"
 
@@ -14,7 +17,7 @@ public:
   explicit SessionRecorder(std::shared_ptr<Config> config);
   ~SessionRecorder();
 
-  absl::Status onStreamBegin(const Codec::SSHRequestHeaderFrame& frame, Filesystem::FilePtr file);
+  absl::Status onStreamBegin(const Codec::SSHRequestHeaderFrame& frame, Filesystem::FilePtr file, Envoy::Event::Dispatcher& dispatcher);
   void onStreamEnd(const Codec::SSHResponseHeaderFrame& frame);
   void handleDownstreamToUpstreamMessage(wire::Message& msg);
   void handleUpstreamToDownstreamMessage(wire::Message& msg);

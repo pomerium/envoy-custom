@@ -173,17 +173,10 @@ absl::StatusOr<size_t> encodeMsg(Envoy::Buffer::Instance& buffer, SshMessageType
   return n;
 }
 
-// used in std::visit to hold a list of lambda functions
-// from https://en.cppreference.com/w/cpp/utility/variant/visit
-template <typename... Ts>
-struct overloads : Ts... {
-  using Ts::operator()...;
-};
-
 // A sentinel type that can be used to construct a sub_message without a key field initially.
 // Any message decoded by such a sub_message instance will be treated as unknown and stored as
-// raw bytes. A key field can later be set using the set_key_field() method, then decode() can
-// be called again to decode the typed message.
+// raw bytes. A key field can later be set using the set_key_field() method, then decodeUnknown()
+// can be called to decode the typed message.
 //
 // This is used to handle a couple of unusual SSH messages that contain a sub message but no
 // key field that can be used to determine its type without surrounding context.

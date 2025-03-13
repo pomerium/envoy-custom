@@ -55,6 +55,9 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
         username = parts[0];
         hostname = parts[1];
       }
+      if (!stream_id_.has_value()) {
+        stream_id_ = api_.randomGenerator().random();
+      }
       AuthenticationRequest auth_req;
       auth_req.set_protocol("ssh");
       auth_req.set_service(msg.service_name);
@@ -73,15 +76,17 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
           if (!fingerprint.ok()) {
             return fingerprint.status();
           }
-          auto msgDump = fmt::format("\r\nmethod:   {}"
-                                     "\r\nusername: {}"
-                                     "\r\nhostname: {}"
-                                     "\r\nkeyalg:   {}"
-                                     "\r\npubkey:   {}",
-                                     msg.method_name, username, hostname,
-                                     pubkey_req.public_key_alg, *fingerprint);
-          banner.message =
-            "\r\n====== TEST BANNER ======" + msgDump + "\r\n=========================\r\n";
+          banner.message = fmt::format(
+            "\n====== TEST BANNER ======"
+            "\nmethod:   {}"
+            "\nusername: {}"
+            "\nhostname: {}"
+            "\nkeyalg:   {}"
+            "\npubkey:   {}"
+            "\nsession:  {}"
+            "\n=========================\n",
+            msg.method_name, username, hostname,
+            pubkey_req.public_key_alg, *fingerprint, *stream_id_);
           auto _ = transport_.sendMessageToConnection(banner);
 
           PublicKeyMethodRequest method_req;
@@ -150,53 +155,39 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
     case AuthenticationResponse::kAllow: {
       auto allow = authResp.allow();
       auto state = std::make_shared<AuthState>();
-      state->hostname = allow.hostname();
-      state->username = allow.username();
-      state->stream_id = api_.randomGenerator().random();
-      switch (allow.target()) {
-      case pomerium::extensions::ssh::Upstream: {
+      state->allow_response = std::make_unique<AllowResponse>();
+      state->allow_response->CopyFrom(allow);
+      ASSERT(stream_id_.has_value());
+      state->stream_id = *stream_id_;
+      switch (allow.target_case()) {
+      case pomerium::extensions::ssh::AllowResponse::kUpstream:
         state->channel_mode = ChannelMode::Normal;
         state->multiplexing_info = MultiplexingInfo{
-          .mode = MultiplexingMode::Source,
-          .transport_callbacks = &transport_,
+          .multiplex_mode = MultiplexMode::Source,
         };
         break;
-      }
-      case pomerium::extensions::ssh::Internal: {
+      case pomerium::extensions::ssh::AllowResponse::kInternal:
         state->channel_mode = ChannelMode::Hijacked;
         break;
-      }
-      case pomerium::extensions::ssh::Mirror: {
+      case pomerium::extensions::ssh::AllowResponse::kMirrorSession: {
         auto _ = transport_.sendMessageToConnection(wire::UserAuthSuccessMsg());
-
-        state->channel_mode = ChannelMode::Multiplex;
-        uint64_t id = 0;
-        if (!absl::SimpleAtoi(state->hostname, &id)) { // TODO
-          return absl::InvalidArgumentError("invalid session id");
+        const auto& mirror = state->allow_response->mirror_session();
+        state->multiplexing_info.multiplex_mode = MultiplexMode::Mirror;
+        state->channel_mode = ChannelMode::Mirror;
+        switch (mirror.mode()) {
+        case pomerium::extensions::ssh::MirrorSessionTarget_Mode_ReadOnly:
+          state->multiplexing_info.rw_mode = ReadWriteMode::ReadOnly;
+          break;
+        case pomerium::extensions::ssh::MirrorSessionTarget_Mode_ReadWrite:
+          state->multiplexing_info.rw_mode = ReadWriteMode::ReadWrite;
+          break;
+        default:
+          return absl::InvalidArgumentError("unknown mode");
         }
-        state->multiplexing_info = MultiplexingInfo{
-          .mode = MultiplexingMode::Mirror,
-          .source_stream_id = id,
-          .transport_callbacks = &transport_,
-        };
-        break;
-      }
+        state->multiplexing_info.source_stream_id = mirror.source_id();
+      } break;
       default:
         return absl::InternalError("invalid target");
-      }
-
-      for (const auto& am : allow.allowed_methods()) {
-        state->auth_methods.push_back(am.method());
-        if (am.method() == "publickey") {
-          PublicKeyAllowResponse pubkey;
-          am.method_data().UnpackTo(&pubkey);
-          state->public_key.resize(pubkey.public_key().size());
-          memcpy(state->public_key.data(), pubkey.public_key().data(), pubkey.public_key().size());
-          state->permissions.reset(pubkey.release_permissions());
-        }
-      }
-      if (allow.has_set_metadata()) {
-        state->metadata.reset(allow.release_set_metadata());
       }
       transport_.initUpstream(std::move(state));
       return absl::OkStatus();
@@ -239,10 +230,13 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
 absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
   return msg.visit(
     [&](wire::ServiceAcceptMsg&) {
+      if (!transport_.authState().allow_response) {
+        return absl::InternalError("missing AllowResponse in auth state");
+      }
       auto userSessionSshKey = openssh::SSHKey::generate(KEY_ED25519, 256);
       auto stat = userSessionSshKey->convertToSignedUserCertificate(
         1,
-        {transport_.authState().username},
+        {transport_.authState().allow_response->username()},
         {
           openssh::ExtensionNoTouchRequired,
           openssh::ExtensionPermitX11Forwarding,
@@ -257,7 +251,7 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
       }
 
       auto req = std::make_unique<wire::UserAuthRequestMsg>();
-      req->username = transport_.authState().username;
+      req->username = transport_.authState().allow_response->username();
       req->method_name = "publickey";
       req->service_name = "ssh-connection";
 

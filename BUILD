@@ -2,7 +2,9 @@ load(
     "@envoy//bazel:envoy_build_system.bzl",
     "envoy_cc_binary",
 )
+load("@hedron_compile_commands//:refresh_compile_commands.bzl", "refresh_compile_commands")
 load("@rules_foreign_cc//foreign_cc:configure.bzl", "configure_make")
+load("@rules_foreign_cc//foreign_cc:make.bzl", "make")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -66,4 +68,42 @@ configure_make(
         "@envoy//bazel:boringcrypto",
         "@envoy//bazel:boringssl",
     ],
+)
+
+make(
+    name = "libvterm",
+    env = {
+        "INCDIR": "libvterm",
+    },
+    lib_source = "@libvterm//:all",
+    out_static_libs = [
+        "libvterm.a",
+    ],
+    postfix_script = """
+        cp -L src/utf8.h $INSTALLDIR/include && \
+        mkdir -p $INSTALLDIR/include/libvterm && \
+        mv -f $INSTALLDIR/include/*.h $INSTALLDIR/include/libvterm/
+    """,
+    set_file_prefix_map = True,
+    targets = [
+        "libvterm.a",
+        "install-inc",
+        "install-lib",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+refresh_compile_commands(
+    name = "refresh_compile_commands_all",
+    targets = {
+        "//:envoy": "",
+    },
+)
+
+refresh_compile_commands(
+    name = "refresh_compile_commands",
+    exclude_headers = "external",
+    targets = {
+        "//:envoy": "",
+    },
 )

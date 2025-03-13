@@ -10,6 +10,7 @@ proto_library(
     deps = [
         "@com_google_protobuf//:any_proto",
         "@com_google_protobuf//:timestamp_proto",
+        "@com_google_protobuf//:wrappers_proto",
         "@envoy_api//envoy/config/core/v3:pkg",
     ],
 )

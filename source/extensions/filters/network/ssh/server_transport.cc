@@ -8,10 +8,6 @@
 #include <sshkey.h>
 #include <unistd.h>
 
-#include "api/extensions/filters/network/ssh/ssh.pb.h"
-#include "envoy/network/connection.h"
-#include "source/common/buffer/buffer_impl.h"
-#include "source/extensions/filters/network/generic_proxy/codec_callbacks.h"
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/kex.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
@@ -27,7 +23,7 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 SshServerCodec::SshServerCodec(Api::Api& api,
                                std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
                                CreateGrpcClientFunc create_grpc_client,
-                               std::shared_ptr<ThreadLocal::TypedSlot<SharedThreadLocalData>> slot_ptr)
+                               std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr)
     : TransportBase(api, std::move(config)),
       DownstreamTransportCallbacks(*this),
       tls_(slot_ptr) {
@@ -66,18 +62,14 @@ GenericProxy::EncodingResult SshServerCodec::encode(const GenericProxy::StreamFr
                                                     GenericProxy::EncodingContext& /*ctx*/) {
   const auto& msg = dynamic_cast<const SSHStreamFrame&>(frame);
   switch (msg.frameKind()) {
-  case FrameKind::ResponseHeader: {
+  case FrameKind::ResponseHeader:
     if (authState().handoff_info.handoff_in_progress) {
       authState().handoff_info.handoff_in_progress = false;
       callbacks_->connection()->readDisable(false);
     }
-    const auto& respHdr = dynamic_cast<const SSHResponseHeaderFrame&>(frame);
-    return sendMessageToConnection(respHdr.message());
-  }
-  case FrameKind::ResponseCommon: {
-    const auto& respHdr = dynamic_cast<const SSHResponseCommonFrame&>(frame);
-    return sendMessageToConnection(respHdr.message());
-  }
+    return sendMessageToConnection(static_cast<const SSHResponseHeaderFrame&>(frame).message());
+  case FrameKind::ResponseCommon:
+    return sendMessageToConnection(static_cast<const SSHResponseCommonFrame&>(frame).message());
   default:
     PANIC("unimplemented");
   }
@@ -208,14 +200,21 @@ void SshServerCodec::initUpstream(AuthStateSharedPtr s) {
     ClientMessage upstream_connect_msg{};
     upstream_connect_msg.mutable_event()->mutable_upstream_connected()->set_stream_id(auth_state_->stream_id);
     sendMgmtClientMessage(upstream_connect_msg);
-    break;
-  }
+  } break;
   case ChannelMode::Hijacked: {
-    auth_state_->hijacked_stream = channel_client_->start(
-      connection_service_.get(), makeOptRefFromPtr(auth_state_->metadata.get()));
-    auto _ = sendMessageToConnection(wire::EmptyMsg<wire::SshMessageType::UserAuthSuccess>{});
-    break;
-  }
+    if (auth_state_->allow_response->target_case() == pomerium::extensions::ssh::AllowResponse::kInternal) {
+      const auto& internal = auth_state_->allow_response->internal();
+      Envoy::OptRef<const envoy::config::core::v3::Metadata> optional_metadata;
+      if (internal.has_set_metadata()) {
+        optional_metadata = makeOptRef(internal.set_metadata());
+      }
+      auth_state_->hijacked_stream = channel_client_->start(connection_service_.get(), optional_metadata);
+      auto _ = sendMessageToConnection(wire::UserAuthSuccessMsg{});
+    } else {
+      ENVOY_LOG(error, "wrong target mode in AllowResponse for internal session");
+      auto _ = sendMessageToConnection(wire::UserAuthFailureMsg{});
+    }
+  } break;
   case ChannelMode::Handoff: {
     auto frame = std::make_unique<SSHRequestHeaderFrame>(auth_state_);
     callbacks_->connection()->readDisable(true);
@@ -224,11 +223,13 @@ void SshServerCodec::initUpstream(AuthStateSharedPtr s) {
     ClientMessage upstream_connect_msg{};
     upstream_connect_msg.mutable_event()->mutable_upstream_connected()->set_stream_id(auth_state_->stream_id);
     sendMgmtClientMessage(upstream_connect_msg);
+  } break;
+  case ChannelMode::Mirror:
     break;
   }
-  case ChannelMode::Multiplex:
-    connection_service_->beginStream(*auth_state_, callbacks_->connection()->dispatcher());
-    break;
+  if (auth_state_->multiplexing_info.multiplex_mode != MultiplexMode::None) {
+    connection_service_->onStreamBegin(*auth_state_, callbacks_->connection()->dispatcher());
+    callbacks_->connection()->addConnectionCallbacks(*this);
   }
 }
 
@@ -253,18 +254,12 @@ void SshServerCodec::forward(std::unique_ptr<SSHStreamFrame> frame) {
     PANIC("forward() called during handoff, this should not happen");
   }
   switch (frame->frameKind()) {
-  case FrameKind::RequestHeader: {
-    auto framePtr =
-      std::unique_ptr<RequestHeaderFrame>(dynamic_cast<RequestHeaderFrame*>(frame.release()));
-    callbacks_->onDecodingSuccess(std::move(framePtr));
+  case FrameKind::RequestHeader:
+    callbacks_->onDecodingSuccess(std::unique_ptr<RequestHeaderFrame>(static_cast<SSHRequestHeaderFrame*>(frame.release())));
     break;
-  }
-  case FrameKind::RequestCommon: {
-    auto framePtr =
-      std::unique_ptr<RequestCommonFrame>(dynamic_cast<RequestCommonFrame*>(frame.release()));
-    callbacks_->onDecodingSuccess(std::move(framePtr));
+  case FrameKind::RequestCommon:
+    callbacks_->onDecodingSuccess(std::unique_ptr<RequestCommonFrame>(static_cast<SSHRequestCommonFrame*>(frame.release())));
     break;
-  }
   default:
     PANIC("bug: wrong frame type passed to SshServerCodec::forward");
   }
@@ -301,6 +296,12 @@ SshServerCodec::handleHostKeysProve(const wire::HostKeysProveRequestMsg& msg) {
 
 void SshServerCodec::sendMgmtClientMessage(const ClientMessage& msg) {
   mgmt_client_->stream().sendMessage(msg, false);
+}
+
+void SshServerCodec::onEvent(Network::ConnectionEvent event) {
+  if (event == Network::ConnectionEvent::LocalClose || event == Network::ConnectionEvent::RemoteClose) {
+    connection_service_->onStreamEnd();
+  }
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
