@@ -113,7 +113,7 @@ Http::Code AdminApi::handleViewerEndpoint(Http::ResponseHeaderMap& response_head
 }
 
 void AdminApi::refreshAccessLogs() {
-  auto dir = config_->access_log_storage_dir();
+  auto dir = config_->storage_dir();
   if (api_.fileSystem().illegalPath(dir)) {
     ENVOY_LOG(error, "illegal path for access_log_storage_dir: {}", dir);
     return;

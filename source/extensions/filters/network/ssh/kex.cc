@@ -63,7 +63,7 @@ absl::Status Curve25519Sha256KexAlgorithm::handleServerRecv(wire::Message& msg) 
       ssh_digest_memory(hash_alg, buf, exchangeHash.length(), digest_buf.data(), digest_len);
       exchangeHash.drain(exchangeHash.length());
       digest_len = ssh_digest_bytes(hash_alg);
-      auto digest = bytes_view<>{digest_buf.begin(), digest_len};
+      auto digest = bytes_view{digest_buf.begin(), digest_len};
 
       auto sig = signer_->priv.sign(digest);
       if (!sig.ok()) {
@@ -135,7 +135,7 @@ absl::Status Curve25519Sha256KexAlgorithm::handleClientRecv(wire::Message& msg) 
       ssh_digest_memory(hash_alg, buf, exchangeHash.length(), digest_buf.data(), digest_len);
       exchangeHash.drain(exchangeHash.length());
       digest_len = ssh_digest_bytes(hash_alg);
-      auto digest = bytes_view<>{digest_buf.begin(), digest_len};
+      auto digest = bytes_view{digest_buf.begin(), digest_len};
 
       auto server_host_key = openssh::SSHKey::fromBlob(msg->host_key);
       if (!server_host_key.ok()) {

@@ -87,7 +87,7 @@ public:
   virtual void writeToConnection(Envoy::Buffer::Instance& buf) const PURE;
 
   virtual const KexResult& getKexResult() const PURE;
-  virtual absl::StatusOr<bytes> signWithHostKey(bytes_view<> in) const PURE;
+  virtual absl::StatusOr<bytes> signWithHostKey(bytes_view in) const PURE;
   virtual const AuthState& authState() const PURE;
   virtual AuthState& authState() PURE;
   virtual const pomerium::extensions::ssh::CodecConfig& codecConfig() const PURE;

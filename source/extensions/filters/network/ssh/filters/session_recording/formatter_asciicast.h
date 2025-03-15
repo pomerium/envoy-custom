@@ -11,9 +11,11 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::StreamFilters::Sessio
 template <OutputBufferType T>
 class AsciicastFormatter : public OutputBufferFormatter<T> {
 public:
-  AsciicastFormatter(std::unique_ptr<T> output_buffer)
-      : OutputBufferFormatter<T>(std::move(output_buffer)),
+  AsciicastFormatter(std::unique_ptr<T> output_buffer, absl::Time start_time)
+      : OutputBufferFormatter<T>(std::move(output_buffer), start_time),
         streamer_(std::make_unique<Json::StreamerBase<T&>>(this->output())) {}
+
+  constexpr Format format() const override { return Format::AsciicastFormat; }
 
   void writeHeader(const pomerium::extensions::ssh::SSHDownstreamPTYInfo& handoff_info) override {
     {

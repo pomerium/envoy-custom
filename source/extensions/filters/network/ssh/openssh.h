@@ -225,7 +225,7 @@ public:
     return to_bytes(unsafe_forge_span(buf, len));
   }
 
-  absl::StatusOr<bytes> sign(bytes_view<> payload) const {
+  absl::StatusOr<bytes> sign(bytes_view payload) const {
     uint8_t* sig = nullptr;
     size_t len = 0;
     auto err = sshkey_sign(key_.get(), &sig, &len, payload.data(), payload.size(),
@@ -236,7 +236,7 @@ public:
     return to_bytes(unsafe_forge_span(sig, len));
   }
 
-  absl::Status verify(bytes_view<> signature, bytes_view<> payload) {
+  absl::Status verify(bytes_view signature, bytes_view payload) {
     auto err = sshkey_verify(key_.get(),
                              signature.data(), signature.size(),
                              payload.data(), payload.size(),

@@ -101,27 +101,12 @@ absl::Status SshClientCodec::handleMessage(wire::Message&& msg) {
       forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id, std::move(msg)));
       return absl::OkStatus();
     },
-    [&](wire::GlobalRequestSuccessMsg& msg) {
-      forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id, std::move(msg)));
-      return absl::OkStatus();
-    },
-    [&](wire::GlobalRequestFailureMsg& msg) {
-      forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id, std::move(msg)));
-      return absl::OkStatus();
-    },
-    [&](wire::IgnoreMsg& msg) {
-      forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id, std::move(msg)));
-      return absl::OkStatus();
-    },
-    [&](wire::DebugMsg& msg) {
-      forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id, std::move(msg)));
-      return absl::OkStatus();
-    },
-    [&](wire::UnimplementedMsg& msg) {
-      forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id, std::move(msg)));
-      return absl::OkStatus();
-    },
-    [&](wire::DisconnectMsg& msg) {
+    [&](any_of<wire::GlobalRequestSuccessMsg,
+               wire::GlobalRequestFailureMsg,
+               wire::IgnoreMsg,
+               wire::DebugMsg,
+               wire::UnimplementedMsg,
+               wire::DisconnectMsg> auto& msg) {
       forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id, std::move(msg)));
       return absl::OkStatus();
     },
@@ -135,7 +120,7 @@ void SshClientCodec::writeToConnection(Envoy::Buffer::Instance& buf) const {
   return callbacks_->writeToConnection(buf);
 }
 
-absl::StatusOr<bytes> SshClientCodec::signWithHostKey(bytes_view<> in) const {
+absl::StatusOr<bytes> SshClientCodec::signWithHostKey(bytes_view in) const {
   auto hostKey = kex_result_->algorithms.host_key;
   if (auto k = kex_->getHostKey(hostKey); k) {
     return k->priv.sign(in);
@@ -238,21 +223,7 @@ bool SshClientCodec::interceptMessage(wire::Message& ssh_msg) {
       }
       return true;
     },
-    [&](wire::IgnoreMsg&) {
-      if (downstream_state_->handoff_info.handoff_in_progress) {
-        // ignore these messages during handoff, they can trigger a common frame to be sent too early
-        return false;
-      }
-      return true;
-    },
-    [&](wire::DebugMsg&) {
-      if (downstream_state_->handoff_info.handoff_in_progress) {
-        // ignore these messages during handoff, they can trigger a common frame to be sent too early
-        return false;
-      }
-      return true;
-    },
-    [&](wire::UnimplementedMsg&) {
+    [&](any_of<wire::IgnoreMsg, wire::DebugMsg, wire::UnimplementedMsg> auto&) {
       if (downstream_state_->handoff_info.handoff_in_progress) {
         // ignore these messages during handoff, they can trigger a common frame to be sent too early
         return false;

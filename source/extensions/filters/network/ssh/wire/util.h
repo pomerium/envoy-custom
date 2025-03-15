@@ -17,8 +17,7 @@ using namespace std::literals;
 
 using bytes = std::vector<uint8_t>;
 
-template <size_t N = std::dynamic_extent>
-using bytes_view = std::span<const uint8_t, N>;
+using bytes_view = std::span<const uint8_t>;
 
 template <size_t N>
 using fixed_bytes = std::array<uint8_t, N>;
@@ -116,8 +115,10 @@ concept byteArrayLike = requires(T t) {
 template <byteArrayLike T, typename F>
   requires std::invocable<F, Envoy::Buffer::Instance&>
 decltype(auto) with_buffer_view(const T& b, F func) { // NOLINT
-  Envoy::Buffer::OwnedImpl buffer;
+  // initialization order is important here; the fragment must live longer than the buffer
+  // (destructors are invoked in reverse order)
   BytesViewBufferFragment fragment(b.data(), b.size());
+  Envoy::Buffer::OwnedImpl buffer;
   buffer.addBufferFragment(fragment);
   return func(buffer);
 }
@@ -200,3 +201,6 @@ template <typename... Ts>
 struct overloads : Ts... {
   using Ts::operator()...;
 };
+
+template <typename T, typename... U>
+concept any_of = (std::same_as<std::decay_t<T>, std::decay_t<U>> || ...);

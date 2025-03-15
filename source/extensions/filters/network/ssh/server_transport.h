@@ -36,7 +36,7 @@ public:
                                     const GenericProxy::Request&) override;
 
   void initUpstream(AuthStateSharedPtr downstream_state) override;
-  absl::StatusOr<bytes> signWithHostKey(bytes_view<> in) const override;
+  absl::StatusOr<bytes> signWithHostKey(bytes_view in) const override;
   const AuthState& authState() const override;
   AuthState& authState() override;
   void forward(std::unique_ptr<SSHStreamFrame> frame) override;

@@ -142,23 +142,11 @@ absl::Status SshServerCodec::handleMessage(wire::Message&& msg) {
 
       return absl::OkStatus();
     },
-    [&](wire::GlobalRequestSuccessMsg& msg) {
-      forward(std::make_unique<SSHRequestCommonFrame>(auth_state_->stream_id, std::move(msg)));
-      return absl::OkStatus();
-    },
-    [&](wire::GlobalRequestFailureMsg& msg) {
-      forward(std::make_unique<SSHRequestCommonFrame>(auth_state_->stream_id, std::move(msg)));
-      return absl::OkStatus();
-    },
-    [&](wire::IgnoreMsg& msg) {
-      forward(std::make_unique<SSHRequestCommonFrame>(auth_state_->stream_id, std::move(msg)));
-      return absl::OkStatus();
-    },
-    [&](wire::DebugMsg& msg) {
-      forward(std::make_unique<SSHRequestCommonFrame>(auth_state_->stream_id, std::move(msg)));
-      return absl::OkStatus();
-    },
-    [&](wire::UnimplementedMsg& msg) {
+    [&](any_of<wire::GlobalRequestSuccessMsg,
+               wire::GlobalRequestFailureMsg,
+               wire::IgnoreMsg,
+               wire::DebugMsg,
+               wire::UnimplementedMsg> auto& msg) {
       forward(std::make_unique<SSHRequestCommonFrame>(auth_state_->stream_id, std::move(msg)));
       return absl::OkStatus();
     },
@@ -233,7 +221,7 @@ void SshServerCodec::initUpstream(AuthStateSharedPtr s) {
   }
 }
 
-absl::StatusOr<bytes> SshServerCodec::signWithHostKey(bytes_view<> in) const {
+absl::StatusOr<bytes> SshServerCodec::signWithHostKey(bytes_view in) const {
   auto hostKey = kex_result_->algorithms.host_key;
   if (auto k = kex_->getHostKey(hostKey); k) {
     return k->priv.sign(in);

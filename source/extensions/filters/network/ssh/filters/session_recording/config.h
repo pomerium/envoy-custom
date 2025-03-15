@@ -8,15 +8,20 @@
 #pragma clang unsafe_buffer_usage end
 
 #include "source/extensions/filters/network/ssh/filters/session_recording/recorder.h"
+#include "source/extensions/filters/network/ssh/filters/session_recording/uploader.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::StreamFilters::SessionRecording {
 
 using pomerium::extensions::ssh::filters::session_recording::Config;
+using pomerium::extensions::ssh::filters::session_recording::RecordingData;
+using pomerium::extensions::ssh::filters::session_recording::RecordingMetadata;
 using pomerium::extensions::ssh::filters::session_recording::UpstreamTargetExtensionConfig;
 
-class SessionRecordingFilter : public StreamFilter, public Logger::Loggable<Logger::Id::filter> {
+class SessionRecordingFilter : public StreamFilter,
+                               public SessionRecordingCallbacks,
+                               public Logger::Loggable<Logger::Id::filter> {
 public:
-  SessionRecordingFilter(Api::Api& api, std::shared_ptr<Config> config);
+  SessionRecordingFilter(Api::Api& api, std::shared_ptr<Config> config, std::shared_ptr<RecordingUploader> uploader);
   void onDestroy() override;
 
   void setDecoderFilterCallbacks(DecoderFilterCallback& callbacks) override;
@@ -26,6 +31,8 @@ public:
   HeaderFilterStatus encodeHeaderFrame(ResponseHeaderFrame& frame) override;
   CommonFilterStatus encodeCommonFrame(ResponseCommonFrame& frame) override;
 
+  void finalize(RecordingMetadata metadata) override;
+
 private:
   absl::Status initializeRecording(RequestHeaderFrame& frame);
   bool enabled_{false};
@@ -34,6 +41,7 @@ private:
   DecoderFilterCallback* decoder_callbacks_;
   EncoderFilterCallback* encoder_callbacks_;
   std::unique_ptr<SessionRecorder> recorder_;
+  std::shared_ptr<RecordingUploader> uploader_;
 };
 
 class SessionRecordingFilterFactory : public NamedFilterConfigFactory, public Logger::Loggable<Logger::Id::filter> {
@@ -52,6 +60,10 @@ public:
   }
   bool isTerminalFilter() override { return false; }
   std::string name() const override { return "envoy.filters.generic.ssh.session_recording"; }
+
+private:
+  void startUploadThread(Server::Configuration::FactoryContext& ctx);
+  Envoy::Event::Dispatcher* upload_thread_dispatcher_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::StreamFilters::SessionRecording
