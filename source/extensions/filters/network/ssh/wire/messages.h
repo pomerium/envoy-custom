@@ -81,9 +81,15 @@ struct OverloadMsg : T {
       : T(t) {};
 };
 
+// A ChannelMsg is any struct with a mutable field 'recipient_channel' of type field<uint32_t>,
+// for example:
+//  struct Foo {
+//    mutable field<uint32_t> recipient_channel;
+//  };
 template <typename T>
 concept ChannelMsg = requires(T t) {
-  { t.getRecipientChannel() } -> std::same_as<field<uint32_t>&>;
+  requires std::same_as<std::decay_t<decltype((t.recipient_channel))>, field<uint32_t>>;
+  { std::as_const(t).recipient_channel = std::declval<field<uint32_t>>() };
 };
 
 template <typename... Ts>
@@ -370,7 +376,7 @@ struct WindowDimensionChangeChannelRequestMsg : SubMsg<SshMessageType::ChannelRe
 };
 
 struct ChannelRequestMsg : Msg<SshMessageType::ChannelRequest> {
-  field<uint32_t> recipient_channel;
+  mutable field<uint32_t> recipient_channel;
   field<std::string, LengthPrefixed> request_type;
   field<bool> want_reply;
   sub_message<PtyReqChannelRequestMsg, ShellChannelRequestMsg, WindowDimensionChangeChannelRequestMsg> msg{request_type};
@@ -386,10 +392,6 @@ struct ChannelRequestMsg : Msg<SshMessageType::ChannelRequest> {
         msg(other.msg) {
     msg.setKeyField(request_type);
     auto _ = msg.decodeUnknown(); // TODO: handle this error
-  }
-
-  field<uint32_t>& getRecipientChannel() {
-    return recipient_channel;
   }
 
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
@@ -409,15 +411,11 @@ struct ChannelRequestMsg : Msg<SshMessageType::ChannelRequest> {
 };
 
 struct ChannelOpenConfirmationMsg : Msg<SshMessageType::ChannelOpenConfirmation> {
-  field<uint32_t> recipient_channel;
+  mutable field<uint32_t> recipient_channel;
   field<uint32_t> sender_channel;
   field<uint32_t> initial_window_size;
   field<uint32_t> max_packet_size;
   field<bytes> extra;
-
-  field<uint32_t>& getRecipientChannel() {
-    return recipient_channel;
-  }
 
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
     return decodeMsg(buffer, type, payload_size,
@@ -438,14 +436,10 @@ struct ChannelOpenConfirmationMsg : Msg<SshMessageType::ChannelOpenConfirmation>
 };
 
 struct ChannelOpenFailureMsg : Msg<SshMessageType::ChannelOpenFailure> {
-  field<uint32_t> recipient_channel;
+  mutable field<uint32_t> recipient_channel;
   field<uint32_t> reason_code;
   field<std::string, LengthPrefixed> description;
   field<std::string, LengthPrefixed> language_tag;
-
-  field<uint32_t>& getRecipientChannel() {
-    return recipient_channel;
-  }
 
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
     return decodeMsg(buffer, type, payload_size,
@@ -464,12 +458,8 @@ struct ChannelOpenFailureMsg : Msg<SshMessageType::ChannelOpenFailure> {
 };
 
 struct ChannelWindowAdjustMsg : Msg<SshMessageType::ChannelWindowAdjust> {
-  field<uint32_t> recipient_channel;
+  mutable field<uint32_t> recipient_channel;
   field<uint32_t> bytes_to_add;
-
-  field<uint32_t>& getRecipientChannel() {
-    return recipient_channel;
-  }
 
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
     return decodeMsg(buffer, type, payload_size,
@@ -484,12 +474,8 @@ struct ChannelWindowAdjustMsg : Msg<SshMessageType::ChannelWindowAdjust> {
 };
 
 struct ChannelDataMsg : Msg<SshMessageType::ChannelData> {
-  field<uint32_t> recipient_channel;
+  mutable field<uint32_t> recipient_channel;
   field<bytes, LengthPrefixed> data;
-
-  field<uint32_t>& getRecipientChannel() {
-    return recipient_channel;
-  }
 
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
     return decodeMsg(buffer, type, payload_size,
@@ -504,13 +490,10 @@ struct ChannelDataMsg : Msg<SshMessageType::ChannelData> {
 };
 
 struct ChannelExtendedDataMsg : Msg<SshMessageType::ChannelExtendedData> {
-  field<uint32_t> recipient_channel;
+  mutable field<uint32_t> recipient_channel;
   field<uint32_t> data_type_code;
   field<bytes, LengthPrefixed> data;
 
-  field<uint32_t>& getRecipientChannel() {
-    return recipient_channel;
-  }
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
     return decodeMsg(buffer, type, payload_size,
                      recipient_channel,
@@ -526,11 +509,8 @@ struct ChannelExtendedDataMsg : Msg<SshMessageType::ChannelExtendedData> {
 };
 
 struct ChannelEOFMsg : Msg<SshMessageType::ChannelEOF> {
-  field<uint32_t> recipient_channel;
+  mutable field<uint32_t> recipient_channel;
 
-  field<uint32_t>& getRecipientChannel() {
-    return recipient_channel;
-  }
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
     return decodeMsg(buffer, type, payload_size,
                      recipient_channel);
@@ -542,11 +522,8 @@ struct ChannelEOFMsg : Msg<SshMessageType::ChannelEOF> {
 };
 
 struct ChannelCloseMsg : Msg<SshMessageType::ChannelClose> {
-  field<uint32_t> recipient_channel;
+  mutable field<uint32_t> recipient_channel;
 
-  field<uint32_t>& getRecipientChannel() {
-    return recipient_channel;
-  }
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
     return decodeMsg(buffer, type, payload_size,
                      recipient_channel);
@@ -558,11 +535,7 @@ struct ChannelCloseMsg : Msg<SshMessageType::ChannelClose> {
 };
 
 struct ChannelSuccessMsg : Msg<SshMessageType::ChannelSuccess> {
-  field<uint32_t> recipient_channel;
-
-  field<uint32_t>& getRecipientChannel() {
-    return recipient_channel;
-  }
+  mutable field<uint32_t> recipient_channel;
 
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
     return decodeMsg(buffer, type, payload_size,
@@ -575,11 +548,8 @@ struct ChannelSuccessMsg : Msg<SshMessageType::ChannelSuccess> {
 };
 
 struct ChannelFailureMsg : Msg<SshMessageType::ChannelFailure> {
-  field<uint32_t> recipient_channel;
+  mutable field<uint32_t> recipient_channel;
 
-  field<uint32_t>& getRecipientChannel() {
-    return recipient_channel;
-  }
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
     return decodeMsg(buffer, type, payload_size,
                      recipient_channel);
@@ -944,6 +914,13 @@ template <> struct overload_for<UserAuthPubKeyOkMsg> : std::type_identity<Overlo
 template <> struct overload_for<UserAuthInfoRequestMsg> : std::type_identity<OverloadedMessage<UserAuthPubKeyOkMsg, UserAuthInfoRequestMsg>> {};
 template <> struct overload_for<UserAuthInfoResponseMsg> : std::type_identity<OverloadedMessage<UserAuthInfoResponseMsg>> {};
 
+template <typename T>
+struct is_top_level_message : std::false_type {};
+
+template <typename T>
+  requires (top_level_message::template has_option<overload_for_t<T>>())
+struct is_top_level_message<T> : std::true_type {};
+
 } // namespace detail
 
 struct Message : SshMsg {
@@ -983,7 +960,13 @@ struct Message : SshMsg {
   SshMessageType msg_type() const override { return message_type; }
 
   decltype(auto) visit(this auto& self, auto... args) {
-    return std::visit(detail::top_level_message_visitor{args...}, self.message.oneof);
+    if (self.message.oneof.has_value()) {
+      return std::visit(detail::top_level_message_visitor{self, args...}, *self.message.oneof);
+    }
+    using return_type = decltype(std::visit(detail::top_level_message_visitor{self, args...}, *self.message.oneof));
+    if constexpr (!std::is_void_v<return_type>) {
+      return return_type{};
+    }
   }
 
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {

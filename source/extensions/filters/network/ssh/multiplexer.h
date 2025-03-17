@@ -27,7 +27,7 @@ public:
         transport_(transport),
         tls_(tls),
         local_dispatcher_(dispatcher),
-        vt_(std::make_shared<VTBuffer>()) {
+        vt_state_(std::make_shared<VTCurrentStateTracker>()) {
     (void)api_;
   }
 
@@ -39,8 +39,8 @@ public:
     ENVOY_LOG(debug, "new multiplex source: {}", auth_state.stream_id);
     (*tls_)->beginSession(auth_state.stream_id, weak_from_this());
     if (auth_state.channel_mode == ChannelMode::Handoff && auth_state.handoff_info.pty_info) {
-      vt_->resize(static_cast<int>(auth_state.handoff_info.pty_info->width_columns()),
-                  static_cast<int>(auth_state.handoff_info.pty_info->height_rows()));
+      vt_state_->resize(static_cast<int>(auth_state.handoff_info.pty_info->width_columns()),
+                        static_cast<int>(auth_state.handoff_info.pty_info->height_rows()));
       // TODO: do something with term_env/modes?
     }
   }
@@ -66,7 +66,7 @@ public:
   }
 
   void updateSource(const wire::ChannelDataMsg& msg) {
-    vt_->write(msg.data);
+    vt_state_->write(msg.data);
     for (auto&& it = active_mirrors_.begin(); it != active_mirrors_.end();) {
       if (auto s = it->lock(); s) {
         s->sendMsg(msg);
@@ -84,8 +84,9 @@ public:
     }
     active_mirrors_.insert(mc);
     if (auto l = mc.lock(); l) {
+      l->onSourceResized(vt_state_->width(), vt_state_->height());
       Envoy::Buffer::OwnedImpl buffer;
-      vt_->dumpState(buffer);
+      vt_state_->dumpState(buffer);
       wire::ChannelDataMsg state;
       state.data = wire::flushTo<bytes>(buffer);
       l->sendMsg(state);
@@ -120,7 +121,7 @@ public:
       local_dispatcher_.post([this, msg = msg] { resize(msg); });
       return;
     }
-    vt_->resize(static_cast<int>(*msg.width_columns), static_cast<int>(*msg.height_rows));
+    vt_state_->resize(static_cast<int>(*msg.width_columns), static_cast<int>(*msg.height_rows));
   }
 
 private:
@@ -133,7 +134,7 @@ private:
   Dispatcher& local_dispatcher_;
   bool stream_ending_{false};
   std::set<std::weak_ptr<MirrorCallbacks>, std::owner_less<>> active_mirrors_;
-  std::shared_ptr<VTBuffer> vt_;
+  std::shared_ptr<VTCurrentStateTracker> vt_state_;
 };
 
 class SourceDownstreamSessionMultiplexer : public SourceInterfaceCallbacks {
@@ -159,11 +160,11 @@ public:
             }
             return absl::OkStatus();
           },
-          [](const auto&) {
+          [](auto&) {
             return absl::OkStatus();
           });
       },
-      [](const auto&) {
+      [](auto&) {
         return absl::OkStatus();
       });
   }
@@ -175,6 +176,7 @@ private:
 
 // Downstream
 class MirrorSessionMultiplexer : public MirrorCallbacks,
+                                 public VTBufferCallbacks,
                                  public std::enable_shared_from_this<MirrorSessionMultiplexer>,
                                  public virtual Logger::Loggable<Logger::Id::filter> {
 public:
@@ -186,7 +188,8 @@ public:
       : api_(api),
         transport_(transport),
         tls_(tls),
-        local_dispatcher_(dispatcher) {
+        local_dispatcher_(dispatcher),
+        vt_(std::make_unique<VTBuffer>(*this)) {
     (void)api_;
   }
 
@@ -197,6 +200,35 @@ public:
       ENVOY_LOG(debug, "new multiplex mirror: {}", info_.source_stream_id);
       // NB: session is attached later, after channel is opened
       current_stream_id_ = auth_state.multiplexing_info.source_stream_id;
+
+      if (info_.downstream_channel_id.has_value()) {
+        sender_channel_ = info_.downstream_channel_id;
+
+        auto r = (*tls_)->attachToSession(info_.source_stream_id, weak_from_this());
+        if (!r.ok()) {
+          wire::DisconnectMsg dc;
+          dc.reason_code = SSH2_DISCONNECT_BY_APPLICATION;
+          dc.description = std::string(r.status().message());
+          if (auto r = transport_.sendMessageToConnection(dc); !r.ok()) {
+            ENVOY_LOG(error, "error sending disconnect message: {}", r.status().message());
+          }
+          ENVOY_LOG(error, "attaching to session failed: {}", r.status());
+          return;
+        }
+        source_interface_ = *r;
+        if (source_interface_.expired()) {
+          wire::DisconnectMsg dc;
+          dc.reason_code = SSH2_DISCONNECT_BY_APPLICATION;
+          dc.description = "session ended";
+          if (auto r = transport_.sendMessageToConnection(dc); !r.ok()) {
+            ENVOY_LOG(error, "error sending disconnect message: {}", r.status().message());
+          }
+          ENVOY_LOG(error, "attaching to session failed: session ended");
+          return;
+        } else {
+          ENVOY_LOG(debug, "attaching to session succeeded");
+        }
+      }
       break;
     default:
       PANIC("unknown mode");
@@ -267,20 +299,53 @@ public:
 
   // MirrorCallbacks
   void sendMsg(const wire::Message& msg) override {
+    if (stream_ending_) {
+      return;
+    }
     if (!local_dispatcher_.isThreadSafe()) {
       local_dispatcher_.post([this, msg = msg]() { sendMsg(msg); });
       return;
     }
-    msg.visit(
+    bool send = msg.visit(
+      // [&](const wire::ChannelDataMsg& msg) {
+      //   vt_->write(msg.data);
+      //   return false;
+      // },
       [&](wire::ChannelMsg auto& msg) {
         // inject the downstream channel ID
-        msg.getRecipientChannel() = *sender_channel_;
+        msg.recipient_channel = *sender_channel_;
+        return true;
       },
-      [](auto&) {});
+      [](auto&) { return true; });
+    if (!send) {
+      return;
+    }
     auto r = transport_.sendMessageToConnection(msg);
     if (!r.ok()) {
       ENVOY_LOG(error, "error sending message: {}", r.status().message());
     }
+  }
+  void onUpdate(Envoy::Buffer::Instance& buf) override {
+    if (stream_ending_ || !sender_channel_.has_value()) {
+      return;
+    }
+    wire::ChannelDataMsg msg;
+    msg.data = wire::flushTo<bytes>(buf);
+    msg.recipient_channel = *sender_channel_;
+    auto r = transport_.sendMessageToConnection(msg);
+    if (!r.ok()) {
+      ENVOY_LOG(error, "error sending message: {}", r.status().message());
+    }
+  }
+  void onSourceResized(int width, int height) override {
+    if (stream_ending_) {
+      return;
+    }
+    if (!local_dispatcher_.isThreadSafe()) {
+      local_dispatcher_.post([this, width, height]() { onSourceResized(width, height); });
+      return;
+    }
+    vt_->resize(width, height);
   }
   void onStreamEnd() override {
     if (!local_dispatcher_.isThreadSafe()) {
@@ -316,6 +381,7 @@ private:
   Dispatcher& local_dispatcher_;
   std::weak_ptr<SourceInterface> source_interface_;
   std::optional<uint32_t> sender_channel_;
+  std::unique_ptr<VTBuffer> vt_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

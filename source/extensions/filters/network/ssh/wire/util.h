@@ -203,4 +203,4 @@ struct overloads : Ts... {
 };
 
 template <typename T, typename... U>
-concept any_of = (std::same_as<std::decay_t<T>, std::decay_t<U>> || ...);
+concept any_of = (std::same_as<T, std::decay_t<U>> || ...);

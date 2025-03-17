@@ -68,12 +68,11 @@ GenericProxy::EncodingResult SshClientCodec::encode(const GenericProxy::StreamFr
 
 absl::StatusOr<size_t> SshClientCodec::sendMessageToConnection(const wire::Message& msg) {
   if (channel_id_remap_enabled_) {
-    const_cast<wire::Message&>(msg).visit( // NOLINT
+    msg.visit( // NOLINT
       [&](wire::ChannelMsg auto& msg) {
-        auto& recipient_channel = msg.getRecipientChannel();
-        auto it = channel_id_mappings_.find(recipient_channel);
+        auto it = channel_id_mappings_.find(msg.recipient_channel);
         if (it != channel_id_mappings_.end()) {
-          recipient_channel = it->second;
+          msg.recipient_channel = it->second;
         }
       },
       [](auto&) {});
@@ -230,10 +229,13 @@ bool SshClientCodec::interceptMessage(wire::Message& ssh_msg) {
       }
       return true;
     },
-    [](auto&) {
-      return true;
-    });
+    [](auto&) { return true; });
 }
+
+static_assert(std::is_invocable_v<decltype([](any_of<wire::IgnoreMsg, wire::DebugMsg, wire::UnimplementedMsg> auto&) {}),
+                                  wire::IgnoreMsg&>);
+static_assert(std::is_invocable_v<decltype([](wire::detail::TopLevelMessage auto&) {}),
+                                  wire::IgnoreMsg&>);
 
 void SshClientCodec::onInitialKexDone() {
   if (auto stat = user_auth_svc_->requestService(); !stat.ok()) {

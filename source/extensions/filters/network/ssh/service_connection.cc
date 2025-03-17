@@ -126,21 +126,53 @@ void DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<ChannelMess
       transport_.authState().hijacked_stream->resetStream();
       transport_.authState().hijacked_stream = nullptr;
       auto newState = transport_.authState().clone();
-      newState->handoff_info.handoff_in_progress = true;
-      newState->channel_mode = ChannelMode::Handoff;
-      if (handOffMsg->upstream_auth().upstream().allow_mirror_connections()) {
-        newState->multiplexing_info.multiplex_mode = MultiplexMode::Source;
+      switch (handOffMsg->upstream_auth().target_case()) {
+      case pomerium::extensions::ssh::AllowResponse::kUpstream: {
+        newState->handoff_info.handoff_in_progress = true;
+        newState->channel_mode = ChannelMode::Handoff;
+        if (handOffMsg->upstream_auth().upstream().allow_mirror_connections()) {
+          newState->multiplexing_info.multiplex_mode = MultiplexMode::Source;
+        }
+        if (handOffMsg->has_downstream_channel_info()) {
+          newState->handoff_info.channel_info.reset(handOffMsg->release_downstream_channel_info());
+        }
+        if (handOffMsg->has_downstream_pty_info()) {
+          newState->handoff_info.pty_info.reset(handOffMsg->release_downstream_pty_info());
+        }
+        if (handOffMsg->has_upstream_auth()) {
+          newState->allow_response.reset(handOffMsg->release_upstream_auth());
+        }
+        transport_.initUpstream(std::move(newState));
+      } break;
+      case pomerium::extensions::ssh::AllowResponse::kMirrorSession: {
+        const auto& allowResp = handOffMsg->upstream_auth();
+        const auto& mirror = allowResp.mirror_session();
+        newState->multiplexing_info.multiplex_mode = MultiplexMode::Mirror;
+        newState->channel_mode = ChannelMode::Mirror;
+        if (handOffMsg->has_downstream_channel_info()) {
+          newState->multiplexing_info.downstream_channel_id = handOffMsg->downstream_channel_info().downstream_channel_id();
+        } else {
+          ENVOY_LOG(error, "received invalid channel message: missing downstream_channel_info");
+          return; // TODO: wire up status here
+        }
+        switch (mirror.mode()) {
+        case pomerium::extensions::ssh::MirrorSessionTarget_Mode_ReadOnly:
+          newState->multiplexing_info.rw_mode = ReadWriteMode::ReadOnly;
+          break;
+        case pomerium::extensions::ssh::MirrorSessionTarget_Mode_ReadWrite:
+          newState->multiplexing_info.rw_mode = ReadWriteMode::ReadWrite;
+          break;
+        default:
+          // return absl::InvalidArgumentError("unknown mode");
+          return;
+        }
+        newState->multiplexing_info.source_stream_id = mirror.source_id();
+        transport_.initUpstream(std::move(newState));
+      } break;
+      default:
+        ENVOY_LOG(error, "received invalid channel message");
+        return; // TODO: wire up status here
       }
-      if (handOffMsg->has_downstream_channel_info()) {
-        newState->handoff_info.channel_info.reset(handOffMsg->release_downstream_channel_info());
-      }
-      if (handOffMsg->has_downstream_pty_info()) {
-        newState->handoff_info.pty_info.reset(handOffMsg->release_downstream_pty_info());
-      }
-      if (handOffMsg->has_upstream_auth()) {
-        newState->allow_response.reset(handOffMsg->release_upstream_auth());
-      }
-      transport_.initUpstream(std::move(newState));
     } break;
     case pomerium::extensions::ssh::SSHChannelControlAction::kDisconnect: {
       const auto& disconnectMsg = ctrl_action.disconnect();

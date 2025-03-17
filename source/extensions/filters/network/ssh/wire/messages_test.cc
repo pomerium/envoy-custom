@@ -18,17 +18,22 @@ TEST(MessageTest, Visit) {
     return SshMessageType::KexInit;
   };
 
+  static_assert(std::is_same_v<detail::visitor_info_t<decltype(overload)>::arg_type_with_cv_optref, Envoy::OptRef<const KexEcdhInitMessage>>);
+  static_assert(std::is_same_v<detail::visitor_info_t<decltype(overload)>::arg_type, KexEcdhInitMessage>);
+  static_assert(detail::is_top_level_message_v<KexEcdhInitMessage>);
+  static_assert(detail::is_top_level_message_v<DisconnectMsg>);
+
   static_assert(std::is_same_v<detail::visitor_arg_type_t<decltype(overload)>, KexEcdhInitMessage>);
   static_assert(detail::is_overload<detail::visitor_arg_type_t<decltype(overload)>>);
   static_assert(std::is_same_v<detail::overload_for_t<detail::visitor_arg_type_t<decltype(overload)>>, OverloadedMessage<KexEcdhInitMessage>>);
-  static_assert(detail::single_visitor<decltype(overload)>::selected_overload);
+  static_assert(detail::single_top_level_visitor<false, decltype(overload)>::selected_overload);
 
   static_assert(std::is_same_v<detail::visitor_arg_type_t<decltype(non_overload)>, DisconnectMsg>);
   static_assert(!detail::is_overload<detail::visitor_arg_type_t<decltype(non_overload)>>);
   static_assert(std::is_same_v<detail::overload_for_t<detail::visitor_arg_type_t<decltype(non_overload)>>, DisconnectMsg>);
-  static_assert(!detail::single_visitor<decltype(non_overload)>::selected_overload);
+  static_assert(!detail::single_top_level_visitor<false, decltype(non_overload)>::selected_overload);
 
-  static_assert(!detail::single_visitor<decltype(defaultCase)>::selected_overload);
+  static_assert(!detail::single_top_level_visitor<false, decltype(defaultCase)>::selected_overload);
 
   auto visitor = [&]() {
     return msg.visit(
@@ -101,4 +106,48 @@ TEST(MessageTest, Visit) {
   EXPECT_EQ(SshMessageType::UserAuthPubKeyOk, visitor());
 };
 
+constexpr int overload(ChannelRequestMsg& _) {
+  return 0;
+}
+
+constexpr int overload(ChannelMsg auto& _) {
+  return 1;
+}
+
+constexpr int overload(auto& _) {
+  return 2;
+}
+
+constexpr int overload(const ChannelRequestMsg& _) {
+  return 3;
+}
+
+TEST(MessageTest, Visit_ConceptArgs) {
+  auto visitor = [](const Message& msg) constexpr {
+    return msg.visit(
+      [&](ChannelMsg auto& _) {
+        return 0;
+      },
+      [](auto&) {
+        return 1;
+      });
+  };
+
+  ChannelDataMsg channel_data_msg;
+  ChannelRequestMsg channel_request_msg;
+  KexInitMessage kex_init_msg;
+  static_assert(overload(channel_request_msg) == 0);
+  static_assert(overload(channel_data_msg) == 1);
+  static_assert(overload(kex_init_msg) == 2);
+  static_assert(overload(std::as_const(channel_request_msg)) == 3);
+  static_assert(overload(std::as_const(channel_data_msg)) == 1);
+  static_assert(overload(std::as_const(kex_init_msg)) == 2);
+  Message msg;
+  msg = channel_data_msg;
+  EXPECT_EQ(0, visitor(msg));
+  msg = channel_request_msg;
+  EXPECT_EQ(0, visitor(msg));
+  msg = kex_init_msg;
+  EXPECT_EQ(1, visitor(msg));
+}
 } // namespace wire::test

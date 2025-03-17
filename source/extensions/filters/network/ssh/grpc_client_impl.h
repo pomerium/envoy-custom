@@ -60,7 +60,10 @@ private:
     if (on_remote_close_) {
       on_remote_close_(status, err);
     }
-    stream_.resetStream();
+    if (stream_ != nullptr) {
+      stream_.resetStream();
+      stream_ = nullptr;
+    }
   }
   const Protobuf::MethodDescriptor& method_manage_stream_;
   Grpc::AsyncStream<ClientMessage> stream_;
@@ -88,7 +91,10 @@ private:
   void onReceiveInitialMetadata([[maybe_unused]] Http::ResponseHeaderMapPtr&&) override {}
   void onReceiveTrailingMetadata([[maybe_unused]] Http::ResponseTrailerMapPtr&&) override {}
   void onRemoteClose(Grpc::Status::GrpcStatus, const std::string&) override {
-    stream_.resetStream();
+    if (stream_ != nullptr) {
+      stream_.resetStream();
+      stream_ = nullptr;
+    }
     callbacks_ = nullptr;
   }
   const Protobuf::MethodDescriptor& method_manage_stream_;

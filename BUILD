@@ -105,5 +105,6 @@ refresh_compile_commands(
     exclude_headers = "external",
     targets = {
         "//:envoy": "",
+        "//source/extensions/filters/network/ssh/wire:wire_lib_test": "",
     },
 )

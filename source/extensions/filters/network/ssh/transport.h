@@ -61,6 +61,7 @@ struct MultiplexingInfo {
   MultiplexMode multiplex_mode{MultiplexMode::None};
   ReadWriteMode rw_mode{ReadWriteMode::ReadOnly};
   uint64_t source_stream_id{};
+  std::optional<uint64_t> downstream_channel_id;
 };
 
 struct AuthState {

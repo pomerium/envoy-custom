@@ -218,12 +218,12 @@ struct sub_message {
   static constexpr EncodingOptions key_encoding = std::get<0>(std::tuple{Options::submsg_key_encoding...});
 
   template <typename T>
-  static constexpr bool has_option() {
+  static consteval bool has_option() {
     return contains_type<T, Options...>;
   }
 
   // oneof holds one of the messages in Options, or the empty (std::monostate) value.
-  std::variant<std::monostate, Options...> oneof;
+  std::optional<std::variant<Options...>> oneof;
 
   sub_message(const sub_message& other) {
     if (other.unknown_) {
@@ -263,16 +263,17 @@ struct sub_message {
     requires (has_option<std::decay_t<T>>())
   void reset(T&& other) {
     // Forward 'other' into the variant using a copy if it is T&, or a move if it is T&&.
-    oneof.template emplace<std::decay_t<T>>(std::forward<T>(other));
+    oneof.emplace(std::forward<T>(other));
     // update the key field
     key_field_->value = std::decay_t<T>::submsg_key;
   }
 
-  // wrappers around std::get to obtain the value in the variant for a specific type.
+  // Wrappers around std::get to obtain the value in the variant for a specific type.
+  // The oneof must currently have a value.
   template <typename T>
-  decltype(auto) get(this auto& self) { return std::get<T>(self.oneof); }
+  decltype(auto) get(this auto& self) { return std::get<T>(*self.oneof); }
   template <size_t I>
-  decltype(auto) get(this auto& self) { return std::get<I + 1>(self.oneof); }
+  decltype(auto) get(this auto& self) { return std::get<I>(*self.oneof); }
 
   // Reads from the buffer and decodes the contained message. The type is determined by the
   // current value of the key field. It is expected that the key field has already been decoded.
@@ -293,7 +294,7 @@ struct sub_message {
     if (it == option_index_lookup.end()) { // not found
       unknown_ = std::make_shared<bytes>(linearize_to_bytes(buffer, limit));
       buffer.drain(limit);
-      oneof = std::monostate{}; // reset the oneof
+      oneof = {}; // reset the oneof
       return limit;
     } else if (unknown_) {
       unknown_ = nullptr;
@@ -309,13 +310,10 @@ struct sub_message {
       buffer.add(unknown_->data(), unknown_->size());
       return unknown_->size();
     }
-    auto index = oneof.index();
-    if (index == 0) { // monostate
+    if (!oneof.has_value()) {
       return 0;
     }
-    // subtract 1 from the index because monostate is index 0, so the index of our option types
-    // in the variant effectively starts at 1.
-    return encoders[index - 1](oneof, buffer);
+    return encoders[(*oneof).index()](*oneof, buffer);
   }
 
   // Decodes the message contained in the unknown bytes field.
@@ -338,7 +336,13 @@ struct sub_message {
   //  [](auto msg) { ... }
   // and will be invoked if none of the other lambdas match.
   decltype(auto) visit(this auto& self, auto... fns) {
-    return std::visit(overloads{fns...}, self.oneof);
+    if (self.oneof.has_value()) {
+      return std::visit(overloads{fns...}, *self.oneof);
+    }
+    using return_type = decltype(std::visit(overloads{fns...}, *self.oneof));
+    if constexpr (!std::is_void_v<return_type>) {
+      return return_type{};
+    }
   }
 
 private:
@@ -354,18 +358,18 @@ private:
     return std::unordered_map<key_type, size_t>{{std::pair{key_type{option_keys[I]}, I}...}};
   }(std::make_index_sequence<sizeof...(Options)>{});
 
-  using oneof_type = decltype(oneof);
+  using oneof_type = decltype(oneof)::value_type;
   // This strange looking syntax creates a list of functions, one for each type in Options, where
   // each function decodes that type and assigns it to the oneof. The order is the same as in
   // option_keys, so the matching decoder can be looked up by index of the key and called to decode
   // the corresponding type. The result is a list of functions, like
   //  {<decoder for A>, <decoder for B>, <decoder for C>} (where Options == <A, B, C>)
   static constexpr std::array decoders =
-    {+[](oneof_type& oneof, Envoy::Buffer::Instance& buffer, size_t limit) noexcept -> absl::StatusOr<size_t> {
+    {+[](std::optional<oneof_type>& oneof, Envoy::Buffer::Instance& buffer, size_t limit) noexcept -> absl::StatusOr<size_t> {
       Options opt; // 'Options' is a placeholder, substituted for one of the contained types
       auto n = opt.decode(buffer, limit);
       if (n.ok()) {
-        oneof.template emplace<Options>(std::move(opt));
+        oneof.emplace(std::move(opt));
       }
       return n;
     }...}; // the expression preceding '...' is repeated for each type in Options.

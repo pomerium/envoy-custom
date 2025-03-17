@@ -15,8 +15,10 @@ CodecFactoryPtr SshCodecFactoryConfig::createCodecFactory(
   auto conf = std::make_shared<pomerium::extensions::ssh::CodecConfig>();
   conf->CopyFrom(typed_config);
   auto createClient = [&context, conf]() {
-    return context.clusterManager().grpcAsyncClientManager().getOrCreateRawAsyncClient(
+    auto factory = context.clusterManager().grpcAsyncClientManager().factoryForGrpcService(
       conf->grpc_service(), context.scope(), true);
+    THROW_IF_NOT_OK_REF(factory.status());
+    return (*factory)->createUncachedRawAsyncClient();
   };
 
   auto sharedSessions = std::make_shared<absl::node_hash_map<uint64_t, std::shared_ptr<ActiveSession>>>();

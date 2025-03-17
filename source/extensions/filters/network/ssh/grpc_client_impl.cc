@@ -9,7 +9,10 @@ StreamManagementServiceClient::StreamManagementServiceClient(Grpc::RawAsyncClien
       client_(client) {}
 
 StreamManagementServiceClient::~StreamManagementServiceClient() {
-  stream_ = nullptr;
+  // if (stream_ != nullptr) {
+  //   stream_.resetStream();
+  //   stream_ = nullptr;
+  // }
 }
 
 void StreamManagementServiceClient::connect() {
@@ -32,7 +35,11 @@ ChannelStreamServiceClient::ChannelStreamServiceClient(Grpc::RawAsyncClientShare
       client_(client) {}
 
 ChannelStreamServiceClient::~ChannelStreamServiceClient() {
-  stream_ = nullptr;
+  // if (stream_ != nullptr) {
+  //   stream_.resetStream();
+  //   stream_ = nullptr;
+  // }
+  // callbacks_ = nullptr;
 }
 
 Grpc::AsyncStream<ChannelMessage>* ChannelStreamServiceClient::start(
