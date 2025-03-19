@@ -3,9 +3,9 @@
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-VersionExchanger::VersionExchanger(TransportCallbacks& callbacks,
-                                   VersionExchangeCallbacks& handshake_callbacks)
-    : transport_(callbacks), version_exchange_callbacks_(handshake_callbacks) {}
+VersionExchanger::VersionExchanger(TransportCallbacks& transport_callbacks,
+                                   VersionExchangeCallbacks& version_exchange_callbacks)
+    : transport_(transport_callbacks), version_exchange_callbacks_(version_exchange_callbacks) {}
 
 absl::Status VersionExchanger::readVersion(Envoy::Buffer::Instance& buffer) {
   if (did_read_version_) {
@@ -63,4 +63,5 @@ absl::StatusOr<size_t> VersionExchanger::writeVersion(std::string_view ours) {
   }
   return n;
 }
+
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

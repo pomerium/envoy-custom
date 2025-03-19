@@ -39,6 +39,17 @@ void SshClientCodec::registerMessageHandlers(MessageDispatcher<wire::Message>& d
   dispatcher.registerHandler(wire::SshMessageType::Disconnect, this);
 }
 
+void SshClientCodec::decode(Envoy::Buffer::Instance& buffer, bool end_stream) {
+  if (upstream_is_direct_tcpip_) {
+    wire::ChannelDataMsg data_msg;
+    data_msg.recipient_channel = downstream_state_->handoff_info.channel_info->downstream_channel_id();
+    data_msg.data = wire::flushTo<bytes>(buffer);
+    forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id, std::move(data_msg)));
+    return;
+  }
+  TransportBase::decode(buffer, end_stream);
+}
+
 GenericProxy::EncodingResult SshClientCodec::encode(const GenericProxy::StreamFrame& frame,
                                                     GenericProxy::EncodingContext& ctx) {
   switch (dynamic_cast<const SSHStreamFrame&>(frame).frameKind()) {
@@ -46,6 +57,23 @@ GenericProxy::EncodingResult SshClientCodec::encode(const GenericProxy::StreamFr
     auto& reqHeader = static_cast<const SSHRequestHeaderFrame&>(frame);
     downstream_state_ = reqHeader.authState();
     if (downstream_state_->channel_mode == ChannelMode::Handoff) {
+      if (downstream_state_->allow_response->has_upstream()) {
+        ASSERT(downstream_state_->handoff_info.handoff_in_progress);
+        const auto& upstream = downstream_state_->allow_response->upstream();
+        if (upstream.direct_tcpip()) {
+          if (downstream_state_->multiplexing_info.multiplex_mode != MultiplexMode::None) {
+            ENVOY_LOG(warn, "multiplexing not supported with direct-tcpip connections");
+          }
+          upstream_is_direct_tcpip_ = true;
+          wire::ChannelOpenConfirmationMsg confirm;
+          confirm.recipient_channel = downstream_state_->handoff_info.channel_info->downstream_channel_id();
+          confirm.sender_channel = downstream_state_->handoff_info.channel_info->internal_upstream_channel_id();
+          confirm.initial_window_size = downstream_state_->handoff_info.channel_info->initial_window_size();
+          confirm.max_packet_size = downstream_state_->handoff_info.channel_info->max_packet_size();
+          forward(std::make_unique<SSHResponseHeaderFrame>(downstream_state_->stream_id, StreamStatus(0, true), std::move(confirm)));
+          return 0;
+        }
+      }
       channel_id_remap_enabled_ = true;
       installMiddleware(this);
     }
@@ -57,13 +85,25 @@ GenericProxy::EncodingResult SshClientCodec::encode(const GenericProxy::StreamFr
   }
   case FrameKind::RequestCommon: {
     const auto& sshFrame = static_cast<const SSHRequestCommonFrame&>(frame);
+    if (upstream_is_direct_tcpip_) {
+      return sshFrame.message().visit(
+        [this](const wire::ChannelDataMsg& msg) -> absl::StatusOr<size_t> {
+          Envoy::Buffer::OwnedImpl buffer;
+          // NB: ChannelDataMsg data is length-prefixed, but don't write the length here
+          auto size = wire::write(buffer, *msg.data);
+          callbacks_->writeToConnection(buffer);
+          return size;
+        },
+        [](const auto& msg) -> absl::StatusOr<size_t> {
+          return absl::InvalidArgumentError(fmt::format("unexpected message of type {} on direct-tcpip channel", msg.msg_type()));
+        });
+    }
     return sendMessageToConnection(sshFrame.message());
   }
   default:
     throw EnvoyException("bug: unknown frame kind");
   }
   (void)ctx;
-  return absl::OkStatus();
 }
 
 absl::StatusOr<size_t> SshClientCodec::sendMessageToConnection(const wire::Message& msg) {
@@ -208,9 +248,7 @@ bool SshClientCodec::interceptMessage(wire::Message& ssh_msg) {
         auto _ = sendMessageToConnection(shellReq);
 
         // handoff is complete, send an empty message to signal the downstream codec
-        auto frame = std::make_unique<SSHResponseHeaderFrame>(authState().stream_id, StreamStatus(0, true), wire::IgnoreMsg{});
-        frame->setRawFlags(0);
-        callbacks_->onDecodingSuccess(std::move(frame));
+        callbacks_->onDecodingSuccess(SSHResponseHeaderFrame::sentinel(authState().stream_id));
         return false;
       }
       return true;

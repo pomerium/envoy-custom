@@ -153,10 +153,11 @@ message AllowResponse {
 }
 
 message UpstreamTarget {
-  string                                             hostname                 = 1;
-  bool                                               allow_mirror_connections = 2;
-  repeated AllowedMethod                             allowed_methods          = 3;
-  repeated envoy.config.core.v3.TypedExtensionConfig extensions               = 4;
+  string                 hostname                 = 1;
+  bool                   allow_mirror_connections = 2;
+  bool                   direct_tcpip             = 3;
+  repeated AllowedMethod allowed_methods          = 4;
+  repeated envoy.config.core.v3.TypedExtensionConfig extensions = 5;
 }
 
 message InternalTarget {

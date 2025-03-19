@@ -62,12 +62,17 @@ GenericProxy::EncodingResult SshServerCodec::encode(const GenericProxy::StreamFr
                                                     GenericProxy::EncodingContext& /*ctx*/) {
   const auto& msg = dynamic_cast<const SSHStreamFrame&>(frame);
   switch (msg.frameKind()) {
-  case FrameKind::ResponseHeader:
+  case FrameKind::ResponseHeader: {
+    const auto& sshFrame = static_cast<const SSHResponseHeaderFrame&>(frame);
     if (authState().handoff_info.handoff_in_progress) {
       authState().handoff_info.handoff_in_progress = false;
       callbacks_->connection()->readDisable(false);
     }
-    return sendMessageToConnection(static_cast<const SSHResponseHeaderFrame&>(frame).message());
+    if (sshFrame.isSentinel()) [[unlikely]] {
+      return 0;
+    }
+    return sendMessageToConnection(sshFrame.message());
+  }
   case FrameKind::ResponseCommon:
     return sendMessageToConnection(static_cast<const SSHResponseCommonFrame&>(frame).message());
   default:

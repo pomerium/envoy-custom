@@ -15,7 +15,8 @@ class TransportCallbacks;
 
 class VersionExchanger {
 public:
-  VersionExchanger(TransportCallbacks& callbacks, VersionExchangeCallbacks& handshakeCallbacks);
+  VersionExchanger(TransportCallbacks& transport_callbacks,
+                   VersionExchangeCallbacks& version_exchange_callbacks);
 
   bool versionWritten() { return did_write_version_; }
   bool versionRead() { return did_read_version_; }

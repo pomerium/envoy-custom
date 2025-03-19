@@ -80,13 +80,17 @@ public:
   BytesViewBufferFragment(const void* data, size_t size)
       : data_(data), size_(size) {}
 
+  ~BytesViewBufferFragment() override {
+    SECURITY_ASSERT(done_, "bug: with_buffer_view() callback must drain the temporary buffer");
+  }
   const void* data() const override { return data_; }
   size_t size() const override { return size_; }
-  void done() override {};
+  void done() override { done_ = true; };
 
 private:
   const void* data_;
   size_t size_;
+  bool done_{false};
 };
 
 template <typename T>
@@ -112,6 +116,8 @@ concept byteArrayLike = requires(T t) {
 //    return something_that_reads_from_the_buffer(buffer);
 //  })
 //
+// IMPORTANT: the callback must drain all bytes from the temporary buffer before it returns,
+// otherwise this will panic.
 template <byteArrayLike T, typename F>
   requires std::invocable<F, Envoy::Buffer::Instance&>
 decltype(auto) with_buffer_view(const T& b, F func) { // NOLINT

@@ -27,8 +27,9 @@ public:
                  std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr);
   void setCodecCallbacks(GenericProxy::ClientCodecCallbacks& callbacks) override;
 
+  void decode(Envoy::Buffer::Instance& buffer, bool end_stream) final;
   GenericProxy::EncodingResult encode(const GenericProxy::StreamFrame& frame,
-                                      GenericProxy::EncodingContext& ctx) override;
+                                      GenericProxy::EncodingContext& ctx) final;
 
   absl::Status handleMessage(wire::Message&& msg) override;
   absl::StatusOr<bytes> signWithHostKey(bytes_view in) const override;
@@ -58,6 +59,7 @@ private:
   std::map<std::string, Service*> services_;
 
   bool channel_id_remap_enabled_{false};
+  bool upstream_is_direct_tcpip_{false};
 
   // translates upstream channel ids from {the id the downstream thinks the upstream has} -> {the id the upstream actually has}
   std::unordered_map<uint32_t, uint32_t> channel_id_mappings_;

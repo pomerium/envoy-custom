@@ -30,10 +30,6 @@ std::string_view SSHResponseHeaderFrame::protocol() const {
   return "ssh";
 };
 
-wire::Message& SSHResponseHeaderFrame::message() const {
-  return *msg_;
-}
-
 FrameKind SSHResponseHeaderFrame::frameKind() const {
   return FrameKind::ResponseHeader;
 };
@@ -46,17 +42,9 @@ FrameKind SSHRequestCommonFrame::frameKind() const {
   return FrameKind::RequestCommon;
 };
 
-wire::Message& SSHRequestCommonFrame::message() const {
-  return *msg_;
-}
-
 FrameKind SSHResponseCommonFrame::frameKind() const {
   return FrameKind::ResponseCommon;
 };
-
-wire::Message& SSHResponseCommonFrame::message() const {
-  return *msg_;
-}
 
 FrameFlags SSHResponseHeaderFrame::frameFlags() const {
   if (raw_flags_.has_value()) {

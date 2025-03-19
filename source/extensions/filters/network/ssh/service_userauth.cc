@@ -54,6 +54,8 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
       if (parts.size() == 2) {
         username = parts[0];
         hostname = parts[1];
+      } else if (parts.size() == 1) {
+        username = parts[0];
       }
       if (!stream_id_.has_value()) {
         stream_id_ = api_.randomGenerator().random();

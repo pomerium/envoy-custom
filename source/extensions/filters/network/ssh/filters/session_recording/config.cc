@@ -52,7 +52,7 @@ CommonFilterStatus SessionRecordingFilter::decodeCommonFrame(RequestCommonFrame&
     return CommonFilterStatus::Continue;
   }
   // this downcast is safe; SSHRequestCommonFrame is the only implementation of RequestCommonFrame
-  auto& sshFrame = static_cast<const Codec::SSHRequestCommonFrame&>(frame);
+  auto& sshFrame = static_cast<Codec::SSHRequestCommonFrame&>(frame);
   recorder_->handleDownstreamToUpstreamMessage(sshFrame.message());
   return CommonFilterStatus::Continue;
 }
@@ -62,7 +62,7 @@ HeaderFilterStatus SessionRecordingFilter::encodeHeaderFrame(ResponseHeaderFrame
     return HeaderFilterStatus::Continue;
   }
   if (frame.frameFlags().endStream()) {
-    auto& sshFrame = static_cast<const Codec::SSHResponseHeaderFrame&>(frame);
+    auto& sshFrame = static_cast<Codec::SSHResponseHeaderFrame&>(frame);
     recorder_->onStreamEnd(sshFrame);
   }
   return HeaderFilterStatus::Continue;
@@ -72,7 +72,7 @@ CommonFilterStatus SessionRecordingFilter::encodeCommonFrame(ResponseCommonFrame
   if (!enabled_) {
     return CommonFilterStatus::Continue;
   }
-  auto& sshFrame = static_cast<const Codec::SSHResponseCommonFrame&>(frame);
+  auto& sshFrame = static_cast<Codec::SSHResponseCommonFrame&>(frame);
   recorder_->handleUpstreamToDownstreamMessage(sshFrame.message());
   return CommonFilterStatus::Continue;
 };
