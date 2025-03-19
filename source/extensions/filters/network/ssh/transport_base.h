@@ -50,7 +50,7 @@ public:
     version_exchanger_ = std::make_unique<VersionExchanger>(*this, *kex_);
 
     auto defaultState = new ConnectionState{};
-    defaultState->cipher = newUnencrypted();
+    defaultState->cipher = PacketCipherFactory::makeUnencryptedPacketCipher();
     defaultState->direction_read = codec_traits<Codec>::direction_read;
     defaultState->direction_write = codec_traits<Codec>::direction_write;
     defaultState->seq_read = std::make_shared<uint32_t>(0);
@@ -117,9 +117,10 @@ public:
   void setKexResult(std::shared_ptr<KexResult> kex_result) override {
     kex_result_ = kex_result;
 
-    connection_state_->cipher = newPacketCipher(connection_state_->direction_read,
-                                                connection_state_->direction_write,
-                                                kex_result.get());
+    connection_state_->cipher =
+      PacketCipherFactory::makePacketCipher(connection_state_->direction_read,
+                                            connection_state_->direction_write,
+                                            kex_result.get());
     if (!initial_kex_done_) {
       initial_kex_done_ = true;
       onInitialKexDone();

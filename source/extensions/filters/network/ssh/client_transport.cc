@@ -19,6 +19,7 @@ void SshClientCodec::setCodecCallbacks(GenericProxy::ClientCodecCallbacks& callb
   TransportBase::setCodecCallbacks(callbacks);
   initServices();
 }
+
 void SshClientCodec::initServices() {
   user_auth_svc_ = std::make_unique<UpstreamUserAuthService>(*this, api_);
   user_auth_svc_->registerMessageHandlers(*this);
@@ -28,7 +29,8 @@ void SshClientCodec::initServices() {
   services_[user_auth_svc_->name()] = user_auth_svc_.get();
   services_[connection_svc_->name()] = connection_svc_.get();
 }
-void SshClientCodec::registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) const {
+
+void SshClientCodec::registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) {
   dispatcher.registerHandler(wire::SshMessageType::ServiceAccept, this);
   dispatcher.registerHandler(wire::SshMessageType::GlobalRequest, this);
   dispatcher.registerHandler(wire::SshMessageType::RequestSuccess, this);

@@ -174,6 +174,13 @@ Kex::Kex(TransportCallbacks& transport_callbacks, KexCallbacks& kex_callbacks,
   THROW_IF_NOT_OK(loadHostKeys());
 }
 
+void Kex::registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) {
+  dispatcher.registerHandler(wire::SshMessageType::KexInit, this);
+  dispatcher.registerHandler(wire::SshMessageType::KexECDHInit, this);
+  dispatcher.registerHandler(wire::SshMessageType::KexECDHReply, this);
+  dispatcher.registerHandler(wire::SshMessageType::NewKeys, this);
+}
+
 void Kex::setVersionStrings(const std::string& ours, const std::string& peer) {
   if (is_server_) {
     state_->magics.server_version = ours;

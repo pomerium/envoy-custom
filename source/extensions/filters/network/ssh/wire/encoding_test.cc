@@ -176,8 +176,8 @@ TEST(EncodeToTest, String_ErrorHandling) {
     mock_err_encoder m;
 
     EXPECT_CALL(m, encode)
-        .Times(1)
-        .WillOnce(Return(absl::InternalError("test")));
+      .Times(1)
+      .WillOnce(Return(absl::InternalError("test")));
 
     auto r = encodeTo<std::string>(m);
     EXPECT_FALSE(r.ok());
@@ -187,8 +187,8 @@ TEST(EncodeToTest, String_ErrorHandling) {
     mock_err_encoder m;
 
     EXPECT_CALL(m, encode)
-        .Times(1)
-        .WillOnce(Return(absl::InternalError("test")));
+      .Times(1)
+      .WillOnce(Return(absl::InternalError("test")));
 
     std::string out;
     auto r = encodeTo<std::string>(m, out);
@@ -201,8 +201,8 @@ TEST(EncodeToTest, Bytes_ErrorHandling) {
     mock_err_encoder m;
 
     EXPECT_CALL(m, encode)
-        .Times(1)
-        .WillOnce(Return(absl::InternalError("test")));
+      .Times(1)
+      .WillOnce(Return(absl::InternalError("test")));
 
     auto r = encodeTo<bytes>(m);
     EXPECT_FALSE(r.ok());
@@ -212,8 +212,8 @@ TEST(EncodeToTest, Bytes_ErrorHandling) {
     mock_err_encoder m;
 
     EXPECT_CALL(m, encode)
-        .Times(1)
-        .WillOnce(Return(absl::InternalError("test")));
+      .Times(1)
+      .WillOnce(Return(absl::InternalError("test")));
 
     bytes out;
     auto r = encodeTo<bytes>(m, out);
@@ -504,7 +504,7 @@ TYPED_TEST(ReadWriteArraysTest, ShortRead) {
 TEST(ReadOptTest, OptNone) {
   Envoy::Buffer::OwnedImpl buffer;
   buffer.writeBEInt<uint32_t>(12345);
-  uint32_t out;
+  uint32_t out{};
   auto n = read_opt<None>(buffer, out, static_cast<size_t>(4));
   EXPECT_EQ(4, n);
   EXPECT_EQ(0, buffer.length());
@@ -515,7 +515,7 @@ TEST(ReadOptTest, OptLengthPrefixed) {
   Envoy::Buffer::OwnedImpl buffer;
   buffer.writeBEInt<uint32_t>(4);
   buffer.writeBEInt<uint32_t>(12345);
-  uint32_t out;
+  uint32_t out{};
   auto n = read_opt<LengthPrefixed>(buffer, out, static_cast<size_t>(4));
   EXPECT_EQ(8, n);
   EXPECT_EQ(0, buffer.length());
@@ -526,7 +526,7 @@ TEST(ReadOptTest, OptLengthPrefixedError) {
   Envoy::Buffer::OwnedImpl buffer;
   buffer.writeBEInt<uint32_t>(8);
   buffer.writeBEInt<uint32_t>(12345);
-  uint32_t out;
+  uint32_t out{};
   EXPECT_THROW({ (void)read_opt<LengthPrefixed>(buffer, out, static_cast<size_t>(4)); }, Envoy::EnvoyException);
 }
 
@@ -742,7 +742,7 @@ TEST(ReadOptTest, List_OptListAndElemLengthPrefixed_ListElemLenTooSmall) {
   std::vector<uint32_t> out;
   auto expected = std::vector<uint32_t>{1, 2};
   EXPECT_THROW({ (void)read_opt<(ListLengthPrefixed | LengthPrefixed)>(
-                     buffer, out, buffer.length()); }, Envoy::EnvoyException);
+                   buffer, out, buffer.length()); }, Envoy::EnvoyException);
 }
 
 TEST(ReadOptTest, List_OptCommaDelimited_Read) {

@@ -292,8 +292,7 @@ struct sub_message {
       PANIC("bug: missing call to setKeyField");
     }
     if (it == option_index_lookup.end()) { // not found
-      unknown_ = std::make_shared<bytes>(linearize_to_bytes(buffer, limit));
-      buffer.drain(limit);
+      unknown_ = std::make_shared<bytes>(flushTo<bytes>(buffer, limit));
       oneof = {}; // reset the oneof
       return limit;
     } else if (unknown_) {

@@ -13,7 +13,7 @@ class UserAuthService : public Service,
 public:
   constexpr std::string name() override { return "ssh-userauth"; };
   UserAuthService(TransportCallbacks& callbacks, Api::Api& api);
-  void registerMessageHandlers(SshMessageDispatcher& dispatcher) const override;
+  void registerMessageHandlers(SshMessageDispatcher& dispatcher) override;
   absl::Status requestService() override;
 
 protected:
@@ -36,10 +36,8 @@ public:
   using UserAuthService::registerMessageHandlers;
   absl::Status handleMessage(wire::Message&& msg) override;
 
-  void registerMessageHandlers(
-    StreamMgmtServerMessageDispatcher& dispatcher) const override;
-  absl::Status
-  handleMessage(Grpc::ResponsePtr<ServerMessage>&& message) override;
+  void registerMessageHandlers(StreamMgmtServerMessageDispatcher& dispatcher) override;
+  absl::Status handleMessage(Grpc::ResponsePtr<ServerMessage>&& message) override;
 
 private:
   DownstreamTransportCallbacks& transport_;

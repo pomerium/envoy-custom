@@ -12,7 +12,9 @@ envoy_cc_library(
     srcs = [
         "admin_api.cc",
         "config.cc",
+        "formatter.cc",
         "recorder.cc",
+        "uploader.cc",
     ],
     hdrs = [
         "admin_api.h",

@@ -30,7 +30,6 @@ public:
   std::string_view protocol() const override;
   const AuthStateSharedPtr& authState() const;
   FrameFlags frameFlags() const override;
-
   FrameKind frameKind() const final;
 
 private:
@@ -77,29 +76,14 @@ public:
   FrameFlags frameFlags() const override;
   auto& message(this auto& self) { return self.msg_; }
   FrameKind frameKind() const final;
+  uint64_t streamId() const;
 
-  uint64_t streamId() const {
-    return stream_id_;
-  }
-
-  void setRawFlags(uint32_t raw_flags) {
-    raw_flags_ = raw_flags;
-  }
-  void setStatus(StreamStatus status) {
-    status_ = status;
-  };
-
-  bool isSentinel() const {
-    return is_sentinel_;
-  }
+  void setRawFlags(uint32_t raw_flags);
+  void setStatus(StreamStatus status);
+  bool isSentinel() const;
 
 private:
-  SSHResponseHeaderFrame(uint64_t stream_id)
-      : status_(0, true),
-        stream_id_(stream_id),
-        raw_flags_(0),
-        is_sentinel_(true) {}
-
+  SSHResponseHeaderFrame(uint64_t stream_id);
   StreamStatus status_;
   wire::Message msg_;
   uint64_t stream_id_;
@@ -116,9 +100,7 @@ public:
   FrameKind frameKind() const final;
   auto& message(this auto& self) { return self.msg_; }
   FrameFlags frameFlags() const override;
-  uint64_t streamId() const {
-    return stream_id_;
-  }
+  uint64_t streamId() const;
 
 private:
   wire::Message msg_;

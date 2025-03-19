@@ -18,6 +18,10 @@
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
 
+extern "C" {
+#include "openssh/ssh2.h"
+}
+
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 SshServerCodec::SshServerCodec(Api::Api& api,
@@ -33,6 +37,22 @@ SshServerCodec::SshServerCodec(Api::Api& api,
   channel_client_ = std::make_unique<ChannelStreamServiceClient>(*grpcClient);
   this->registerMessageHandlers(*mgmt_client_);
 };
+
+void SshServerCodec::registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) {
+  dispatcher.registerHandler(wire::SshMessageType::ServiceRequest, this);
+  dispatcher.registerHandler(wire::SshMessageType::GlobalRequest, this);
+  dispatcher.registerHandler(wire::SshMessageType::RequestSuccess, this);
+  dispatcher.registerHandler(wire::SshMessageType::RequestFailure, this);
+  dispatcher.registerHandler(wire::SshMessageType::Ignore, this);
+  dispatcher.registerHandler(wire::SshMessageType::Debug, this);
+  dispatcher.registerHandler(wire::SshMessageType::Unimplemented, this);
+  dispatcher.registerHandler(wire::SshMessageType::Disconnect, this);
+}
+
+void SshServerCodec::registerMessageHandlers(
+  MessageDispatcher<Grpc::ResponsePtr<ServerMessage>>& dispatcher) {
+  dispatcher.registerHandler(ServerMessage::MessageCase::kStreamControl, this);
+}
 
 void SshServerCodec::setCodecCallbacks(Callbacks& callbacks) {
   TransportBase::setCodecCallbacks(callbacks);

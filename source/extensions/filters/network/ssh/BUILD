@@ -17,6 +17,7 @@ envoy_cc_library(
         "grpc_client_impl.cc",
         "kex.cc",
         "multiplexer.cc",
+        "openssh.cc",
         "packet_cipher_impl.cc",
         "server_transport.cc",
         "service_connection.cc",
@@ -25,6 +26,7 @@ envoy_cc_library(
         "ssh-sk-null.cc",
         "transport.cc",
         "version_exchange.cc",
+        "vt_buffer.cc",
     ],
     hdrs = [
         "client_transport.h",

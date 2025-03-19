@@ -21,7 +21,7 @@ class MessageHandler {
 public:
   virtual ~MessageHandler() = default;
   virtual absl::Status handleMessage(T&& msg) PURE;
-  virtual void registerMessageHandlers(MessageDispatcher<T>& dispatcher) const PURE;
+  virtual void registerMessageHandlers(MessageDispatcher<T>& dispatcher) PURE;
 };
 
 template <typename T>
@@ -43,11 +43,11 @@ message_case_type_t<T> messageCase(const T& msg);
 template <typename T>
 class MessageDispatcher {
 public:
-  void registerHandler(message_case_type_t<T> message_type, const MessageHandler<T>* handler) {
+  void registerHandler(message_case_type_t<T> message_type, MessageHandler<T>* handler) {
     if (dispatch_.contains(message_type)) {
       PANIC("bug: duplicate registration of message type");
     }
-    dispatch_[message_type] = const_cast<MessageHandler<T>*>(handler);
+    dispatch_[message_type] = handler;
   }
 
   void unregisterHandler(message_case_type_t<T> message_type) {

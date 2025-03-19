@@ -151,8 +151,8 @@ void generateKeyMaterial(bytes& out, char tag, KexResult* kex_result) {
 }
 } // namespace
 
-std::unique_ptr<PacketCipher> newPacketCipher(direction_t d_read, direction_t d_write,
-                                              KexResult* kex_result) {
+std::unique_ptr<PacketCipher> PacketCipherFactory::makePacketCipher(direction_t d_read, direction_t d_write,
+                                                                    KexResult* kex_result) {
   if (cipherModes.contains(kex_result->algorithms.r.cipher) &&
       cipherModes.contains(kex_result->algorithms.w.cipher)) {
 
@@ -208,7 +208,37 @@ size_t AEADPacketCipher::aadSize() {
   return aad_len_;
 };
 
-std::unique_ptr<PacketCipher> newUnencrypted() {
+std::unique_ptr<PacketCipher> PacketCipherFactory::makeUnencryptedPacketCipher() {
   return std::make_unique<PacketCipher>(std::make_unique<NoCipher>(), std::make_unique<NoCipher>());
 }
+
+absl::Status NoCipher::decryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
+                                     Envoy::Buffer::Instance& in) {
+  uint32_t packlen = in.peekBEInt<uint32_t>();
+  if (packlen < wire::MinPacketSize || packlen > wire::MaxPacketSize) {
+    return absl::AbortedError("invalid packet size");
+  }
+  auto need = packlen + 4;
+  if (in.length() < need) {
+    return absl::AbortedError("short read");
+  }
+  out.move(in, need);
+  return absl::OkStatus();
+}
+
+absl::Status NoCipher::encryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
+                                     Envoy::Buffer::Instance& in) {
+  out.move(in);
+  return absl::OkStatus();
+}
+
+size_t NoCipher::blockSize() {
+  // Minimum block size is 8 according to RFC4253 § 6
+  return 8;
+}
+
+size_t NoCipher::aadSize() {
+  return 0;
+}
+
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

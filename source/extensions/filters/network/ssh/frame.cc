@@ -22,28 +22,26 @@ FrameKind SSHRequestHeaderFrame::frameKind() const {
   return FrameKind::RequestHeader;
 };
 
+const AuthStateSharedPtr& SSHRequestHeaderFrame::authState() const {
+  return downstream_state_;
+}
+
+FrameFlags SSHRequestHeaderFrame::frameFlags() const {
+  return {downstream_state_->stream_id, 0, 0};
+}
+
+SSHResponseHeaderFrame::SSHResponseHeaderFrame(uint64_t stream_id)
+    : status_(0, true),
+      stream_id_(stream_id),
+      raw_flags_(0),
+      is_sentinel_(true) {}
+
 StreamStatus SSHResponseHeaderFrame::status() const {
   return status_;
 }
 
 std::string_view SSHResponseHeaderFrame::protocol() const {
   return "ssh";
-};
-
-FrameKind SSHResponseHeaderFrame::frameKind() const {
-  return FrameKind::ResponseHeader;
-};
-
-const AuthStateSharedPtr& SSHRequestHeaderFrame::authState() const {
-  return downstream_state_;
-}
-
-FrameKind SSHRequestCommonFrame::frameKind() const {
-  return FrameKind::RequestCommon;
-};
-
-FrameKind SSHResponseCommonFrame::frameKind() const {
-  return FrameKind::ResponseCommon;
 };
 
 FrameFlags SSHResponseHeaderFrame::frameFlags() const {
@@ -56,16 +54,44 @@ FrameFlags SSHResponseHeaderFrame::frameFlags() const {
   return {stream_id_, 0, 0};
 }
 
+FrameKind SSHResponseHeaderFrame::frameKind() const {
+  return FrameKind::ResponseHeader;
+};
+
+uint64_t SSHResponseHeaderFrame::streamId() const {
+  return stream_id_;
+}
+
+void SSHResponseHeaderFrame::setRawFlags(uint32_t raw_flags) {
+  raw_flags_ = raw_flags;
+}
+
+void SSHResponseHeaderFrame::setStatus(StreamStatus status) {
+  status_ = status;
+};
+
+bool SSHResponseHeaderFrame::isSentinel() const {
+  return is_sentinel_;
+}
+
+FrameKind SSHRequestCommonFrame::frameKind() const {
+  return FrameKind::RequestCommon;
+};
+
+FrameKind SSHResponseCommonFrame::frameKind() const {
+  return FrameKind::ResponseCommon;
+};
+
 FrameFlags SSHRequestCommonFrame::frameFlags() const {
   return {stream_id_, 0, 0};
 }
 
-FrameFlags SSHResponseCommonFrame::frameFlags() const {
-  return {stream_id_, 0, 0};
+uint64_t SSHRequestCommonFrame::streamId() const {
+  return stream_id_;
 }
 
-FrameFlags SSHRequestHeaderFrame::frameFlags() const {
-  return {downstream_state_->stream_id, 0, 0};
+FrameFlags SSHResponseCommonFrame::frameFlags() const {
+  return {stream_id_, 0, 0};
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

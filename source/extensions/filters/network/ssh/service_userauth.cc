@@ -27,15 +27,15 @@ UserAuthService::UserAuthService(TransportCallbacks& callbacks, Api::Api& api)
   }
 }
 
-void UserAuthService::registerMessageHandlers(SshMessageDispatcher& dispatcher) const {
+void UserAuthService::registerMessageHandlers(SshMessageDispatcher& dispatcher) {
   dispatcher.registerHandler(wire::SshMessageType::UserAuthRequest, this);
   dispatcher.registerHandler(wire::SshMessageType::UserAuthSuccess, this);
   dispatcher.registerHandler(wire::SshMessageType::UserAuthFailure, this);
   dispatcher.registerHandler(wire::SshMessageType::UserAuthPubKeyOk, this);
   dispatcher.registerHandler(wire::SshMessageType::UserAuthInfoResponse, this);
 }
-void DownstreamUserAuthService::registerMessageHandlers(
-  StreamMgmtServerMessageDispatcher& dispatcher) const {
+
+void DownstreamUserAuthService::registerMessageHandlers(StreamMgmtServerMessageDispatcher& dispatcher) {
   dispatcher.registerHandler(ServerMessage::kAuthResponse, this);
 }
 

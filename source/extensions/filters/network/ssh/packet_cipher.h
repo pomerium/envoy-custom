@@ -4,15 +4,11 @@
 
 #include "envoy/buffer/buffer.h"
 
-extern "C" {
-#include "openssh/cipher.h"
-}
-
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 enum Mode {
-  ModeWrite = CIPHER_ENCRYPT,
-  ModeRead = CIPHER_DECRYPT,
+  ModeRead = 0,  // CIPHER_DECRYPT
+  ModeWrite = 1, // CIPHER_ENCRYPT
 };
 
 class DirectionalPacketCipher {

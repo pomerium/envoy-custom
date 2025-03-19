@@ -6,7 +6,8 @@
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::StreamFilters::SessionRecording {
 
 SessionRecorder::SessionRecorder(std::shared_ptr<Config> config, SessionRecordingCallbacks& callbacks)
-    : config_(config), callbacks_(callbacks) {}
+    : config_(config),
+      callbacks_(callbacks) {}
 
 SessionRecorder::~SessionRecorder() {
   stopOnce();

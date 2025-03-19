@@ -49,7 +49,7 @@ protected:
 private:
   void initServices();
   void writeToConnection(Envoy::Buffer::Instance& buf) const override;
-  void registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) const override;
+  void registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) override;
   bool interceptMessage(wire::Message& ssh_msg) override;
 
   std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> tls_;

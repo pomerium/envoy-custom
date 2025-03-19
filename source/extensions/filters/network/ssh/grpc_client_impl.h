@@ -40,31 +40,18 @@ class StreamManagementServiceClient : public Grpc::AsyncStreamCallbacks<ServerMe
                                       public Logger::Loggable<Logger::Id::filter> {
 public:
   StreamManagementServiceClient(Grpc::RawAsyncClientSharedPtr client);
-  ~StreamManagementServiceClient() override;
 
   void connect();
 
-  Grpc::AsyncStream<ClientMessage>& stream() {
-    return stream_;
-  }
-  void setOnRemoteCloseCallback(std::function<void(Grpc::Status::GrpcStatus, std::string)> cb) {
-    on_remote_close_ = cb;
-  }
+  Grpc::AsyncStream<ClientMessage>& stream();
+  void setOnRemoteCloseCallback(std::function<void(Grpc::Status::GrpcStatus, std::string)> cb);
 
 private:
   void onReceiveMessage(Grpc::ResponsePtr<ServerMessage>&& message) override;
   void onCreateInitialMetadata(Http::RequestHeaderMap&) override {}
   void onReceiveInitialMetadata([[maybe_unused]] Http::ResponseHeaderMapPtr&&) override {}
   void onReceiveTrailingMetadata([[maybe_unused]] Http::ResponseTrailerMapPtr&&) override {}
-  void onRemoteClose(Grpc::Status::GrpcStatus status, const std::string& err) override {
-    if (on_remote_close_) {
-      on_remote_close_(status, err);
-    }
-    if (stream_ != nullptr) {
-      stream_.resetStream();
-      stream_ = nullptr;
-    }
-  }
+  void onRemoteClose(Grpc::Status::GrpcStatus status, const std::string& err) override;
   const Protobuf::MethodDescriptor& method_manage_stream_;
   Grpc::AsyncStream<ClientMessage> stream_;
   Grpc::AsyncClient<ClientMessage, ServerMessage> client_;
@@ -81,7 +68,6 @@ class ChannelStreamServiceClient : public Grpc::AsyncStreamCallbacks<ChannelMess
                                    public Logger::Loggable<Logger::Id::filter> {
 public:
   ChannelStreamServiceClient(Grpc::RawAsyncClientSharedPtr client);
-  ~ChannelStreamServiceClient() override;
   Grpc::AsyncStream<ChannelMessage>* start(ChannelStreamCallbacks* callbacks,
                                            Envoy::OptRef<const envoy::config::core::v3::Metadata> metadata);
 
@@ -90,13 +76,7 @@ private:
   void onCreateInitialMetadata(Http::RequestHeaderMap&) override {}
   void onReceiveInitialMetadata([[maybe_unused]] Http::ResponseHeaderMapPtr&&) override {}
   void onReceiveTrailingMetadata([[maybe_unused]] Http::ResponseTrailerMapPtr&&) override {}
-  void onRemoteClose(Grpc::Status::GrpcStatus, const std::string&) override {
-    if (stream_ != nullptr) {
-      stream_.resetStream();
-      stream_ = nullptr;
-    }
-    callbacks_ = nullptr;
-  }
+  void onRemoteClose(Grpc::Status::GrpcStatus, const std::string&) override;
   const Protobuf::MethodDescriptor& method_manage_stream_;
   Grpc::AsyncStream<ChannelMessage> stream_;
   Grpc::AsyncClient<ChannelMessage, ChannelMessage> client_;

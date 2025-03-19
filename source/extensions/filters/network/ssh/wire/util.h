@@ -28,14 +28,8 @@ using fixed_bytes_view = std::span<const uint8_t, N>;
 using string_list = std::vector<std::string>;
 using bytes_list = std::vector<bytes>;
 
-inline bytes to_bytes(const auto& view) { // NOLINT
+inline constexpr bytes to_bytes(const auto& view) {
   return {view.begin(), view.end()};
-}
-
-inline bytes linearize_to_bytes(Envoy::Buffer::Instance& buffer, size_t len) { // NOLINT
-  bytes out(len, 0);
-  buffer.copyOut(0, len, out.data());
-  return out;
 }
 
 #pragma clang unsafe_buffer_usage begin

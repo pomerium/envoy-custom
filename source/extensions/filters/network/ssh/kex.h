@@ -236,6 +236,7 @@ public:
       Filesystem::Instance& fs,
       KexMode mode);
 
+  void registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) override;
   absl::Status doInitialKex(Envoy::Buffer::Instance& buffer) noexcept;
   absl::StatusOr<Algorithms> negotiateAlgorithms() noexcept;
   absl::StatusOr<std::unique_ptr<KexAlgorithm>> newAlgorithmImpl();
@@ -245,13 +246,6 @@ public:
                                          const string_list& server);
   absl::Status loadHostKeys();
   absl::Status loadSshKeyPair(const std::string& priv_key_path, const std::string& pub_key_path);
-  void registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) const override {
-    dispatcher.registerHandler(wire::SshMessageType::KexInit, this);
-    dispatcher.registerHandler(wire::SshMessageType::KexECDHInit, this);
-    dispatcher.registerHandler(wire::SshMessageType::KexECDHReply, this);
-    dispatcher.registerHandler(wire::SshMessageType::NewKeys, this);
-  }
-  // HandshakeCallbacks
   void setVersionStrings(const std::string& ours, const std::string& peer) override;
 
 private:

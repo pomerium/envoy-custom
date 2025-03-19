@@ -16,7 +16,13 @@ ConnectionService::ConnectionService(
   (void)api_;
 }
 
-void DownstreamConnectionService::registerMessageHandlers(SshMessageDispatcher& dispatcher) const {
+absl::Status ConnectionService::requestService() {
+  wire::ServiceRequestMsg req;
+  req.service_name = name();
+  return transport_.sendMessageToConnection(req).status();
+}
+
+void DownstreamConnectionService::registerMessageHandlers(SshMessageDispatcher& dispatcher) {
   dispatcher.registerHandler(wire::SshMessageType::ChannelOpen, this);
   dispatcher.registerHandler(wire::SshMessageType::ChannelWindowAdjust, this);
   dispatcher.registerHandler(wire::SshMessageType::ChannelData, this);
@@ -64,40 +70,6 @@ absl::Status DownstreamConnectionService::handleMessage(wire::Message&& msg) {
     },
     [&](wire::ChannelMsg auto& msg) {
       transport_.forward(std::make_unique<SSHRequestCommonFrame>(streamId, std::move(msg)));
-      return absl::OkStatus();
-    },
-    [](auto&) {
-      ENVOY_LOG(error, "unknown message");
-      return absl::OkStatus();
-    });
-}
-
-void UpstreamConnectionService::registerMessageHandlers(SshMessageDispatcher& dispatcher) const {
-  dispatcher.registerHandler(wire::SshMessageType::ChannelOpenConfirmation, this);
-  dispatcher.registerHandler(wire::SshMessageType::ChannelOpenFailure, this);
-  dispatcher.registerHandler(wire::SshMessageType::ChannelWindowAdjust, this);
-  dispatcher.registerHandler(wire::SshMessageType::ChannelData, this);
-  dispatcher.registerHandler(wire::SshMessageType::ChannelExtendedData, this);
-  dispatcher.registerHandler(wire::SshMessageType::ChannelEOF, this);
-  dispatcher.registerHandler(wire::SshMessageType::ChannelClose, this);
-  dispatcher.registerHandler(wire::SshMessageType::ChannelRequest, this);
-  dispatcher.registerHandler(wire::SshMessageType::ChannelSuccess, this);
-  dispatcher.registerHandler(wire::SshMessageType::ChannelFailure, this);
-}
-
-absl::Status UpstreamConnectionService::handleMessage(wire::Message&& msg) {
-  const auto& authState = transport_.authState();
-  auto streamId = authState.stream_id;
-
-  if (authState.multiplexing_info.multiplex_mode == MultiplexMode::Source) {
-    if (auto r = source_multiplexer_->handleUpstreamToDownstreamMessage(msg); !r.ok()) {
-      return r;
-    }
-  }
-
-  return msg.visit(
-    [&](wire::ChannelMsg auto& msg) {
-      transport_.forward(std::make_unique<SSHResponseCommonFrame>(streamId, std::move(msg)));
       return absl::OkStatus();
     },
     [](auto&) {
@@ -219,6 +191,41 @@ void DownstreamConnectionService::onStreamEnd() {
     mirror_multiplexer_ = nullptr;
   }
 }
+
+void UpstreamConnectionService::registerMessageHandlers(SshMessageDispatcher& dispatcher) {
+  dispatcher.registerHandler(wire::SshMessageType::ChannelOpenConfirmation, this);
+  dispatcher.registerHandler(wire::SshMessageType::ChannelOpenFailure, this);
+  dispatcher.registerHandler(wire::SshMessageType::ChannelWindowAdjust, this);
+  dispatcher.registerHandler(wire::SshMessageType::ChannelData, this);
+  dispatcher.registerHandler(wire::SshMessageType::ChannelExtendedData, this);
+  dispatcher.registerHandler(wire::SshMessageType::ChannelEOF, this);
+  dispatcher.registerHandler(wire::SshMessageType::ChannelClose, this);
+  dispatcher.registerHandler(wire::SshMessageType::ChannelRequest, this);
+  dispatcher.registerHandler(wire::SshMessageType::ChannelSuccess, this);
+  dispatcher.registerHandler(wire::SshMessageType::ChannelFailure, this);
+}
+
+absl::Status UpstreamConnectionService::handleMessage(wire::Message&& msg) {
+  const auto& authState = transport_.authState();
+  auto streamId = authState.stream_id;
+
+  if (authState.multiplexing_info.multiplex_mode == MultiplexMode::Source) {
+    if (auto r = source_multiplexer_->handleUpstreamToDownstreamMessage(msg); !r.ok()) {
+      return r;
+    }
+  }
+
+  return msg.visit(
+    [&](wire::ChannelMsg auto& msg) {
+      transport_.forward(std::make_unique<SSHResponseCommonFrame>(streamId, std::move(msg)));
+      return absl::OkStatus();
+    },
+    [](auto&) {
+      ENVOY_LOG(error, "unknown message");
+      return absl::OkStatus();
+    });
+}
+
 void UpstreamConnectionService::onStreamBegin(const AuthState& auth_state, Dispatcher& dispatcher) {
   if (!source_multiplexer_) {
     source_multiplexer_ = std::make_shared<SourceUpstreamSessionMultiplexer>(api_, transport_, slot_ptr_, dispatcher);

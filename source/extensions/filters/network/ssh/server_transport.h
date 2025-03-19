@@ -49,20 +49,9 @@ private:
   void initServices();
   absl::Status handleMessage(wire::Message&& msg) override;
   absl::Status handleMessage(Grpc::ResponsePtr<ServerMessage>&& msg) override;
-  void registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) const override {
-    dispatcher.registerHandler(wire::SshMessageType::ServiceRequest, this);
-    dispatcher.registerHandler(wire::SshMessageType::GlobalRequest, this);
-    dispatcher.registerHandler(wire::SshMessageType::RequestSuccess, this);
-    dispatcher.registerHandler(wire::SshMessageType::RequestFailure, this);
-    dispatcher.registerHandler(wire::SshMessageType::Ignore, this);
-    dispatcher.registerHandler(wire::SshMessageType::Debug, this);
-    dispatcher.registerHandler(wire::SshMessageType::Unimplemented, this);
-    dispatcher.registerHandler(wire::SshMessageType::Disconnect, this);
-  }
+  void registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) override;
   void registerMessageHandlers(
-    MessageDispatcher<Grpc::ResponsePtr<ServerMessage>>& dispatcher) const override {
-    dispatcher.registerHandler(ServerMessage::MessageCase::kStreamControl, this);
-  }
+    MessageDispatcher<Grpc::ResponsePtr<ServerMessage>>& dispatcher) override;
 
   void sendMgmtClientMessage(const ClientMessage& msg) override;
 

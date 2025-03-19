@@ -8,11 +8,12 @@ StreamManagementServiceClient::StreamManagementServiceClient(Grpc::RawAsyncClien
         "pomerium.extensions.ssh.StreamManagement.ManageStream")),
       client_(client) {}
 
-StreamManagementServiceClient::~StreamManagementServiceClient() {
-  // if (stream_ != nullptr) {
-  //   stream_.resetStream();
-  //   stream_ = nullptr;
-  // }
+Grpc::AsyncStream<ClientMessage>& StreamManagementServiceClient::stream() {
+  return stream_;
+}
+
+void StreamManagementServiceClient::setOnRemoteCloseCallback(std::function<void(Grpc::Status::GrpcStatus, std::string)> cb) {
+  on_remote_close_ = cb;
 }
 
 void StreamManagementServiceClient::connect() {
@@ -29,18 +30,20 @@ void StreamManagementServiceClient::onReceiveMessage(Grpc::ResponsePtr<ServerMes
   }
 }
 
+void StreamManagementServiceClient::onRemoteClose(Grpc::Status::GrpcStatus status, const std::string& err) {
+  if (on_remote_close_) {
+    on_remote_close_(status, err);
+  }
+  if (stream_ != nullptr) {
+    stream_.resetStream();
+    stream_ = nullptr;
+  }
+}
+
 ChannelStreamServiceClient::ChannelStreamServiceClient(Grpc::RawAsyncClientSharedPtr client)
     : method_manage_stream_(*Protobuf::DescriptorPool::generated_pool()->FindMethodByName(
         "pomerium.extensions.ssh.StreamManagement.ServeChannel")),
       client_(client) {}
-
-ChannelStreamServiceClient::~ChannelStreamServiceClient() {
-  // if (stream_ != nullptr) {
-  //   stream_.resetStream();
-  //   stream_ = nullptr;
-  // }
-  // callbacks_ = nullptr;
-}
 
 Grpc::AsyncStream<ChannelMessage>* ChannelStreamServiceClient::start(
   ChannelStreamCallbacks* callbacks, Envoy::OptRef<const envoy::config::core::v3::Metadata> metadata) {
@@ -55,6 +58,14 @@ Grpc::AsyncStream<ChannelMessage>* ChannelStreamServiceClient::start(
 
 void ChannelStreamServiceClient::onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) {
   callbacks_->onReceiveMessage(std::move(message));
+}
+
+void ChannelStreamServiceClient::onRemoteClose(Grpc::Status::GrpcStatus, const std::string&) {
+  if (stream_ != nullptr) {
+    stream_.resetStream();
+    stream_ = nullptr;
+  }
+  callbacks_ = nullptr;
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

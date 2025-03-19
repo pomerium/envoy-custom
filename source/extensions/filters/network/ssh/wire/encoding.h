@@ -50,9 +50,9 @@ inline size_t writeBignum(Envoy::Buffer::Instance& buffer, std::span<const uint8
 }
 
 template <SshStringType T>
-[[nodiscard]] T flushTo(Envoy::Buffer::Instance& buf) {
+[[nodiscard]] T flushTo(Envoy::Buffer::Instance& buf, size_t n) {
+  ASSERT(n <= buf.length());
   T out;
-  size_t n = buf.length();
   out.resize(n);
   buf.copyOut(0, n, out.data());
   buf.drain(n);
@@ -60,11 +60,21 @@ template <SshStringType T>
 }
 
 template <SshStringType T>
-void flushTo(Envoy::Buffer::Instance& buf, T& out) {
-  size_t n = buf.length();
+[[nodiscard]] T flushTo(Envoy::Buffer::Instance& buf) {
+  return flushTo<T>(buf, buf.length());
+}
+
+template <SshStringType T>
+void flushTo(Envoy::Buffer::Instance& buf, T& out, size_t n) {
+  ASSERT(n <= buf.length());
   out.resize(n);
   buf.copyOut(0, n, out.data());
   buf.drain(n);
+}
+
+template <SshStringType T>
+void flushTo(Envoy::Buffer::Instance& buf, T& out) {
+  flushTo(buf, out, buf.length());
 }
 
 template <SshStringType T>
