@@ -848,7 +848,7 @@ TEST(DecodeSequenceTest, Basic) {
   buffer.add(bytes{0, 0, 0, 5, 0, 0, 0, 4, 't', 'e', 's', 't'}.data(), 12);
   field<uint32_t> f1;
   field<std::string, LengthPrefixed> f2;
-  auto r = decodeSequence(buffer, buffer.length(), f1, f2);
+  auto r = decodeSequence(buffer, static_cast<size_t>(buffer.length()), f1, f2);
   EXPECT_TRUE(r.ok());
   EXPECT_EQ(12, *r);
   EXPECT_EQ(0, buffer.length());
@@ -866,19 +866,19 @@ TEST(DecodeSequenceTest, Error) {
   {
     Envoy::Buffer::OwnedImpl buffer;
     buffer.add(encodedData.data(), encodedData.size());
-    auto r = decodeSequence(buffer, buffer.length(), f1, f2, f3);
+    auto r = decodeSequence(buffer, static_cast<size_t>(buffer.length()), f1, f2, f3);
     EXPECT_FALSE(r.ok());
   }
   {
     Envoy::Buffer::OwnedImpl buffer;
     buffer.add(encodedData.data(), encodedData.size());
-    auto r = decodeSequence(buffer, buffer.length(), f1, f3, f2);
+    auto r = decodeSequence(buffer, static_cast<size_t>(buffer.length()), f1, f3, f2);
     EXPECT_FALSE(r.ok());
   }
   {
     Envoy::Buffer::OwnedImpl buffer;
     buffer.add(encodedData.data(), encodedData.size());
-    auto r = decodeSequence(buffer, buffer.length(), f3, f1, f2);
+    auto r = decodeSequence(buffer, static_cast<size_t>(buffer.length()), f3, f1, f2);
     EXPECT_FALSE(r.ok());
   }
 }

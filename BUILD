@@ -11,6 +11,7 @@ package(default_visibility = ["//visibility:public"])
 envoy_cc_binary(
     name = "envoy",
     features = select({
+        "@platforms//os:macos": [],
         "@envoy//bazel:asan_build": [],
         "//conditions:default": ["fully_static_link"],
     }),

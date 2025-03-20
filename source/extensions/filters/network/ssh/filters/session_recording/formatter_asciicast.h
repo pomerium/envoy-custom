@@ -21,7 +21,7 @@ public:
     {
       auto header = streamer_->makeRootMap();
       header->addKey("version");
-      header->addNumber(2ul);
+      header->addNumber(2ull);
       header->addKey("width");
       header->addNumber(static_cast<uint64_t>(handoff_info.width_columns()));
       header->addKey("height");
@@ -40,7 +40,7 @@ public:
     {
       auto header = streamer_->makeRootMap();
       header->addKey("version");
-      header->addNumber(2ul);
+      header->addNumber(2ull);
       header->addKey("width");
       header->addNumber(static_cast<uint64_t>(*msg.width_columns));
       header->addKey("height");
