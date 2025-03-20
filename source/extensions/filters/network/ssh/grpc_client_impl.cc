@@ -29,6 +29,7 @@ void StreamManagementServiceClient::onReceiveMessage(Grpc::ResponsePtr<ServerMes
   auto stat = dispatch(std::move(message));
   if (!stat.ok()) {
     ENVOY_LOG(error, stat.message());
+    stream_.closeStream();
   }
 }
 
@@ -67,10 +68,16 @@ void ChannelStreamServiceClient::onCreateInitialMetadata(Http::RequestHeaderMap&
 }
 
 void ChannelStreamServiceClient::onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) {
-  callbacks_->onReceiveMessage(std::move(message));
+  auto status = callbacks_->onReceiveMessage(std::move(message));
+  if (!status.ok()) {
+    stream_->closeStream();
+  }
 }
 
-void ChannelStreamServiceClient::onRemoteClose(Grpc::Status::GrpcStatus, const std::string&) {
+void ChannelStreamServiceClient::onRemoteClose(Grpc::Status::GrpcStatus status, const std::string& err) {
+  if (on_remote_close_) {
+    on_remote_close_(status, err);
+  }
   if (stream_ != nullptr) {
     stream_->resetStream();
     stream_ = nullptr;

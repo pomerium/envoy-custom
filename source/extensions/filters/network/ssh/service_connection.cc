@@ -82,17 +82,16 @@ absl::Status DownstreamConnectionService::handleMessage(wire::Message&& msg) {
     });
 }
 
-void DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& msg) { // NOLINT
+absl::Status DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& msg) { // NOLINT
   switch (msg->message_case()) {
   case pomerium::extensions::ssh::ChannelMessage::kRawBytes: {
     auto anyMsg = wire::Message::fromString(msg->raw_bytes().value());
     if (!anyMsg.ok()) {
       ENVOY_LOG(error, "received invalid channel message");
-      return; // TODO: wire up status here
+      return anyMsg.status();
     }
     ENVOY_LOG(debug, "sending channel message to downstream: {}", anyMsg->msg_type());
-    auto _ = transport_.sendMessageToConnection(*anyMsg);
-    break;
+    return transport_.sendMessageToConnection(*anyMsg).status();
   }
   case pomerium::extensions::ssh::ChannelMessage::kChannelControl: {
     pomerium::extensions::ssh::SSHChannelControlAction ctrl_action;
@@ -118,7 +117,8 @@ void DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<ChannelMess
           newState->allow_response.reset(handOffMsg->release_upstream_auth());
         }
         transport_.initUpstream(std::move(newState));
-      } break;
+        return absl::OkStatus();
+      }
       case pomerium::extensions::ssh::AllowResponse::kMirrorSession: {
         const auto& allowResp = handOffMsg->upstream_auth();
         const auto& mirror = allowResp.mirror_session();
@@ -127,8 +127,7 @@ void DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<ChannelMess
         if (handOffMsg->has_downstream_channel_info()) {
           newState->multiplexing_info.downstream_channel_id = handOffMsg->downstream_channel_info().downstream_channel_id();
         } else {
-          ENVOY_LOG(error, "received invalid channel message: missing downstream_channel_info");
-          return; // TODO: wire up status here
+          return absl::InternalError("received invalid channel message: missing downstream_channel_info");
         }
         switch (mirror.mode()) {
         case pomerium::extensions::ssh::MirrorSessionTarget_Mode_ReadOnly:
@@ -138,30 +137,29 @@ void DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<ChannelMess
           newState->multiplexing_info.rw_mode = ReadWriteMode::ReadWrite;
           break;
         default:
-          // return absl::InvalidArgumentError("unknown mode");
-          return;
+          return absl::InternalError(fmt::format("received invalid channel message: unknown mode: {}",
+                                                 static_cast<int>(mirror.mode())));
         }
         newState->multiplexing_info.source_stream_id = mirror.source_id();
         transport_.initUpstream(std::move(newState));
-      } break;
-      default:
-        ENVOY_LOG(error, "received invalid channel message");
-        return; // TODO: wire up status here
+        return absl::OkStatus();
       }
-    } break;
-    case pomerium::extensions::ssh::SSHChannelControlAction::kDisconnect: {
-      const auto& disconnectMsg = ctrl_action.disconnect();
-      wire::DisconnectMsg msg;
-      msg.reason_code = disconnectMsg.reason_code();
-      msg.description = disconnectMsg.description();
-      (void)transport_.sendMessageToConnection(msg); // TODO
-    } break;
-    case pomerium::extensions::ssh::SSHChannelControlAction::ACTION_NOT_SET:
-      break;
+      default:
+        return absl::InternalError(fmt::format("received invalid channel message: unknown target: {}",
+                                               static_cast<int>(handOffMsg->upstream_auth().target_case())));
+      }
     }
-  } break;
-  case pomerium::extensions::ssh::ChannelMessage::MESSAGE_NOT_SET:
-    break;
+    case pomerium::extensions::ssh::SSHChannelControlAction::kDisconnect:
+      ENVOY_LOG(debug, "received disconnect channel message");
+      return absl::CancelledError("disconnected");
+    default:
+      return absl::InternalError(fmt::format("received invalid channel message: unknown action type: {}",
+                                             static_cast<int>(ctrl_action.action_case())));
+    }
+  }
+  default:
+    return absl::InternalError(fmt::format("received invalid channel message: unknown message type: {}",
+                                           static_cast<int>(msg->message_case())));
   }
 }
 

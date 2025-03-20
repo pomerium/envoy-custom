@@ -61,7 +61,7 @@ private:
 class ChannelStreamCallbacks {
 public:
   virtual ~ChannelStreamCallbacks() = default;
-  virtual void onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) PURE;
+  virtual absl::Status onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) PURE;
 };
 
 class ChannelStreamServiceClient : public Grpc::AsyncStreamCallbacks<ChannelMessage>,

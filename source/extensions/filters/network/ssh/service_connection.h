@@ -32,7 +32,7 @@ public:
         transport_(dynamic_cast<DownstreamTransportCallbacks&>(callbacks)),
         slot_ptr_(slot_ptr) {}
 
-  void onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) override;
+  absl::Status onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) override;
   absl::Status handleMessage(wire::Message&& msg) override;
 
   void registerMessageHandlers(SshMessageDispatcher& dispatcher) override;
