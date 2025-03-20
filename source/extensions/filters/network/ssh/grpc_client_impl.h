@@ -68,8 +68,8 @@ class ChannelStreamServiceClient : public Grpc::AsyncStreamCallbacks<ChannelMess
                                    public Logger::Loggable<Logger::Id::filter> {
 public:
   ChannelStreamServiceClient(Grpc::RawAsyncClientSharedPtr client);
-  Grpc::AsyncStream<ChannelMessage>* start(ChannelStreamCallbacks* callbacks,
-                                           Envoy::OptRef<const envoy::config::core::v3::Metadata> metadata);
+  std::weak_ptr<Grpc::AsyncStream<ChannelMessage>> start(ChannelStreamCallbacks* callbacks,
+                                                         Envoy::OptRef<const envoy::config::core::v3::Metadata> metadata);
 
 private:
   void onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) override;
@@ -78,7 +78,7 @@ private:
   void onReceiveTrailingMetadata([[maybe_unused]] Http::ResponseTrailerMapPtr&&) override {}
   void onRemoteClose(Grpc::Status::GrpcStatus, const std::string&) override;
   const Protobuf::MethodDescriptor& method_manage_stream_;
-  Grpc::AsyncStream<ChannelMessage> stream_;
+  std::shared_ptr<Grpc::AsyncStream<ChannelMessage>> stream_;
   Grpc::AsyncClient<ChannelMessage, ChannelMessage> client_;
   ChannelStreamCallbacks* callbacks_;
   Envoy::OptRef<envoy::config::core::v3::Metadata> metadata_;

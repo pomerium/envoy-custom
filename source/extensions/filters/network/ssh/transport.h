@@ -68,7 +68,7 @@ struct AuthState {
   std::string server_version;
   uint64_t stream_id; // unique stream id for both connections
   ChannelMode channel_mode;
-  Grpc::AsyncStream<pomerium::extensions::ssh::ChannelMessage>* hijacked_stream;
+  std::weak_ptr<Grpc::AsyncStream<pomerium::extensions::ssh::ChannelMessage>> hijacked_stream;
   HandoffInfo handoff_info;
   MultiplexingInfo multiplexing_info;
 

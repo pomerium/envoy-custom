@@ -46,7 +46,11 @@ absl::Status DownstreamConnectionService::handleMessage(wire::Message&& msg) {
     }
     *b.mutable_value() = *msgData;
     *channel_msg.mutable_raw_bytes() = b;
-    authState.hijacked_stream->sendMessage(channel_msg, false);
+    if (auto s = authState.hijacked_stream.lock(); s) {
+      s->sendMessage(channel_msg, false);
+    } else {
+      return absl::CancelledError("connection closed");
+    }
     return absl::OkStatus();
   }
   switch (authState.multiplexing_info.multiplex_mode) {
@@ -86,6 +90,7 @@ void DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<ChannelMess
       ENVOY_LOG(error, "received invalid channel message");
       return; // TODO: wire up status here
     }
+    ENVOY_LOG(debug, "sending channel message to downstream: {}", anyMsg->msg_type());
     auto _ = transport_.sendMessageToConnection(*anyMsg);
     break;
   }
@@ -95,8 +100,9 @@ void DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<ChannelMess
     switch (ctrl_action.action_case()) {
     case pomerium::extensions::ssh::SSHChannelControlAction::kHandOff: {
       auto* handOffMsg = ctrl_action.mutable_hand_off();
-      transport_.authState().hijacked_stream->resetStream();
-      transport_.authState().hijacked_stream = nullptr;
+      if (auto s = transport_.authState().hijacked_stream.lock(); s) {
+        s->resetStream();
+      }
       auto newState = transport_.authState().clone();
       switch (handOffMsg->upstream_auth().target_case()) {
       case pomerium::extensions::ssh::AllowResponse::kUpstream: {

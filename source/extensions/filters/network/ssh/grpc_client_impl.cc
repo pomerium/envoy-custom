@@ -45,15 +45,15 @@ ChannelStreamServiceClient::ChannelStreamServiceClient(Grpc::RawAsyncClientShare
         "pomerium.extensions.ssh.StreamManagement.ServeChannel")),
       client_(client) {}
 
-Grpc::AsyncStream<ChannelMessage>* ChannelStreamServiceClient::start(
+std::weak_ptr<Grpc::AsyncStream<ChannelMessage>> ChannelStreamServiceClient::start(
   ChannelStreamCallbacks* callbacks, Envoy::OptRef<const envoy::config::core::v3::Metadata> metadata) {
   callbacks_ = callbacks;
   Http::AsyncClient::StreamOptions opts;
   if (metadata.has_value()) {
     opts.setMetadata(*metadata);
   }
-  stream_ = client_.start(method_manage_stream_, *this, opts);
-  return &stream_;
+  stream_ = std::make_shared<Grpc::AsyncStream<ChannelMessage>>(client_.start(method_manage_stream_, *this, opts));
+  return stream_;
 }
 
 void ChannelStreamServiceClient::onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) {
@@ -62,7 +62,7 @@ void ChannelStreamServiceClient::onReceiveMessage(Grpc::ResponsePtr<ChannelMessa
 
 void ChannelStreamServiceClient::onRemoteClose(Grpc::Status::GrpcStatus, const std::string&) {
   if (stream_ != nullptr) {
-    stream_.resetStream();
+    stream_->resetStream();
     stream_ = nullptr;
   }
   callbacks_ = nullptr;
