@@ -14,6 +14,7 @@
 #include "source/extensions/filters/network/ssh/openssh.h"
 
 extern "C" {
+#include "openssh/kex.h"
 #include "openssh/digest.h"
 }
 
@@ -126,6 +127,84 @@ protected:
     }
     should_ignore_one_ = false;
     return true;
+  }
+
+  bytes computeExchangeHash(const auto& host_key_blob,
+                            const auto& client_pub_key,
+                            const auto& server_pub_key,
+                            const auto& shared_secret) {
+    Envoy::Buffer::OwnedImpl exchangeHash;
+    magics_->encode(exchangeHash);
+    wire::write_opt<wire::LengthPrefixed>(exchangeHash, host_key_blob);
+    wire::write_opt<wire::LengthPrefixed>(exchangeHash, client_pub_key);
+    wire::write_opt<wire::LengthPrefixed>(exchangeHash, server_pub_key);
+    wire::writeBignum(exchangeHash, shared_secret);
+
+    fixed_bytes<SSH_DIGEST_MAX_LENGTH> digest_buf;
+    size_t digest_len = digest_buf.size();
+    auto buf = exchangeHash.linearize(static_cast<uint32_t>(exchangeHash.length()));
+    auto hash_alg = kex_hash_from_name(algs_->kex.c_str());
+    ssh_digest_memory(hash_alg, buf, exchangeHash.length(), digest_buf.data(), digest_len);
+    exchangeHash.drain(exchangeHash.length());
+    digest_len = ssh_digest_bytes(hash_alg);
+    return to_bytes(bytes_view{digest_buf.begin(), digest_len});
+  }
+
+  absl::StatusOr<std::shared_ptr<KexResult>> computeServerResult(const auto& host_key_blob,
+                                                                 const auto& client_pub_key,
+                                                                 const auto& server_pub_key,
+                                                                 const auto& shared_secret) {
+
+    auto result = std::make_shared<KexResult>();
+    result->algorithms = *algs_;
+    result->host_key_blob = host_key_blob;
+
+    auto digest = computeExchangeHash(host_key_blob, client_pub_key, server_pub_key, shared_secret);
+    auto sig = signer_->priv.sign(digest);
+    if (!sig.ok()) {
+      return sig.status();
+    }
+
+    result->exchange_hash = to_bytes(digest);
+    result->shared_secret = to_bytes(shared_secret);
+    result->signature = *sig;
+    result->hash = SHA256;
+    result->ephemeral_pub_key = to_bytes(server_pub_key);
+    // session id is not set here
+
+    return result;
+  }
+
+  absl::StatusOr<std::shared_ptr<KexResult>> computeClientResult(const auto& host_key_blob,
+                                                                 const auto& client_pub_key,
+                                                                 const auto& server_pub_key,
+                                                                 const auto& shared_secret,
+                                                                 const bytes& signature) {
+
+    auto result = std::make_shared<KexResult>();
+    result->algorithms = *algs_;
+    result->host_key_blob = host_key_blob;
+
+    auto digest = computeExchangeHash(host_key_blob, client_pub_key, server_pub_key, shared_secret);
+
+    auto server_host_key = openssh::SSHKey::fromBlob(host_key_blob);
+    if (!server_host_key.ok()) {
+      return server_host_key.status();
+    }
+
+    auto stat = server_host_key->verify(signature, digest);
+    if (!stat.ok()) {
+      return stat;
+    }
+
+    result->exchange_hash = to_bytes(digest);
+    result->shared_secret = to_bytes(shared_secret);
+    result->signature = signature;
+    result->hash = SHA256;
+    result->ephemeral_pub_key = to_bytes(server_pub_key);
+    // session id is not set here
+
+    return result;
   }
 
 private:

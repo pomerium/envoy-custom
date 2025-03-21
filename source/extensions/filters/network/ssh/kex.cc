@@ -1,15 +1,10 @@
 #include "source/extensions/filters/network/ssh/kex.h"
 
-#include <cstdint>
 #include <algorithm>
 #include <memory>
 
 #include "openssl/curve25519.h"
 #include "openssl/rand.h"
-
-#pragma clang unsafe_buffer_usage begin
-#include "source/common/buffer/buffer_impl.h"
-#pragma clang unsafe_buffer_usage end
 
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/transport.h"
@@ -18,7 +13,6 @@
 extern "C" {
 #include "openssh/sshkey.h"
 #include "openssh/kex.h"
-#include "openssh/digest.h"
 }
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
@@ -44,43 +38,15 @@ absl::Status Curve25519Sha256KexAlgorithm::handleServerRecv(wire::Message& msg) 
         return absl::AbortedError("peer's curve25519 public value has wrong order");
       }
 
-      result_ = std::make_shared<KexResult>();
-      result_->algorithms = *algs_;
       auto blob = signer_->pub.toBlob();
       if (!blob.ok()) {
         return blob.status();
       }
-      result_->host_key_blob = *blob;
-
-      Envoy::Buffer::OwnedImpl exchangeHash;
-      magics_->encode(exchangeHash);
-      wire::write_opt<wire::LengthPrefixed>(exchangeHash, result_->host_key_blob);
-      wire::write_opt<wire::LengthPrefixed>(exchangeHash, client_pub_key);
-      wire::write_opt<wire::LengthPrefixed>(exchangeHash, server_keypair.pub);
-      wire::writeBignum(exchangeHash, shared_secret);
-
-      fixed_bytes<SSH_DIGEST_MAX_LENGTH> digest_buf;
-      size_t digest_len = sizeof(digest_buf);
-      auto buf = exchangeHash.linearize(static_cast<uint32_t>(exchangeHash.length()));
-      auto hash_alg = kex_hash_from_name(algs_->kex.c_str());
-      ssh_digest_memory(hash_alg, buf, exchangeHash.length(), digest_buf.data(), digest_len);
-      exchangeHash.drain(exchangeHash.length());
-      digest_len = ssh_digest_bytes(hash_alg);
-      auto digest = bytes_view{digest_buf.begin(), digest_len};
-
-      auto sig = signer_->priv.sign(digest);
-      if (!sig.ok()) {
-        return sig.status();
+      auto res = computeServerResult(*blob, client_pub_key, server_keypair.pub, shared_secret);
+      if (!res.ok()) {
+        return res.status();
       }
-
-      result_->exchange_hash = to_bytes(digest);
-      result_->shared_secret = to_bytes(shared_secret);
-
-      result_->signature = *sig;
-      result_->hash = SHA256;
-      result_->ephemeral_pub_key = to_bytes(server_keypair.pub);
-      // session id is not set here
-
+      result_ = *res;
       return absl::OkStatus();
     },
     [&msg](auto&) {
@@ -120,43 +86,11 @@ absl::Status Curve25519Sha256KexAlgorithm::handleClientRecv(wire::Message& msg) 
         return absl::AbortedError("peer's curve25519 public value has wrong order");
       }
 
-      result_ = std::make_shared<KexResult>();
-      result_->algorithms = *algs_;
-      result_->host_key_blob = msg->host_key;
-
-      Envoy::Buffer::OwnedImpl exchangeHash;
-      magics_->encode(exchangeHash);
-      wire::write_opt<wire::LengthPrefixed>(exchangeHash, result_->host_key_blob);
-      wire::write_opt<wire::LengthPrefixed>(exchangeHash, client_keypair_.pub);
-      wire::write_opt<wire::LengthPrefixed>(exchangeHash, server_pub_key);
-      wire::writeBignum(exchangeHash, shared_secret);
-
-      fixed_bytes<SSH_DIGEST_MAX_LENGTH> digest_buf;
-      size_t digest_len = digest_buf.size();
-      auto buf = exchangeHash.linearize(static_cast<uint32_t>(exchangeHash.length()));
-      auto hash_alg = kex_hash_from_name(algs_->kex.c_str());
-      ssh_digest_memory(hash_alg, buf, exchangeHash.length(), digest_buf.data(), digest_len);
-      exchangeHash.drain(exchangeHash.length());
-      digest_len = ssh_digest_bytes(hash_alg);
-      auto digest = bytes_view{digest_buf.begin(), digest_len};
-
-      auto server_host_key = openssh::SSHKey::fromBlob(msg->host_key);
-      if (!server_host_key.ok()) {
-        return server_host_key.status();
+      auto res = computeClientResult(*msg->host_key, client_keypair_.pub, server_pub_key, shared_secret, *msg->signature);
+      if (!res.ok()) {
+        return res.status();
       }
-
-      auto stat = server_host_key->verify(*msg->signature, digest);
-      if (!stat.ok()) {
-        return stat;
-      }
-
-      result_->exchange_hash = to_bytes(digest);
-      result_->shared_secret = to_bytes(shared_secret);
-      result_->signature = msg->signature;
-      result_->hash = SHA256;
-      result_->ephemeral_pub_key = msg->ephemeral_pub_key;
-      // session id is not set here
-
+      result_ = *res;
       return absl::OkStatus();
     },
     [&msg](auto&) {
