@@ -8,7 +8,6 @@
 #include "envoy/filesystem/filesystem.h"
 
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
-#include "source/extensions/filters/network/ssh/wire/util.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/version_exchange.h"
 #include "source/extensions/filters/network/ssh/message_handler.h"

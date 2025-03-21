@@ -30,6 +30,7 @@ envoy_cc_library(
     ],
     hdrs = [
         "client_transport.h",
+        "common.h",
         "config.h",
         "frame.h",
         "grpc_client_impl.h",

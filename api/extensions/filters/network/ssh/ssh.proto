@@ -82,7 +82,8 @@ message StreamEvent {
 }
 
 message DownstreamConnectEvent {
-  string source_address = 1;
+  uint64 stream_id      = 1;
+  string source_address = 2;
   // [other connection info as needed]
 }
 

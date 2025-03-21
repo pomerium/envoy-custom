@@ -11,6 +11,7 @@
 
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
+#include "source/extensions/filters/network/ssh/common.h"
 #include "source/extensions/filters/network/ssh/wire/field.h"
 #include "source/extensions/filters/network/ssh/wire/message_traits.h"
 

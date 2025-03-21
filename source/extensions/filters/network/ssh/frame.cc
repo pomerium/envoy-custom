@@ -30,7 +30,7 @@ FrameFlags SSHRequestHeaderFrame::frameFlags() const {
   return {downstream_state_->stream_id, 0, 0};
 }
 
-SSHResponseHeaderFrame::SSHResponseHeaderFrame(uint64_t stream_id)
+SSHResponseHeaderFrame::SSHResponseHeaderFrame(stream_id_t stream_id)
     : status_(0, true),
       stream_id_(stream_id),
       raw_flags_(0),
@@ -58,7 +58,7 @@ FrameKind SSHResponseHeaderFrame::frameKind() const {
   return FrameKind::ResponseHeader;
 };
 
-uint64_t SSHResponseHeaderFrame::streamId() const {
+stream_id_t SSHResponseHeaderFrame::streamId() const {
   return stream_id_;
 }
 
@@ -86,7 +86,7 @@ FrameFlags SSHRequestCommonFrame::frameFlags() const {
   return {stream_id_, 0, 0};
 }
 
-uint64_t SSHRequestCommonFrame::streamId() const {
+stream_id_t SSHRequestCommonFrame::streamId() const {
   return stream_id_;
 }
 

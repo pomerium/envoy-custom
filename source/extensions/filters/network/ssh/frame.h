@@ -3,6 +3,7 @@
 #include "source/extensions/filters/network/generic_proxy/interface/stream.h"
 
 #include "source/extensions/filters/network/ssh/wire/messages.h"
+#include "source/extensions/filters/network/ssh/common.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -41,7 +42,7 @@ class SSHResponseCommonFrame : public GenericProxy::ResponseCommonFrame, public 
 
 public:
   template <typename T>
-  SSHResponseCommonFrame(uint64_t stream_id, T&& msg)
+  SSHResponseCommonFrame(stream_id_t stream_id, T&& msg)
       : msg_(std::forward<T>(msg)),
         stream_id_(stream_id) {}
 
@@ -56,18 +57,18 @@ public:
 
 private:
   wire::Message msg_;
-  uint64_t stream_id_;
+  stream_id_t stream_id_;
 };
 
 class SSHResponseHeaderFrame : public GenericProxy::ResponseHeaderFrame, public SSHStreamFrame {
 public:
   template <typename T>
-  SSHResponseHeaderFrame(uint64_t stream_id, StreamStatus status, T&& msg)
+  SSHResponseHeaderFrame(stream_id_t stream_id, StreamStatus status, T&& msg)
       : status_(status),
         msg_(std::forward<T>(msg)),
         stream_id_(stream_id) {}
 
-  static std::unique_ptr<SSHResponseHeaderFrame> sentinel(uint64_t stream_id) {
+  static std::unique_ptr<SSHResponseHeaderFrame> sentinel(stream_id_t stream_id) {
     return std::unique_ptr<SSHResponseHeaderFrame>{new SSHResponseHeaderFrame(stream_id)};
   }
 
@@ -76,17 +77,17 @@ public:
   FrameFlags frameFlags() const override;
   auto& message(this auto& self) { return self.msg_; }
   FrameKind frameKind() const final;
-  uint64_t streamId() const;
+  stream_id_t streamId() const;
 
   void setRawFlags(uint32_t raw_flags);
   void setStatus(StreamStatus status);
   bool isSentinel() const;
 
 private:
-  SSHResponseHeaderFrame(uint64_t stream_id);
+  SSHResponseHeaderFrame(stream_id_t stream_id);
   StreamStatus status_;
   wire::Message msg_;
-  uint64_t stream_id_;
+  stream_id_t stream_id_;
   std::optional<uint32_t> raw_flags_;
   bool is_sentinel_{false};
 };
@@ -94,17 +95,17 @@ private:
 class SSHRequestCommonFrame : public GenericProxy::RequestCommonFrame, public SSHStreamFrame {
 public:
   template <typename T>
-  SSHRequestCommonFrame(uint64_t stream_id, T&& msg)
+  SSHRequestCommonFrame(stream_id_t stream_id, T&& msg)
       : msg_(std::forward<T>(msg)),
         stream_id_(stream_id) {}
   FrameKind frameKind() const final;
   auto& message(this auto& self) { return self.msg_; }
   FrameFlags frameFlags() const override;
-  uint64_t streamId() const;
+  stream_id_t streamId() const;
 
 private:
   wire::Message msg_;
-  uint64_t stream_id_;
+  stream_id_t stream_id_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

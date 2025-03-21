@@ -2,7 +2,9 @@
 
 #include "libvterm/utf8.h"
 
-#include "source/extensions/filters/network/ssh/wire/util.h"
+#pragma clang unsafe_buffer_usage begin
+#include "source/common/buffer/buffer_impl.h"
+#pragma clang unsafe_buffer_usage end
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 

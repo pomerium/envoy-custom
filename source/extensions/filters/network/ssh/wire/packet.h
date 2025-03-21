@@ -6,13 +6,10 @@
 #include "source/common/buffer/buffer_impl.h"
 #include "source/common/common/random_generator.h"
 
-#include "source/extensions/filters/network/ssh/wire/util.h"
+#include "source/extensions/filters/network/ssh/common.h"
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
 
 namespace wire {
-
-constexpr uint32_t MaxPacketSize = 256 * 1024;
-constexpr uint32_t MinPacketSize = 4 + 1;
 
 // Returns the padding length according to RFC4253 § 6 for the given payload length, cipher block
 // size, and aad length.

@@ -6,7 +6,6 @@
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
-#include "source/extensions/filters/network/ssh/wire/util.h"
 #include "source/extensions/filters/network/ssh/kex.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 
@@ -57,9 +56,6 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
       } else if (parts.size() == 1) {
         username = parts[0];
       }
-      if (!stream_id_.has_value()) {
-        stream_id_ = api_.randomGenerator().random();
-      }
       AuthenticationRequest auth_req;
       auth_req.set_protocol("ssh");
       auth_req.set_service(msg.service_name);
@@ -88,7 +84,7 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
             "\nsession:  {}"
             "\n=========================\n",
             msg.method_name, username, hostname,
-            pubkey_req.public_key_alg, *fingerprint, *stream_id_);
+            pubkey_req.public_key_alg, *fingerprint, transport_.streamId());
           auto _ = transport_.sendMessageToConnection(banner);
 
           PublicKeyMethodRequest method_req;
@@ -159,8 +155,7 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
       auto state = std::make_shared<AuthState>();
       state->allow_response = std::make_unique<AllowResponse>();
       state->allow_response->CopyFrom(allow);
-      ASSERT(stream_id_.has_value());
-      state->stream_id = *stream_id_;
+      state->stream_id = transport_.streamId();
       switch (allow.target_case()) {
       case pomerium::extensions::ssh::AllowResponse::kUpstream:
         state->channel_mode = ChannelMode::Normal;
@@ -299,7 +294,7 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
                 pending_req_->method_name);
 
       transport_.forward(std::make_unique<SSHResponseHeaderFrame>(
-        transport_.authState().stream_id, StreamStatus(0, true), std::move(msg)));
+        transport_.streamId(), StreamStatus(0, true), std::move(msg)));
       return absl::OkStatus();
     },
     [&](wire::UserAuthFailureMsg& msg) {

@@ -1,7 +1,10 @@
 #pragma once
 
 #include "libvterm/vterm.h"
-#include "source/extensions/filters/network/ssh/wire/util.h"
+
+#include "envoy/buffer/buffer.h"
+#include "source/common/common/c_smart_ptr.h"
+#include "source/extensions/filters/network/ssh/common.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 

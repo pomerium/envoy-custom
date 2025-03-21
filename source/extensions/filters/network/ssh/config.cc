@@ -21,7 +21,7 @@ CodecFactoryPtr SshCodecFactoryConfig::createCodecFactory(
     return (*factory)->createUncachedRawAsyncClient();
   };
 
-  auto sharedSessions = std::make_shared<absl::node_hash_map<uint64_t, std::shared_ptr<ActiveSession>>>();
+  auto sharedSessions = std::make_shared<absl::node_hash_map<stream_id_t, std::shared_ptr<ActiveSession>>>();
   auto slotPtr = std::make_unique<ThreadLocal::TypedSlot<ThreadLocalData>>(context.threadLocal());
   slotPtr->set([sharedSessions](Dispatcher& /*dispatcher*/) -> std::unique_ptr<ThreadLocalData> {
     return std::make_unique<ThreadLocalData>(sharedSessions);

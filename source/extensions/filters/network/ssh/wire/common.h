@@ -73,6 +73,9 @@ constexpr inline SshMessageType operator|(SshMessageType l, SshMessageType r) {
   return static_cast<SshMessageType>(static_cast<uint8_t>(l) | static_cast<uint8_t>(r));
 }
 
+constexpr uint32_t MaxPacketSize = 256 * 1024;
+constexpr uint32_t MinPacketSize = 4 + 1;
+
 // List of allowed integer types that can be used in SSH messages.
 // This is effectively:
 //  interface SshIntegerType {

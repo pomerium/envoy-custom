@@ -7,9 +7,7 @@
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "source/extensions/filters/network/ssh/message_handler.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
-#include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/transport_base.h"
-#include "source/extensions/filters/network/ssh/wire/util.h"
 #include "source/extensions/filters/network/ssh/shared.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
@@ -45,6 +43,10 @@ public:
   void onAboveWriteBufferHighWatermark() override {}
   void onBelowWriteBufferLowWatermark() override {}
 
+  stream_id_t streamId() const override {
+    return stream_id_;
+  }
+
 private:
   void initServices();
   absl::Status handleMessage(wire::Message&& msg) override;
@@ -66,6 +68,7 @@ private:
 
   std::unique_ptr<StreamManagementServiceClient> mgmt_client_;
   std::unique_ptr<ChannelStreamServiceClient> channel_client_;
+  stream_id_t stream_id_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

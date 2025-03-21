@@ -9,6 +9,7 @@
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
 #include "source/extensions/filters/network/ssh/wire/util.h"
+#include "source/extensions/filters/network/ssh/common.h"
 
 namespace wire {
 

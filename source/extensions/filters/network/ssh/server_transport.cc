@@ -13,7 +13,6 @@
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/service_connection.h"
 #include "source/extensions/filters/network/ssh/service_userauth.h"
-#include "source/extensions/filters/network/ssh/wire/util.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
@@ -64,7 +63,8 @@ void SshServerCodec::setCodecCallbacks(Callbacks& callbacks) {
     auto _ = sendMessageToConnection(dc);
     callbacks_->connection()->close(Network::ConnectionCloseType::FlushWrite, err);
   });
-  mgmt_client_->connect();
+  stream_id_ = api_.randomGenerator().random();
+  mgmt_client_->connect(streamId());
 }
 
 void SshServerCodec::initServices() {

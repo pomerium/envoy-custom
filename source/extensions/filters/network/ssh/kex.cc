@@ -7,7 +7,10 @@
 #include "openssl/curve25519.h"
 #include "openssl/rand.h"
 
+#pragma clang unsafe_buffer_usage begin
 #include "source/common/buffer/buffer_impl.h"
+#pragma clang unsafe_buffer_usage end
+
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/openssh.h"

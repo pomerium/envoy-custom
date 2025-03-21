@@ -8,6 +8,7 @@
 #pragma clang unsafe_buffer_usage end
 
 #include "source/extensions/filters/network/ssh/message_handler.h"
+#include "source/extensions/filters/network/ssh/common.h"
 
 namespace pomerium::extensions::ssh {
 inline constexpr auto format_as(ServerMessage::MessageCase mt) {
@@ -41,7 +42,7 @@ class StreamManagementServiceClient : public Grpc::AsyncStreamCallbacks<ServerMe
 public:
   StreamManagementServiceClient(Grpc::RawAsyncClientSharedPtr client);
 
-  void connect();
+  void connect(stream_id_t stream_id);
 
   Grpc::AsyncStream<ClientMessage>& stream();
   void setOnRemoteCloseCallback(std::function<void(Grpc::Status::GrpcStatus, std::string)> cb);

@@ -291,4 +291,8 @@ void SshClientCodec::onEvent(Network::ConnectionEvent event) {
   }
 }
 
+stream_id_t SshClientCodec::streamId() const {
+  return downstream_state_->stream_id;
+}
+
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

@@ -7,7 +7,7 @@
 
 #include "source/common/common/c_smart_ptr.h"
 
-#include "source/extensions/filters/network/ssh/wire/util.h"
+#include "source/extensions/filters/network/ssh/common.h"
 
 extern "C" {
 #include "openssh/sshkey.h"

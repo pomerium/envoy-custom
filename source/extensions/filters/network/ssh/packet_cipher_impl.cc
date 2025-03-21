@@ -5,6 +5,7 @@
 #include <iterator>
 
 #include "source/extensions/filters/network/ssh/kex.h"
+#include "source/extensions/filters/network/ssh/wire/common.h"
 
 extern "C" {
 #include "openssh/ssherr.h"
@@ -36,7 +37,7 @@ AEADPacketCipher::AEADPacketCipher(const char* cipher_name, bytes iv, bytes key,
   aad_len_ = 4; // NOLINT // TODO
   sshcipher_ctx* cipher_ctx = nullptr;
   cipher_init(&cipher_ctx, cipher, key.data(), static_cast<uint32_t>(key.size()),
-      iv.data(), static_cast<uint32_t>(iv.size()), mode);
+              iv.data(), static_cast<uint32_t>(iv.size()), mode);
   ctx_.reset(cipher_ctx);
 }
 
@@ -180,7 +181,7 @@ std::unique_ptr<PacketCipher> PacketCipherFactory::makePacketCipher(direction_t 
                                           writeMode.create(writeIv, writeKey, ModeWrite));
   }
   ENVOY_LOG(error, "unsupported algorithm; read={}, write={}",
-    kex_result->algorithms.r.cipher, kex_result->algorithms.w.cipher);
+            kex_result->algorithms.r.cipher, kex_result->algorithms.w.cipher);
   throw EnvoyException("unsupported algorithm"); // shouldn't get here ideally
 }
 

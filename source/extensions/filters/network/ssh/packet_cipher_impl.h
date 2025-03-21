@@ -6,12 +6,10 @@
 #include "envoy/buffer/buffer.h"
 #include "source/common/common/logger.h"
 
-#include "source/extensions/filters/network/ssh/wire/util.h"
-#include "source/extensions/filters/network/ssh/wire/packet.h"
 #include "source/extensions/filters/network/ssh/kex.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
-#include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/packet_cipher.h"
+#include "source/extensions/filters/network/ssh/common.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 

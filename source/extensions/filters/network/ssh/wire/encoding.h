@@ -12,8 +12,8 @@
 #include "source/common/buffer/buffer_impl.h"
 #pragma clang unsafe_buffer_usage end
 
-#include "source/extensions/filters/network/ssh/wire/util.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
+#include "source/extensions/filters/network/ssh/common.h"
 
 namespace wire {
 

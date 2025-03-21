@@ -1,23 +1,16 @@
 #pragma once
 
 #include "absl/status/statusor.h"
-#include "envoy/config/core/v3/base.pb.h"
 
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
-#include "source/extensions/filters/network/ssh/wire/util.h"
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/kex.h"
 #include "source/extensions/filters/network/ssh/packet_cipher.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
+#include "source/extensions/filters/network/ssh/common.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
-
-struct direction_t {
-  char iv_tag;
-  char key_tag;
-  char mac_key_tag;
-};
 
 static constexpr direction_t clientKeys{'A', 'C', 'E'};
 static constexpr direction_t serverKeys{'B', 'D', 'F'};
@@ -60,13 +53,13 @@ struct HandoffInfo {
 struct MultiplexingInfo {
   MultiplexMode multiplex_mode{MultiplexMode::None};
   ReadWriteMode rw_mode{ReadWriteMode::ReadOnly};
-  uint64_t source_stream_id{};
-  std::optional<uint64_t> downstream_channel_id;
+  stream_id_t source_stream_id{};
+  std::optional<uint32_t> downstream_channel_id;
 };
 
 struct AuthState {
   std::string server_version;
-  uint64_t stream_id; // unique stream id for both connections
+  stream_id_t stream_id; // unique stream id for both connections
   ChannelMode channel_mode;
   std::weak_ptr<Grpc::AsyncStream<pomerium::extensions::ssh::ChannelMessage>> hijacked_stream;
   HandoffInfo handoff_info;
@@ -92,6 +85,7 @@ public:
   virtual const AuthState& authState() const PURE;
   virtual AuthState& authState() PURE;
   virtual const pomerium::extensions::ssh::CodecConfig& codecConfig() const PURE;
+  virtual stream_id_t streamId() const PURE;
 
 protected:
   virtual const ConnectionState& getConnectionState() const PURE;

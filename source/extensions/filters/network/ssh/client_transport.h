@@ -7,7 +7,6 @@
 
 #include "source/extensions/filters/network/ssh/service.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
-#include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/transport_base.h"
 #include "source/extensions/filters/network/ssh/shared.h"
 
@@ -42,6 +41,8 @@ public:
   void onBelowWriteBufferLowWatermark() override {}
 
   absl::StatusOr<size_t> sendMessageToConnection(const wire::Message& msg) override;
+
+  stream_id_t streamId() const override;
 
 protected:
   void onInitialKexDone() override;

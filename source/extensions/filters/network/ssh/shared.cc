@@ -2,8 +2,8 @@
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-ActiveSession::ActiveSession(uint64_t session_id, std::weak_ptr<SourceCallbacks> source_callbacks)
-    : session_id_(session_id),
+ActiveSession::ActiveSession(stream_id_t stream_id, std::weak_ptr<SourceCallbacks> source_callbacks)
+    : stream_id_(stream_id),
       source_callbacks_(source_callbacks) {}
 
 void ActiveSession::disconnectAllMirrors() {
@@ -37,7 +37,7 @@ void ActiveSession::detach(std::shared_ptr<MirrorCallbacks> mc) {
 ThreadLocalData::ThreadLocalData(ActiveSessionsMap shared_sessions)
     : active_sessions_(std::move(shared_sessions)) {}
 
-void ThreadLocalData::beginSession(uint64_t session_id, std::weak_ptr<SourceCallbacks> source_callbacks) {
+void ThreadLocalData::beginSession(stream_id_t session_id, std::weak_ptr<SourceCallbacks> source_callbacks) {
   Thread::LockGuard lock(sessions_mu_);
   ENVOY_LOG(debug, "ThreadLocalData::beginSession [id={}]", session_id);
   (*active_sessions_)[session_id] = std::make_shared<ActiveSession>(session_id, source_callbacks);
@@ -52,7 +52,7 @@ void ThreadLocalData::beginSession(uint64_t session_id, std::weak_ptr<SourceCall
   }
 }
 
-absl::Status ThreadLocalData::shutdownSession(uint64_t session_id) {
+absl::Status ThreadLocalData::shutdownSession(stream_id_t session_id) {
   Thread::LockGuard lock(sessions_mu_);
   ENVOY_LOG(debug, "ThreadLocalData::shutdownSession [id={}]", session_id);
   if (auto it = active_sessions_->find(session_id); it != active_sessions_->end()) {
@@ -62,14 +62,14 @@ absl::Status ThreadLocalData::shutdownSession(uint64_t session_id) {
   return absl::InvalidArgumentError("session not found");
 }
 
-void ThreadLocalData::endSession(uint64_t session_id) {
+void ThreadLocalData::endSession(stream_id_t session_id) {
   Thread::LockGuard lock(sessions_mu_);
   ENVOY_LOG(debug, "ThreadLocalData::endSession [id={}]", session_id);
   active_sessions_->erase(session_id);
 }
 
 absl::StatusOr<std::weak_ptr<SourceInterface>>
-ThreadLocalData::attachToSession(uint64_t session_id, std::weak_ptr<MirrorCallbacks> cb) {
+ThreadLocalData::attachToSession(stream_id_t session_id, std::weak_ptr<MirrorCallbacks> cb) {
   Thread::LockGuard lock(sessions_mu_);
   ENVOY_LOG(debug, "ThreadLocalData::attachToSession [id={}]", session_id);
   if (auto it = active_sessions_->find(session_id); it != active_sessions_->end()) {
@@ -80,7 +80,7 @@ ThreadLocalData::attachToSession(uint64_t session_id, std::weak_ptr<MirrorCallba
   return absl::NotFoundError("session not found");
 }
 
-absl::Status ThreadLocalData::detachFromSession(uint64_t session_id, std::shared_ptr<MirrorCallbacks> cb) {
+absl::Status ThreadLocalData::detachFromSession(stream_id_t session_id, std::shared_ptr<MirrorCallbacks> cb) {
   Thread::LockGuard lock(sessions_mu_);
   ENVOY_LOG(debug, "ThreadLocalData::detachFromSession [id={}]", session_id);
   if (auto it = active_sessions_->find(session_id); it != active_sessions_->end()) {
@@ -93,7 +93,7 @@ absl::Status ThreadLocalData::detachFromSession(uint64_t session_id, std::shared
   }
 }
 
-void ThreadLocalData::awaitSession(uint64_t session_id, std::shared_ptr<SourceInterfaceCallbacks> callbacks) {
+void ThreadLocalData::awaitSession(stream_id_t session_id, std::shared_ptr<SourceInterfaceCallbacks> callbacks) {
   Thread::LockGuard lock(sessions_mu_);
   awaiters_[session_id].insert(std::weak_ptr(callbacks));
 }
