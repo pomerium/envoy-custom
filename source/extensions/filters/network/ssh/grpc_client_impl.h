@@ -74,7 +74,7 @@ public:
 
 private:
   void onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) override;
-  void onCreateInitialMetadata(Http::RequestHeaderMap& headers) override;
+  void onCreateInitialMetadata(Http::RequestHeaderMap&) override {}
   void onReceiveInitialMetadata([[maybe_unused]] Http::ResponseHeaderMapPtr&&) override {}
   void onReceiveTrailingMetadata([[maybe_unused]] Http::ResponseTrailerMapPtr&&) override {}
   void onRemoteClose(Grpc::Status::GrpcStatus, const std::string&) override;

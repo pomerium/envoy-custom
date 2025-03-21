@@ -46,8 +46,9 @@ service StreamManagement {
 // a control message containing a meta-request for the peer to take some action.
 message ChannelMessage {
   oneof message {
-    google.protobuf.BytesValue raw_bytes       = 1;
-    ChannelControl             channel_control = 2;
+    envoy.config.core.v3.Metadata metadata        = 1;
+    google.protobuf.BytesValue    raw_bytes       = 2;
+    ChannelControl                channel_control = 3;
   }
 }
 

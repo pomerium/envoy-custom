@@ -51,20 +51,14 @@ ChannelStreamServiceClient::ChannelStreamServiceClient(Grpc::RawAsyncClientShare
 std::weak_ptr<Grpc::AsyncStream<ChannelMessage>> ChannelStreamServiceClient::start(
   ChannelStreamCallbacks* callbacks, std::optional<envoy::config::core::v3::Metadata> metadata) {
   callbacks_ = callbacks;
-  if (metadata.has_value()) {
-    metadata_ = std::move(metadata);
-  }
   Http::AsyncClient::StreamOptions opts;
   stream_ = std::make_shared<Grpc::AsyncStream<ChannelMessage>>(client_.start(method_manage_stream_, *this, opts));
-  return stream_;
-}
-
-void ChannelStreamServiceClient::onCreateInitialMetadata(Http::RequestHeaderMap& headers) {
-  if (metadata_.has_value()) {
-    auto id = Envoy::Config::Metadata::metadataValue(&*metadata_, "pomerium.ssh", "pomerium-session-id");
-    ENVOY_LOG(error, "ChannelStreamServiceClient::onCreateInitialMetadata {}", id.string_value());
-    headers.setCopy(Http::LowerCaseString("pomerium-session-id"), id.string_value());
+  if (metadata.has_value()) {
+    ChannelMessage mdMsg;
+    *mdMsg.mutable_metadata() = *metadata;
+    stream_->sendMessage(mdMsg, false);
   }
+  return stream_;
 }
 
 void ChannelStreamServiceClient::onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) {
