@@ -3,6 +3,9 @@
 #include <memory>
 #include <string>
 
+#include "envoy/buffer/buffer.h"
+#include "source/common/common/logger.h"
+
 #include "source/extensions/filters/network/ssh/wire/util.h"
 #include "source/extensions/filters/network/ssh/wire/packet.h"
 #include "source/extensions/filters/network/ssh/kex.h"
@@ -100,7 +103,7 @@ static const std::map<std::string, CipherMode> cipherModes{
 };
 // clang-format on
 
-class PacketCipherFactory {
+class PacketCipherFactory : public Logger::Loggable<Logger::Id::filter> {
 public:
   static std::unique_ptr<PacketCipher> makePacketCipher(direction_t read,
                                                         direction_t write,

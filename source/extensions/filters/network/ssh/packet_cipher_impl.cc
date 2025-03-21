@@ -179,7 +179,7 @@ std::unique_ptr<PacketCipher> PacketCipherFactory::makePacketCipher(direction_t 
     return std::make_unique<PacketCipher>(readMode.create(readIv, readKey, ModeRead),
                                           writeMode.create(writeIv, writeKey, ModeWrite));
   }
-  ENVOY_LOG_MISC(error, "unsupported algorithm; read={}, write={}",
+  ENVOY_LOG(error, "unsupported algorithm; read={}, write={}",
     kex_result->algorithms.r.cipher, kex_result->algorithms.w.cipher);
   throw EnvoyException("unsupported algorithm"); // shouldn't get here ideally
 }
