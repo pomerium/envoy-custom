@@ -38,6 +38,18 @@ public:
       : AEADPacketCipher(cipherChacha20Poly1305, iv, key, mode) {}
 };
 
+class AESGCM128Cipher : public AEADPacketCipher {
+public:
+  AESGCM128Cipher(bytes iv, bytes key, Mode mode)
+      : AEADPacketCipher(cipherAES128GCM, iv, key, mode) {}
+};
+
+class AESGCM256Cipher : public AEADPacketCipher {
+public:
+  AESGCM256Cipher(bytes iv, bytes key, Mode mode)
+      : AEADPacketCipher(cipherAES256GCM, iv, key, mode) {}
+};
+
 class NoCipher : public DirectionalPacketCipher {
 public:
   NoCipher() = default;
@@ -64,6 +76,24 @@ static const std::map<std::string, CipherMode> cipherModes{
       .ivSize  = 0,
       .create  = [](bytes iv, bytes key, Mode mode) {
         return std::make_unique<Chacha20Poly1305Cipher>(iv, key, mode);
+      }
+    }
+  },
+  {
+    cipherAES128GCM, {
+      .keySize = 16,
+      .ivSize = 12,
+      .create = [](bytes iv, bytes key, Mode mode) {
+        return std::make_unique<AESGCM128Cipher>(iv, key, mode);
+      }
+    },
+  },
+  {
+    cipherAES256GCM, {
+      .keySize = 32,
+      .ivSize = 12,
+      .create = [](bytes iv, bytes key, Mode mode) {
+        return std::make_unique<AESGCM256Cipher>(iv, key, mode);
       }
     }
   }

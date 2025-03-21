@@ -27,7 +27,7 @@ absl::Status PacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffer::Instanc
   return read_->decryptPacket(seqnum, out, in);
 }
 
-AEADPacketCipher::AEADPacketCipher(const char* cipher_name, bytes /*iv*/, bytes key,
+AEADPacketCipher::AEADPacketCipher(const char* cipher_name, bytes iv, bytes key,
                                    Mode mode) {
   auto cipher = cipher_by_name(cipher_name);
   block_len_ = cipher_blocksize(cipher);
@@ -35,7 +35,8 @@ AEADPacketCipher::AEADPacketCipher(const char* cipher_name, bytes /*iv*/, bytes 
   iv_len_ = cipher_ivlen(cipher);
   aad_len_ = 4; // NOLINT // TODO
   sshcipher_ctx* cipher_ctx = nullptr;
-  cipher_init(&cipher_ctx, cipher, key.data(), static_cast<uint32_t>(key.size()), nullptr, 0, mode);
+  cipher_init(&cipher_ctx, cipher, key.data(), static_cast<uint32_t>(key.size()),
+      iv.data(), static_cast<uint32_t>(iv.size()), mode);
   ctx_.reset(cipher_ctx);
 }
 
@@ -178,6 +179,8 @@ std::unique_ptr<PacketCipher> PacketCipherFactory::makePacketCipher(direction_t 
     return std::make_unique<PacketCipher>(readMode.create(readIv, readKey, ModeRead),
                                           writeMode.create(writeIv, writeKey, ModeWrite));
   }
+  ENVOY_LOG_MISC(error, "unsupported algorithm; read={}, write={}",
+    kex_result->algorithms.r.cipher, kex_result->algorithms.w.cipher);
   throw EnvoyException("unsupported algorithm"); // shouldn't get here ideally
 }
 
