@@ -44,18 +44,21 @@ absl::Status UserAuthService::requestService() {
   return transport_.sendMessageToConnection(req).status();
 }
 
+static std::pair<std::string_view, std::string_view> splitUsername(std::string_view in) {
+  if (in.contains("://")) {
+    return {in, ""};
+  }
+  auto lastIndex = in.find_last_of('@');
+  if (lastIndex == std::string::npos) {
+    return {in, ""};
+  }
+  return {in.substr(0, lastIndex), in.substr(lastIndex + 1)};
+}
+
 absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
   return msg.visit(
     [&](wire::UserAuthRequestMsg& msg) {
-      const std::vector<absl::string_view> parts =
-        absl::StrSplit(*msg.username, absl::MaxSplits('@', 1));
-      std::string username, hostname;
-      if (parts.size() == 2) {
-        username = parts[0];
-        hostname = parts[1];
-      } else if (parts.size() == 1) {
-        username = parts[0];
-      }
+      auto [username, hostname] = splitUsername(*msg.username);
       AuthenticationRequest auth_req;
       auth_req.set_protocol("ssh");
       auth_req.set_service(msg.service_name);
