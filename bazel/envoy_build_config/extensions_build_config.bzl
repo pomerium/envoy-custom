@@ -16,15 +16,15 @@ EXTENSIONS = {
     #
     # Clusters
     #
-    # "envoy.clusters.aggregate": "//source/extensions/clusters/aggregate:cluster",
-    # "envoy.clusters.dns": "//source/extensions/clusters/dns:dns_cluster_lib",
+    "envoy.clusters.aggregate": "//source/extensions/clusters/aggregate:cluster",
+    "envoy.clusters.dns": "//source/extensions/clusters/dns:dns_cluster_lib",
     # "envoy.clusters.dynamic_forward_proxy": "//source/extensions/clusters/dynamic_forward_proxy:cluster",
     # "envoy.clusters.eds": "//source/extensions/clusters/eds:eds_lib",
     # "envoy.clusters.redis": "//source/extensions/clusters/redis:redis_cluster",
     "envoy.clusters.static": "//source/extensions/clusters/static:static_cluster_lib",
-    # "envoy.clusters.strict_dns": "//source/extensions/clusters/strict_dns:strict_dns_cluster_lib",
-    # "envoy.clusters.original_dst": "//source/extensions/clusters/original_dst:original_dst_cluster_lib",
-    # "envoy.clusters.logical_dns": "//source/extensions/clusters/logical_dns:logical_dns_cluster_lib",
+    "envoy.clusters.strict_dns": "//source/extensions/clusters/strict_dns:strict_dns_cluster_lib",
+    "envoy.clusters.original_dst": "//source/extensions/clusters/original_dst:original_dst_cluster_lib",
+    "envoy.clusters.logical_dns": "//source/extensions/clusters/logical_dns:logical_dns_cluster_lib",
 
     #
     # Compression
@@ -418,7 +418,7 @@ EXTENSIONS = {
     #
 
     # c-ares DNS resolver extension is recommended to be enabled to maintain the legacy DNS resolving behavior.
-    # "envoy.network.dns_resolver.cares": "//source/extensions/network/dns_resolver/cares:config",
+    "envoy.network.dns_resolver.cares": "//source/extensions/network/dns_resolver/cares:config",
     # apple DNS resolver extension is only needed in MacOS build plus one want to use apple library for DNS resolving.
     # "envoy.network.dns_resolver.apple": "//source/extensions/network/dns_resolver/apple:config",
     # getaddrinfo DNS resolver extension can be used when the system resolver is desired (e.g., Android)

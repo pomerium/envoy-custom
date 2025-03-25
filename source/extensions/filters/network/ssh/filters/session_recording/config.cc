@@ -152,11 +152,19 @@ SessionRecordingFilterFactory::createFilterFactoryFromProto(const Protobuf::Mess
     return Grpc::AsyncClientImpl::create(ctx.serverFactoryContext().clusterManager(),
                                          conf->grpc_service(), ctx.serverFactoryContext().timeSource());
   };
-  upload_thread_dispatcher_ = &ctx.serverFactoryContext()
-                                 .clusterManager()
-                                 .getThreadLocalCluster(conf->grpc_service().envoy_grpc().cluster_name())
-                                 ->httpAsyncClient()
-                                 .dispatcher();
+  auto grpc_svc_cluster = ctx.serverFactoryContext()
+                            .clusterManager()
+                            .getThreadLocalCluster(conf->grpc_service().envoy_grpc().cluster_name());
+  if (grpc_svc_cluster == nullptr) {
+    if (!ctx.serverFactoryContext().processContext().has_value()) {
+      // in validation mode, this cluster may not be available.
+      // TODO: validate anything else here?
+      return [](FilterChainFactoryCallbacks&) {};
+    }
+    throw EnvoyException(
+      fmt::format("Cluster {} not found", conf->grpc_service().envoy_grpc().cluster_name()));
+  }
+  upload_thread_dispatcher_ = &grpc_svc_cluster->httpAsyncClient().dispatcher();
   auto uploader = std::make_shared<RecordingUploader>(conf, ctx.serverFactoryContext().api().fileSystem(),
                                                       *upload_thread_dispatcher_, createGrpcClient,
                                                       std::move(compressor_factory));
