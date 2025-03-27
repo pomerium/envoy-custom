@@ -36,6 +36,13 @@ static constexpr auto cipherChacha20Poly1305 = "chacha20-poly1305@openssh.com";
 
 static const string_list preferredCiphers = {cipherChacha20Poly1305, cipherAES128GCM, cipherAES256GCM};
 
+static const std::unordered_set<std::string> invalid_key_exchange_methods = {
+  "ext-info-c",
+  "ext-info-s",
+  "kex-strict-c-v00@openssh.com",
+  "kex-strict-s-v00@openssh.com",
+};
+
 // TODO: non-AEAD cipher support
 static const string_list supportedMACs{
   // "hmac-sha2-256-etm@openssh.com",
@@ -94,6 +101,8 @@ struct KexResult {
   bytes session_id;
   bytes ephemeral_pub_key;
   Algorithms algorithms;
+  bool client_supports_ext_info;
+  bool server_supports_ext_info;
 
   void encodeSharedSecret(bytes& out) {
     Envoy::Buffer::OwnedImpl tmp;
@@ -242,16 +251,12 @@ private:
 
 struct KexState {
   bool is_server{};
-  bool client_has_ext_info{};
-  bool server_has_ext_info{};
   bool kex_strict{};
-  bool ext_info_received{};
   wire::KexInitMessage our_kex{};
   wire::KexInitMessage peer_kex{};
   Algorithms negotiated_algorithms{};
   HandshakeMagics magics{};
   std::optional<bytes> session_id;
-  uint32_t flags{};
 
   std::unique_ptr<KexAlgorithm> alg_impl;
   std::shared_ptr<KexResult> kex_result;
@@ -263,14 +268,14 @@ struct KexState {
   bool kex_newkeys_sent{};
   bool kex_newkeys_received{};
 
-  bool kexHasExtInfoInAuth() const;
-  void setKexHasExtInfoInAuth();
+  bool client_supports_ext_info{};
+  bool server_supports_ext_info{};
+  bool ext_info_sent{};
+  bool ext_info_received{};
+  bool ext_info_recv_permitted{};
 
-  bool kexRSASHA2256Supported() const;
-  void setKexRSASHA2256Supported();
-
-  bool kexRSASHA2512Supported() const;
-  void setKexRSASHA2512Supported();
+  bool kex_rsa_sha2_256_supported{};
+  bool kex_rsa_sha2_512_supported{};
 };
 
 static const string_list rsaSha2256HostKeyAlgs = {
@@ -307,7 +312,8 @@ enum class KexMode {
 
 class Kex : public VersionExchangeCallbacks,
             public SshMessageHandler,
-            public Logger::Loggable<Logger::Id::filter> {
+            public Logger::Loggable<Logger::Id::filter>,
+            public SshMessageMiddleware {
 public:
   Kex(TransportCallbacks& transport_callbacks,
       KexCallbacks& kex_callbacks,
@@ -326,6 +332,8 @@ public:
   absl::Status loadSshKeyPair(const std::string& priv_key_path, const std::string& pub_key_path);
   void setVersionStrings(const std::string& ours, const std::string& peer) override;
 
+  absl::StatusOr<bool> interceptMessage(wire::Message& msg) override;
+
 private:
   absl::Status handleMessage(wire::Message&& msg) noexcept override;
   absl::Status sendKexInit() noexcept;
@@ -336,6 +344,7 @@ private:
   Filesystem::Instance& fs_;
   bool is_server_;
   std::vector<host_keypair_t> host_keys_;
+  Envoy::OptRef<MessageDispatcher<wire::Message>> msg_dispatcher_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

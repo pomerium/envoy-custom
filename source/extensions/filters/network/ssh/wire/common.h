@@ -60,6 +60,10 @@ enum class SshMessageType : uint8_t {
   ChannelRequest = 98,
   ChannelSuccess = 99,
   ChannelFailure = 100,
+
+  // Extensions
+  Ping = 192,
+  Pong = 193,
 };
 
 inline constexpr auto format_as(SshMessageType mt) {

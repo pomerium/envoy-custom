@@ -875,6 +875,127 @@ struct UserAuthPubKeyOkMsg : Msg<SshMessageType::UserAuthPubKeyOk> {
   }
 };
 
+struct ServerSigAlgsExtension : SubMsg<SshMessageType::ExtInfo, Key("server-sig-algs")> {
+  field<string_list, NameListFormat> public_key_algorithms_accepted;
+
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
+    return public_key_algorithms_accepted.decode(buffer, payload_size);
+  }
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
+    return public_key_algorithms_accepted.encode(buffer);
+  }
+};
+
+struct PingExtension : SubMsg<SshMessageType::ExtInfo, Key("ping@openssh.com")> {
+  field<std::string, LengthPrefixed> version;
+
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
+    return version.decode(buffer, payload_size);
+  }
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
+    return version.encode(buffer);
+  }
+};
+
+struct Extension {
+  field<std::string, LengthPrefixed> extension_name;
+  sub_message<ServerSigAlgsExtension, PingExtension> extension{extension_name};
+
+  Extension() = default;
+  template <typename T>
+    requires (decltype(extension)::has_option<T>())
+  explicit Extension(T&& ext) {
+    extension.reset(std::forward<T>(ext));
+  }
+  Extension(Extension&&) = default;
+  Extension& operator=(const Extension&) = delete;
+  Extension& operator=(Extension&&) = default;
+  Extension(const Extension& other)
+      : extension_name(other.extension_name),
+        extension(other.extension) {
+    extension.setKeyField(extension_name);
+    auto _ = extension.decodeUnknown(); // TODO: handle this error
+  }
+};
+
+// implements Reader
+inline size_t read(Envoy::Buffer::Instance& buffer, Extension& ext, size_t payload_size) {
+  size_t n = 0;
+  if (auto r = ext.extension_name.decode(buffer, payload_size); !r.ok()) {
+    throw Envoy::EnvoyException(std::string(r.status().message()));
+  } else {
+    n += *r;
+  }
+  auto extDataLen = buffer.peekBEInt<uint32_t>() + 4uz;
+  if (extDataLen > payload_size) {
+    throw Envoy::EnvoyException(fmt::format("invalid message length: {}", extDataLen));
+  }
+  if (auto r = ext.extension.decode(buffer, extDataLen); !r.ok()) {
+    throw Envoy::EnvoyException(std::string(r.status().message()));
+  } else {
+    n += *r;
+  }
+  return n;
+}
+
+// implements Writer
+inline size_t write(Envoy::Buffer::Instance& buffer, const Extension& ext) {
+  auto n = encodeSequence(buffer, ext.extension_name, ext.extension);
+  if (!n.ok()) {
+    throw Envoy::EnvoyException(std::string(n.status().message()));
+  }
+  return *n;
+}
+
+struct ExtInfoMsg : Msg<SshMessageType::ExtInfo> {
+  field<std::vector<Extension>, ListSizePrefixed> extensions;
+
+  template <typename T>
+  bool hasExtension() const {
+    for (const auto& ext : *extensions) {
+      if (ext.extension.holds_alternative<T>()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
+    return decodeMsg(buffer, type, payload_size,
+                     extensions);
+  }
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
+    return encodeMsg(buffer, type,
+                     extensions);
+  }
+};
+
+struct PingMsg : Msg<SshMessageType::Ping> {
+  field<std::string, LengthPrefixed> data;
+
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
+    return decodeMsg(buffer, type, payload_size,
+                     data);
+  }
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
+    return encodeMsg(buffer, type,
+                     data);
+  }
+};
+
+struct PongMsg : Msg<SshMessageType::Pong> {
+  field<std::string, LengthPrefixed> data;
+
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
+    return decodeMsg(buffer, type, payload_size,
+                     data);
+  }
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
+    return encodeMsg(buffer, type,
+                     data);
+  }
+};
+
 namespace detail {
 
 using top_level_message = sub_message<
@@ -884,7 +1005,8 @@ using top_level_message = sub_message<
   DebugMsg,                                                       // 4
   ServiceRequestMsg,                                              // 5
   ServiceAcceptMsg,                                               // 6
-  KexInitMessage,                                                 // 7
+  ExtInfoMsg,                                                     // 7
+  KexInitMessage,                                                 // 20
   NewKeysMsg,                                                     // 21
   OverloadedMessage<KexEcdhInitMessage>,                          // 30 (2 overloads, 1 supported)
   OverloadedMessage<KexEcdhReplyMsg>,                             // 31 (3 overloads, 1 supported)
@@ -907,7 +1029,9 @@ using top_level_message = sub_message<
   ChannelCloseMsg,                                                // 97
   ChannelRequestMsg,                                              // 98
   ChannelSuccessMsg,                                              // 99
-  ChannelFailureMsg>;                                             // 100
+  ChannelFailureMsg,                                              // 100
+  PingMsg,                                                        // 192
+  PongMsg>;                                                       // 193
 
 template <> struct overload_for<KexEcdhInitMessage> : std::type_identity<OverloadedMessage<KexEcdhInitMessage>> {};
 template <> struct overload_for<KexEcdhReplyMsg> : std::type_identity<OverloadedMessage<KexEcdhReplyMsg>> {};

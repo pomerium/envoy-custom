@@ -2,6 +2,7 @@
 
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
+#include "source/extensions/filters/network/ssh/common.h"
 
 namespace wire::test {
 
@@ -34,6 +35,11 @@ TEST(MessageTest, Visit) {
   static_assert(!detail::single_top_level_visitor<false, decltype(non_overload)>::selected_overload);
 
   static_assert(!detail::single_top_level_visitor<false, decltype(defaultCase)>::selected_overload);
+
+  static_assert(std::is_invocable_v<decltype([](any_of<wire::IgnoreMsg, wire::DebugMsg, wire::UnimplementedMsg> auto&) {}),
+                                    wire::IgnoreMsg&>);
+  static_assert(std::is_invocable_v<decltype([](wire::detail::TopLevelMessage auto&) {}),
+                                    wire::IgnoreMsg&>);
 
   auto visitor = [&]() {
     return msg.visit(
@@ -150,4 +156,28 @@ TEST(MessageTest, Visit_ConceptArgs) {
   msg = kex_init_msg;
   EXPECT_EQ(1, visitor(msg));
 }
+
+TEST(MessageTest, RoundTrip) {
+  wire::ExtInfoMsg extInfo;
+  wire::PingExtension pingExt;
+  pingExt.version = "0";
+  extInfo.extensions->emplace_back(std::move(pingExt));
+
+  Envoy::Buffer::OwnedImpl tmp;
+  auto n = extInfo.encode(tmp);
+  EXPECT_TRUE(n.ok());
+  auto encoded1 = tmp.toString();
+
+  wire::ExtInfoMsg decoded;
+  auto n2 = decoded.decode(tmp, *n);
+  EXPECT_TRUE(n2.ok());
+  EXPECT_EQ(*n, *n2);
+
+  EXPECT_EQ(extInfo.extensions->size(), decoded.extensions->size());
+  EXPECT_EQ(extInfo.extensions[0].extension_name, decoded.extensions[0].extension_name);
+  EXPECT_EQ(extInfo.extensions[0].extension.get<PingExtension>().version, decoded.extensions[0].extension.get<PingExtension>().version);
+
+  EXPECT_EQ(encoded1, *decoded.encodeTo<std::string>());
+}
+
 } // namespace wire::test

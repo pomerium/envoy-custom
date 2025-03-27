@@ -30,8 +30,8 @@ envoy_cc_library(
     ],
     hdrs = [
         "client_transport.h",
-        "common.h",
         "config.h",
+        "extension_ping.h",
         "frame.h",
         "grpc_client_impl.h",
         "kex.h",
@@ -57,6 +57,7 @@ envoy_cc_library(
     repository = "@envoy",
     deps = [
         ":ssh_cc_proto",
+        ":ssh_common_lib",
         "//:libvterm",
         "//:openssh",
         "//source/extensions/filters/network/ssh/wire:wire_lib",
@@ -77,6 +78,21 @@ envoy_cc_library(
         "@envoy//source/extensions/filters/network/ext_authz:config",
         "@envoy//source/extensions/filters/network/generic_proxy/interface:codec_interface",
         "@envoy//source/extensions/filters/network/generic_proxy/interface:filter_interface",
+    ],
+)
+
+envoy_cc_library(
+    name = "ssh_common_lib",
+    srcs = [],
+    hdrs = ["common.h"],
+    copts = [
+        "-Wimplicit-fallthrough",
+        "-Wimplicit-int-conversion",
+    ],
+    repository = "@envoy",
+    deps = [
+        "@envoy//source/common/common:fmt_lib",
+        "@envoy//source/common/common:statusor_lib",
     ],
 )
 

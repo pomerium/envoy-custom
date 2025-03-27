@@ -5,6 +5,7 @@
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
+#include <variant>
 
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
@@ -275,6 +276,11 @@ struct sub_message {
   decltype(auto) get(this auto& self) { return std::get<T>(*self.oneof); }
   template <size_t I>
   decltype(auto) get(this auto& self) { return std::get<I>(*self.oneof); }
+
+  template <typename T>
+  constexpr bool holds_alternative() const {
+    return oneof.has_value() && std::holds_alternative<T>(*oneof);
+  }
 
   // Reads from the buffer and decodes the contained message. The type is determined by the
   // current value of the key field. It is expected that the key field has already been decoded.

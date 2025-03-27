@@ -28,7 +28,13 @@ template <typename T>
 class MessageMiddleware {
 public:
   virtual ~MessageMiddleware() = default;
-  virtual bool interceptMessage(T& msg) PURE;
+
+  // A return value of true indicates the message should continue to be processed as normal.
+  // A return value of false indicates the message should be dropped immediately. Subsequent
+  // middleware handlers will not be called.
+  // An error status will be treated the same way as in MessageHandler::handleMessage, resulting
+  // in the connection being closed.
+  virtual absl::StatusOr<bool> interceptMessage(T& msg) PURE;
 };
 
 template <typename T>
@@ -41,13 +47,22 @@ template <typename T>
 message_case_type_t<T> messageCase(const T& msg);
 
 template <typename T>
+struct HandlerInfo {
+  MessageHandler<T>* handler;
+  bool enabled{};
+};
+
+template <typename T>
 class MessageDispatcher {
 public:
   void registerHandler(message_case_type_t<T> message_type, MessageHandler<T>* handler) {
     if (dispatch_.contains(message_type)) {
       PANIC("bug: duplicate registration of message type");
     }
-    dispatch_[message_type] = handler;
+    dispatch_[message_type] = HandlerInfo{
+      .handler = handler,
+      .enabled = true,
+    };
   }
 
   void unregisterHandler(message_case_type_t<T> message_type) {
@@ -59,30 +74,41 @@ public:
   }
 
   void uninstallMiddleware(MessageMiddleware<T>* middleware) {
-    if (auto it = std::find(middlewares_.begin(), middlewares_.end(), middleware);
-        it != middlewares_.end()) {
-      middlewares_.erase(it);
+    middlewares_.remove(middleware);
+  }
+
+  void setHandlerEnabled(MessageHandler<T>* handler, bool enabled) {
+    for (auto&& [k, v] : dispatch_) {
+      if (v.handler == handler) {
+        v.enabled = enabled;
+      }
     }
   }
 
 protected:
   absl::Status dispatch(T&& msg) {
-    message_case_type_t<T> mt = messageCase(msg);
-    if (!dispatch_.contains(mt)) {
-      return absl::Status(absl::StatusCode::kInternal, fmt::format("unknown message type: {}", mt));
-    }
-    if (!middlewares_.empty()) {
-      for (auto& mw : middlewares_) {
-        auto cont = mw->interceptMessage(msg);
-        if (!cont) {
-          return absl::OkStatus();
-        }
+    for (auto& mw : middlewares_) {
+      auto cont = mw->interceptMessage(msg);
+      if (!cont.ok()) [[unlikely]] {
+        return cont.status();
+      }
+      if (!*cont) {
+        return absl::OkStatus();
       }
     }
-    return dispatch_[mt]->handleMessage(std::move(msg));
+
+    message_case_type_t<T> mt = messageCase(msg);
+    auto&& it = dispatch_.find(mt);
+    if (it == dispatch_.end()) [[unlikely]] {
+      return absl::Status(absl::StatusCode::kInternal, fmt::format("unknown message type: {}", mt));
+    }
+    if (it->second.enabled) {
+      return it->second.handler->handleMessage(std::move(msg));
+    }
+    return absl::OkStatus();
   }
   std::list<MessageMiddleware<T>*> middlewares_;
-  std::unordered_map<message_case_type_t<T>, MessageHandler<T>*> dispatch_;
+  std::unordered_map<message_case_type_t<T>, HandlerInfo<T>> dispatch_;
 };
 
 using SshMessageDispatcher = MessageDispatcher<wire::Message>;

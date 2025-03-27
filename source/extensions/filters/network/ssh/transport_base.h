@@ -2,6 +2,7 @@
 
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
 
+#include "source/extensions/filters/network/ssh/extension_ping.h"
 #include "source/extensions/filters/network/ssh/wire/packet.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/version_exchange.h"
@@ -126,20 +127,30 @@ public:
       onInitialKexDone();
     }
   }
-  const KexResult& getKexResult() const override {
-    return *kex_result_;
-  }
-  const ConnectionState& getConnectionState() const override {
-    return *connection_state_;
-  }
+  const KexResult& getKexResult() const final { return *kex_result_; }
+  const ConnectionState& getConnectionState() const final { return *connection_state_; }
+  const pomerium::extensions::ssh::CodecConfig& codecConfig() const final { return *config_; }
 
-  void writeToConnection(Envoy::Buffer::Instance& buf) const override {
+  void writeToConnection(Envoy::Buffer::Instance& buf) const final {
     return callbacks_->writeToConnection(buf);
   }
 
-  const pomerium::extensions::ssh::CodecConfig& codecConfig() const override {
-    return *config_;
-  };
+  void updatePeerExtInfo(std::optional<wire::ExtInfoMsg> msg) override {
+    peer_ext_info_ = std::move(msg);
+  }
+
+  std::optional<wire::ExtInfoMsg> outgoingExtInfo() final {
+    if (outgoing_ext_info_.has_value()) {
+      std::optional<wire::ExtInfoMsg> out;
+      outgoing_ext_info_.swap(out);
+      return out;
+    }
+    return {};
+  }
+
+  std::optional<wire::ExtInfoMsg> peerExtInfo() const final {
+    return {peer_ext_info_};
+  }
 
 protected:
   virtual absl::Status onMessageDecoded(wire::Message&& msg) {
@@ -157,6 +168,8 @@ protected:
   std::unique_ptr<Kex> kex_;
   std::shared_ptr<KexResult> kex_result_;
   std::unique_ptr<ConnectionState> connection_state_;
+  std::optional<wire::ExtInfoMsg> outgoing_ext_info_;
+  std::optional<wire::ExtInfoMsg> peer_ext_info_;
 
   std::string server_version_{"SSH-2.0-Envoy"};
 

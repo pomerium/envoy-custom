@@ -23,6 +23,7 @@ envoy_cc_library(
     ],
     repository = "@envoy",
     deps = [
+        "//source/extensions/filters/network/ssh:ssh_common_lib",
         "@envoy//envoy/buffer:buffer_interface",
         "@envoy//source/common/buffer:buffer_lib",
         "@envoy//source/common/common:fmt_lib",

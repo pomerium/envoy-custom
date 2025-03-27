@@ -13,7 +13,13 @@ SshClientCodec::SshClientCodec(
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
   std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr)
     : TransportBase(api, std::move(config)),
-      tls_(slot_ptr) {}
+      tls_(slot_ptr) {
+  wire::ExtInfoMsg extInfo;
+  wire::PingExtension pingExt;
+  pingExt.version = "0";
+  extInfo.extensions->emplace_back(std::move(pingExt));
+  outgoing_ext_info_ = std::move(extInfo);
+}
 
 void SshClientCodec::setCodecCallbacks(GenericProxy::ClientCodecCallbacks& callbacks) {
   TransportBase::setCodecCallbacks(callbacks);
@@ -25,6 +31,8 @@ void SshClientCodec::initServices() {
   user_auth_svc_->registerMessageHandlers(*this);
   connection_svc_ = std::make_unique<UpstreamConnectionService>(*this, api_, tls_);
   connection_svc_->registerMessageHandlers(*this);
+  ping_handler_ = std::make_unique<UpstreamPingExtensionHandler>(*this);
+  ping_handler_->registerMessageHandlers(*this);
 
   services_[user_auth_svc_->name()] = user_auth_svc_.get();
   services_[connection_svc_->name()] = connection_svc_.get();
@@ -157,10 +165,6 @@ absl::Status SshClientCodec::handleMessage(wire::Message&& msg) {
     });
 }
 
-void SshClientCodec::writeToConnection(Envoy::Buffer::Instance& buf) const {
-  return callbacks_->writeToConnection(buf);
-}
-
 absl::StatusOr<bytes> SshClientCodec::signWithHostKey(bytes_view in) const {
   auto hostKey = kex_result_->algorithms.host_key;
   if (auto k = kex_->getHostKey(hostKey); k) {
@@ -180,6 +184,10 @@ AuthState& SshClientCodec::authState() {
 void SshClientCodec::forward(std::unique_ptr<SSHStreamFrame> frame) {
   switch (frame->frameKind()) {
   case FrameKind::ResponseHeader:
+    if (authState().upstream_ext_info.has_value() &&
+        authState().upstream_ext_info->hasExtension<wire::PingExtension>()) {
+      ping_handler_->enableForward(true);
+    }
     callbacks_->onDecodingSuccess(std::unique_ptr<ResponseHeaderFrame>(dynamic_cast<SSHResponseHeaderFrame*>(frame.release())));
     break;
   case FrameKind::ResponseCommon:
@@ -190,9 +198,9 @@ void SshClientCodec::forward(std::unique_ptr<SSHStreamFrame> frame) {
   }
 }
 
-bool SshClientCodec::interceptMessage(wire::Message& ssh_msg) {
+absl::StatusOr<bool> SshClientCodec::interceptMessage(wire::Message& ssh_msg) {
   return ssh_msg.visit(
-    [&](wire::ChannelOpenConfirmationMsg& msg) {
+    [&](wire::ChannelOpenConfirmationMsg& msg) -> absl::StatusOr<bool> {
       const auto& info = downstream_state_->handoff_info;
       if (info.handoff_in_progress && msg.recipient_channel == info.channel_info->downstream_channel_id()) {
         channel_id_mappings_[info.channel_info->internal_upstream_channel_id()] = msg.sender_channel;
@@ -210,12 +218,14 @@ bool SshClientCodec::interceptMessage(wire::Message& ssh_msg) {
         ptyReq.modes = info.pty_info->modes();
 
         channelReq.msg = ptyReq;
-        auto _ = sendMessageToConnection(channelReq); // todo: handle error
+        if (auto r = sendMessageToConnection(channelReq); !r.ok()) {
+          return r.status();
+        }
         return false;
       }
       return true;
     },
-    [&](wire::ChannelOpenFailureMsg& msg) {
+    [&](wire::ChannelOpenFailureMsg& msg) -> absl::StatusOr<bool> {
       if (msg.recipient_channel == downstream_state_->handoff_info.channel_info->downstream_channel_id()) {
 
         // couldn't connect to the upstream, bail out
@@ -226,20 +236,22 @@ bool SshClientCodec::interceptMessage(wire::Message& ssh_msg) {
       }
       return true;
     },
-    [&](wire::UserAuthSuccessMsg&) {
+    [&](wire::UserAuthSuccessMsg&) -> absl::StatusOr<bool> {
       wire::ChannelOpenMsg openMsg;
       openMsg.channel_type = downstream_state_->handoff_info.channel_info->channel_type();
       openMsg.sender_channel = downstream_state_->handoff_info.channel_info->downstream_channel_id();
       openMsg.initial_window_size = downstream_state_->handoff_info.channel_info->initial_window_size();
       openMsg.max_packet_size = downstream_state_->handoff_info.channel_info->max_packet_size();
-      auto _ = sendMessageToConnection(openMsg); // todo: handle status
+      if (auto r = sendMessageToConnection(openMsg); !r.ok()) {
+        return r.status();
+      }
       return false;
     },
-    [&](wire::UserAuthFailureMsg& msg) {
+    [&](wire::UserAuthFailureMsg& msg) -> absl::StatusOr<bool> {
       callbacks_->onDecodingFailure(fmt::format("auth failure: {}", msg.methods));
       return false;
     },
-    [&](wire::ChannelSuccessMsg&) {
+    [&](wire::ChannelSuccessMsg&) -> absl::StatusOr<bool> {
       if (downstream_state_->handoff_info.handoff_in_progress) {
         // open a shell
         // TODO: don't "hard code" this logic
@@ -247,7 +259,9 @@ bool SshClientCodec::interceptMessage(wire::Message& ssh_msg) {
         shellReq.recipient_channel = channel_id_mappings_[downstream_state_->handoff_info.channel_info->internal_upstream_channel_id()];
         shellReq.request_type = "shell";
         shellReq.want_reply = false;
-        auto _ = sendMessageToConnection(shellReq);
+        if (auto r = sendMessageToConnection(shellReq); !r.ok()) {
+          return r.status();
+        }
 
         // handoff is complete, send an empty message to signal the downstream codec
         callbacks_->onDecodingSuccess(SSHResponseHeaderFrame::sentinel(authState().stream_id));
@@ -255,29 +269,32 @@ bool SshClientCodec::interceptMessage(wire::Message& ssh_msg) {
       }
       return true;
     },
-    [&](wire::ChannelFailureMsg&) {
+    [&](wire::ChannelFailureMsg&) -> absl::StatusOr<bool> {
       if (downstream_state_->handoff_info.handoff_in_progress) {
         callbacks_->onDecodingFailure("failed to open upstream tty");
         return false;
       }
       return true;
     },
-    [&](any_of<wire::IgnoreMsg, wire::DebugMsg, wire::UnimplementedMsg> auto&) {
+    [&](any_of<wire::IgnoreMsg, wire::DebugMsg, wire::UnimplementedMsg> auto&) -> absl::StatusOr<bool> {
       if (downstream_state_->handoff_info.handoff_in_progress) {
         // ignore these messages during handoff, they can trigger a common frame to be sent too early
         return false;
       }
       return true;
     },
-    [](auto&) { return true; });
+    [](auto&) -> absl::StatusOr<bool> { return true; });
 }
 
-static_assert(std::is_invocable_v<decltype([](any_of<wire::IgnoreMsg, wire::DebugMsg, wire::UnimplementedMsg> auto&) {}),
-                                  wire::IgnoreMsg&>);
-static_assert(std::is_invocable_v<decltype([](wire::detail::TopLevelMessage auto&) {}),
-                                  wire::IgnoreMsg&>);
-
 void SshClientCodec::onInitialKexDone() {
+  // send ext_info if we have it and the server supports it
+  if (kex_result_->server_supports_ext_info) {
+    auto extInfo = outgoingExtInfo();
+    if (extInfo.has_value()) {
+      (void)sendMessageToConnection(*extInfo);
+    }
+  }
+
   if (auto stat = user_auth_svc_->requestService(); !stat.ok()) {
     ENVOY_LOG(error, "error requesting user auth: {}", stat.message());
     callbacks_->onDecodingFailure(fmt::format("error requesting user auth: {}", stat.message()));

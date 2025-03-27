@@ -35,6 +35,12 @@ SshServerCodec::SshServerCodec(Api::Api& api,
   mgmt_client_ = std::make_unique<StreamManagementServiceClient>(*grpcClient);
   channel_client_ = std::make_unique<ChannelStreamServiceClient>(*grpcClient);
   this->registerMessageHandlers(*mgmt_client_);
+
+  wire::ExtInfoMsg extInfo;
+  wire::PingExtension pingExt;
+  pingExt.version = "0";
+  extInfo.extensions->emplace_back(std::move(pingExt));
+  outgoing_ext_info_ = std::move(extInfo);
 };
 
 void SshServerCodec::registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) {
@@ -73,6 +79,8 @@ void SshServerCodec::initServices() {
   user_auth_service_->registerMessageHandlers(*mgmt_client_);
   connection_service_ = std::make_unique<DownstreamConnectionService>(*this, api_, tls_);
   connection_service_->registerMessageHandlers(*this);
+  ping_handler_ = std::make_unique<DownstreamPingExtensionHandler>(*this);
+  ping_handler_->registerMessageHandlers(*this);
 
   service_names_.insert(user_auth_service_->name());
   service_names_.insert(connection_service_->name());
@@ -90,6 +98,12 @@ GenericProxy::EncodingResult SshServerCodec::encode(const GenericProxy::StreamFr
     }
     if (sshFrame.isSentinel()) [[unlikely]] {
       return 0;
+    }
+    if (authState().upstream_ext_info.has_value() &&
+        authState().upstream_ext_info->hasExtension<wire::PingExtension>()) {
+      // if the upstream supports the ping extension, we should forward pings to the upstream
+      // instead of handling them ourselves
+      ping_handler_->enableForward(true);
     }
     return sendMessageToConnection(sshFrame.message());
   }

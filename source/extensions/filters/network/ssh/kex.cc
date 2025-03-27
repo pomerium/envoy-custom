@@ -116,6 +116,7 @@ void Kex::registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) 
   dispatcher.registerHandler(wire::SshMessageType::KexECDHInit, this);
   dispatcher.registerHandler(wire::SshMessageType::KexECDHReply, this);
   dispatcher.registerHandler(wire::SshMessageType::NewKeys, this);
+  msg_dispatcher_ = dispatcher;
 }
 
 void Kex::setVersionStrings(const std::string& ours, const std::string& peer) {
@@ -126,6 +127,18 @@ void Kex::setVersionStrings(const std::string& ours, const std::string& peer) {
     state_->magics.server_version = peer;
     state_->magics.client_version = ours;
   }
+}
+
+absl::StatusOr<bool> Kex::interceptMessage(wire::Message& msg) {
+  msg_dispatcher_->uninstallMiddleware(this);
+  return msg.visit(
+    [&](wire::ExtInfoMsg& msg) {
+      transport_.updatePeerExtInfo(msg);
+      return false;
+    },
+    [](auto&) {
+      return true;
+    });
 }
 
 absl::Status Kex::handleMessage(wire::Message&& msg) noexcept {
@@ -195,6 +208,11 @@ absl::Status Kex::handleMessage(wire::Message&& msg) noexcept {
         return absl::FailedPreconditionError("unexpected NewKeys message received");
       }
       state_->kex_newkeys_received = true;
+      if ((state_->is_server && state_->server_supports_ext_info) ||
+          (!state_->is_server && state_->client_supports_ext_info)) {
+        // this stays active for the next received message only, then is uninstalled
+        msg_dispatcher_->installMiddleware(this);
+      }
       // done
       kex_callbacks_.setKexResult(state_->kex_result);
       return absl::OkStatus();
@@ -221,6 +239,8 @@ absl::Status Kex::handleMessage(wire::Message&& msg) noexcept {
 
       state_->kex_result = state_->alg_impl->result();
       state_->alg_impl.reset();
+      state_->kex_result->client_supports_ext_info = state_->client_supports_ext_info;
+      state_->kex_result->server_supports_ext_info = state_->server_supports_ext_info;
 
       if (is_server_) {
         if (!state_->kex_reply_sent) {
@@ -268,13 +288,13 @@ absl::Status Kex::handleMessage(wire::Message&& msg) noexcept {
 
 absl::StatusOr<Algorithms> Kex::negotiateAlgorithms() noexcept {
   if (is_server_) {
-    state_->client_has_ext_info = absl::c_contains(*state_->peer_kex.kex_algorithms, "ext-info-c");
-    state_->kex_strict =
-      absl::c_contains(*state_->peer_kex.kex_algorithms, "kex-strict-c-v00@openssh.com");
+    state_->client_supports_ext_info = absl::c_contains(*state_->peer_kex.kex_algorithms, "ext-info-c");
+    state_->server_supports_ext_info = true;
+    state_->kex_strict = absl::c_contains(*state_->peer_kex.kex_algorithms, "kex-strict-c-v00@openssh.com");
   } else {
-    state_->server_has_ext_info = absl::c_contains(*state_->peer_kex.kex_algorithms, "ext-info-s");
-    state_->kex_strict =
-      absl::c_contains(*state_->peer_kex.kex_algorithms, "kex-strict-s-v00@openssh.com");
+    state_->client_supports_ext_info = true;
+    state_->server_supports_ext_info = absl::c_contains(*state_->peer_kex.kex_algorithms, "ext-info-s");
+    state_->kex_strict = absl::c_contains(*state_->peer_kex.kex_algorithms, "kex-strict-s-v00@openssh.com");
   }
 
   if (is_server_) {
@@ -282,13 +302,13 @@ absl::StatusOr<Algorithms> Kex::negotiateAlgorithms() noexcept {
     absl::c_set_union(*state_->peer_kex.server_host_key_algorithms, rsaSha2256HostKeyAlgs,
                       std::back_inserter(common));
     if (!common.empty()) {
-      state_->setKexRSASHA2256Supported();
+      state_->kex_rsa_sha2_256_supported = true;
     }
     common.clear();
     absl::c_set_union(*state_->peer_kex.server_host_key_algorithms, rsaSha2512HostKeyAlgs,
                       std::back_inserter(common));
     if (!common.empty()) {
-      state_->setKexRSASHA2512Supported();
+      state_->kex_rsa_sha2_512_supported = true;
     }
   }
 
@@ -301,6 +321,12 @@ absl::StatusOr<Algorithms> Kex::negotiateAlgorithms() noexcept {
       return common_kex.status();
     }
     result.kex = *common_kex;
+
+    // RFC8308 section 2.2
+    if (invalid_key_exchange_methods.contains(result.kex)) {
+      return absl::InvalidArgumentError(
+        fmt::format("negotiated an invalid key exchange method: {}", result.kex));
+    }
   }
   {
     auto common_host_key = findCommon("host key", state_->peer_kex.server_host_key_algorithms,
@@ -451,37 +477,15 @@ absl::Status Kex::loadSshKeyPair(const std::string& priv_key_path, const std::st
   return absl::OkStatus();
 }
 
-bool KexState::kexHasExtInfoInAuth() const {
-  return (flags & KEX_HAS_EXT_INFO_IN_AUTH) != 0;
-}
-
-void KexState::setKexHasExtInfoInAuth() {
-  flags |= KEX_HAS_EXT_INFO_IN_AUTH;
-}
-
-bool KexState::kexRSASHA2256Supported() const {
-  return (flags & KEX_RSA_SHA2_256_SUPPORTED) != 0;
-}
-
-void KexState::setKexRSASHA2256Supported() {
-  flags |= KEX_RSA_SHA2_256_SUPPORTED;
-}
-
-bool KexState::kexRSASHA2512Supported() const {
-  return (flags & KEX_RSA_SHA2_512_SUPPORTED) != 0;
-}
-
-void KexState::setKexRSASHA2512Supported() {
-  flags |= KEX_RSA_SHA2_512_SUPPORTED;
-}
-
 absl::Status Kex::sendKexInit() noexcept {
   wire::KexInitMessage* server_kex_init = &state_->our_kex;
   std::copy(preferredKexAlgos.begin(), preferredKexAlgos.end(),
             std::back_inserter(*server_kex_init->kex_algorithms));
   if (is_server_) {
+    server_kex_init->kex_algorithms->push_back("ext-info-s");
     server_kex_init->kex_algorithms->push_back("kex-strict-s-v00@openssh.com");
   } else {
+    server_kex_init->kex_algorithms->push_back("ext-info-c");
     server_kex_init->kex_algorithms->push_back("kex-strict-c-v00@openssh.com");
   }
   server_kex_init->encryption_algorithms_client_to_server = preferredCiphers;

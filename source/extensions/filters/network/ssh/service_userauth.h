@@ -23,6 +23,7 @@ protected:
   openssh::SSHKey ca_user_pubkey_;
   std::unique_ptr<wire::UserAuthRequestMsg> pending_req_;
   openssh::SSHKey pending_user_key_;
+  Envoy::OptRef<MessageDispatcher<wire::Message>> msg_dispatcher_;
 };
 
 class DownstreamUserAuthService : public UserAuthService,
@@ -42,10 +43,16 @@ private:
   DownstreamTransportCallbacks& transport_;
 };
 
-class UpstreamUserAuthService : public UserAuthService {
+class UpstreamUserAuthService : public UserAuthService,
+                                public SshMessageMiddleware {
 public:
   using UserAuthService::UserAuthService;
   absl::Status handleMessage(wire::Message&& msg) override;
+  absl::StatusOr<bool> interceptMessage(wire::Message& msg) override;
+
+private:
+  bool auth_success_received_{};
+  std::optional<wire::ExtInfoMsg> ext_info_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

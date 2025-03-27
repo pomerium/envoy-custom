@@ -64,6 +64,8 @@ struct AuthState {
   std::weak_ptr<Grpc::AsyncStream<pomerium::extensions::ssh::ChannelMessage>> hijacked_stream;
   HandoffInfo handoff_info;
   MultiplexingInfo multiplexing_info;
+  std::optional<wire::ExtInfoMsg> downstream_ext_info;
+  std::optional<wire::ExtInfoMsg> upstream_ext_info;
 
   std::unique_ptr<pomerium::extensions::ssh::AllowResponse> allow_response;
 
@@ -86,6 +88,14 @@ public:
   virtual AuthState& authState() PURE;
   virtual const pomerium::extensions::ssh::CodecConfig& codecConfig() const PURE;
   virtual stream_id_t streamId() const PURE;
+  virtual void updatePeerExtInfo(std::optional<wire::ExtInfoMsg> msg) PURE;
+
+  // This function is called at each opportunity to send ext info (once for clients, twice for
+  // servers). Iff a value is returned, it will be sent to the peer.
+  virtual std::optional<wire::ExtInfoMsg> outgoingExtInfo() PURE;
+
+  // Returns a copy of the latest peer extension info, if any.
+  virtual std::optional<wire::ExtInfoMsg> peerExtInfo() const PURE;
 
 protected:
   virtual const ConnectionState& getConnectionState() const PURE;

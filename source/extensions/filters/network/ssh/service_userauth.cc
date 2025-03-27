@@ -32,6 +32,8 @@ void UserAuthService::registerMessageHandlers(SshMessageDispatcher& dispatcher) 
   dispatcher.registerHandler(wire::SshMessageType::UserAuthFailure, this);
   dispatcher.registerHandler(wire::SshMessageType::UserAuthPubKeyOk, this);
   dispatcher.registerHandler(wire::SshMessageType::UserAuthInfoResponse, this);
+  dispatcher.registerHandler(wire::SshMessageType::ExtInfo, this);
+  msg_dispatcher_ = dispatcher;
 }
 
 void DownstreamUserAuthService::registerMessageHandlers(StreamMgmtServerMessageDispatcher& dispatcher) {
@@ -159,6 +161,7 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
       state->allow_response = std::make_unique<AllowResponse>();
       state->allow_response->CopyFrom(allow);
       state->stream_id = transport_.streamId();
+      state->downstream_ext_info = transport_.peerExtInfo();
       switch (allow.target_case()) {
       case pomerium::extensions::ssh::AllowResponse::kUpstream:
         state->channel_mode = ChannelMode::Normal;
@@ -224,6 +227,14 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
   default:
     PANIC("server sent invalid message case");
   }
+}
+
+absl::StatusOr<bool> UpstreamUserAuthService::interceptMessage(wire::Message& msg) {
+  msg_dispatcher_->uninstallMiddleware(this);
+  if (msg.msg_type() != wire::SshMessageType::UserAuthSuccess) {
+    return absl::FailedPreconditionError("received out-of-order ExtInfo message during auth");
+  }
+  return true;
 }
 
 absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
@@ -292,9 +303,24 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
       ENVOY_LOG(info, "banner: \n{}", msg.message);
       return absl::OkStatus();
     },
-    [&](wire::UserAuthSuccessMsg& msg) {
+    [&](wire::ExtInfoMsg& msg) {
+      if (auth_success_received_ || ext_info_.has_value()) {
+        return absl::FailedPreconditionError("unexpected ExtInfoMsg received");
+      }
+      ext_info_ = std::move(msg);
+      msg_dispatcher_->installMiddleware(this);
+      return absl::OkStatus();
+    },
+    [&](wire::UserAuthSuccessMsg& msg) { // forward upstream success to downstream
+      // this comment intentionally placed here for searchability ^
       ENVOY_LOG(info, "user auth success: \n{} [{}]", pending_req_->username,
                 pending_req_->method_name);
+      if (ext_info_.has_value()) {
+        transport_.updatePeerExtInfo(std::move(ext_info_));
+      }
+      if (auto info = transport_.peerExtInfo(); info.has_value()) {
+        transport_.authState().upstream_ext_info = std::move(info);
+      }
 
       transport_.forward(std::make_unique<SSHResponseHeaderFrame>(
         transport_.streamId(), StreamStatus(0, true), std::move(msg)));

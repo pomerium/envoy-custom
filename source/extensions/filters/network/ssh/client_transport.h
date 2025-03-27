@@ -49,14 +49,15 @@ protected:
 
 private:
   void initServices();
-  void writeToConnection(Envoy::Buffer::Instance& buf) const override;
   void registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) override;
-  bool interceptMessage(wire::Message& ssh_msg) override;
+  absl::StatusOr<bool> interceptMessage(wire::Message& ssh_msg) override;
 
   std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> tls_;
   AuthStateSharedPtr downstream_state_;
   std::unique_ptr<UpstreamUserAuthService> user_auth_svc_;
   std::unique_ptr<UpstreamConnectionService> connection_svc_;
+  std::unique_ptr<UpstreamPingExtensionHandler> ping_handler_;
+
   std::map<std::string, Service*> services_;
 
   bool channel_id_remap_enabled_{false};
