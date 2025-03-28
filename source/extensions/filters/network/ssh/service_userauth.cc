@@ -70,27 +70,27 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
 
       return msg.msg.visit(
         [&](const wire::PubKeyUserAuthRequestMsg& pubkey_req) {
-          auto userPubKey = openssh::SSHKey::fromBlob(pubkey_req.public_key);
-          if (!userPubKey.ok()) {
-            return userPubKey.status();
-          }
-          wire::UserAuthBannerMsg banner{};
-          auto fingerprint = userPubKey->fingerprint();
-          if (!fingerprint.ok()) {
-            return fingerprint.status();
-          }
-          banner.message = fmt::format(
-            "\n====== TEST BANNER ======"
-            "\nmethod:   {}"
-            "\nusername: {}"
-            "\nhostname: {}"
-            "\nkeyalg:   {}"
-            "\npubkey:   {}"
-            "\nsession:  {}"
-            "\n=========================\n",
-            msg.method_name, username, hostname,
-            pubkey_req.public_key_alg, *fingerprint, transport_.streamId());
-          auto _ = transport_.sendMessageToConnection(banner);
+          // auto userPubKey = openssh::SSHKey::fromBlob(pubkey_req.public_key);
+          // if (!userPubKey.ok()) {
+          //   return userPubKey.status();
+          // }
+          // wire::UserAuthBannerMsg banner{};
+          // auto fingerprint = userPubKey->fingerprint();
+          // if (!fingerprint.ok()) {
+          //   return fingerprint.status();
+          // }
+          // banner.message = fmt::format(
+          //   "\n====== TEST BANNER ======"
+          //   "\nmethod:   {}"
+          //   "\nusername: {}"
+          //   "\nhostname: {}"
+          //   "\nkeyalg:   {}"
+          //   "\npubkey:   {}"
+          //   "\nsession:  {}"
+          //   "\n=========================\n",
+          //   msg.method_name, username, hostname,
+          //   pubkey_req.public_key_alg, *fingerprint, transport_.streamId());
+          // auto _ = transport_.sendMessageToConnection(banner);
 
           PublicKeyMethodRequest method_req;
           method_req.set_public_key(pubkey_req.public_key->data(), pubkey_req.public_key->size());
