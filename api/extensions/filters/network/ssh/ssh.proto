@@ -6,6 +6,7 @@ import "envoy/config/core/v3/base.proto";
 import "envoy/config/core/v3/extension.proto";
 import "envoy/config/core/v3/grpc_service.proto";
 import "google/protobuf/any.proto";
+import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/wrappers.proto";
 
@@ -261,7 +262,10 @@ message KeyboardInteractiveMethodRequest {
 }
 
 message KeyboardInteractiveAllowResponse {
-  // [token/other oidc info as needed?]
+  string session_id = 1;
+  string user_id    = 2;
+  map<string, google.protobuf.ListValue> claims   = 3;
+  repeated string                        audience = 4;
 }
 
 message KeyboardInteractiveInfoPrompts {

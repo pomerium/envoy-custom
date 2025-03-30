@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package pomerium.extensions.ssh.filters.session_recording;
 
+import "api/extensions/filters/network/ssh/ssh.proto";
 import "envoy/config/core/v3/extension.proto";
 import "envoy/config/core/v3/grpc_service.proto";
 import "google/protobuf/empty.proto";
@@ -41,6 +42,12 @@ message RecordingMetadata {
   uint64                    uncompressed_size = 3;
   google.protobuf.Timestamp start_time        = 4;
   google.protobuf.Timestamp end_time          = 5;
+  string                    login_name        = 7;
+  UpstreamTarget            upstream          = 8;
+  string                    session_id        = 9;
+  uint64                    stream_id         = 10;
+  string                    route_name        = 11;
+  SSHDownstreamPTYInfo      pty_info          = 12;
 }
 
 message RecordingData {

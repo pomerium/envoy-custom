@@ -29,7 +29,8 @@ public:
     const Codec::SSHRequestHeaderFrame& frame,
     Filesystem::FilePtr file,
     Format format,
-    Envoy::Event::Dispatcher& dispatcher);
+    Envoy::Event::Dispatcher& dispatcher,
+    std::string_view route_name);
   void onStreamEnd(const Codec::SSHResponseHeaderFrame& frame);
   void handleDownstreamToUpstreamMessage(wire::Message& msg);
   void handleUpstreamToDownstreamMessage(wire::Message& msg);
@@ -41,11 +42,13 @@ private:
   std::shared_ptr<Config> config_;
   SessionRecordingCallbacks& callbacks_;
   bool started_{};
+  bool wrote_header_{};
   bool stopped_{};
   absl::Time start_time_;
   std::optional<absl::Time> end_time_;
   Filesystem::FilePtr file_;
   std::unique_ptr<Formatter> formatter_;
+  RecordingMetadata metadata_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::StreamFilters::SessionRecording
