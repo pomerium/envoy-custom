@@ -224,7 +224,7 @@ absl::Status NoCipher::decryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instanc
   }
   auto need = packlen + 4;
   if (in.length() < need) {
-    return absl::AbortedError("short read");
+    return absl::OkStatus(); // incomplete packet
   }
   out.move(in, need);
   return absl::OkStatus();
