@@ -53,6 +53,12 @@ struct HandlerInfo {
 };
 
 template <typename T>
+struct MiddlewareInfo {
+  MessageMiddleware<T>* middleware;
+  bool remove_after_use{};
+};
+
+template <typename T>
 class MessageDispatcher {
 public:
   void registerHandler(message_case_type_t<T> message_type, MessageHandler<T>* handler) {
@@ -70,11 +76,11 @@ public:
   }
 
   void installMiddleware(MessageMiddleware<T>* middleware) {
-    middlewares_.push_back(middleware);
+    middlewares_.push_back({middleware, false});
   }
 
-  void uninstallMiddleware(MessageMiddleware<T>* middleware) {
-    middlewares_.remove(middleware);
+  void installNextMessageMiddleware(MessageMiddleware<T>* middleware) {
+    middlewares_.push_back({middleware, true});
   }
 
   void setHandlerEnabled(MessageHandler<T>* handler, bool enabled) {
@@ -87,8 +93,14 @@ public:
 
 protected:
   absl::Status dispatch(T&& msg) {
-    for (auto& mw : middlewares_) {
+    for (auto it = middlewares_.begin(); it != middlewares_.end();) {
+      auto [mw, remove] = *it;
       auto cont = mw->interceptMessage(msg);
+      if (remove) {
+        it = middlewares_.erase(it);
+      } else {
+        it++;
+      }
       if (!cont.ok()) [[unlikely]] {
         return cont.status();
       }
@@ -107,7 +119,7 @@ protected:
     }
     return absl::OkStatus();
   }
-  std::list<MessageMiddleware<T>*> middlewares_;
+  std::list<MiddlewareInfo<T>> middlewares_;
   std::unordered_map<message_case_type_t<T>, HandlerInfo<T>> dispatch_;
 };
 

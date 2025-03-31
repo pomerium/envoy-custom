@@ -230,7 +230,6 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
 }
 
 absl::StatusOr<bool> UpstreamUserAuthService::interceptMessage(wire::Message& msg) {
-  msg_dispatcher_->uninstallMiddleware(this);
   if (msg.msg_type() != wire::SshMessageType::UserAuthSuccess) {
     return absl::FailedPreconditionError("received out-of-order ExtInfo message during auth");
   }
@@ -308,7 +307,7 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
         return absl::FailedPreconditionError("unexpected ExtInfoMsg received");
       }
       ext_info_ = std::move(msg);
-      msg_dispatcher_->installMiddleware(this);
+      msg_dispatcher_->installNextMessageMiddleware(this);
       return absl::OkStatus();
     },
     [&](wire::UserAuthSuccessMsg& msg) { // forward upstream success to downstream

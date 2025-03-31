@@ -130,7 +130,6 @@ void Kex::setVersionStrings(const std::string& ours, const std::string& peer) {
 }
 
 absl::StatusOr<bool> Kex::interceptMessage(wire::Message& msg) {
-  msg_dispatcher_->uninstallMiddleware(this);
   return msg.visit(
     [&](wire::ExtInfoMsg& msg) {
       transport_.updatePeerExtInfo(msg);
@@ -211,7 +210,7 @@ absl::Status Kex::handleMessage(wire::Message&& msg) noexcept {
       if ((state_->is_server && state_->server_supports_ext_info) ||
           (!state_->is_server && state_->client_supports_ext_info)) {
         // this stays active for the next received message only, then is uninstalled
-        msg_dispatcher_->installMiddleware(this);
+        msg_dispatcher_->installNextMessageMiddleware(this);
       }
       // done
       kex_callbacks_.setKexResult(state_->kex_result);
