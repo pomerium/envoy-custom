@@ -28,7 +28,6 @@ void VTCurrentStateTracker::resize(int width, int height) {
 }
 
 void VTCurrentStateTracker::dumpState(Envoy::Buffer::Instance& buffer) {
-  buffer.add("\x1b[2J");
   dumpTermProps(buffer);
   for (int row = 0; row < height_; row++) {
     dumpRow(buffer, row);
@@ -36,6 +35,8 @@ void VTCurrentStateTracker::dumpState(Envoy::Buffer::Instance& buffer) {
       buffer.add("\r\n");
     }
   }
+  // move the cursor
+  buffer.add(fmt::format("\x1b[{};{}H", cursor_.row + 1, cursor_.col + 1));
 }
 
 int VTCurrentStateTracker::onResize(int rows, int cols, void* user) {
