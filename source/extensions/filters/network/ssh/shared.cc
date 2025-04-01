@@ -10,7 +10,7 @@ void ActiveSession::disconnectAllMirrors() {
   Thread::LockGuard lock(mirrors_mu_);
   for (auto&& it = mirrors_.begin(); it != mirrors_.end();) {
     if (!it->expired()) {
-      it->lock()->onStreamEnd();
+      it->lock()->onStreamEnd("session ended");
       it++;
     } else {
       it = mirrors_.erase(it);

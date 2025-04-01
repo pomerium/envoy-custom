@@ -166,7 +166,9 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
       case pomerium::extensions::ssh::AllowResponse::kUpstream:
         state->channel_mode = ChannelMode::Normal;
         state->multiplexing_info = MultiplexingInfo{};
-        state->multiplexing_info.multiplex_mode = MultiplexMode::Source;
+        if (allow.upstream().allow_mirror_connections()) {
+          state->multiplexing_info.multiplex_mode = MultiplexMode::Source;
+        }
         break;
       case pomerium::extensions::ssh::AllowResponse::kInternal:
         state->channel_mode = ChannelMode::Hijacked;

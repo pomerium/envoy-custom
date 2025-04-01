@@ -16,7 +16,7 @@ public:
   virtual ~MirrorCallbacks() = default;
   virtual void sendMsg(const wire::Message& msg) PURE;
   virtual void onSourceResized(int width, int height) PURE;
-  virtual void onStreamEnd() PURE;
+  virtual void onStreamEnd(const std::string& msg) PURE;
 };
 
 class SourceInterface {

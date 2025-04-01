@@ -188,7 +188,7 @@ void DownstreamConnectionService::onStreamEnd() {
     source_multiplexer_ = nullptr;
   }
   if (mirror_multiplexer_) {
-    mirror_multiplexer_->onStreamEnd();
+    mirror_multiplexer_->onStreamEnd("session ended");
     mirror_multiplexer_ = nullptr;
   }
 }

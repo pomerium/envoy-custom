@@ -1,4 +1,5 @@
 #include "source/extensions/filters/network/ssh/multiplexer.h"
+#include "source/extensions/filters/network/ssh/common.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
@@ -254,8 +255,13 @@ absl::Status MirrorSessionMultiplexer::handleDownstreamToUpstreamMessage(wire::M
         });
     },
     [&](const wire::ChannelDataMsg& msg) {
-      if (auto l = source_interface_.lock(); l) {
-        l->inject(msg);
+      if (info_.rw_mode == ReadWriteMode::ReadWrite) {
+        if (auto l = source_interface_.lock(); l) {
+          l->inject(msg);
+        }
+      }
+      if (msg.data->size() == 1 && msg.data->at(0) == 0x03) { // ETX (^C)
+        onStreamEnd("disconnected");
       }
       return absl::OkStatus();
     },
@@ -316,9 +322,9 @@ void MirrorSessionMultiplexer::onSourceResized(int width, int height) {
   vt_->resize(width, height);
 }
 
-void MirrorSessionMultiplexer::onStreamEnd() {
+void MirrorSessionMultiplexer::onStreamEnd(const std::string& msg) {
   if (!local_dispatcher_.isThreadSafe()) {
-    local_dispatcher_.post([this] { onStreamEnd(); });
+    local_dispatcher_.post([this, msg] { onStreamEnd(msg); });
     return;
   }
   if (!stream_ending_ && current_stream_id_.has_value()) {
@@ -332,7 +338,7 @@ void MirrorSessionMultiplexer::onStreamEnd() {
     source_interface_.reset();
     wire::DisconnectMsg dc;
     dc.reason_code = SSH2_DISCONNECT_BY_APPLICATION;
-    dc.description = "session ended";
+    dc.description = msg;
     if (auto r = transport_.sendMessageToConnection(dc); !r.ok()) {
       ENVOY_LOG(error, "error sending disconnect message: {}", r.status().message());
     }

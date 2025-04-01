@@ -80,7 +80,7 @@ public:
   void sendMsg(const wire::Message& msg) override;
   void onUpdate(Envoy::Buffer::Instance& buf) override;
   void onSourceResized(int width, int height) override;
-  void onStreamEnd() override;
+  void onStreamEnd(const std::string& msg) override;
 
 private:
   Api::Api& api_;
