@@ -197,6 +197,7 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
     case AuthenticationResponse::kDeny: {
       const auto& deny = authResp.deny();
       wire::UserAuthFailureMsg failure;
+      failure.partial = deny.partial();
       auto methods = deny.methods();
       failure.methods = string_list(methods.begin(), methods.end());
       return transport_.sendMessageToConnection(failure).status();
