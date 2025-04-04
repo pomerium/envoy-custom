@@ -24,7 +24,7 @@ public:
     std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> tls,
     Dispatcher& dispatcher);
 
-  void onStreamBegin(const AuthState& auth_state);
+  absl::Status onStreamBegin(const AuthState& auth_state);
   void onStreamEnd();
   absl::Status handleUpstreamToDownstreamMessage(wire::Message& msg);
   void updateSource(const wire::ChannelDataMsg& msg);
@@ -73,7 +73,7 @@ public:
     std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> tls,
     Dispatcher& dispatcher);
 
-  void onStreamBegin(const AuthState& auth_state);
+  absl::Status onStreamBegin(const AuthState& auth_state);
   absl::Status handleDownstreamToUpstreamMessage(wire::Message& msg);
 
   // MirrorCallbacks

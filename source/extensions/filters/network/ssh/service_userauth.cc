@@ -200,7 +200,7 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
       const auto& deny = authResp.deny();
       auto methods = deny.methods();
       if (methods.empty()) {
-        return absl::PermissionDeniedError("authentication failed");
+        return absl::PermissionDeniedError("");
       }
       wire::UserAuthFailureMsg failure;
       failure.partial = deny.partial();
@@ -262,7 +262,7 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
         absl::Hours(24),
         ca_user_key_);
       if (!stat.ok()) {
-        return stat;
+        return statusf("error generating user certificate: {}", stat);
       }
 
       auto req = std::make_unique<wire::UserAuthRequestMsg>();
@@ -276,7 +276,7 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
 
       auto blob = userSessionSshKey->toBlob();
       if (!blob.ok()) {
-        return blob.status();
+        return statusf("error serializing user session key: {}", blob.status());
       }
       pubkeyReq.public_key = *blob;
       req->msg = std::move(pubkeyReq);
@@ -295,11 +295,11 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
       pending_req_->msg.get<wire::PubKeyUserAuthRequestMsg>().has_signature = true; // see PubKeyUserAuthRequestMsg::writeExtra
       auto stat = pending_req_->encode(buf);
       if (!stat.ok()) {
-        return stat.status();
+        return statusf("error encoding user auth request: {}", stat.status());
       }
       auto sig = pending_user_key_.sign(wire::flushTo<bytes>(buf));
       if (!sig.ok()) {
-        return sig.status();
+        return statusf("error signing user auth request: {}", sig.status());
       }
       pending_req_->msg.get<wire::PubKeyUserAuthRequestMsg>().signature = *sig;
       return transport_.sendMessageToConnection(*pending_req_).status();
@@ -331,11 +331,8 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
         transport_.streamId(), StreamStatus(0, true), std::move(msg)));
       return absl::OkStatus();
     },
-    [&](wire::UserAuthFailureMsg& msg) {
-      if (msg.partial) {
-        return transport_.sendMessageToConnection(msg).status();
-      }
-      return absl::UnauthenticatedError(fmt::format("auth failure: {}", msg.methods));
+    [&](wire::UserAuthFailureMsg&) {
+      return absl::PermissionDeniedError("");
     },
     [](auto&) {
       ENVOY_LOG(error, "unknown message");

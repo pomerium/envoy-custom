@@ -1,14 +1,19 @@
 #include "source/extensions/filters/network/ssh/client_transport.h"
 
 #include "source/extensions/filters/network/ssh/frame.h"
+#include "source/extensions/filters/network/ssh/openssh.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/service_connection.h"
 #include "source/extensions/filters/network/ssh/service_userauth.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 
+extern "C" {
+#include "openssh/ssh2.h"
+}
+
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-SshClientCodec::SshClientCodec(
+SshClientTransport::SshClientTransport(
   Api::Api& api,
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
   std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr)
@@ -21,12 +26,12 @@ SshClientCodec::SshClientCodec(
   outgoing_ext_info_ = std::move(extInfo);
 }
 
-void SshClientCodec::setCodecCallbacks(GenericProxy::ClientCodecCallbacks& callbacks) {
+void SshClientTransport::setCodecCallbacks(GenericProxy::ClientCodecCallbacks& callbacks) {
   TransportBase::setCodecCallbacks(callbacks);
   initServices();
 }
 
-void SshClientCodec::initServices() {
+void SshClientTransport::initServices() {
   user_auth_svc_ = std::make_unique<UpstreamUserAuthService>(*this, api_);
   user_auth_svc_->registerMessageHandlers(*this);
   connection_svc_ = std::make_unique<UpstreamConnectionService>(*this, api_, tls_);
@@ -38,7 +43,7 @@ void SshClientCodec::initServices() {
   services_[connection_svc_->name()] = connection_svc_.get();
 }
 
-void SshClientCodec::registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) {
+void SshClientTransport::registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) {
   dispatcher.registerHandler(wire::SshMessageType::ServiceAccept, this);
   dispatcher.registerHandler(wire::SshMessageType::GlobalRequest, this);
   dispatcher.registerHandler(wire::SshMessageType::RequestSuccess, this);
@@ -49,7 +54,7 @@ void SshClientCodec::registerMessageHandlers(MessageDispatcher<wire::Message>& d
   dispatcher.registerHandler(wire::SshMessageType::Disconnect, this);
 }
 
-void SshClientCodec::decode(Envoy::Buffer::Instance& buffer, bool end_stream) {
+void SshClientTransport::decode(Envoy::Buffer::Instance& buffer, bool end_stream) {
   if (upstream_is_direct_tcpip_) {
     wire::ChannelDataMsg data_msg;
     data_msg.recipient_channel = downstream_state_->handoff_info.channel_info->downstream_channel_id();
@@ -60,8 +65,8 @@ void SshClientCodec::decode(Envoy::Buffer::Instance& buffer, bool end_stream) {
   TransportBase::decode(buffer, end_stream);
 }
 
-GenericProxy::EncodingResult SshClientCodec::encode(const GenericProxy::StreamFrame& frame,
-                                                    GenericProxy::EncodingContext& ctx) {
+GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::StreamFrame& frame,
+                                                        GenericProxy::EncodingContext& ctx) {
   switch (dynamic_cast<const SSHStreamFrame&>(frame).frameKind()) {
   case FrameKind::RequestHeader: {
     auto& reqHeader = static_cast<const SSHRequestHeaderFrame&>(frame);
@@ -88,7 +93,9 @@ GenericProxy::EncodingResult SshClientCodec::encode(const GenericProxy::StreamFr
       installMiddleware(this);
     }
     if (downstream_state_->multiplexing_info.multiplex_mode == MultiplexMode::Source) {
-      connection_svc_->onStreamBegin(*downstream_state_, callbacks_->connection()->dispatcher());
+      if (auto stat = connection_svc_->onStreamBegin(*downstream_state_, callbacks_->connection()->dispatcher()); !stat.ok()) {
+        return stat;
+      }
       callbacks_->connection()->addConnectionCallbacks(*this);
     }
     return version_exchanger_->writeVersion(downstream_state_->server_version);
@@ -116,7 +123,7 @@ GenericProxy::EncodingResult SshClientCodec::encode(const GenericProxy::StreamFr
   (void)ctx;
 }
 
-absl::StatusOr<size_t> SshClientCodec::sendMessageToConnection(const wire::Message& msg) {
+absl::StatusOr<size_t> SshClientTransport::sendMessageToConnection(const wire::Message& msg) {
   if (channel_id_remap_enabled_) {
     msg.visit( // NOLINT
       [&](wire::ChannelMsg auto& msg) {
@@ -130,7 +137,7 @@ absl::StatusOr<size_t> SshClientCodec::sendMessageToConnection(const wire::Messa
   return UpstreamTransportCallbacks::sendMessageToConnection(msg);
 }
 
-absl::Status SshClientCodec::handleMessage(wire::Message&& msg) {
+absl::Status SshClientTransport::handleMessage(wire::Message&& msg) {
   return msg.visit(
     [&](wire::ServiceAcceptMsg& msg) {
       if (services_.contains(msg.service_name)) {
@@ -165,7 +172,7 @@ absl::Status SshClientCodec::handleMessage(wire::Message&& msg) {
     });
 }
 
-absl::StatusOr<bytes> SshClientCodec::signWithHostKey(bytes_view in) const {
+absl::StatusOr<bytes> SshClientTransport::signWithHostKey(bytes_view in) const {
   auto hostKey = kex_result_->algorithms.host_key;
   if (auto k = kex_->getHostKey(hostKey); k) {
     return k->priv.sign(in);
@@ -173,21 +180,22 @@ absl::StatusOr<bytes> SshClientCodec::signWithHostKey(bytes_view in) const {
   return absl::InternalError("no such host key");
 }
 
-const AuthState& SshClientCodec::authState() const {
+const AuthState& SshClientTransport::authState() const {
   return *downstream_state_;
 };
 
-AuthState& SshClientCodec::authState() {
+AuthState& SshClientTransport::authState() {
   return *downstream_state_;
 }
 
-void SshClientCodec::forward(std::unique_ptr<SSHStreamFrame> frame) {
+void SshClientTransport::forward(std::unique_ptr<SSHStreamFrame> frame) {
   switch (frame->frameKind()) {
   case FrameKind::ResponseHeader:
     if (authState().upstream_ext_info.has_value() &&
         authState().upstream_ext_info->hasExtension<wire::PingExtension>()) {
       ping_handler_->enableForward(true);
     }
+    response_stream_header_sent_ = true;
     callbacks_->onDecodingSuccess(std::unique_ptr<ResponseHeaderFrame>(dynamic_cast<SSHResponseHeaderFrame*>(frame.release())));
     break;
   case FrameKind::ResponseCommon:
@@ -198,7 +206,7 @@ void SshClientCodec::forward(std::unique_ptr<SSHStreamFrame> frame) {
   }
 }
 
-absl::StatusOr<bool> SshClientCodec::interceptMessage(wire::Message& ssh_msg) {
+absl::StatusOr<bool> SshClientTransport::interceptMessage(wire::Message& ssh_msg) {
   return ssh_msg.visit(
     [&](wire::ChannelOpenConfirmationMsg& msg) -> absl::StatusOr<bool> {
       const auto& info = downstream_state_->handoff_info;
@@ -219,7 +227,7 @@ absl::StatusOr<bool> SshClientCodec::interceptMessage(wire::Message& ssh_msg) {
 
         channelReq.msg = ptyReq;
         if (auto r = sendMessageToConnection(channelReq); !r.ok()) {
-          return r.status();
+          return statusf("error requesting pty: {}", r.status());
         }
         return false;
       }
@@ -231,7 +239,7 @@ absl::StatusOr<bool> SshClientCodec::interceptMessage(wire::Message& ssh_msg) {
         // couldn't connect to the upstream, bail out
         // still can't forward the message, the downstream thinks
         // the channel is already open
-        callbacks_->onDecodingFailure(*msg.description);
+        onDecodingFailure(absl::UnavailableError(*msg.description));
         return false;
       }
       return true;
@@ -243,13 +251,12 @@ absl::StatusOr<bool> SshClientCodec::interceptMessage(wire::Message& ssh_msg) {
       openMsg.initial_window_size = downstream_state_->handoff_info.channel_info->initial_window_size();
       openMsg.max_packet_size = downstream_state_->handoff_info.channel_info->max_packet_size();
       if (auto r = sendMessageToConnection(openMsg); !r.ok()) {
-        return r.status();
+        return statusf("error opening channel: {}", r.status());
       }
       return false;
     },
-    [&](wire::UserAuthFailureMsg& msg) -> absl::StatusOr<bool> {
-      callbacks_->onDecodingFailure(fmt::format("auth failure: {}", msg.methods));
-      return false;
+    [&](wire::UserAuthFailureMsg&) -> absl::StatusOr<bool> {
+      return absl::PermissionDeniedError("");
     },
     [&](wire::ChannelSuccessMsg&) -> absl::StatusOr<bool> {
       if (downstream_state_->handoff_info.handoff_in_progress) {
@@ -260,19 +267,18 @@ absl::StatusOr<bool> SshClientCodec::interceptMessage(wire::Message& ssh_msg) {
         shellReq.request_type = "shell";
         shellReq.want_reply = false;
         if (auto r = sendMessageToConnection(shellReq); !r.ok()) {
-          return r.status();
+          return statusf("error requesting shell: {}", r.status());
         }
 
         // handoff is complete, send an empty message to signal the downstream codec
-        callbacks_->onDecodingSuccess(SSHResponseHeaderFrame::sentinel(authState().stream_id));
+        forward(SSHResponseHeaderFrame::sentinel(authState().stream_id));
         return false;
       }
       return true;
     },
     [&](wire::ChannelFailureMsg&) -> absl::StatusOr<bool> {
       if (downstream_state_->handoff_info.handoff_in_progress) {
-        callbacks_->onDecodingFailure("failed to open upstream tty");
-        return false;
+        return absl::InternalError("failed to open upstream tty");
       }
       return true;
     },
@@ -286,30 +292,58 @@ absl::StatusOr<bool> SshClientCodec::interceptMessage(wire::Message& ssh_msg) {
     [](auto&) -> absl::StatusOr<bool> { return true; });
 }
 
-void SshClientCodec::onInitialKexDone() {
+void SshClientTransport::onInitialKexDone() {
   // send ext_info if we have it and the server supports it
   if (kex_result_->server_supports_ext_info) {
     auto extInfo = outgoingExtInfo();
     if (extInfo.has_value()) {
-      (void)sendMessageToConnection(*extInfo);
+      if (auto r = sendMessageToConnection(*extInfo); !r.ok()) {
+        onDecodingFailure(statusf("error sending ExtInfo: {}", r.status()));
+      }
     }
   }
 
   if (auto stat = user_auth_svc_->requestService(); !stat.ok()) {
-    ENVOY_LOG(error, "error requesting user auth: {}", stat.message());
-    callbacks_->onDecodingFailure(fmt::format("error requesting user auth: {}", stat.message()));
+    onDecodingFailure(statusf("error requesting user auth: {}", stat));
     return;
   }
 }
 
-void SshClientCodec::onEvent(Network::ConnectionEvent event) {
+void SshClientTransport::onEvent(Network::ConnectionEvent event) {
   if (event == Network::ConnectionEvent::RemoteClose || event == Network::ConnectionEvent::LocalClose) {
     connection_svc_->onStreamEnd();
   }
 }
 
-stream_id_t SshClientCodec::streamId() const {
+stream_id_t SshClientTransport::streamId() const {
   return downstream_state_->stream_id;
+}
+
+void SshClientTransport::onDecodingFailure(absl::Status err) {
+  if (err.ok()) {
+    ENVOY_LOG(info, "ssh: stream {} closing", streamId(), err.message());
+  } else {
+    ENVOY_LOG(error, "ssh: stream {} closing with error: {}", streamId(), err.message());
+  }
+
+  int code{};
+  switch (err.code()) {
+  case absl::StatusCode::kPermissionDenied:   code = SSH2_DISCONNECT_NO_MORE_AUTH_METHODS_AVAILABLE; break;
+  case absl::StatusCode::kInvalidArgument:    code = SSH2_DISCONNECT_PROTOCOL_ERROR; break;
+  case absl::StatusCode::kFailedPrecondition: code = SSH2_DISCONNECT_PROTOCOL_ERROR; break;
+  default:                                    code = SSH2_DISCONNECT_BY_APPLICATION; break;
+  }
+
+  wire::DisconnectMsg msg;
+  msg.reason_code = code;
+  msg.description = statusToString(err);
+  if (response_stream_header_sent_) {
+    forward(std::make_unique<SSHResponseCommonFrame>(
+      streamId(), FrameFlags::FLAG_END_STREAM, std::move(msg)));
+  } else {
+    forward(std::make_unique<SSHResponseHeaderFrame>(
+      streamId(), StreamStatus(code, false), std::move(msg)));
+  }
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

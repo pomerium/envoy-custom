@@ -13,11 +13,11 @@ absl::StatusOr<size_t> TransportCallbacks::sendMessageToConnection(const wire::M
   Envoy::Buffer::OwnedImpl dec;
   auto stat = wire::encodePacket(dec, msg, cs.cipher->blockSize(ModeWrite), cs.cipher->aadSize(ModeWrite));
   if (!stat.ok()) {
-    return stat.status();
+    return statusf("error encoding packet: {}", stat.status());
   }
   Envoy::Buffer::OwnedImpl enc;
   if (auto stat = cs.cipher->encryptPacket(*cs.seq_write, enc, dec); !stat.ok()) {
-    return stat;
+    return statusf("error encrypting packet: {}", stat);
   }
   (*cs.seq_write)++;
   if (msg.msg_type() == wire::SshMessageType::NewKeys) {

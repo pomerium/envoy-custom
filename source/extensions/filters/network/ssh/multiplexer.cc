@@ -23,7 +23,7 @@ SourceUpstreamSessionMultiplexer::SourceUpstreamSessionMultiplexer(
   (void)api_;
 }
 
-void SourceUpstreamSessionMultiplexer::onStreamBegin(const AuthState& auth_state) {
+absl::Status SourceUpstreamSessionMultiplexer::onStreamBegin(const AuthState& auth_state) {
   info_ = auth_state.multiplexing_info;
 
   current_stream_id_ = auth_state.stream_id;
@@ -35,6 +35,7 @@ void SourceUpstreamSessionMultiplexer::onStreamBegin(const AuthState& auth_state
                       static_cast<int>(auth_state.handoff_info.pty_info->height_rows()));
     // TODO: do something with term_env/modes?
   }
+  return absl::OkStatus();
 }
 
 void SourceUpstreamSessionMultiplexer::onStreamEnd() {
@@ -161,7 +162,7 @@ MirrorSessionMultiplexer::MirrorSessionMultiplexer(
   (void)api_;
 }
 
-void MirrorSessionMultiplexer::onStreamBegin(const AuthState& auth_state) {
+absl::Status MirrorSessionMultiplexer::onStreamBegin(const AuthState& auth_state) {
   info_ = auth_state.multiplexing_info;
   switch (info_.multiplex_mode) {
   case Codec::MultiplexMode::Mirror:
@@ -174,25 +175,11 @@ void MirrorSessionMultiplexer::onStreamBegin(const AuthState& auth_state) {
 
       auto r = (*tls_)->attachToSession(info_.source_stream_id, weak_from_this());
       if (!r.ok()) {
-        wire::DisconnectMsg dc;
-        dc.reason_code = SSH2_DISCONNECT_BY_APPLICATION;
-        dc.description = std::string(r.status().message());
-        if (auto r = transport_.sendMessageToConnection(dc); !r.ok()) {
-          ENVOY_LOG(error, "error sending disconnect message: {}", r.status().message());
-        }
-        ENVOY_LOG(error, "attaching to session failed: {}", r.status());
-        return;
+        return statusf("attaching to session failed: {}", r.status());
       }
       source_interface_ = *r;
       if (source_interface_.expired()) {
-        wire::DisconnectMsg dc;
-        dc.reason_code = SSH2_DISCONNECT_BY_APPLICATION;
-        dc.description = "session ended";
-        if (auto r = transport_.sendMessageToConnection(dc); !r.ok()) {
-          ENVOY_LOG(error, "error sending disconnect message: {}", r.status().message());
-        }
-        ENVOY_LOG(error, "attaching to session failed: session ended");
-        return;
+        return absl::CancelledError("session ended");
       } else {
         ENVOY_LOG(debug, "attaching to session succeeded");
       }
@@ -201,6 +188,7 @@ void MirrorSessionMultiplexer::onStreamBegin(const AuthState& auth_state) {
   default:
     PANIC("unknown mode");
   }
+  return absl::OkStatus();
 }
 
 absl::Status MirrorSessionMultiplexer::handleDownstreamToUpstreamMessage(wire::Message& msg) {
@@ -232,19 +220,16 @@ absl::Status MirrorSessionMultiplexer::handleDownstreamToUpstreamMessage(wire::M
           wire::ChannelSuccessMsg success;
           success.recipient_channel = *sender_channel_;
           if (auto r = transport_.sendMessageToConnection(success); !r.ok()) {
-            ENVOY_LOG(error, "attaching to session failed: error responding to client request: {}", r.status().message());
-            return r.status();
+            return statusf("attaching to session failed: error responding to client request: {}", r.status());
           }
 
           auto r = (*tls_)->attachToSession(info_.source_stream_id, weak_from_this());
           if (!r.ok()) {
-            ENVOY_LOG(error, "attaching to session failed: {}", r.status());
-            return r.status();
+            return statusf("attaching to session failed: {}", r.status());
           }
           source_interface_ = *r;
           if (source_interface_.expired()) {
-            ENVOY_LOG(error, "attaching to session failed");
-            return absl::InvalidArgumentError("attaching to session failed");
+            return absl::InvalidArgumentError("attaching to session failed: session is not active");
           } else {
             ENVOY_LOG(debug, "attaching to session succeeded");
           }

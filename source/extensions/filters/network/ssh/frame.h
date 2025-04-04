@@ -45,6 +45,11 @@ public:
   SSHResponseCommonFrame(stream_id_t stream_id, T&& msg)
       : msg_(std::forward<T>(msg)),
         stream_id_(stream_id) {}
+  template <typename T>
+  SSHResponseCommonFrame(stream_id_t stream_id, uint32_t flags, T&& msg)
+      : msg_(std::forward<T>(msg)),
+        stream_id_(stream_id),
+        raw_flags_(flags) {}
 
   template <typename T>
   SSHResponseCommonFrame(const SSHResponseCommonFrame& other)
@@ -58,6 +63,7 @@ public:
 private:
   wire::Message msg_;
   stream_id_t stream_id_;
+  std::optional<uint32_t> raw_flags_;
 };
 
 class SSHResponseHeaderFrame : public GenericProxy::ResponseHeaderFrame, public SSHStreamFrame {
@@ -98,6 +104,13 @@ public:
   SSHRequestCommonFrame(stream_id_t stream_id, T&& msg)
       : msg_(std::forward<T>(msg)),
         stream_id_(stream_id) {}
+
+  template <typename T>
+  SSHRequestCommonFrame(stream_id_t stream_id, uint32_t flags, T&& msg)
+      : msg_(std::forward<T>(msg)),
+        stream_id_(stream_id),
+        raw_flags_(flags) {}
+
   FrameKind frameKind() const final;
   auto& message(this auto& self) { return self.msg_; }
   FrameFlags frameFlags() const override;
@@ -106,6 +119,7 @@ public:
 private:
   wire::Message msg_;
   stream_id_t stream_id_;
+  std::optional<uint32_t> raw_flags_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

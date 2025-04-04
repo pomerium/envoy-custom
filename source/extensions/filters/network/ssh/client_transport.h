@@ -15,15 +15,15 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 class UpstreamUserAuthService;
 class UpstreamConnectionService;
 
-class SshClientCodec : public virtual Logger::Loggable<Logger::Id::filter>,
-                       public TransportBase<ClientCodec>,
-                       public UpstreamTransportCallbacks,
-                       public Network::ConnectionCallbacks,
-                       public SshMessageMiddleware {
+class SshClientTransport : public virtual Logger::Loggable<Logger::Id::filter>,
+                           public TransportBase<ClientCodec>,
+                           public UpstreamTransportCallbacks,
+                           public Network::ConnectionCallbacks,
+                           public SshMessageMiddleware {
 public:
-  SshClientCodec(Api::Api& api,
-                 std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                 std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr);
+  SshClientTransport(Api::Api& api,
+                     std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
+                     std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr);
   void setCodecCallbacks(GenericProxy::ClientCodecCallbacks& callbacks) override;
 
   void decode(Envoy::Buffer::Instance& buffer, bool end_stream) final;
@@ -46,6 +46,7 @@ public:
 
 protected:
   void onInitialKexDone() override;
+  void onDecodingFailure(absl::Status err) override;
 
 private:
   void initServices();
@@ -62,6 +63,7 @@ private:
 
   bool channel_id_remap_enabled_{false};
   bool upstream_is_direct_tcpip_{false};
+  bool response_stream_header_sent_{false};
 
   // translates upstream channel ids from {the id the downstream thinks the upstream has} -> {the id the upstream actually has}
   std::unordered_map<uint32_t, uint32_t> channel_id_mappings_;

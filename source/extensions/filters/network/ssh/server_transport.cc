@@ -8,6 +8,7 @@
 #include <sshkey.h>
 #include <unistd.h>
 
+#include "source/extensions/filters/network/ssh/common.h"
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/kex.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
@@ -23,10 +24,10 @@ extern "C" {
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-SshServerCodec::SshServerCodec(Api::Api& api,
-                               std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                               CreateGrpcClientFunc create_grpc_client,
-                               std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr)
+SshServerTransport::SshServerTransport(Api::Api& api,
+                                       std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
+                                       CreateGrpcClientFunc create_grpc_client,
+                                       std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr)
     : TransportBase(api, std::move(config)),
       DownstreamTransportCallbacks(*this),
       tls_(slot_ptr) {
@@ -43,7 +44,7 @@ SshServerCodec::SshServerCodec(Api::Api& api,
   outgoing_ext_info_ = std::move(extInfo);
 };
 
-void SshServerCodec::registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) {
+void SshServerTransport::registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) {
   dispatcher.registerHandler(wire::SshMessageType::ServiceRequest, this);
   dispatcher.registerHandler(wire::SshMessageType::GlobalRequest, this);
   dispatcher.registerHandler(wire::SshMessageType::RequestSuccess, this);
@@ -54,26 +55,22 @@ void SshServerCodec::registerMessageHandlers(MessageDispatcher<wire::Message>& d
   dispatcher.registerHandler(wire::SshMessageType::Disconnect, this);
 }
 
-void SshServerCodec::registerMessageHandlers(
+void SshServerTransport::registerMessageHandlers(
   MessageDispatcher<Grpc::ResponsePtr<ServerMessage>>& dispatcher) {
   dispatcher.registerHandler(ServerMessage::MessageCase::kStreamControl, this);
 }
 
-void SshServerCodec::setCodecCallbacks(Callbacks& callbacks) {
+void SshServerTransport::setCodecCallbacks(Callbacks& callbacks) {
   TransportBase::setCodecCallbacks(callbacks);
   initServices();
   mgmt_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus, std::string err) {
-    wire::DisconnectMsg dc;
-    dc.reason_code = SSH2_DISCONNECT_CONNECTION_LOST; // todo
-    dc.description = err;
-    auto _ = sendMessageToConnection(dc);
-    callbacks_->connection()->close(Network::ConnectionCloseType::FlushWrite, err);
+    onDecodingFailure(absl::CancelledError(err));
   });
   stream_id_ = api_.randomGenerator().random();
   mgmt_client_->connect(streamId());
 }
 
-void SshServerCodec::initServices() {
+void SshServerTransport::initServices() {
   user_auth_service_ = std::make_unique<DownstreamUserAuthService>(*this, api_);
   user_auth_service_->registerMessageHandlers(*this);
   user_auth_service_->registerMessageHandlers(*mgmt_client_);
@@ -86,8 +83,8 @@ void SshServerCodec::initServices() {
   service_names_.insert(connection_service_->name());
 }
 
-GenericProxy::EncodingResult SshServerCodec::encode(const GenericProxy::StreamFrame& frame,
-                                                    GenericProxy::EncodingContext& /*ctx*/) {
+GenericProxy::EncodingResult SshServerTransport::encode(const GenericProxy::StreamFrame& frame,
+                                                        GenericProxy::EncodingContext& /*ctx*/) {
   const auto& msg = dynamic_cast<const SSHStreamFrame&>(frame);
   switch (msg.frameKind()) {
   case FrameKind::ResponseHeader: {
@@ -114,34 +111,40 @@ GenericProxy::EncodingResult SshServerCodec::encode(const GenericProxy::StreamFr
   }
 }
 
-GenericProxy::ResponsePtr SshServerCodec::respond(absl::Status status, absl::string_view data,
-                                                  const Request& req) {
+GenericProxy::ResponsePtr SshServerTransport::respond(absl::Status status,
+                                                      absl::string_view data,
+                                                      const Request& req) {
   if (!status.ok()) {
     // something went wrong, send a disconnect message
-    wire::DisconnectMsg dc;
-    dc.reason_code = SSH2_DISCONNECT_SERVICE_NOT_AVAILABLE; // todo
-    dc.description = std::string(data);
-    // downstream().sendMessage(dc);
 
+    int code{};
+    // check envoy well-known messages
+    // TODO: possible to access core response flags from here?
+    auto msg = status.message();
+    if (msg == "cluster_not_found" || msg == "route_not_found") {
+      code = SSH2_DISCONNECT_HOST_NOT_ALLOWED_TO_CONNECT;
+    } else if (msg == "cluster_maintain_mode" || msg == "no_healthy_upstream" || msg == "connection_failure" || msg == "overflow") {
+      code = SSH2_DISCONNECT_SERVICE_NOT_AVAILABLE;
+    } else if (msg == "timeout" || msg == "local_reset" || msg == "connection_termination") {
+      code = SSH2_DISCONNECT_CONNECTION_LOST;
+    } else if (msg == "protocol_error") {
+      code = SSH2_DISCONNECT_PROTOCOL_ERROR;
+    } else {
+      code = SSH2_DISCONNECT_BY_APPLICATION;
+    }
+    wire::DisconnectMsg dc;
+    dc.reason_code = static_cast<uint32_t>(code);
+    dc.description = statusToString(status);
+    if (!data.empty()) {
+      dc.description->append(fmt::format(" [{}]", data));
+    }
     return std::make_unique<SSHResponseHeaderFrame>(
-      req.frameFlags().streamId(), StreamStatus(SSH2_DISCONNECT_SERVICE_NOT_AVAILABLE, false), std::move(dc));
-  } else {
-    // auto m = AnyMsg::fromString(data);
-    // switch (m.msg_type()) {
-    // case wire::SshMessageType::UserAuthFailure: {
-    //   auto _ = sendMessageToConnection(m);
-    //   return std::make_unique<SSHResponseHeaderFrame>(
-    //       req.frameFlags().streamId(), StreamStatus(0, false), m.unwrap<UserAuthFailureMsg>());
-    // }
-    // default:
-    //   break;
-    // }
-    PANIC("unimplemented");
+      req.frameFlags().streamId(), StreamStatus(code, false), std::move(dc));
   }
-  return nullptr; // todo
+  PANIC("unimplemented");
 }
 
-absl::Status SshServerCodec::handleMessage(wire::Message&& msg) {
+absl::Status SshServerTransport::handleMessage(wire::Message&& msg) {
   return msg.visit(
     [&](wire::ServiceRequestMsg& msg) {
       if (service_names_.contains(msg.service_name)) {
@@ -159,19 +162,19 @@ absl::Status SshServerCodec::handleMessage(wire::Message&& msg) {
         [&](wire::HostKeysProveRequestMsg& msg) {
           auto resp = handleHostKeysProve(msg);
           if (!resp.ok()) {
-            return resp.status();
+            return statusf("error handling HostKeysProveRequest: {}", resp.status());
           }
           wire::GlobalRequestSuccessMsg reply;
           reply.msg = **resp;
           return sendMessageToConnection(reply).status();
         },
         [](wire::HostKeysMsg&) {
-          ENVOY_LOG(debug, "received hostkeys-00@openssh.com");
+          ENVOY_LOG(warn, "received hostkeys-00@openssh.com (ignoring)");
           // ignore this for now
           return absl::OkStatus();
         },
         [&msg](auto&) {
-          ENVOY_LOG(debug, "ignoring global request {}", msg.request_name);
+          ENVOY_LOG(warn, "ignoring global request {}", msg.request_name);
           return absl::OkStatus();
         });
       if (!stat.ok()) {
@@ -191,22 +194,20 @@ absl::Status SshServerCodec::handleMessage(wire::Message&& msg) {
     },
     [&](wire::DisconnectMsg& msg) {
       ENVOY_LOG(info, "received disconnect: {}", msg.description);
-      return absl::CancelledError("disconnected");
+      return absl::CancelledError(fmt::format("received disconnect: {}", msg.description));
     },
     [](auto&) {
-      ENVOY_LOG(error, "unknown message");
+      ENVOY_LOG(warn, "unknown message");
       return absl::OkStatus();
     });
 }
 
-absl::Status SshServerCodec::handleMessage(Grpc::ResponsePtr<ServerMessage>&& msg) { // NOLINT
+absl::Status SshServerTransport::handleMessage(Grpc::ResponsePtr<ServerMessage>&& msg) { // NOLINT
   switch (msg->message_case()) {
   case ServerMessage::kStreamControl:
     switch (msg->stream_control().action_case()) {
     case pomerium::extensions::ssh::StreamControl::kCloseStream: {
-      callbacks_->connection()->close(Network::ConnectionCloseType::AbortReset,
-                                      msg->stream_control().close_stream().reason());
-      return absl::OkStatus();
+      return absl::CancelledError(msg->stream_control().close_stream().reason());
     }
     default:
       PANIC("unknown action case");
@@ -216,7 +217,7 @@ absl::Status SshServerCodec::handleMessage(Grpc::ResponsePtr<ServerMessage>&& ms
   }
 }
 
-void SshServerCodec::initUpstream(AuthStateSharedPtr s) {
+void SshServerTransport::initUpstream(AuthStateSharedPtr s) {
   s->server_version = server_version_;
   auth_state_ = s;
   switch (auth_state_->channel_mode) {
@@ -236,11 +237,7 @@ void SshServerCodec::initUpstream(AuthStateSharedPtr s) {
         optional_metadata = internal.set_metadata();
       }
       channel_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus, std::string err) {
-        wire::DisconnectMsg dc;
-        dc.reason_code = SSH2_DISCONNECT_BY_APPLICATION;
-        dc.description = err; // todo: unsure if we want to propagate this message in all cases
-        auto _ = sendMessageToConnection(dc);
-        callbacks_->connection()->close(Network::ConnectionCloseType::FlushWrite, err);
+        onDecodingFailure(absl::CancelledError(err));
       });
       auth_state_->hijacked_stream = channel_client_->start(connection_service_.get(), std::move(optional_metadata));
       auto _ = sendMessageToConnection(wire::UserAuthSuccessMsg{});
@@ -266,12 +263,15 @@ void SshServerCodec::initUpstream(AuthStateSharedPtr s) {
     break;
   }
   if (auth_state_->multiplexing_info.multiplex_mode != MultiplexMode::None) {
-    connection_service_->onStreamBegin(*auth_state_, callbacks_->connection()->dispatcher());
+    if (auto stat = connection_service_->onStreamBegin(*auth_state_, callbacks_->connection()->dispatcher()); !stat.ok()) {
+      onDecodingFailure(stat);
+      return;
+    }
     callbacks_->connection()->addConnectionCallbacks(*this);
   }
 }
 
-absl::StatusOr<bytes> SshServerCodec::signWithHostKey(bytes_view in) const {
+absl::StatusOr<bytes> SshServerTransport::signWithHostKey(bytes_view in) const {
   auto hostKey = kex_result_->algorithms.host_key;
   if (auto k = kex_->getHostKey(hostKey); k) {
     return k->priv.sign(in);
@@ -279,15 +279,15 @@ absl::StatusOr<bytes> SshServerCodec::signWithHostKey(bytes_view in) const {
   return absl::InternalError("no such host key");
 }
 
-const AuthState& SshServerCodec::authState() const {
+const AuthState& SshServerTransport::authState() const {
   return *auth_state_;
 }
 
-AuthState& SshServerCodec::authState() {
+AuthState& SshServerTransport::authState() {
   return *auth_state_;
 }
 
-void SshServerCodec::forward(std::unique_ptr<SSHStreamFrame> frame) {
+void SshServerTransport::forward(std::unique_ptr<SSHStreamFrame> frame) {
   if (authState().handoff_info.handoff_in_progress) [[unlikely]] {
     PANIC("forward() called during handoff, this should not happen");
   }
@@ -303,8 +303,18 @@ void SshServerCodec::forward(std::unique_ptr<SSHStreamFrame> frame) {
   }
 }
 
+void SshServerTransport::onInitialKexDone() {
+  // send ext_info if we have it and the client supports it
+  if (kex_result_->client_supports_ext_info) {
+    auto extInfo = outgoingExtInfo();
+    if (extInfo.has_value()) {
+      (void)sendMessageToConnection(*extInfo);
+    }
+  }
+}
+
 absl::StatusOr<std::unique_ptr<wire::HostKeysProveResponseMsg>>
-SshServerCodec::handleHostKeysProve(const wire::HostKeysProveRequestMsg& msg) {
+SshServerTransport::handleHostKeysProve(const wire::HostKeysProveRequestMsg& msg) {
   std::vector<bytes> signatures;
   for (const auto& keyBlob : *msg.hostkeys) {
     auto key = openssh::SSHKey::fromBlob(keyBlob);
@@ -323,7 +333,7 @@ SshServerCodec::handleHostKeysProve(const wire::HostKeysProveRequestMsg& msg) {
     wire::write_opt<wire::LengthPrefixed>(tmp, keyBlob);
     auto sig = key->sign(wire::flushTo<bytes>(tmp));
     if (!sig.ok()) {
-      return absl::InternalError(fmt::format("sshkey_sign failed: {}", sig.status()));
+      return statusf("sshkey_sign failed: {}", sig.status());
     }
     signatures.push_back(std::move(*sig));
   }
@@ -332,14 +342,23 @@ SshServerCodec::handleHostKeysProve(const wire::HostKeysProveRequestMsg& msg) {
   return resp;
 }
 
-void SshServerCodec::sendMgmtClientMessage(const ClientMessage& msg) {
+void SshServerTransport::sendMgmtClientMessage(const ClientMessage& msg) {
   mgmt_client_->stream().sendMessage(msg, false);
 }
 
-void SshServerCodec::onEvent(Network::ConnectionEvent event) {
+void SshServerTransport::onEvent(Network::ConnectionEvent event) {
   if (event == Network::ConnectionEvent::LocalClose || event == Network::ConnectionEvent::RemoteClose) {
     connection_service_->onStreamEnd();
   }
+}
+
+void SshServerTransport::onDecodingFailure(absl::Status status) {
+  wire::DisconnectMsg msg;
+  msg.reason_code = SSH2_DISCONNECT_BY_APPLICATION;
+  msg.description = statusToString(status);
+  (void)sendMessageToConnection(msg);
+
+  TransportBase::onDecodingFailure(status);
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

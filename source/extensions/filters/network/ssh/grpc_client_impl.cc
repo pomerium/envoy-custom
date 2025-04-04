@@ -62,8 +62,9 @@ std::weak_ptr<Grpc::AsyncStream<ChannelMessage>> ChannelStreamServiceClient::sta
 }
 
 void ChannelStreamServiceClient::onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) {
-  auto status = callbacks_->onReceiveMessage(std::move(message));
-  if (!status.ok()) {
+  auto stat = callbacks_->onReceiveMessage(std::move(message));
+  if (!stat.ok()) {
+    ENVOY_LOG(error, stat.message());
     stream_->closeStream();
   }
 }

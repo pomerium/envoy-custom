@@ -42,7 +42,7 @@ absl::Status DownstreamConnectionService::handleMessage(wire::Message&& msg) {
     google::protobuf::BytesValue b;
     auto msgData = msg.encodeTo<std::string>();
     if (!msgData.ok()) {
-      return absl::InvalidArgumentError("received invalid message");
+      return absl::InvalidArgumentError(fmt::format("received invalid message: {}", msgData.status()));
     }
     *b.mutable_value() = *msgData;
     *channel_msg.mutable_raw_bytes() = b;
@@ -88,7 +88,7 @@ absl::Status DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<Cha
     auto anyMsg = wire::Message::fromString(msg->raw_bytes().value());
     if (!anyMsg.ok()) {
       ENVOY_LOG(error, "received invalid channel message");
-      return anyMsg.status();
+      return statusf("received invalid channel message: {}", anyMsg.status());
     }
     ENVOY_LOG(debug, "sending channel message to downstream: {}", anyMsg->msg_type());
     return transport_.sendMessageToConnection(*anyMsg).status();
@@ -163,12 +163,14 @@ absl::Status DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<Cha
   }
 }
 
-void DownstreamConnectionService::onStreamBegin(const AuthState& auth_state, Dispatcher& dispatcher) {
+absl::Status DownstreamConnectionService::onStreamBegin(const AuthState& auth_state, Dispatcher& dispatcher) {
   switch (auth_state.multiplexing_info.multiplex_mode) {
   case Codec::MultiplexMode::Mirror:
     if (!mirror_multiplexer_) {
       mirror_multiplexer_ = std::make_shared<MirrorSessionMultiplexer>(api_, transport_, slot_ptr_, dispatcher);
-      mirror_multiplexer_->onStreamBegin(auth_state);
+      if (auto stat = mirror_multiplexer_->onStreamBegin(auth_state); !stat.ok()) {
+        return stat;
+      }
     }
     break;
   case Codec::MultiplexMode::Source:
@@ -180,6 +182,7 @@ void DownstreamConnectionService::onStreamBegin(const AuthState& auth_state, Dis
   default:
     break;
   }
+  return absl::OkStatus();
 }
 
 void DownstreamConnectionService::onStreamEnd() {
@@ -211,8 +214,8 @@ absl::Status UpstreamConnectionService::handleMessage(wire::Message&& msg) {
   auto streamId = authState.stream_id;
 
   if (authState.multiplexing_info.multiplex_mode == MultiplexMode::Source) {
-    if (auto r = source_multiplexer_->handleUpstreamToDownstreamMessage(msg); !r.ok()) {
-      return r;
+    if (auto stat = source_multiplexer_->handleUpstreamToDownstreamMessage(msg); !stat.ok()) {
+      return stat;
     }
   }
 
@@ -227,11 +230,14 @@ absl::Status UpstreamConnectionService::handleMessage(wire::Message&& msg) {
     });
 }
 
-void UpstreamConnectionService::onStreamBegin(const AuthState& auth_state, Dispatcher& dispatcher) {
+absl::Status UpstreamConnectionService::onStreamBegin(const AuthState& auth_state, Dispatcher& dispatcher) {
   if (!source_multiplexer_) {
     source_multiplexer_ = std::make_shared<SourceUpstreamSessionMultiplexer>(api_, transport_, slot_ptr_, dispatcher);
   }
-  source_multiplexer_->onStreamBegin(auth_state);
+  if (auto stat = source_multiplexer_->onStreamBegin(auth_state); !stat.ok()) {
+    return stat;
+  }
+  return absl::OkStatus();
 }
 
 void UpstreamConnectionService::onStreamEnd() {

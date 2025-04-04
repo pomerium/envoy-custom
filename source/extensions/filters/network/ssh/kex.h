@@ -171,7 +171,7 @@ protected:
     auto digest = computeExchangeHash(host_key_blob, client_pub_key, server_pub_key, shared_secret);
     auto sig = signer_->priv.sign(digest);
     if (!sig.ok()) {
-      return sig.status();
+      return statusf("error signing exchange hash: {}", sig.status());
     }
 
     result->exchange_hash = to_bytes(digest);
@@ -198,12 +198,12 @@ protected:
 
     auto server_host_key = openssh::SSHKey::fromBlob(host_key_blob);
     if (!server_host_key.ok()) {
-      return server_host_key.status();
+      return statusf("error reading host key blob: {}", server_host_key.status());
     }
 
     auto stat = server_host_key->verify(signature, digest);
     if (!stat.ok()) {
-      return stat;
+      return statusf("signature failed verification: {}", stat);
     }
 
     result->exchange_hash = to_bytes(digest);

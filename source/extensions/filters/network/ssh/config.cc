@@ -43,11 +43,11 @@ SshCodecFactory::SshCodecFactory(Api::Api& api,
 }
 
 ServerCodecPtr SshCodecFactory::createServerCodec() const {
-  return std::make_unique<SshServerCodec>(api_, config_, create_grpc_client_, slot_ptr_);
+  return std::make_unique<SshServerTransport>(api_, config_, create_grpc_client_, slot_ptr_);
 }
 
 ClientCodecPtr SshCodecFactory::createClientCodec() const {
-  return std::make_unique<SshClientCodec>(api_, config_, slot_ptr_);
+  return std::make_unique<SshClientTransport>(api_, config_, slot_ptr_);
 }
 
 ProtobufTypes::MessagePtr SshCodecFactoryConfig::createEmptyConfigProto() {

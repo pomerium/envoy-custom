@@ -760,7 +760,7 @@ struct UserAuthInfoPrompt {
 inline size_t read(Envoy::Buffer::Instance& buffer, UserAuthInfoPrompt& prompt, size_t payload_size) {
   auto n = decodeSequence(buffer, payload_size, prompt.prompt, prompt.echo);
   if (!n.ok()) {
-    throw Envoy::EnvoyException(std::string(n.status().message()));
+    throw Envoy::EnvoyException(fmt::format("error decoding UserAuthInfoPrompt: {}", n.status().message()));
   }
   return *n;
 }
@@ -769,7 +769,7 @@ inline size_t read(Envoy::Buffer::Instance& buffer, UserAuthInfoPrompt& prompt, 
 inline size_t write(Envoy::Buffer::Instance& buffer, const UserAuthInfoPrompt& prompt) {
   auto n = encodeSequence(buffer, prompt.prompt, prompt.echo);
   if (!n.ok()) {
-    throw Envoy::EnvoyException(std::string(n.status().message()));
+    throw Envoy::EnvoyException(fmt::format("error encoding UserAuthInfoPrompt: {}", n.status().message()));
   }
   return *n;
 }
@@ -922,7 +922,7 @@ struct Extension {
 inline size_t read(Envoy::Buffer::Instance& buffer, Extension& ext, size_t payload_size) {
   size_t n = 0;
   if (auto r = ext.extension_name.decode(buffer, payload_size); !r.ok()) {
-    throw Envoy::EnvoyException(std::string(r.status().message()));
+    throw Envoy::EnvoyException(fmt::format("error decoding extension name: {}", r.status()));
   } else {
     n += *r;
   }
@@ -931,7 +931,7 @@ inline size_t read(Envoy::Buffer::Instance& buffer, Extension& ext, size_t paylo
     throw Envoy::EnvoyException(fmt::format("invalid message length: {}", extDataLen));
   }
   if (auto r = ext.extension.decode(buffer, extDataLen); !r.ok()) {
-    throw Envoy::EnvoyException(std::string(r.status().message()));
+    throw Envoy::EnvoyException(fmt::format("error decoding extension: {}", r.status()));
   } else {
     n += *r;
   }
@@ -942,7 +942,7 @@ inline size_t read(Envoy::Buffer::Instance& buffer, Extension& ext, size_t paylo
 inline size_t write(Envoy::Buffer::Instance& buffer, const Extension& ext) {
   auto n = encodeSequence(buffer, ext.extension_name, ext.extension);
   if (!n.ok()) {
-    throw Envoy::EnvoyException(std::string(n.status().message()));
+    throw Envoy::EnvoyException(fmt::format("error encoding extension: {}", n.status()));
   }
   return *n;
 }

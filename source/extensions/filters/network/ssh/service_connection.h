@@ -36,7 +36,7 @@ public:
   absl::Status handleMessage(wire::Message&& msg) override;
 
   void registerMessageHandlers(SshMessageDispatcher& dispatcher) override;
-  void onStreamBegin(const AuthState& auth_state, Dispatcher& dispatcher);
+  absl::Status onStreamBegin(const AuthState& auth_state, Dispatcher& dispatcher);
   void onStreamEnd();
 
 private:
@@ -57,7 +57,7 @@ public:
         slot_ptr_(slot_ptr) {}
   absl::Status handleMessage(wire::Message&& msg) override;
   void registerMessageHandlers(SshMessageDispatcher& dispatcher) override;
-  void onStreamBegin(const AuthState& auth_state, Dispatcher& dispatcher);
+  absl::Status onStreamBegin(const AuthState& auth_state, Dispatcher& dispatcher);
   void onStreamEnd();
 
 private:

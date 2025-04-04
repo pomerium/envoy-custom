@@ -65,16 +65,14 @@ public:
         if (!version_exchanger_->versionRead()) {
           auto stat = version_exchanger_->readVersion(buffer);
           if (!stat.ok()) {
-            ENVOY_LOG(error, "ssh: {}", stat.message());
-            callbacks_->onDecodingFailure(stat.message());
+            onDecodingFailure(stat);
             return;
           }
         }
         if (!version_exchanger_->versionWritten()) {
           auto n = version_exchanger_->writeVersion(server_version_);
           if (!n.ok()) {
-            ENVOY_LOG(error, "ssh: {}", n.status().message());
-            callbacks_->onDecodingFailure(fmt::format("ssh: {}", n.status().message()));
+            onDecodingFailure(n.status());
             return;
           }
         }
@@ -85,8 +83,7 @@ public:
       Envoy::Buffer::OwnedImpl dec;
       auto stat = connection_state_->cipher->decryptPacket(*connection_state_->seq_read, dec, buffer);
       if (!stat.ok()) {
-        ENVOY_LOG(error, "ssh: decryptPacket: {}", stat.message());
-        callbacks_->onDecodingFailure(fmt::format("ssh: decryptPacket: {}", stat.message()));
+        onDecodingFailure(statusf("failed to decrypt packet: {}", stat));
         return;
       } else if (dec.length() == 0) {
         ENVOY_LOG(debug, "received incomplete packet; waiting for more data");
@@ -98,8 +95,7 @@ public:
       wire::Message msg;
       auto n = wire::decodePacket(dec, msg);
       if (!n.ok()) {
-        ENVOY_LOG(error, "ssh: readPacket: {}", n.status().message());
-        callbacks_->onDecodingFailure(fmt::format("ssh: readPacket: {}", n.status().message()));
+        onDecodingFailure(statusf("failed to decode packet: {}", n.status()));
         return;
       }
       if (msg.msg_type() == wire::SshMessageType::NewKeys) {
@@ -108,8 +104,7 @@ public:
       }
       ENVOY_LOG(trace, "received message: size: {}, type: {}", *n, msg.msg_type());
       if (auto err = onMessageDecoded(std::move(msg)); !err.ok()) {
-        ENVOY_LOG(error, "ssh: {}", err.message());
-        callbacks_->onDecodingFailure(fmt::format("ssh: {}", err.message()));
+        onDecodingFailure(err);
         return;
       }
     }
@@ -156,7 +151,17 @@ protected:
   virtual absl::Status onMessageDecoded(wire::Message&& msg) {
     return dispatch(std::move(msg));
   }
-  virtual void onInitialKexDone() {}
+  virtual void onInitialKexDone() {
+    ENVOY_LOG(debug, "ssh: initial key exchange done");
+  }
+  virtual void onDecodingFailure(absl::Status err) {
+    if (err.ok()) {
+      ENVOY_LOG(info, "ssh: stream {} closing", streamId(), err.message());
+    } else {
+      ENVOY_LOG(error, "ssh: stream {} closing with error: {}", streamId(), err.message());
+    }
+    callbacks_->onDecodingFailure(err.message());
+  }
 
 protected:
   Callbacks* callbacks_;

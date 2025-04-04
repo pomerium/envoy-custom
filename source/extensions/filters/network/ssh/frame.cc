@@ -83,6 +83,9 @@ FrameKind SSHResponseCommonFrame::frameKind() const {
 };
 
 FrameFlags SSHRequestCommonFrame::frameFlags() const {
+  if (raw_flags_.has_value()) {
+    return {stream_id_, raw_flags_.value(), 0};
+  }
   return {stream_id_, 0, 0};
 }
 
@@ -91,6 +94,9 @@ stream_id_t SSHRequestCommonFrame::streamId() const {
 }
 
 FrameFlags SSHResponseCommonFrame::frameFlags() const {
+  if (raw_flags_.has_value()) {
+    return {stream_id_, raw_flags_.value(), 0};
+  }
   return {stream_id_, 0, 0};
 }
 

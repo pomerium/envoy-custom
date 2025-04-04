@@ -84,10 +84,14 @@ absl::Status SessionRecorder::onStreamBegin(
   }
   if (frame.authState()->channel_mode == Codec::ChannelMode::Handoff) {
     // if the channel is in handoff mode, the client has already sent its pty info and it will
-    // be available in the frame auth state
-    formatter_->writeHeader(*frame.authState()->handoff_info.pty_info);
+    // be available in the frame auth state (unless the channel is direct-tcpip)
+    if (frame.authState()->handoff_info.pty_info) {
+      metadata_.mutable_pty_info()->CopyFrom(*frame.authState()->handoff_info.pty_info);
+    } else {
+      metadata_.mutable_pty_info()->Clear();
+    }
+    formatter_->writeHeader(metadata_.pty_info());
     wrote_header_ = true;
-    metadata_.mutable_pty_info()->CopyFrom(*frame.authState()->handoff_info.pty_info);
   }
   return absl::OkStatus();
 }

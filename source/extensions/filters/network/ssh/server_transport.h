@@ -15,16 +15,16 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 class DownstreamUserAuthService;
 class DownstreamConnectionService;
 
-class SshServerCodec : public virtual Logger::Loggable<Logger::Id::filter>,
-                       public TransportBase<ServerCodec>,
-                       public DownstreamTransportCallbacks,
-                       public Network::ConnectionCallbacks,
-                       public StreamMgmtServerMessageHandler {
+class SshServerTransport : public virtual Logger::Loggable<Logger::Id::filter>,
+                           public TransportBase<ServerCodec>,
+                           public DownstreamTransportCallbacks,
+                           public Network::ConnectionCallbacks,
+                           public StreamMgmtServerMessageHandler {
 public:
-  SshServerCodec(Api::Api& api,
-                 std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                 CreateGrpcClientFunc create_grpc_client,
-                 std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr);
+  SshServerTransport(Api::Api& api,
+                     std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
+                     CreateGrpcClientFunc create_grpc_client,
+                     std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr);
 
   void setCodecCallbacks(GenericProxy::ServerCodecCallbacks& callbacks) override;
 
@@ -38,6 +38,7 @@ public:
   const AuthState& authState() const override;
   AuthState& authState() override;
   void forward(std::unique_ptr<SSHStreamFrame> frame) override;
+  void onInitialKexDone() override;
 
   void onEvent(Network::ConnectionEvent event) override;
   void onAboveWriteBufferHighWatermark() override {}
@@ -46,15 +47,9 @@ public:
   stream_id_t streamId() const override {
     return stream_id_;
   }
-  void onInitialKexDone() override {
-    // send ext_info if we have it and the client supports it
-    if (kex_result_->client_supports_ext_info) {
-      auto extInfo = outgoingExtInfo();
-      if (extInfo.has_value()) {
-        (void)sendMessageToConnection(*extInfo);
-      }
-    }
-  }
+
+protected:
+  void onDecodingFailure(absl::Status status) override;
 
 private:
   void initServices();

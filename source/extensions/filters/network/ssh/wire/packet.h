@@ -49,7 +49,7 @@ absl::StatusOr<size_t> decodePacket(Envoy::Buffer::Instance& buffer, T& payload)
     n += read(buffer, packet_length, sizeof(packet_length));
     n += read(buffer, padding_length, sizeof(padding_length));
   } catch (const Envoy::EnvoyException& e) {
-    return absl::InvalidArgumentError(fmt::format("error decoding packet: {}", e.what()));
+    return absl::InvalidArgumentError(fmt::format("read error: {}", e.what()));
   }
 
   auto expectedPayloadLen = payloadLength(packet_length, padding_length);
@@ -62,12 +62,15 @@ absl::StatusOr<size_t> decodePacket(Envoy::Buffer::Instance& buffer, T& payload)
   }
   if (*actualPayloadLen != *expectedPayloadLen) {
     return absl::InvalidArgumentError(fmt::format(
-      "unexpected packet payload size of {} bytes (expected {})", n, *expectedPayloadLen));
+      "invalid packet payload size: expected {} bytes, got {})",
+      *expectedPayloadLen, n));
   }
   n += *actualPayloadLen;
 
   if (buffer.length() < padding_length) {
-    return absl::InvalidArgumentError("short read");
+    return absl::InvalidArgumentError(fmt::format(
+      "short read in message padding: expected {} bytes, {} available",
+      padding_length, buffer.length()));
   }
   buffer.drain(padding_length);
   n += padding_length;

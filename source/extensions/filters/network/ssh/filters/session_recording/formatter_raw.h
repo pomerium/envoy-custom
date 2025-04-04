@@ -46,6 +46,7 @@ public:
 
   void writeResizeEvent(const wire::WindowDimensionChangeChannelRequestMsg& msg) override {
     auto p = newPacket();
+    p.set_direction(PacketDirection::DownstreamToUpstream);
     encodeToPacket(p, msg);
     writeProtodelim(p);
   }
@@ -68,6 +69,7 @@ public:
     msg.visit(
       [&](const wire::DisconnectMsg& msg) {
         Packet p;
+        p.set_direction(PacketDirection::UpstreamToDownstream);
         p.set_time_delta_ms(absl::ToInt64Milliseconds(end_time - last_packet_time_));
         last_packet_time_ = end_time;
         encodeToPacket(p, msg);

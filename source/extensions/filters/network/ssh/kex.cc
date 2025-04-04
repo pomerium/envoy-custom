@@ -21,7 +21,7 @@ absl::Status Curve25519Sha256KexAlgorithm::handleServerRecv(wire::Message& msg) 
   return msg.visit(
     [&](Envoy::OptRef<wire::KexEcdhInitMessage> msg) {
       if (auto sz = msg->client_pub_key->size(); sz != 32) {
-        return absl::AbortedError(
+        return absl::InvalidArgumentError(
           fmt::format("invalid peer public key size (expected 32, got {})", sz));
       }
       fixed_bytes<32> client_pub_key;
@@ -40,17 +40,17 @@ absl::Status Curve25519Sha256KexAlgorithm::handleServerRecv(wire::Message& msg) 
 
       auto blob = signer_->pub.toBlob();
       if (!blob.ok()) {
-        return blob.status();
+        return statusf("error converting public key to blob: {}", blob.status());
       }
       auto res = computeServerResult(*blob, client_pub_key, server_keypair.pub, shared_secret);
       if (!res.ok()) {
-        return res.status();
+        return statusf("error computing server result: {}", res.status());
       }
       result_ = *res;
       return absl::OkStatus();
     },
     [&msg](auto&) {
-      return absl::InvalidArgumentError(fmt::format("unexpected message received during key exchange: {}", msg.msg_type()));
+      return absl::FailedPreconditionError(fmt::format("unexpected message received during key exchange: {}", msg.msg_type()));
     });
 }
 
@@ -68,7 +68,7 @@ absl::Status Curve25519Sha256KexAlgorithm::handleClientRecv(wire::Message& msg) 
   return msg.visit(
     [&](Envoy::OptRef<wire::KexEcdhReplyMsg> msg) {
       if (!msg.has_value()) {
-        return absl::InvalidArgumentError("unexpected KexEcdhReplyMsg received");
+        return absl::FailedPreconditionError("unexpected KexEcdhReplyMsg received");
       }
       if (auto sz = msg->ephemeral_pub_key->size(); sz != 32) {
         return absl::AbortedError(
@@ -94,7 +94,8 @@ absl::Status Curve25519Sha256KexAlgorithm::handleClientRecv(wire::Message& msg) 
       return absl::OkStatus();
     },
     [&msg](auto&) {
-      return absl::InvalidArgumentError(fmt::format("unexpected message received during key exchange: {}", msg.msg_type()));
+      return absl::FailedPreconditionError(fmt::format(
+        "unexpected message received during key exchange: {}", msg.msg_type()));
     });
 }
 
@@ -478,8 +479,8 @@ absl::Status Kex::loadSshKeyPair(const std::string& priv_key_path, const std::st
 
 absl::Status Kex::sendKexInit() noexcept {
   wire::KexInitMessage* server_kex_init = &state_->our_kex;
-  std::copy(preferredKexAlgos.begin(), preferredKexAlgos.end(),
-            std::back_inserter(*server_kex_init->kex_algorithms));
+  server_kex_init->kex_algorithms = preferredKexAlgos;
+
   if (is_server_) {
     server_kex_init->kex_algorithms->push_back("ext-info-s");
     server_kex_init->kex_algorithms->push_back("kex-strict-s-v00@openssh.com");
@@ -496,8 +497,7 @@ absl::Status Kex::sendKexInit() noexcept {
   RAND_bytes(server_kex_init->cookie->data(), sizeof(server_kex_init->cookie));
   for (const auto& hostKey : host_keys_) {
     auto algs = algorithmsForKeyFormat(hostKey.priv.name());
-    std::copy(algs.begin(), algs.end(),
-              std::back_inserter(*server_kex_init->server_host_key_algorithms));
+    server_kex_init->server_host_key_algorithms->append_range(algs);
   }
 
   auto raw_kex_init = server_kex_init->encodeTo<bytes>();
@@ -510,10 +510,7 @@ absl::Status Kex::sendKexInit() noexcept {
     state_->magics.client_kex_init = std::move(*raw_kex_init);
   }
 
-  if (auto err = transport_.sendMessageToConnection(*server_kex_init); !err.ok()) {
-    return err.status();
-  }
-  return absl::OkStatus();
+  return transport_.sendMessageToConnection(*server_kex_init).status();
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
