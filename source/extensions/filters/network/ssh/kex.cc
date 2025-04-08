@@ -148,7 +148,7 @@ absl::Status Kex::handleMessage(wire::Message&& msg) noexcept {
         return absl::FailedPreconditionError("unexpected KexInit message");
       }
 
-      auto raw_peer_kex_init = msg.encodeTo<bytes>();
+      auto raw_peer_kex_init = encodeTo<bytes>(msg);
       if (!raw_peer_kex_init.ok()) {
         return raw_peer_kex_init.status();
       }
@@ -500,7 +500,7 @@ absl::Status Kex::sendKexInit() noexcept {
     server_kex_init->server_host_key_algorithms->append_range(algs);
   }
 
-  auto raw_kex_init = server_kex_init->encodeTo<bytes>();
+  auto raw_kex_init = encodeTo<bytes>(*server_kex_init);
   if (!raw_kex_init.ok()) {
     return raw_kex_init.status();
   }

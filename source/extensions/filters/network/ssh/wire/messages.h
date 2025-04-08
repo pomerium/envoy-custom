@@ -23,15 +23,6 @@ struct BaseSshMsg {
 
   virtual absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept PURE;
   virtual absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept PURE;
-
-  template <SshStringType T>
-  absl::StatusOr<T> encodeTo() const {
-    Envoy::Buffer::OwnedImpl buf;
-    if (auto r = this->encode(buf); !r.ok()) {
-      return r.status();
-    }
-    return flushTo<T>(buf);
-  }
 };
 
 template <SshMessageType MT>
@@ -77,16 +68,16 @@ struct OverloadedMessage : Msg<first_type_t<Ts...>::type> {
   static_assert(all_values_equal<Ts::type...>,
                 "all overloaded messages must have the same type");
   using Msg<first_type_t<Ts...>::type>::type;
-
   template <typename T>
   using overload_opt_for = OverloadMsg<type, T, 1 + index_of_type<T, Ts...>::value>;
+  using message_type = sub_message<overload_opt_for<Ts>...>;
 
 private:
-  sub_message<overload_opt_for<Ts>...> message_;
+  message_type message_;
 
   template <typename T>
-  static constexpr bool has_overload() {
-    return std::decay_t<decltype(message_)>::template has_option<overload_opt_for<T>>();
+  static consteval bool has_overload() {
+    return message_type::template has_option<overload_opt_for<T>>();
   }
 
 public:
@@ -146,52 +137,15 @@ struct KexInitMessage : Msg<SshMessageType::KexInit> {
   field<bool> first_kex_packet_follows;
   field<uint32_t> reserved;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size,
-                     cookie,
-                     kex_algorithms,
-                     server_host_key_algorithms,
-                     encryption_algorithms_client_to_server,
-                     encryption_algorithms_server_to_client,
-                     mac_algorithms_client_to_server,
-                     mac_algorithms_server_to_client,
-                     compression_algorithms_client_to_server,
-                     compression_algorithms_server_to_client,
-                     languages_client_to_server,
-                     languages_server_to_client,
-                     first_kex_packet_follows,
-                     reserved);
-  }
-
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type,
-                     cookie,
-                     kex_algorithms,
-                     server_host_key_algorithms,
-                     encryption_algorithms_client_to_server,
-                     encryption_algorithms_server_to_client,
-                     mac_algorithms_client_to_server,
-                     mac_algorithms_server_to_client,
-                     compression_algorithms_client_to_server,
-                     compression_algorithms_server_to_client,
-                     languages_client_to_server,
-                     languages_server_to_client,
-                     first_kex_packet_follows,
-                     reserved);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct KexEcdhInitMessage : Msg<SshMessageType::KexECDHInit> {
   field<bytes, LengthPrefixed> client_pub_key;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size,
-                     client_pub_key);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type,
-                     client_pub_key);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct KexEcdhReplyMsg : Msg<SshMessageType::KexECDHReply> {
@@ -199,44 +153,22 @@ struct KexEcdhReplyMsg : Msg<SshMessageType::KexECDHReply> {
   field<bytes, LengthPrefixed> ephemeral_pub_key;
   field<bytes, LengthPrefixed> signature;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size,
-                     host_key,
-                     ephemeral_pub_key,
-                     signature);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type,
-                     host_key,
-                     ephemeral_pub_key,
-                     signature);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct ServiceRequestMsg : Msg<SshMessageType::ServiceRequest> {
   field<std::string, LengthPrefixed> service_name;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size,
-                     service_name);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type,
-                     service_name);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct ServiceAcceptMsg : Msg<SshMessageType::ServiceAccept> {
   field<std::string, LengthPrefixed> service_name;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size,
-                     service_name);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type,
-                     service_name);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 template <SshMessageType T>
@@ -258,22 +190,8 @@ struct ChannelOpenMsg : Msg<SshMessageType::ChannelOpen> {
   field<uint32_t> max_packet_size;
   field<bytes> extra;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size,
-                     channel_type,
-                     sender_channel,
-                     initial_window_size,
-                     max_packet_size,
-                     extra);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type,
-                     channel_type,
-                     sender_channel,
-                     initial_window_size,
-                     max_packet_size,
-                     extra);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct PtyReqChannelRequestMsg : SubMsg<SshMessageType::ChannelRequest, "pty-req"> {
@@ -284,24 +202,8 @@ struct PtyReqChannelRequestMsg : SubMsg<SshMessageType::ChannelRequest, "pty-req
   field<uint32_t> height_px;
   field<std::string, LengthPrefixed> modes;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeSequence(buffer, payload_size,
-                          term_env,
-                          width_columns,
-                          height_rows,
-                          width_px,
-                          height_px,
-                          modes);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeSequence(buffer,
-                          term_env,
-                          width_columns,
-                          height_rows,
-                          width_px,
-                          height_px,
-                          modes);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct ShellChannelRequestMsg : SubMsg<SshMessageType::ChannelRequest, "shell"> {
@@ -322,21 +224,8 @@ struct WindowDimensionChangeChannelRequestMsg : SubMsg<SshMessageType::ChannelRe
   field<uint32_t> width_px;
   field<uint32_t> height_px;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeSequence(buffer, payload_size,
-                          width_columns,
-                          height_rows,
-                          width_px,
-                          height_px);
-  }
-
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeSequence(buffer,
-                          width_columns,
-                          height_rows,
-                          width_px,
-                          height_px);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct ChannelRequestMsg : Msg<SshMessageType::ChannelRequest> {
@@ -348,20 +237,8 @@ struct ChannelRequestMsg : Msg<SshMessageType::ChannelRequest> {
               WindowDimensionChangeChannelRequestMsg>
     request;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size,
-                     recipient_channel,
-                     request.key_field(),
-                     want_reply,
-                     request);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type,
-                     recipient_channel,
-                     request.key_field(),
-                     want_reply,
-                     request);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct ChannelOpenConfirmationMsg : Msg<SshMessageType::ChannelOpenConfirmation> {
@@ -371,22 +248,8 @@ struct ChannelOpenConfirmationMsg : Msg<SshMessageType::ChannelOpenConfirmation>
   field<uint32_t> max_packet_size;
   field<bytes> extra;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size,
-                     recipient_channel,
-                     sender_channel,
-                     initial_window_size,
-                     max_packet_size,
-                     extra);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type,
-                     recipient_channel,
-                     sender_channel,
-                     initial_window_size,
-                     max_packet_size,
-                     extra);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct ChannelOpenFailureMsg : Msg<SshMessageType::ChannelOpenFailure> {
@@ -395,52 +258,24 @@ struct ChannelOpenFailureMsg : Msg<SshMessageType::ChannelOpenFailure> {
   field<std::string, LengthPrefixed> description;
   field<std::string, LengthPrefixed> language_tag;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size,
-                     recipient_channel,
-                     reason_code,
-                     description,
-                     language_tag);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type,
-                     recipient_channel,
-                     reason_code,
-                     description,
-                     language_tag);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct ChannelWindowAdjustMsg : Msg<SshMessageType::ChannelWindowAdjust> {
   mutable field<uint32_t> recipient_channel;
   field<uint32_t> bytes_to_add;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size,
-                     recipient_channel,
-                     bytes_to_add);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type,
-                     recipient_channel,
-                     bytes_to_add);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct ChannelDataMsg : Msg<SshMessageType::ChannelData> {
   mutable field<uint32_t> recipient_channel;
   field<bytes, LengthPrefixed> data;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size,
-                     recipient_channel,
-                     data);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type,
-                     recipient_channel,
-                     data);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct ChannelExtendedDataMsg : Msg<SshMessageType::ChannelExtendedData> {
@@ -448,92 +283,50 @@ struct ChannelExtendedDataMsg : Msg<SshMessageType::ChannelExtendedData> {
   field<uint32_t> data_type_code;
   field<bytes, LengthPrefixed> data;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size,
-                     recipient_channel,
-                     data_type_code,
-                     data);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type,
-                     recipient_channel,
-                     data_type_code,
-                     data);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct ChannelEOFMsg : Msg<SshMessageType::ChannelEOF> {
   mutable field<uint32_t> recipient_channel;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size,
-                     recipient_channel);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type,
-                     recipient_channel);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct ChannelCloseMsg : Msg<SshMessageType::ChannelClose> {
   mutable field<uint32_t> recipient_channel;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size,
-                     recipient_channel);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type,
-                     recipient_channel);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct ChannelSuccessMsg : Msg<SshMessageType::ChannelSuccess> {
   mutable field<uint32_t> recipient_channel;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size,
-                     recipient_channel);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type,
-                     recipient_channel);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct ChannelFailureMsg : Msg<SshMessageType::ChannelFailure> {
   mutable field<uint32_t> recipient_channel;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size,
-                     recipient_channel);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type,
-                     recipient_channel);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct HostKeysProveRequestMsg : SubMsg<SshMessageType::GlobalRequest, "hostkeys-prove-00@openssh.com"> {
   field<bytes_list, LengthPrefixed> hostkeys;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t len) override {
-    return decodeSequence(buffer, len, hostkeys);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeSequence(buffer, hostkeys);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t len) override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct HostKeysMsg : SubMsg<SshMessageType::GlobalRequest, "hostkeys-00@openssh.com"> {
   field<bytes_list, LengthPrefixed> hostkeys;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t len) override {
-    return decodeSequence(buffer, len, hostkeys);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeSequence(buffer, hostkeys);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t len) override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct GlobalRequestMsg : Msg<SshMessageType::GlobalRequest> {
@@ -541,56 +334,22 @@ struct GlobalRequestMsg : Msg<SshMessageType::GlobalRequest> {
   field<bool> want_reply;
   sub_message<HostKeysProveRequestMsg, HostKeysMsg> request;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size,
-                     request.key_field(),
-                     want_reply,
-                     request);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type,
-                     request.key_field(),
-                     want_reply,
-                     request);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct HostKeysProveResponseMsg : SubMsg<SshMessageType::RequestSuccess, "hostkeys-prove-00@openssh.com"> {
   field<bytes_list, LengthPrefixed> signatures;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t len) override {
-    return decodeSequence(buffer, len, signatures);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeSequence(buffer, signatures);
-  };
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t len) override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct GlobalRequestSuccessMsg : Msg<SshMessageType::RequestSuccess> {
   sub_message<HostKeysProveResponseMsg> response;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    auto n = decodeMsg(buffer, type, payload_size);
-    if (!n.ok()) {
-      return n;
-    }
-    auto nresp = response.decode(buffer, payload_size - *n); // always unknown
-    if (!nresp.ok()) {
-      return nresp;
-    }
-    return *n + *nresp;
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    auto n = encodeMsg(buffer, type);
-    if (!n.ok()) {
-      return n;
-    }
-    auto nresp = response.encode(buffer);
-    if (!nresp.ok()) {
-      return nresp;
-    }
-    return *n + *nresp;
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct GlobalRequestFailureMsg : EmptyMsg<SshMessageType::RequestFailure> {};
@@ -598,14 +357,8 @@ struct GlobalRequestFailureMsg : EmptyMsg<SshMessageType::RequestFailure> {};
 struct IgnoreMsg : Msg<SshMessageType::Ignore> {
   field<bytes, LengthPrefixed> data;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size,
-                     data);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type,
-                     data);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct DebugMsg : Msg<SshMessageType::Debug> {
@@ -613,32 +366,16 @@ struct DebugMsg : Msg<SshMessageType::Debug> {
   field<std::string, LengthPrefixed> message;
   field<std::string, LengthPrefixed> language_tag;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size,
-                     always_display,
-                     message,
-                     language_tag);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type,
-                     always_display,
-                     message,
-                     language_tag);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct UnimplementedMsg : Msg<SshMessageType::Unimplemented> {
   // FIXME: the sequence numbers in this message are likely going to be wrong, need to adjust them
   field<uint32_t> sequence_number;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size,
-                     sequence_number);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type,
-                     sequence_number);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct PubKeyUserAuthRequestMsg : SubMsg<SshMessageType::UserAuthRequest, "publickey"> {
@@ -647,54 +384,16 @@ struct PubKeyUserAuthRequestMsg : SubMsg<SshMessageType::UserAuthRequest, "publi
   field<bytes, LengthPrefixed> public_key;
   field<bytes, LengthPrefixed> signature;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    auto n = decodeSequence(buffer, payload_size,
-                            has_signature,
-                            public_key_alg,
-                            public_key);
-    if (n.ok() && has_signature) {
-      auto sn = signature.decode(buffer, payload_size - *n);
-      if (!sn.ok()) {
-        return sn;
-      }
-      return *n + *sn;
-    }
-    return n;
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    // The check on signature here is important; even if signature was empty, write() would
-    // still append a 4-byte length field containing 0. We also can't check based on has_signature,
-    // because the signature is computed over the wire encoding of this message (sans signature)
-    // and requires has_signature to be true (see RFC4252 sec. 7)
-    auto n = encodeSequence(buffer,
-                            has_signature,
-                            public_key_alg,
-                            public_key);
-    if (!signature->empty()) {
-      auto sn = signature.encode(buffer);
-      if (!sn.ok()) {
-        return sn;
-      }
-      return *n + *sn;
-    }
-    return n;
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct KeyboardInteractiveUserAuthRequestMsg : SubMsg<SshMessageType::UserAuthRequest, "keyboard-interactive"> {
   field<std::string, LengthPrefixed> language_tag;
   field<string_list, NameListFormat> submethods;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeSequence(buffer, payload_size,
-                          language_tag,
-                          submethods);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeSequence(buffer,
-                          language_tag,
-                          submethods);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct NoneAuthRequestMsg : SubMsg<SshMessageType::UserAuthRequest, "none"> {
@@ -715,20 +414,8 @@ struct UserAuthRequestMsg : Msg<SshMessageType::UserAuthRequest> {
               NoneAuthRequestMsg>
     request;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size,
-                     username,
-                     service_name,
-                     request.key_field(),
-                     request);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type,
-                     username,
-                     service_name,
-                     request.key_field(),
-                     request);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct UserAuthInfoPrompt {
@@ -737,22 +424,10 @@ struct UserAuthInfoPrompt {
 };
 
 // implements Reader
-inline size_t read(Envoy::Buffer::Instance& buffer, UserAuthInfoPrompt& prompt, size_t payload_size) {
-  auto n = decodeSequence(buffer, payload_size, prompt.prompt, prompt.echo);
-  if (!n.ok()) {
-    throw Envoy::EnvoyException(fmt::format("error decoding UserAuthInfoPrompt: {}", n.status().message()));
-  }
-  return *n;
-}
+size_t read(Envoy::Buffer::Instance& buffer, UserAuthInfoPrompt& prompt, size_t payload_size);
 
 // implements Writer
-inline size_t write(Envoy::Buffer::Instance& buffer, const UserAuthInfoPrompt& prompt) {
-  auto n = encodeSequence(buffer, prompt.prompt, prompt.echo);
-  if (!n.ok()) {
-    throw Envoy::EnvoyException(fmt::format("error encoding UserAuthInfoPrompt: {}", n.status().message()));
-  }
-  return *n;
-}
+size_t write(Envoy::Buffer::Instance& buffer, const UserAuthInfoPrompt& prompt);
 
 struct UserAuthInfoRequestMsg : Msg<SshMessageType::UserAuthInfoRequest> {
   field<std::string, LengthPrefixed> name;
@@ -760,61 +435,31 @@ struct UserAuthInfoRequestMsg : Msg<SshMessageType::UserAuthInfoRequest> {
   field<std::string, LengthPrefixed> language_tag;
   field<std::vector<UserAuthInfoPrompt>, ListSizePrefixed> prompts;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size,
-                     name,
-                     instruction,
-                     language_tag,
-                     prompts);
-  }
-
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type,
-                     name,
-                     instruction,
-                     language_tag,
-                     prompts);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct UserAuthInfoResponseMsg : Msg<SshMessageType::UserAuthInfoResponse> {
   field<string_list, LengthPrefixed | ListSizePrefixed> responses;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size, responses);
-  }
-
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type, responses);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct UserAuthBannerMsg : Msg<SshMessageType::UserAuthBanner> {
   field<std::string, LengthPrefixed> message;
   field<std::string, LengthPrefixed> language_tag;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size,
-                     message,
-                     language_tag);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type,
-                     message,
-                     language_tag);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct UserAuthFailureMsg : Msg<SshMessageType::UserAuthFailure> {
   field<string_list, NameListFormat> methods;
   field<bool> partial;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size, methods, partial);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type, methods, partial);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct DisconnectMsg : Msg<SshMessageType::Disconnect> {
@@ -822,18 +467,8 @@ struct DisconnectMsg : Msg<SshMessageType::Disconnect> {
   field<std::string, LengthPrefixed> description;
   field<std::string, LengthPrefixed> language_tag;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size,
-                     reason_code,
-                     description,
-                     language_tag);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type,
-                     reason_code,
-                     description,
-                     language_tag);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct UserAuthSuccessMsg : EmptyMsg<SshMessageType::UserAuthSuccess> {};
@@ -843,38 +478,22 @@ struct UserAuthPubKeyOkMsg : Msg<SshMessageType::UserAuthPubKeyOk> {
   field<std::string, LengthPrefixed> public_key_alg;
   field<bytes, LengthPrefixed> public_key;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size,
-                     public_key_alg,
-                     public_key);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type,
-                     public_key_alg,
-                     public_key);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct ServerSigAlgsExtension : SubMsg<SshMessageType::ExtInfo, "server-sig-algs"> {
   field<string_list, NameListFormat> public_key_algorithms_accepted;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return public_key_algorithms_accepted.decode(buffer, payload_size);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return public_key_algorithms_accepted.encode(buffer);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct PingExtension : SubMsg<SshMessageType::ExtInfo, "ping@openssh.com"> {
   field<std::string, LengthPrefixed> version;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return version.decode(buffer, payload_size);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return version.encode(buffer);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct Extension {
@@ -890,33 +509,10 @@ struct Extension {
 };
 
 // implements Reader
-inline size_t read(Envoy::Buffer::Instance& buffer, Extension& ext, size_t payload_size) {
-  size_t n = 0;
-  if (auto r = ext.extension.key_field().decode(buffer, payload_size); !r.ok()) {
-    throw Envoy::EnvoyException(fmt::format("error decoding extension name: {}", r.status()));
-  } else {
-    n += *r;
-  }
-  auto extDataLen = buffer.peekBEInt<uint32_t>() + 4uz;
-  if (extDataLen > payload_size) {
-    throw Envoy::EnvoyException(fmt::format("invalid message length: {}", extDataLen));
-  }
-  if (auto r = ext.extension.decode(buffer, extDataLen); !r.ok()) {
-    throw Envoy::EnvoyException(fmt::format("error decoding extension: {}", r.status()));
-  } else {
-    n += *r;
-  }
-  return n;
-}
+size_t read(Envoy::Buffer::Instance& buffer, Extension& ext, size_t payload_size);
 
 // implements Writer
-inline size_t write(Envoy::Buffer::Instance& buffer, const Extension& ext) {
-  auto n = encodeSequence(buffer, ext.extension.key_field(), ext.extension);
-  if (!n.ok()) {
-    throw Envoy::EnvoyException(fmt::format("error encoding extension: {}", n.status()));
-  }
-  return *n;
-}
+size_t write(Envoy::Buffer::Instance& buffer, const Extension& ext);
 
 struct ExtInfoMsg : Msg<SshMessageType::ExtInfo> {
   field<std::vector<Extension>, ListSizePrefixed> extensions;
@@ -931,40 +527,22 @@ struct ExtInfoMsg : Msg<SshMessageType::ExtInfo> {
     return false;
   }
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size,
-                     extensions);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type,
-                     extensions);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct PingMsg : Msg<SshMessageType::Ping> {
   field<std::string, LengthPrefixed> data;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size,
-                     data);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type,
-                     data);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 struct PongMsg : Msg<SshMessageType::Pong> {
   field<std::string, LengthPrefixed> data;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    return decodeMsg(buffer, type, payload_size,
-                     data);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type,
-                     data);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
 namespace detail {
@@ -1062,26 +640,10 @@ struct Message : BaseSshMsg {
     }
   }
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
-    message.key_field() = buffer.peekInt<SshMessageType>();
-    return message.decode(buffer, payload_size);
-  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    // NB: messages encode/decode their own types
-    return message.encode(buffer);
-  }
-
-  static absl::StatusOr<Message> fromString(std::string_view str) {
-    Message m{};
-    auto stat = with_buffer_view(str, [&m](Envoy::Buffer::Instance& buffer) {
-      return m.decode(buffer, buffer.length());
-    });
-    if (!stat.ok()) {
-      return stat.status();
-    }
-    return m;
-  }
+  static absl::StatusOr<Message> fromString(std::string_view str);
 };
 
 } // namespace wire

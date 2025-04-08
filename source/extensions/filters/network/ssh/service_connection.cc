@@ -40,7 +40,7 @@ absl::Status DownstreamConnectionService::handleMessage(wire::Message&& msg) {
     auto& authState = transport_.authState();
     ChannelMessage channel_msg;
     google::protobuf::BytesValue b;
-    auto msgData = msg.encodeTo<std::string>();
+    auto msgData = encodeTo<std::string>(msg);
     if (!msgData.ok()) {
       return absl::InvalidArgumentError(fmt::format("received invalid message: {}", msgData.status()));
     }

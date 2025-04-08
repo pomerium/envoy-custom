@@ -178,7 +178,7 @@ TEST(MessageTest, RoundTrip) {
   EXPECT_EQ(extInfo.extensions[0].extension_name(), decoded.extensions[0].extension_name());
   EXPECT_EQ(extInfo.extensions[0].extension.get<PingExtension>().version, decoded.extensions[0].extension.get<PingExtension>().version);
 
-  EXPECT_EQ(encoded1, *decoded.encodeTo<std::string>());
+  EXPECT_EQ(encoded1, *encodeTo<std::string>(decoded));
 }
 
 TEST(MessageTest, CopyMove) {
