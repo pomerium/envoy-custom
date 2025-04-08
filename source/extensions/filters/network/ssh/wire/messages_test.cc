@@ -3,6 +3,7 @@
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/common.h"
+#include <memory>
 
 namespace wire::test {
 
@@ -181,19 +182,35 @@ TEST(MessageTest, RoundTrip) {
 }
 
 TEST(MessageTest, CopyMove) {
-  wire::Message m;
+  wire::Message m1;
   wire::ChannelDataMsg data;
   data.recipient_channel = 1;
-  data.data = {'1', '2', '3'};
-  auto data_addr = reinterpret_cast<uintptr_t>(data.data->data());
-  m.message = std::move(data);
+  data.data->resize(100);
+  auto data_ptr = data.data->data();
+  m1.message.reset(std::move(data));
 
-  wire::Message m2 = std::move(m);
-  EXPECT_FALSE(m.message.oneof.has_value());
-  EXPECT_TRUE(m2.message.oneof.has_value());
-  EXPECT_EQ(m2.msg_type(), wire::SshMessageType::ChannelData);
-  EXPECT_EQ(*m2.message.get<wire::ChannelDataMsg>().recipient_channel, 1);
-  EXPECT_EQ(reinterpret_cast<uintptr_t>(m2.message.get<wire::ChannelDataMsg>().data->data()), data_addr);
+  // move
+  wire::Message m2{std::move(m1)};
+  // a moved-from optional with a value will still have a value, and the variant will still contain
+  // a ChannelDataMsg, but non-trivially-movable fields (such as the data byte array) will become
+  // empty in the moved-from message.
+  EXPECT_TRUE(m1.message.oneof.has_value());                               // trivial move (copy)
+  EXPECT_EQ(m1.msg_type(), wire::SshMessageType::ChannelData);             // trivial move (copy)
+  EXPECT_EQ(1, *m1.message.get<wire::ChannelDataMsg>().recipient_channel); // trivial move (copy)
+  EXPECT_TRUE(m1.message.get<wire::ChannelDataMsg>().data->empty());       // move
+
+  EXPECT_TRUE(m2.message.oneof.has_value());                                // trivial move (copy)
+  EXPECT_EQ(m2.msg_type(), wire::SshMessageType::ChannelData);              // trivial move (copy)
+  EXPECT_EQ(1, *m2.message.get<wire::ChannelDataMsg>().recipient_channel);  // trivial move (copy)
+  EXPECT_EQ(m2.message.get<wire::ChannelDataMsg>().data->data(), data_ptr); // move
+
+  // copy
+  wire::Message m3{m2};
+  EXPECT_TRUE(m3.message.oneof.has_value());
+  EXPECT_EQ(m3.msg_type(), wire::SshMessageType::ChannelData);
+  EXPECT_EQ(1, *m3.message.get<wire::ChannelDataMsg>().recipient_channel);
+  EXPECT_NE(m3.message.get<wire::ChannelDataMsg>().data->data(), data_ptr);
+  EXPECT_EQ(m3.message.get<wire::ChannelDataMsg>().data, m2.message.get<wire::ChannelDataMsg>().data);
 }
 
 } // namespace wire::test

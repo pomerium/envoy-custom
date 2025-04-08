@@ -927,18 +927,18 @@ TEST(DecodeSequenceTest, CompileTimeChecks) {
   wire::ChannelRequestMsg test_msg;
 
   {
-    static constinit auto idx = sub_message_index<decltype(test_msg.recipient_channel),
-                                                  decltype(test_msg.want_reply),
-                                                  decltype(test_msg.request)>();
+    static constinit auto idx = detail::sub_message_index<decltype(test_msg.recipient_channel),
+                                                          decltype(test_msg.want_reply),
+                                                          decltype(test_msg.request)>();
     static_assert(idx.index == 2);
     static_assert(idx.key_field_index == -1);
   }
 
   {
-    static constinit auto idx = sub_message_index<decltype(test_msg.recipient_channel),
-                                                  decltype(test_msg.request.key_field()),
-                                                  decltype(test_msg.want_reply),
-                                                  decltype(test_msg.request)>();
+    static constinit auto idx = detail::sub_message_index<decltype(test_msg.recipient_channel),
+                                                          decltype(test_msg.request)::key_field_type,
+                                                          decltype(test_msg.want_reply),
+                                                          decltype(test_msg.request)>();
     static_assert(idx.index == 3);
     static_assert(idx.key_field_index == 1);
   }

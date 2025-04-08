@@ -217,23 +217,69 @@ consteval EncodingOptions operator~(EncodingOptions opt) {
   return static_cast<EncodingOptions>(~static_cast<std::underlying_type_t<EncodingOptions>>(opt));
 }
 
+// the functions below are only used for compile-time checks
+namespace detail {
 // asserts that the actual encoding options are a subset of the supported encoding options.
 template <EncodingOptions Supported, EncodingOptions Opt>
-constexpr void check_supported_options() {
+consteval void check_supported_options() {
   static_assert((Opt & Supported) == Opt, "unsupported options");
 }
 
 template <EncodingOptions Incompatible, EncodingOptions Opt>
-constexpr void check_incompatible_options() {
+consteval void check_incompatible_options() {
   static_assert((Opt & Incompatible) != Incompatible, "incompatible options");
 }
+
+template <typename T>
+struct is_sub_message : std::false_type {};
+
+template <ssize_t I, ssize_t K>
+struct sub_message_index_t {
+  static constexpr ssize_t index = I;
+  static constexpr ssize_t key_field_index = K;
+};
+
+template <typename T, typename... Args>
+consteval ssize_t key_field_index() {
+  if constexpr (is_sub_message<T>::value) {
+    static constexpr auto list = {std::is_same_v<typename T::key_field_type, Args>...};
+    constexpr auto it = std::find(list.begin(), list.end(), true);
+    return it == list.end() ? -1 : std::distance(list.begin(), it);
+  }
+  return -1;
+}
+
+template <typename... Args>
+consteval auto sub_message_index() {
+  static constexpr std::array<bool, sizeof...(Args)> list = {is_sub_message<Args>::value...};
+  static constexpr std::array<ssize_t, sizeof...(Args)> key_list = {key_field_index<Args, Args...>()...};
+  static_assert(list.size() == key_list.size());
+  static constexpr auto submsg_pos = std::find(list.begin(), list.end(), true);
+  if constexpr (submsg_pos == list.end()) {
+    return sub_message_index_t<-1, -1>{};
+  } else {
+    static constexpr ssize_t index = std::distance(list.begin(), submsg_pos);
+    static constexpr ssize_t key_entry = key_list.at(index);
+    return sub_message_index_t<index, key_entry>{};
+  }
+}
+
+template <typename... Args>
+consteval void check_sub_message_field_order() {
+  if constexpr (auto idx = sub_message_index<std::decay_t<Args>...>(); idx.index != -1z) {
+    static_assert(idx.key_field_index >= 0z && idx.key_field_index < idx.index,
+                  "sub_message arguments must be preceded by their corresponding key_field");
+  }
+}
+} // namespace detail
 
 // read_opt is a wrapper around read() that supports additional encoding options.
 // This specialization handles non-list types as well as strings and 'bytes' (vector<uint8_t>).
 template <EncodingOptions Opt, typename T>
   requires (!is_vector<T>::value || std::is_same_v<T, bytes>)
 size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, explicit_size_t auto limit) { // NOLINT
-  check_supported_options<LengthPrefixed, Opt>();
+  detail::check_supported_options<LengthPrefixed, Opt>();
+
   if (limit == 0) {
     return 0;
   }
@@ -257,7 +303,8 @@ size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, explicit_size_t auto 
 template <EncodingOptions Opt, typename T>
   requires (!is_vector<T>::value || std::is_same_v<T, bytes>)
 size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT
-  check_supported_options<LengthPrefixed, Opt>();
+  detail::check_supported_options<LengthPrefixed, Opt>();
+
   if constexpr (Opt & LengthPrefixed) {
     Envoy::Buffer::OwnedImpl tmp;
     auto size = write(tmp, value);
@@ -282,9 +329,9 @@ template <EncodingOptions Opt, typename T>
   requires Reader<typename T::value_type> &&
            (is_vector<T>::value && !std::is_same_v<T, bytes>)
 size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NOLINT
-  check_supported_options<(CommaDelimited | LengthPrefixed | ListSizePrefixed | ListLengthPrefixed), Opt>();
-  check_incompatible_options<(CommaDelimited | LengthPrefixed), Opt>();
-  check_incompatible_options<(CommaDelimited | ListSizePrefixed), Opt>();
+  detail::check_supported_options<(CommaDelimited | LengthPrefixed | ListSizePrefixed | ListLengthPrefixed), Opt>();
+  detail::check_incompatible_options<(CommaDelimited | LengthPrefixed), Opt>();
+  detail::check_incompatible_options<(CommaDelimited | ListSizePrefixed), Opt>();
 
   if (limit == 0) {
     return 0;
@@ -390,9 +437,9 @@ template <EncodingOptions Opt, typename T>
   requires Writer<typename T::value_type> &&
            (is_vector<T>::value && !std::is_same_v<T, bytes>)
 size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT
-  check_supported_options<(CommaDelimited | LengthPrefixed | ListSizePrefixed | ListLengthPrefixed), Opt>();
-  check_incompatible_options<(CommaDelimited | LengthPrefixed), Opt>();
-  check_incompatible_options<(CommaDelimited | ListSizePrefixed), Opt>();
+  detail::check_supported_options<(CommaDelimited | LengthPrefixed | ListSizePrefixed | ListLengthPrefixed), Opt>();
+  detail::check_incompatible_options<(CommaDelimited | LengthPrefixed), Opt>();
+  detail::check_incompatible_options<(CommaDelimited | ListSizePrefixed), Opt>();
 
   size_t n = 0;
   if constexpr (Opt & ListSizePrefixed) {
@@ -436,48 +483,11 @@ size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT
   return n;
 }
 
-template <typename T>
-struct is_sub_message : std::false_type {};
-
-template <ssize_t I, ssize_t K>
-struct sub_message_index_t {
-  static constexpr ssize_t index = I;
-  static constexpr ssize_t key_field_index = K;
-};
-
-template <typename T, typename... Args>
-consteval ssize_t key_field_index() {
-  if constexpr (is_sub_message<T>::value) {
-    static constexpr auto list = {std::is_same_v<std::decay_t<typename T::key_field_type>, std::decay_t<Args>>...};
-    constexpr auto it = std::find(list.begin(), list.end(), true);
-    return it == list.end() ? -1 : std::distance(list.begin(), it);
-  }
-  return -1;
-}
-
-template <typename... Args>
-consteval auto sub_message_index() {
-  static constexpr std::array<bool, sizeof...(Args)> list = {is_sub_message<std::decay_t<Args>>::value...};
-  static constexpr std::array<ssize_t, sizeof...(Args)> key_list = {key_field_index<std::decay_t<Args>, std::decay_t<Args>...>()...};
-  static_assert(list.size() == key_list.size());
-  static constexpr auto it = std::find(list.begin(), list.end(), true);
-  if constexpr (it == list.end()) {
-    return sub_message_index_t<-1, -1>{};
-  } else {
-    static constexpr ssize_t index = std::distance(list.begin(), it);
-    static constexpr ssize_t key_entry = key_list.at(index);
-    return sub_message_index_t<index, key_entry>{};
-  }
-}
-
 // Utility function to decode a list of Decoder objects in order. The size passed to each Decoder's
 // decode method will be adjusted after each is read. Returns the total number of bytes read.
 template <Decoder... Args>
 absl::StatusOr<size_t> decodeSequence(Envoy::Buffer::Instance& buffer, explicit_size_t auto limit, Args&&... args) noexcept {
-  if constexpr (auto idx = sub_message_index<std::decay_t<Args>...>(); idx.index != -1z) {
-    static_assert(idx.key_field_index >= 0z && idx.key_field_index < idx.index,
-                  "must decode key_field before corresponding sub_message");
-  }
+  detail::check_sub_message_field_order<Args...>();
 
   if (buffer.length() < limit) {
     return absl::InvalidArgumentError("short read");
@@ -511,10 +521,7 @@ absl::StatusOr<size_t> decodeSequence(Envoy::Buffer::Instance& buffer, explicit_
 // written.
 template <Encoder... Args>
 absl::StatusOr<size_t> encodeSequence(Envoy::Buffer::Instance& buffer, const Args&... args) noexcept {
-  if constexpr (auto idx = sub_message_index<std::decay_t<Args>...>(); idx.index != -1z) {
-    static_assert(idx.key_field_index >= 0z && idx.key_field_index < idx.index,
-                  "must encode key_field before corresponding sub_message");
-  }
+  detail::check_sub_message_field_order<Args...>();
 
   size_t n = 0;
   absl::Status stat{};

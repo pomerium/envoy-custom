@@ -120,22 +120,11 @@ public:
   }
 };
 
-template <auto N>
-struct Key {
-  constexpr Key(const char (&str)[N]) {
-    std::copy_n(static_cast<const char*>(str), N, static_cast<char*>(value));
-  }
-  constexpr std::string_view to_string() const {
-    return static_cast<const char*>(value);
-  }
-  char value[N];
-};
-
-template <SshMessageType MT, auto Key>
+template <SshMessageType MT, fixed_string K>
 struct SubMsg {
   virtual ~SubMsg() = default;
   using submsg_group = detail::SubMsgGroup<MT>;
-  static constexpr std::string_view submsg_key = Key.to_string();
+  static constexpr std::string_view submsg_key = K.to_string();
   static constexpr EncodingOptions submsg_key_encoding = LengthPrefixed;
 
   virtual absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) PURE;
@@ -287,7 +276,7 @@ struct ChannelOpenMsg : Msg<SshMessageType::ChannelOpen> {
   }
 };
 
-struct PtyReqChannelRequestMsg : SubMsg<SshMessageType::ChannelRequest, Key("pty-req")> {
+struct PtyReqChannelRequestMsg : SubMsg<SshMessageType::ChannelRequest, "pty-req"> {
   field<std::string, LengthPrefixed> term_env;
   field<uint32_t> width_columns;
   field<uint32_t> height_rows;
@@ -315,7 +304,7 @@ struct PtyReqChannelRequestMsg : SubMsg<SshMessageType::ChannelRequest, Key("pty
   }
 };
 
-struct ShellChannelRequestMsg : SubMsg<SshMessageType::ChannelRequest, Key("shell")> {
+struct ShellChannelRequestMsg : SubMsg<SshMessageType::ChannelRequest, "shell"> {
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
     (void)buffer;
     (void)payload_size;
@@ -327,7 +316,7 @@ struct ShellChannelRequestMsg : SubMsg<SshMessageType::ChannelRequest, Key("shel
   }
 };
 
-struct WindowDimensionChangeChannelRequestMsg : SubMsg<SshMessageType::ChannelRequest, Key("window-change")> {
+struct WindowDimensionChangeChannelRequestMsg : SubMsg<SshMessageType::ChannelRequest, "window-change"> {
   field<uint32_t> width_columns;
   field<uint32_t> height_rows;
   field<uint32_t> width_px;
@@ -525,7 +514,7 @@ struct ChannelFailureMsg : Msg<SshMessageType::ChannelFailure> {
   }
 };
 
-struct HostKeysProveRequestMsg : SubMsg<SshMessageType::GlobalRequest, Key("hostkeys-prove-00@openssh.com")> {
+struct HostKeysProveRequestMsg : SubMsg<SshMessageType::GlobalRequest, "hostkeys-prove-00@openssh.com"> {
   field<bytes_list, LengthPrefixed> hostkeys;
 
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t len) override {
@@ -536,7 +525,7 @@ struct HostKeysProveRequestMsg : SubMsg<SshMessageType::GlobalRequest, Key("host
   }
 };
 
-struct HostKeysMsg : SubMsg<SshMessageType::GlobalRequest, Key("hostkeys-00@openssh.com")> {
+struct HostKeysMsg : SubMsg<SshMessageType::GlobalRequest, "hostkeys-00@openssh.com"> {
   field<bytes_list, LengthPrefixed> hostkeys;
 
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t len) override {
@@ -566,7 +555,7 @@ struct GlobalRequestMsg : Msg<SshMessageType::GlobalRequest> {
   }
 };
 
-struct HostKeysProveResponseMsg : SubMsg<SshMessageType::RequestSuccess, Key("hostkeys-prove-00@openssh.com")> {
+struct HostKeysProveResponseMsg : SubMsg<SshMessageType::RequestSuccess, "hostkeys-prove-00@openssh.com"> {
   field<bytes_list, LengthPrefixed> signatures;
 
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t len) override {
@@ -652,7 +641,7 @@ struct UnimplementedMsg : Msg<SshMessageType::Unimplemented> {
   }
 };
 
-struct PubKeyUserAuthRequestMsg : SubMsg<SshMessageType::UserAuthRequest, Key("publickey")> {
+struct PubKeyUserAuthRequestMsg : SubMsg<SshMessageType::UserAuthRequest, "publickey"> {
   field<bool> has_signature;
   field<std::string, LengthPrefixed> public_key_alg;
   field<bytes, LengthPrefixed> public_key;
@@ -692,7 +681,7 @@ struct PubKeyUserAuthRequestMsg : SubMsg<SshMessageType::UserAuthRequest, Key("p
   }
 };
 
-struct KeyboardInteractiveUserAuthRequestMsg : SubMsg<SshMessageType::UserAuthRequest, Key("keyboard-interactive")> {
+struct KeyboardInteractiveUserAuthRequestMsg : SubMsg<SshMessageType::UserAuthRequest, "keyboard-interactive"> {
   field<std::string, LengthPrefixed> language_tag;
   field<string_list, NameListFormat> submethods;
 
@@ -708,7 +697,7 @@ struct KeyboardInteractiveUserAuthRequestMsg : SubMsg<SshMessageType::UserAuthRe
   }
 };
 
-struct NoneAuthRequestMsg : SubMsg<SshMessageType::UserAuthRequest, Key("none")> {
+struct NoneAuthRequestMsg : SubMsg<SshMessageType::UserAuthRequest, "none"> {
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance&, size_t) override {
     return 0;
   }
@@ -866,7 +855,7 @@ struct UserAuthPubKeyOkMsg : Msg<SshMessageType::UserAuthPubKeyOk> {
   }
 };
 
-struct ServerSigAlgsExtension : SubMsg<SshMessageType::ExtInfo, Key("server-sig-algs")> {
+struct ServerSigAlgsExtension : SubMsg<SshMessageType::ExtInfo, "server-sig-algs"> {
   field<string_list, NameListFormat> public_key_algorithms_accepted;
 
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
@@ -877,7 +866,7 @@ struct ServerSigAlgsExtension : SubMsg<SshMessageType::ExtInfo, Key("server-sig-
   }
 };
 
-struct PingExtension : SubMsg<SshMessageType::ExtInfo, Key("ping@openssh.com")> {
+struct PingExtension : SubMsg<SshMessageType::ExtInfo, "ping@openssh.com"> {
   field<std::string, LengthPrefixed> version;
 
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
@@ -1014,6 +1003,11 @@ using top_level_message = sub_message<
   ChannelFailureMsg,                                              // 100
   PingMsg,                                                        // 192
   PongMsg>;                                                       // 193
+
+static_assert(std::is_copy_constructible_v<top_level_message>);
+static_assert(std::is_copy_assignable_v<top_level_message>);
+static_assert(std::is_move_constructible_v<top_level_message>);
+static_assert(std::is_move_assignable_v<top_level_message>);
 
 template <> struct overload_for<KexEcdhInitMessage> : std::type_identity<OverloadedMessage<KexEcdhInitMessage>> {};
 template <> struct overload_for<KexEcdhReplyMsg> : std::type_identity<OverloadedMessage<KexEcdhReplyMsg>> {};

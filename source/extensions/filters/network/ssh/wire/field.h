@@ -18,11 +18,12 @@ namespace wire {
 template <typename T, EncodingOptions Opt>
 struct field_base {
   T value{};
+
   field_base() = default;
-  field_base(const field_base& other)
-      : value(other) {};
-  field_base(field_base&& other) noexcept
-      : value(std::move(other.value)) {}
+  field_base(const field_base& other) = default;
+  field_base(field_base&& other) noexcept = default;
+  field_base& operator=(const field_base&) = default;
+  field_base& operator=(field_base&&) noexcept = default;
 
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t limit) noexcept {
     try {
@@ -57,7 +58,6 @@ struct field_base {
     value = rhs;
     return *this;
   }
-  field_base& operator=(const field_base& rhs) = default;
 
   // same as above, but initializer_list needs its own specialization
   field_base& operator=(std::initializer_list<T> rhs) {
@@ -68,12 +68,6 @@ struct field_base {
   // moves to field<T> will assign T using its own move assignment operators
   field_base& operator=(T&& rhs) {
     value = std::move(rhs);
-    return *this;
-  }
-
-  // moves to field<T> will assign T using its own move assignment operators
-  field_base& operator=(field_base&& rhs) noexcept {
-    value = std::move(rhs.value);
     return *this;
   }
 
@@ -133,16 +127,6 @@ absl::StatusOr<size_t> encodeMsg(Envoy::Buffer::Instance& buffer, SshMessageType
   return n;
 }
 
-// A sentinel type that can be used to construct a sub_message without a key field initially.
-// Any message decoded by such a sub_message instance will be treated as unknown and stored as
-// raw bytes. A key field can later be set using the set_key_field() method, then decodeUnknown()
-// can be called to decode the typed message.
-//
-// This is used to handle a couple of unusual SSH messages that contain a sub message but no
-// key field that can be used to determine its type without surrounding context.
-struct defer_decoding_t {};
-static constexpr const auto defer_decoding = defer_decoding_t{};
-
 template <typename T>
 struct canonical_key_type : std::type_identity<T> {};
 
@@ -155,14 +139,18 @@ using canonical_key_type_t = canonical_key_type<T>::type;
 template <typename... Options>
 struct sub_message;
 
+namespace detail {
 template <typename... Options>
 struct is_sub_message<sub_message<Options...>> : std::true_type {};
 
-template <typename T, typename U>
-struct key_field_t : T {
-  using T::T;
-  using T::operator=;
+// Wrapper around sub_message::key_field to mangle the type of the sub_message into the type of
+// the key. Only used for compile-time checks.
+template <typename KeyField, typename SubMessage>
+struct key_field_t : KeyField {
+  using KeyField::KeyField;
+  using KeyField::operator=;
 };
+} // namespace detail
 
 // sub_message is used in place of a [field] for fields that contain one of several potential
 // messages, where the type of the message is indicated by a "key field" in the same message.
@@ -182,12 +170,14 @@ struct sub_message {
                 "all sub-message keys must have the same type");
   static_assert(all_values_unique({Options::submsg_key...}),
                 "all sub-message keys must be unique");
-  static_assert((std::is_copy_constructible_v<Options> && ...));
-  static_assert((std::is_move_constructible_v<Options> && ...));
+  static_assert((std::is_copy_constructible_v<Options> && ...),
+                "all options must be copy constructible");
+  static_assert((std::is_move_constructible_v<Options> && ...),
+                "all options must be move constructible");
 
   using key_type = first_type_t<canonical_key_type_t<std::decay_t<decltype(Options::submsg_key)>>...>;
   static constexpr EncodingOptions key_encoding = std::get<0>(std::tuple{Options::submsg_key_encoding...});
-  using key_field_type = key_field_t<field<key_type, key_encoding>, sub_message>;
+  using key_field_type = detail::key_field_t<field<key_type, key_encoding>, sub_message>;
 
   template <typename T>
   static consteval bool has_option() {
