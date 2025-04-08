@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <tuple>
 #include <type_traits>
@@ -87,56 +88,13 @@ struct field_base {
   }
 };
 
+// normal field (not conditional)
 template <typename T, EncodingOptions Opt = None>
   requires ReadWriter<type_or_value_type_t<T>>
-struct field;
-
-// normal field (not conditional)
-template <typename T, EncodingOptions Opt>
-  requires ReadWriter<type_or_value_type_t<T>> && ((Opt & Conditional) == 0)
-struct field<T, Opt> : field_base<T, Opt> {
+struct field : field_base<T, Opt> {
   static_assert(sizeof(field_base<T, Opt>) == sizeof(T));
   using field_base<T, Opt>::value;
   using field_base<T, Opt>::operator=;
-};
-
-// conditional field
-template <typename T, EncodingOptions Opt>
-  requires ReadWriter<type_or_value_type_t<T>> && ((Opt & Conditional) != 0)
-struct field<T, Opt> : field_base<T, Opt> {
-  static_assert(sizeof(field_base<T, Opt>) == sizeof(T));
-  using field_base<T, Opt>::value;
-  using field_base<T, Opt>::operator=;
-
-  auto enableIf(bool condition) const {
-    return conditional_encoder{
-      .enabled = condition,
-      .vp = const_cast<T*>(&value),
-    };
-  }
-
-private:
-  struct conditional_encoder {
-    bool enabled;
-    T* vp;
-    absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t n) noexcept {
-      if (!enabled) {
-        return 0;
-      }
-      try {
-        return read_opt<(Opt & ~Conditional)>(buffer, *vp, n);
-      } catch (const Envoy::EnvoyException& e) {
-        return absl::InvalidArgumentError(e.what());
-      }
-    }
-    absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept {
-      if (!enabled) {
-        return 0;
-      }
-
-      return write_opt<(Opt & ~Conditional)>(buffer, *vp);
-    }
-  };
 };
 
 // Utility function to decode a message, including a message type and a list of fields. The decoded
@@ -197,8 +155,17 @@ using canonical_key_type_t = canonical_key_type<T>::type;
 template <typename... Options>
 struct sub_message;
 
+template <typename... Options>
+struct is_sub_message<sub_message<Options...>> : std::true_type {};
+
+template <typename T, typename U>
+struct key_field_t : T {
+  using T::T;
+  using T::operator=;
+};
+
 // sub_message is used in place of a [field] for fields that contain one of several potential
-// messages, where the type of the message is indicated by a (string) name in a previous field.
+// messages, where the type of the message is indicated by a "key field" in the same message.
 // This is a very common pattern used in SSH messages; messages that are "containers" for other
 // method-specific messages all have similar predictable behavior. sub_message is a type-safe
 // container that performs several compile-time validations on the message types given, and allows
@@ -215,40 +182,22 @@ struct sub_message {
                 "all sub-message keys must have the same type");
   static_assert(all_values_unique({Options::submsg_key...}),
                 "all sub-message keys must be unique");
+  static_assert((std::is_copy_constructible_v<Options> && ...));
+  static_assert((std::is_move_constructible_v<Options> && ...));
 
   using key_type = first_type_t<canonical_key_type_t<std::decay_t<decltype(Options::submsg_key)>>...>;
   static constexpr EncodingOptions key_encoding = std::get<0>(std::tuple{Options::submsg_key_encoding...});
+  using key_field_type = key_field_t<field<key_type, key_encoding>, sub_message>;
 
   template <typename T>
   static consteval bool has_option() {
     return contains_type<T, Options...>;
   }
 
-  // oneof holds one of the messages in Options, or the empty (std::monostate) value.
+  // oneof holds one of the messages in Options, or no value.
   std::optional<std::variant<Options...>> oneof;
 
-  sub_message(const sub_message& other) {
-    if (other.unknown_) {
-      unknown_ = std::make_shared<bytes>(*other.unknown_);
-    } else {
-      Envoy::Buffer::OwnedImpl tmp;
-      (void)other.encode(tmp); // TODO: handle this error?
-      unknown_ = std::make_shared<bytes>(flushTo<bytes>(tmp));
-    }
-  }
-  sub_message(sub_message&&) = default;
-  sub_message& operator=(const sub_message&) = delete;
-  sub_message& operator=(sub_message&&) = default;
-
-  explicit sub_message(field<key_type, key_encoding>& key_field)
-      : key_field_(key_field) {};
-
-  explicit sub_message(defer_decoding_t) {};
-
-  // set_key_field updates the key field used to decode the message.
-  void setKeyField(field<key_type, key_encoding>& key_field) {
-    key_field_.emplace(key_field);
-  }
+  constexpr auto& key_field(this auto& self) { return self.key_field_; }
 
   // Assignment operator for any type in the options list. When a message is assigned, the
   // key field in the containing message is updated with the new message's key.
@@ -267,7 +216,7 @@ struct sub_message {
     // Forward 'other' into the variant using a copy if it is T&, or a move if it is T&&.
     oneof.emplace(std::forward<T>(other));
     // update the key field
-    key_field_->value = std::decay_t<T>::submsg_key;
+    key_field_.value = std::decay_t<T>::submsg_key;
   }
 
   // Wrappers around std::get to obtain the value in the variant for a specific type.
@@ -292,15 +241,10 @@ struct sub_message {
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t limit) noexcept {
     // Find the index of the current key in option_keys. The key is read from the previously set
     // key field. If there is no set key, it is treated as an unknown message.
-    auto it = option_index_lookup.end();
-    if (key_field_.has_value()) {
-      it = option_index_lookup.find(**key_field_);
-    } else if (unknown_) {
-      PANIC("bug: missing call to setKeyField");
-    }
+    auto it = option_index_lookup.find(*key_field_);
     if (it == option_index_lookup.end()) { // not found
       unknown_ = std::make_shared<bytes>(flushTo<bytes>(buffer, limit));
-      oneof = {}; // reset the oneof
+      oneof.reset();
       return limit;
     } else if (unknown_) {
       unknown_ = nullptr;
@@ -355,7 +299,7 @@ private:
   // unknown holds raw bytes for an unknown message type.
   std::shared_ptr<bytes> unknown_;
 
-  Envoy::OptRef<field<key_type, key_encoding>> key_field_;
+  key_field_type key_field_;
 
   // Contains a list of sub-message keys for each option type in the order provided.
   // All option types must be unique.

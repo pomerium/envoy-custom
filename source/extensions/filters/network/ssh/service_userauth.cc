@@ -64,11 +64,11 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
       AuthenticationRequest auth_req;
       auth_req.set_protocol("ssh");
       auth_req.set_service(msg.service_name);
-      auth_req.set_auth_method(msg.method_name);
+      auth_req.set_auth_method(msg.method_name());
       auth_req.set_hostname(hostname);
       auth_req.set_username(username);
 
-      return msg.msg.visit(
+      return msg.request.visit(
         [&](const wire::PubKeyUserAuthRequestMsg& pubkey_req) {
           // auto userPubKey = openssh::SSHKey::fromBlob(pubkey_req.public_key);
           // if (!userPubKey.ok()) {
@@ -122,7 +122,7 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
           return transport_.sendMessageToConnection(failure).status();
         },
         [&](const auto&) {
-          ENVOY_LOG(debug, "unsupported user auth request {}", msg.method_name);
+          ENVOY_LOG(debug, "unsupported user auth request {}", msg.method_name());
           return absl::UnimplementedError("unknown or unsupported auth method");
         });
     },
@@ -267,7 +267,6 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
 
       auto req = std::make_unique<wire::UserAuthRequestMsg>();
       req->username = transport_.authState().allow_response->username();
-      req->method_name = "publickey";
       req->service_name = "ssh-connection";
 
       wire::PubKeyUserAuthRequestMsg pubkeyReq;
@@ -279,7 +278,7 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
         return statusf("error serializing user session key: {}", blob.status());
       }
       pubkeyReq.public_key = *blob;
-      req->msg = std::move(pubkeyReq);
+      req->request = std::move(pubkeyReq);
       pending_req_ = std::move(req);
       pending_user_key_ = std::move(*userSessionSshKey);
 
@@ -292,7 +291,7 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
       // compute signature
       Envoy::Buffer::OwnedImpl buf;
       wire::write_opt<wire::LengthPrefixed>(buf, transport_.getKexResult().session_id);
-      pending_req_->msg.get<wire::PubKeyUserAuthRequestMsg>().has_signature = true; // see PubKeyUserAuthRequestMsg::writeExtra
+      pending_req_->request.get<wire::PubKeyUserAuthRequestMsg>().has_signature = true; // see PubKeyUserAuthRequestMsg::writeExtra
       auto stat = pending_req_->encode(buf);
       if (!stat.ok()) {
         return statusf("error encoding user auth request: {}", stat.status());
@@ -301,7 +300,7 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
       if (!sig.ok()) {
         return statusf("error signing user auth request: {}", sig.status());
       }
-      pending_req_->msg.get<wire::PubKeyUserAuthRequestMsg>().signature = *sig;
+      pending_req_->request.get<wire::PubKeyUserAuthRequestMsg>().signature = *sig;
       return transport_.sendMessageToConnection(*pending_req_).status();
     },
     [](wire::UserAuthBannerMsg& msg) {
@@ -319,7 +318,7 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
     [&](wire::UserAuthSuccessMsg& msg) { // forward upstream success to downstream
       // this comment intentionally placed here for searchability ^
       ENVOY_LOG(info, "user auth success: \n{} [{}]", pending_req_->username,
-                pending_req_->method_name);
+                pending_req_->method_name());
       if (ext_info_.has_value()) {
         transport_.updatePeerExtInfo(std::move(ext_info_));
       }

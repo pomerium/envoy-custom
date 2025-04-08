@@ -387,14 +387,14 @@ TYPED_TEST(ReadWriteIntTest, ReadWrite) {
   Envoy::Buffer::OwnedImpl buffer;
   TypeParam in = ~static_cast<TypeParam>(0);
   EXPECT_NO_THROW({
-    auto r = write(buffer, in);
-    EXPECT_EQ(sizeof(in), r);
+    auto n = write(buffer, in);
+    EXPECT_EQ(sizeof(in), n);
   });
   EXPECT_EQ(sizeof(in), buffer.length());
   EXPECT_NO_THROW({
     TypeParam out{};
-    auto r = read(buffer, out, sizeof(out));
-    EXPECT_EQ(sizeof(out), r);
+    auto n = read(buffer, out, sizeof(out));
+    EXPECT_EQ(sizeof(out), n);
     EXPECT_EQ(out, in);
   });
   EXPECT_EQ(0, buffer.length());
@@ -404,8 +404,8 @@ TYPED_TEST(ReadWriteIntTest, ShortRead) {
   Envoy::Buffer::OwnedImpl buffer;
   TypeParam in = ~static_cast<TypeParam>(0);
   EXPECT_NO_THROW({
-    auto r = write(buffer, in);
-    EXPECT_EQ(sizeof(in), r);
+    auto n = write(buffer, in);
+    EXPECT_EQ(sizeof(in), n);
   });
   EXPECT_EQ(sizeof(in), buffer.length());
   buffer.drain(1); // drop 1 byte
@@ -415,44 +415,64 @@ TYPED_TEST(ReadWriteIntTest, ShortRead) {
 }
 
 template <typename T>
-class ReadWriteStringsTest : public testing::Test {};
+class ReadWriteStringsTest : public testing::Test {
+protected:
+  static constexpr size_t input_size = 100;
+  void SetUp() override {
+    input_.resize(input_size);
+    RAND_bytes(reinterpret_cast<uint8_t*>(input_.data()), input_.size());
+  }
+
+  void writeInputToBuffer() {
+    EXPECT_NO_THROW({
+      auto n = write(this->buffer_, this->input_);
+      EXPECT_EQ(this->input_.size(), n);
+    });
+    EXPECT_EQ(this->input_.size(), this->buffer_.length());
+  }
+
+  T input_;
+  Envoy::Buffer::OwnedImpl buffer_;
+};
 
 using testStringTypes = Types<std::string, bytes>;
 TYPED_TEST_SUITE(ReadWriteStringsTest, testStringTypes);
 
 TYPED_TEST(ReadWriteStringsTest, ReadWrite) {
-  Envoy::Buffer::OwnedImpl buffer;
-  TypeParam in;
-  in.resize(123);
-  RAND_bytes(reinterpret_cast<uint8_t*>(in.data()), in.size());
-  EXPECT_NO_THROW({
-    auto r = write(buffer, in);
-    EXPECT_EQ(in.size(), r);
-  });
-  EXPECT_EQ(in.size(), buffer.length());
+  this->writeInputToBuffer();
   EXPECT_NO_THROW({
     TypeParam out{};
-    auto r = read(buffer, out, in.size());
-    EXPECT_EQ(out.size(), r);
-    EXPECT_EQ(out, in);
+    auto n = read(this->buffer_, out, this->input_.size());
+    EXPECT_EQ(out.size(), n);
+    EXPECT_EQ(out, this->input_);
   });
-  EXPECT_EQ(0, buffer.length());
+  EXPECT_EQ(0, this->buffer_.length());
 }
 
 TYPED_TEST(ReadWriteStringsTest, ShortRead) {
-  Envoy::Buffer::OwnedImpl buffer;
-  TypeParam in;
-  in.resize(123);
-  RAND_bytes(reinterpret_cast<uint8_t*>(in.data()), in.size());
-  EXPECT_NO_THROW({
-    auto r = write(buffer, in);
-    EXPECT_EQ(in.size(), r);
-  });
-  EXPECT_EQ(in.size(), buffer.length());
-  buffer.drain(1); // drop 1 byte
+  this->writeInputToBuffer();
+  this->buffer_.drain(1); // drop 1 byte
   TypeParam out{};
-  EXPECT_THROW({ (void)read(buffer, out, in.size()); }, Envoy::EnvoyException);
-  EXPECT_EQ(in.size() - 1, buffer.length());
+  EXPECT_THROW({ (void)read(this->buffer_, out, this->input_.size()); }, Envoy::EnvoyException);
+  EXPECT_EQ(this->input_.size() - 1, this->buffer_.length());
+}
+
+TYPED_TEST(ReadWriteStringsTest, ZeroLength) {
+  // empty buffer
+  EXPECT_NO_THROW({
+    TypeParam out;
+    auto n = read(this->buffer_, out, 0);
+    EXPECT_EQ(0, n);
+    EXPECT_EQ(this->buffer_.length(), 0);
+  });
+  // non-empty buffer
+  this->writeInputToBuffer();
+  EXPECT_NO_THROW({
+    TypeParam out;
+    auto n = read(this->buffer_, out, 0);
+    EXPECT_EQ(0, n);
+    EXPECT_EQ(this->buffer_.length(), TestFixture::input_size);
+  });
 }
 
 template <typename T>
@@ -803,8 +823,28 @@ TEST(ReadOptTest, List_OptCommaDelimited_NullInsideElement) {
     Envoy::Buffer::OwnedImpl buffer;
     buffer.add(str, len);
     std::vector<std::string> out;
-    EXPECT_NO_THROW({ (void)read_opt<CommaDelimited>(buffer, out, buffer.length()); });
+    EXPECT_NO_THROW({
+      (void)read_opt<CommaDelimited>(buffer, out, buffer.length());
+    });
   }
+}
+
+TEST(ReadOptTest, ZeroLength) {
+  Envoy::Buffer::OwnedImpl buffer;
+  bytes out;
+  EXPECT_NO_THROW({
+    auto n = read_opt<None>(buffer, out, buffer.length());
+    EXPECT_EQ(0, n);
+    EXPECT_EQ(0, out.size());
+  });
+  buffer.writeByte(1);
+  buffer.writeByte(2);
+  buffer.writeByte(3);
+  EXPECT_NO_THROW({
+    auto n = read_opt<None>(buffer, out, buffer.length());
+    EXPECT_EQ(3, n);
+    EXPECT_EQ(3, out.size());
+  });
 }
 
 TEST(EncodeSequenceTest, Basic) {
@@ -881,6 +921,34 @@ TEST(DecodeSequenceTest, Error) {
     auto r = decodeSequence(buffer, static_cast<size_t>(buffer.length()), f3, f1, f2);
     EXPECT_FALSE(r.ok());
   }
+}
+
+TEST(DecodeSequenceTest, CompileTimeChecks) {
+  wire::ChannelRequestMsg test_msg;
+
+  {
+    static constinit auto idx = sub_message_index<decltype(test_msg.recipient_channel),
+                                                  decltype(test_msg.want_reply),
+                                                  decltype(test_msg.request)>();
+    static_assert(idx.index == 2);
+    static_assert(idx.key_field_index == -1);
+  }
+
+  {
+    static constinit auto idx = sub_message_index<decltype(test_msg.recipient_channel),
+                                                  decltype(test_msg.request.key_field()),
+                                                  decltype(test_msg.want_reply),
+                                                  decltype(test_msg.request)>();
+    static_assert(idx.index == 3);
+    static_assert(idx.key_field_index == 1);
+  }
+
+  Envoy::Buffer::OwnedImpl buf;
+  decodeSequence(buf, buf.length(), test_msg.recipient_channel,
+                 test_msg.request.key_field(),
+                 test_msg.want_reply,
+                 test_msg.request)
+    .IgnoreError();
 }
 
 } // namespace wire::test

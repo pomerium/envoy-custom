@@ -133,7 +133,7 @@ absl::Status SourceDownstreamSessionMultiplexer::handleDownstreamToUpstreamMessa
   }
   return msg.visit(
     [&](const wire::ChannelRequestMsg& channel_req) {
-      return channel_req.msg.visit(
+      return channel_req.request.visit(
         [&](const wire::WindowDimensionChangeChannelRequestMsg& msg) {
           if (auto l = (*source_interface_).lock(); l) {
             l->resize(msg);
@@ -209,7 +209,7 @@ absl::Status MirrorSessionMultiplexer::handleDownstreamToUpstreamMessage(wire::M
       if (!sender_channel_.has_value()) {
         return absl::OkStatus();
       }
-      return channel_req.msg.visit(
+      return channel_req.request.visit(
         [&](const wire::PtyReqChannelRequestMsg&) {
           wire::ChannelSuccessMsg success;
           success.recipient_channel = *sender_channel_;

@@ -148,7 +148,7 @@ absl::Status SshClientTransport::handleMessage(wire::Message&& msg) {
         fmt::format("received ServiceAccept message for unknown service {}", msg.msg_type()));
     },
     [&](wire::GlobalRequestMsg& msg) {
-      if (msg.request_name == "hostkeys-00@openssh.com") {
+      if (msg.request_name() == "hostkeys-00@openssh.com") {
         ENVOY_LOG(debug, "received hostkeys-00@openssh.com");
         // ignore this for now
         return absl::OkStatus();
@@ -225,7 +225,7 @@ absl::StatusOr<bool> SshClientTransport::interceptMessage(wire::Message& ssh_msg
         ptyReq.height_px = info.pty_info->height_px();
         ptyReq.modes = info.pty_info->modes();
 
-        channelReq.msg = ptyReq;
+        channelReq.request = ptyReq;
         if (auto r = sendMessageToConnection(channelReq); !r.ok()) {
           return statusf("error requesting pty: {}", r.status());
         }
@@ -264,7 +264,7 @@ absl::StatusOr<bool> SshClientTransport::interceptMessage(wire::Message& ssh_msg
         // TODO: don't "hard code" this logic
         wire::ChannelRequestMsg shellReq;
         shellReq.recipient_channel = channel_id_mappings_[downstream_state_->handoff_info.channel_info->internal_upstream_channel_id()];
-        shellReq.request_type = "shell";
+        shellReq.request = wire::ShellChannelRequestMsg{};
         shellReq.want_reply = false;
         if (auto r = sendMessageToConnection(shellReq); !r.ok()) {
           return statusf("error requesting shell: {}", r.status());

@@ -49,7 +49,7 @@ absl::StatusOr<size_t> decodePacket(Envoy::Buffer::Instance& buffer, T& payload)
     n += read(buffer, packet_length, sizeof(packet_length));
     n += read(buffer, padding_length, sizeof(padding_length));
   } catch (const Envoy::EnvoyException& e) {
-    return absl::InvalidArgumentError(fmt::format("read error: {}", e.what()));
+    return absl::InvalidArgumentError(fmt::format("error decoding packet header: {}", e.what()));
   }
 
   auto expectedPayloadLen = payloadLength(packet_length, padding_length);

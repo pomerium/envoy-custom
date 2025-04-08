@@ -197,24 +197,23 @@ enum EncodingOptions : uint32_t {
   CommaDelimited = 1 << 1,
   ListSizePrefixed = 1 << 2,
   ListLengthPrefixed = 1 << 3,
-  Conditional = 1 << 4,
 
   NameListFormat = CommaDelimited | ListLengthPrefixed,
 };
 
-constexpr inline EncodingOptions operator|(EncodingOptions lhs, EncodingOptions rhs) {
+consteval EncodingOptions operator|(EncodingOptions lhs, EncodingOptions rhs) {
   return static_cast<EncodingOptions>(
     static_cast<std::underlying_type_t<EncodingOptions>>(lhs) |
     static_cast<std::underlying_type_t<EncodingOptions>>(rhs));
 }
 
-constexpr inline EncodingOptions operator&(EncodingOptions lhs, EncodingOptions rhs) {
+consteval EncodingOptions operator&(EncodingOptions lhs, EncodingOptions rhs) {
   return static_cast<EncodingOptions>(
     static_cast<std::underlying_type_t<EncodingOptions>>(lhs) &
     static_cast<std::underlying_type_t<EncodingOptions>>(rhs));
 }
 
-constexpr inline EncodingOptions operator~(EncodingOptions opt) {
+consteval EncodingOptions operator~(EncodingOptions opt) {
   return static_cast<EncodingOptions>(~static_cast<std::underlying_type_t<EncodingOptions>>(opt));
 }
 
@@ -437,10 +436,49 @@ size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT
   return n;
 }
 
+template <typename T>
+struct is_sub_message : std::false_type {};
+
+template <ssize_t I, ssize_t K>
+struct sub_message_index_t {
+  static constexpr ssize_t index = I;
+  static constexpr ssize_t key_field_index = K;
+};
+
+template <typename T, typename... Args>
+consteval ssize_t key_field_index() {
+  if constexpr (is_sub_message<T>::value) {
+    static constexpr auto list = {std::is_same_v<std::decay_t<typename T::key_field_type>, std::decay_t<Args>>...};
+    constexpr auto it = std::find(list.begin(), list.end(), true);
+    return it == list.end() ? -1 : std::distance(list.begin(), it);
+  }
+  return -1;
+}
+
+template <typename... Args>
+consteval auto sub_message_index() {
+  static constexpr std::array<bool, sizeof...(Args)> list = {is_sub_message<std::decay_t<Args>>::value...};
+  static constexpr std::array<ssize_t, sizeof...(Args)> key_list = {key_field_index<std::decay_t<Args>, std::decay_t<Args>...>()...};
+  static_assert(list.size() == key_list.size());
+  static constexpr auto it = std::find(list.begin(), list.end(), true);
+  if constexpr (it == list.end()) {
+    return sub_message_index_t<-1, -1>{};
+  } else {
+    static constexpr ssize_t index = std::distance(list.begin(), it);
+    static constexpr ssize_t key_entry = key_list.at(index);
+    return sub_message_index_t<index, key_entry>{};
+  }
+}
+
 // Utility function to decode a list of Decoder objects in order. The size passed to each Decoder's
 // decode method will be adjusted after each is read. Returns the total number of bytes read.
 template <Decoder... Args>
 absl::StatusOr<size_t> decodeSequence(Envoy::Buffer::Instance& buffer, explicit_size_t auto limit, Args&&... args) noexcept {
+  if constexpr (auto idx = sub_message_index<std::decay_t<Args>...>(); idx.index != -1z) {
+    static_assert(idx.key_field_index >= 0z && idx.key_field_index < idx.index,
+                  "must decode key_field before corresponding sub_message");
+  }
+
   if (buffer.length() < limit) {
     return absl::InvalidArgumentError("short read");
   }
@@ -473,6 +511,11 @@ absl::StatusOr<size_t> decodeSequence(Envoy::Buffer::Instance& buffer, explicit_
 // written.
 template <Encoder... Args>
 absl::StatusOr<size_t> encodeSequence(Envoy::Buffer::Instance& buffer, const Args&... args) noexcept {
+  if constexpr (auto idx = sub_message_index<std::decay_t<Args>...>(); idx.index != -1z) {
+    static_assert(idx.key_field_index >= 0z && idx.key_field_index < idx.index,
+                  "must encode key_field before corresponding sub_message");
+  }
+
   size_t n = 0;
   absl::Status stat{};
 

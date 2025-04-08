@@ -151,7 +151,8 @@ absl::Status DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<Cha
     }
     case pomerium::extensions::ssh::SSHChannelControlAction::kDisconnect:
       ENVOY_LOG(debug, "received disconnect channel message");
-      return absl::CancelledError("disconnected");
+      // TODO: pass through status
+      return absl::CancelledError(ctrl_action.disconnect().description());
     default:
       return absl::InternalError(fmt::format("received invalid channel message: unknown action type: {}",
                                              static_cast<int>(ctrl_action.action_case())));

@@ -64,6 +64,7 @@ std::weak_ptr<Grpc::AsyncStream<ChannelMessage>> ChannelStreamServiceClient::sta
 void ChannelStreamServiceClient::onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) {
   auto stat = callbacks_->onReceiveMessage(std::move(message));
   if (!stat.ok()) {
+    // TODO: propagate this error through to downstream disconnect
     ENVOY_LOG(error, stat.message());
     stream_->closeStream();
   }

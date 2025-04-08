@@ -158,15 +158,15 @@ absl::Status SshServerTransport::handleMessage(wire::Message&& msg) {
       return absl::OkStatus();
     },
     [&](wire::GlobalRequestMsg& msg) {
-      auto stat = msg.msg.visit(
+      auto stat = msg.request.visit(
         [&](wire::HostKeysProveRequestMsg& msg) {
           auto resp = handleHostKeysProve(msg);
           if (!resp.ok()) {
             return statusf("error handling HostKeysProveRequest: {}", resp.status());
           }
-          wire::GlobalRequestSuccessMsg reply;
-          reply.msg = **resp;
-          return sendMessageToConnection(reply).status();
+          wire::GlobalRequestSuccessMsg success;
+          success.response = **resp;
+          return sendMessageToConnection(success).status();
         },
         [](wire::HostKeysMsg&) {
           ENVOY_LOG(warn, "received hostkeys-00@openssh.com (ignoring)");
@@ -174,7 +174,7 @@ absl::Status SshServerTransport::handleMessage(wire::Message&& msg) {
           return absl::OkStatus();
         },
         [&msg](auto&) {
-          ENVOY_LOG(warn, "ignoring global request {}", msg.request_name);
+          ENVOY_LOG(warn, "ignoring global request {}", msg.request_name());
           return absl::OkStatus();
         });
       if (!stat.ok()) {
@@ -236,8 +236,8 @@ void SshServerTransport::initUpstream(AuthStateSharedPtr s) {
       if (internal.has_set_metadata()) {
         optional_metadata = internal.set_metadata();
       }
-      channel_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus, std::string err) {
-        onDecodingFailure(absl::CancelledError(err));
+      channel_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus code, std::string err) {
+        onDecodingFailure(absl::Status(static_cast<absl::StatusCode>(code), err));
       });
       auth_state_->hijacked_stream = channel_client_->start(connection_service_.get(), std::move(optional_metadata));
       auto _ = sendMessageToConnection(wire::UserAuthSuccessMsg{});

@@ -174,10 +174,26 @@ TEST(MessageTest, RoundTrip) {
   EXPECT_EQ(*n, *n2);
 
   EXPECT_EQ(extInfo.extensions->size(), decoded.extensions->size());
-  EXPECT_EQ(extInfo.extensions[0].extension_name, decoded.extensions[0].extension_name);
+  EXPECT_EQ(extInfo.extensions[0].extension_name(), decoded.extensions[0].extension_name());
   EXPECT_EQ(extInfo.extensions[0].extension.get<PingExtension>().version, decoded.extensions[0].extension.get<PingExtension>().version);
 
   EXPECT_EQ(encoded1, *decoded.encodeTo<std::string>());
+}
+
+TEST(MessageTest, CopyMove) {
+  wire::Message m;
+  wire::ChannelDataMsg data;
+  data.recipient_channel = 1;
+  data.data = {'1', '2', '3'};
+  auto data_addr = reinterpret_cast<uintptr_t>(data.data->data());
+  m.message = std::move(data);
+
+  wire::Message m2 = std::move(m);
+  EXPECT_FALSE(m.message.oneof.has_value());
+  EXPECT_TRUE(m2.message.oneof.has_value());
+  EXPECT_EQ(m2.msg_type(), wire::SshMessageType::ChannelData);
+  EXPECT_EQ(*m2.message.get<wire::ChannelDataMsg>().recipient_channel, 1);
+  EXPECT_EQ(reinterpret_cast<uintptr_t>(m2.message.get<wire::ChannelDataMsg>().data->data()), data_addr);
 }
 
 } // namespace wire::test

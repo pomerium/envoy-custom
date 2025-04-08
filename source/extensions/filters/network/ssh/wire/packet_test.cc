@@ -182,7 +182,7 @@ TEST(DecodePacketTest, InvalidPacket_EmptyPayload) {
     msgAllTypes m;
     auto r = decodePacket(buffer, m);
     EXPECT_FALSE(r.ok());
-    EXPECT_EQ(r.status().message(), "short read");
+    EXPECT_EQ(r.status().message(), "short read in message padding: expected 4 bytes, 0 available");
   });
 }
 
@@ -194,7 +194,7 @@ TEST(DecodePacketTest, InvalidPacket_BufferUnderflow) {
     msgAllTypes m;
     auto r = decodePacket(buffer, m);
     EXPECT_FALSE(r.ok());
-    EXPECT_EQ(r.status().message(), "error decoding packet: short read");
+    EXPECT_EQ(r.status().message(), "error decoding packet header: short read");
   });
 }
 
