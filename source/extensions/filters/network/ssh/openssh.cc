@@ -213,7 +213,8 @@ absl::Status SSHKey::verify(bytes_view signature, bytes_view payload) {
                            signature.data(), signature.size(),
                            payload.data(), payload.size(),
                            name().data(),
-                           0, nullptr);
+                           0,        // bug compatibility
+                           nullptr); // TODO: handle u2f signature info
   if (err != 0) {
     return statusFromErr(err);
   }

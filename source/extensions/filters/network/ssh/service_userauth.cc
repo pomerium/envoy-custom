@@ -4,7 +4,9 @@
 #include <memory>
 
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
+#include "source/extensions/filters/network/ssh/common.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
+#include "source/extensions/filters/network/ssh/wire/encoding.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/kex.h"
 #include "source/extensions/filters/network/ssh/transport.h"
@@ -70,10 +72,10 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
 
       return msg.request.visit(
         [&](const wire::PubKeyUserAuthRequestMsg& pubkey_req) {
-          // auto userPubKey = openssh::SSHKey::fromBlob(pubkey_req.public_key);
-          // if (!userPubKey.ok()) {
-          //   return userPubKey.status();
-          // }
+          auto userPubKey = openssh::SSHKey::fromBlob(pubkey_req.public_key);
+          if (!userPubKey.ok()) {
+            return userPubKey.status();
+          }
           // wire::UserAuthBannerMsg banner{};
           // auto fingerprint = userPubKey->fingerprint();
           // if (!fingerprint.ok()) {
@@ -92,6 +94,35 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
           //   pubkey_req.public_key_alg, *fingerprint, transport_.streamId());
           // auto _ = transport_.sendMessageToConnection(banner);
 
+          if ((!pubkey_req.signature->empty()) != pubkey_req.has_signature) {
+            return absl::InvalidArgumentError(pubkey_req.has_signature
+                                                ? "invalid message: missing signature"
+                                                : "invalid message: unexpected signature");
+          }
+          if (!pubkey_req.has_signature) {
+            // any public key is acceptable
+            wire::UserAuthPubKeyOkMsg pubkey_ok;
+            pubkey_ok.public_key_alg = pubkey_req.public_key_alg;
+            pubkey_ok.public_key = pubkey_req.public_key;
+            return transport_.sendMessageToConnection(std::move(pubkey_ok)).status();
+          }
+
+          // verify the signature
+          {
+            Envoy::Buffer::OwnedImpl verifyBuf;
+            wire::write_opt<wire::LengthPrefixed>(verifyBuf, transport_.getKexResult().session_id);
+            wire::UserAuthRequestMsg verify = msg;
+            verify.request.get<wire::PubKeyUserAuthRequestMsg>().signature = bytes{};
+            if (auto r = verify.encode(verifyBuf); !r.ok()) {
+              return absl::InternalError(statusToString(r.status()));
+            }
+            auto verifyBytes = wire::flushTo<bytes>(verifyBuf);
+            if (auto stat = userPubKey->verify(*pubkey_req.signature, verifyBytes); !stat.ok()) {
+              return stat;
+            }
+          }
+
+          // forward the request to pomerium
           PublicKeyMethodRequest method_req;
           method_req.set_public_key(pubkey_req.public_key->data(), pubkey_req.public_key->size());
           method_req.set_public_key_alg(pubkey_req.public_key_alg);
