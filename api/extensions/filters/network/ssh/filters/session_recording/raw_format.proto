@@ -10,12 +10,14 @@ option optimize_for = LITE_RUNTIME;
 message Header {
   int64                start_time = 1; // unix milliseconds
   SSHDownstreamPTYInfo pty_info   = 2;
-  map<string, string>  metadata   = 3;
+  bool                 encrypted  = 3;
+  map<string, string>  metadata   = 4;
 }
 
 enum PacketDirection {
-  UpstreamToDownstream = 0;
-  DownstreamToUpstream = 1;
+  None                 = 0;
+  UpstreamToDownstream = 1;
+  DownstreamToUpstream = 2;
 }
 
 message Packet {

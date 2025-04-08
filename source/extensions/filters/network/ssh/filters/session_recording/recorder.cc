@@ -66,7 +66,11 @@ absl::Status SessionRecorder::onStreamBegin(
     break;
   case Format::RawFormat:
     formatter_ = std::make_unique<RawFormatter<BufferedFileOutput>>(
-      std::make_unique<BufferedFileOutput>(*file_, dispatcher), start_time_);
+      std::make_unique<BufferedFileOutput>(*file_, dispatcher), start_time_, false);
+    break;
+  case Format::RawEncryptedFormat:
+    formatter_ = std::make_unique<RawFormatter<BufferedFileOutput>>(
+      std::make_unique<BufferedFileOutput>(*file_, dispatcher), start_time_, true);
     break;
   default:
     return absl::InvalidArgumentError(fmt::format("unknown format: {}", static_cast<int>(format)));
@@ -111,7 +115,7 @@ void SessionRecorder::handleDownstreamToUpstreamMessage(wire::Message& msg) {
   }
   msg.visit(
     [&](wire::ChannelRequestMsg& msg) {
-      msg.msg.visit(
+      msg.request.visit(
         [&](wire::PtyReqChannelRequestMsg& msg) {
           // TODO: deduplicate this message conversion
           formatter_->writeHeader(msg);

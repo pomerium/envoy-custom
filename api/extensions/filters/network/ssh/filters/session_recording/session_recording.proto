@@ -22,9 +22,10 @@ message Config {
 }
 
 enum Format {
-  UnknownFormat   = 0;
-  RawFormat       = 1;
-  AsciicastFormat = 2;
+  UnknownFormat      = 0;
+  RawFormat          = 1;
+  AsciicastFormat    = 2;
+  RawEncryptedFormat = 3;
 }
 
 // This extension is added to [pomerium.extensions.ssh.UpstreamTarget] to enable session recording

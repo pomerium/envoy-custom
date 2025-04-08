@@ -16,8 +16,9 @@ using pomerium::extensions::ssh::filters::session_recording::raw_format::PacketD
 template <OutputBufferType T>
 class RawFormatter : public OutputBufferFormatter<T> {
 public:
-  RawFormatter(std::unique_ptr<T> output_buffer, absl::Time start_time)
+  RawFormatter(std::unique_ptr<T> output_buffer, absl::Time start_time, bool encrypted)
       : OutputBufferFormatter<T>(std::move(output_buffer), start_time),
+        encrypted_(encrypted),
         start_time_(start_time),
         last_packet_time_(start_time) {
   }
@@ -26,6 +27,7 @@ public:
   void writeHeader(const SSHDownstreamPTYInfo& handoff_info) override {
     Header h;
     h.set_start_time(absl::ToUnixMillis(start_time_));
+    h.set_encrypted(encrypted_);
     *h.mutable_pty_info() = handoff_info;
     writeProtodelim(h);
   }
@@ -33,6 +35,7 @@ public:
   void writeHeader(const wire::PtyReqChannelRequestMsg& msg) override {
     Header h;
     h.set_start_time(absl::ToUnixMillis(start_time_));
+    h.set_encrypted(encrypted_);
     SSHDownstreamPTYInfo pty_info;
     *pty_info.mutable_term_env() = msg.term_env;
     pty_info.set_width_columns(msg.width_columns);
@@ -126,6 +129,7 @@ private:
     out.back() = value;
   }
 
+  bool encrypted_;
   bytes buffer_;
   absl::Time start_time_;
   absl::Time last_packet_time_;
