@@ -1,6 +1,7 @@
 #include "source/extensions/filters/network/ssh/filters/session_recording/recorder.h"
 #include "source/extensions/filters/network/ssh/filters/session_recording/formatter_asciicast.h"
 #include "source/extensions/filters/network/ssh/filters/session_recording/formatter_raw.h"
+#include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::StreamFilters::SessionRecording {
@@ -49,7 +50,7 @@ void SessionRecorder::stopOnce() {
 }
 
 absl::Status SessionRecorder::onStreamBegin(
-  const Codec::SSHRequestHeaderFrame& frame,
+  Codec::AuthStateSharedPtr auth_state,
   Filesystem::FilePtr file,
   Format format,
   Envoy::Event::Dispatcher& dispatcher,
@@ -77,20 +78,20 @@ absl::Status SessionRecorder::onStreamBegin(
   }
 
   metadata_.Clear();
-  if (frame.authState()->allow_response != nullptr) {
-    const auto& allowResp = frame.authState()->allow_response;
+  if (auth_state->allow_response != nullptr) {
+    const auto& allowResp = auth_state->allow_response;
     metadata_.set_login_name(allowResp->username());
     if (allowResp->has_upstream()) {
       metadata_.mutable_upstream()->CopyFrom(allowResp->upstream());
-      metadata_.set_stream_id(frame.authState()->stream_id);
+      metadata_.set_stream_id(auth_state->stream_id);
       metadata_.set_route_name(route_name);
     }
   }
-  if (frame.authState()->channel_mode == Codec::ChannelMode::Handoff) {
+  if (auth_state->channel_mode == Codec::ChannelMode::Handoff) {
     // if the channel is in handoff mode, the client has already sent its pty info and it will
     // be available in the frame auth state (unless the channel is direct-tcpip)
-    if (frame.authState()->handoff_info.pty_info) {
-      metadata_.mutable_pty_info()->CopyFrom(*frame.authState()->handoff_info.pty_info);
+    if (auth_state->handoff_info.pty_info) {
+      metadata_.mutable_pty_info()->CopyFrom(*auth_state->handoff_info.pty_info);
     } else {
       metadata_.mutable_pty_info()->Clear();
     }

@@ -34,10 +34,11 @@ public:
   void finalize(RecordingMetadata metadata) override;
 
 private:
-  absl::Status initializeRecording(RequestHeaderFrame& frame);
+  absl::Status initializeRecording();
   bool enabled_{false};
   Api::Api& api_;
   std::shared_ptr<Config> config_;
+  std::weak_ptr<Codec::AuthState> auth_state_;
   DecoderFilterCallback* decoder_callbacks_;
   EncoderFilterCallback* encoder_callbacks_;
   std::unique_ptr<SessionRecorder> recorder_;

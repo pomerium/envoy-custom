@@ -1,4 +1,5 @@
 #include "source/extensions/filters/network/ssh/filters/session_recording/config.h"
+#include "source/extensions/filters/network/ssh/common.h"
 #include "source/extensions/filters/network/ssh/filters/session_recording/admin_api.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "envoy/compression/compressor/config.h"
@@ -34,16 +35,9 @@ void SessionRecordingFilter::setEncoderFilterCallbacks(EncoderFilterCallback& ca
 }
 
 HeaderFilterStatus SessionRecordingFilter::decodeHeaderFrame(RequestHeaderFrame& frame) {
-  auto stat = initializeRecording(frame);
-  if (!stat.ok()) {
-    decoder_callbacks_->dispatcher().post([cb = decoder_callbacks_, stat] {
-      // NB: the message in the status passed to sendLocalReply (first argument) cannot contain
-      // spaces. We only send the code with an empty message; the original message is passed
-      // separately as optional string data, and read in ServerCodec::respond()
-      cb->sendLocalReply(absl::Status(stat.code(), ""), stat.message()); // this will end the stream
-    });
-    return HeaderFilterStatus::StopIteration;
-  }
+  // this downcast is safe; SSHRequestHeaderFrame is the only implementation of RequestHeaderFrame
+  const auto& sshFrame = static_cast<const Codec::SSHRequestHeaderFrame&>(frame);
+  auth_state_ = sshFrame.authState();
   return HeaderFilterStatus::Continue;
 }
 
@@ -58,6 +52,22 @@ CommonFilterStatus SessionRecordingFilter::decodeCommonFrame(RequestCommonFrame&
 }
 
 HeaderFilterStatus SessionRecordingFilter::encodeHeaderFrame(ResponseHeaderFrame& frame) {
+  if (!frame.status().ok()) {
+    return HeaderFilterStatus::Continue; // do nothing, this error will be handled elsewhere
+  }
+  auto stat = initializeRecording();
+  if (!stat.ok()) {
+    decoder_callbacks_->activeSpan().log(api_.timeSource().systemTime(),
+                                         fmt::format("error initializing recording: {}", statusToString(stat)));
+    decoder_callbacks_->dispatcher().post([cb = decoder_callbacks_, stat] {
+      // NB: the message in the status passed to sendLocalReply (first argument) cannot contain
+      // spaces. We only send the code with an empty message; the original message is passed
+      // separately as optional string data, and read in ServerCodec::respond()
+      cb->sendLocalReply(absl::Status(stat.code(), ""), stat.message()); // this will end the stream
+    });
+    return HeaderFilterStatus::StopIteration;
+  }
+  return HeaderFilterStatus::Continue;
   if (!enabled_) {
     return HeaderFilterStatus::Continue;
   }
@@ -77,15 +87,20 @@ CommonFilterStatus SessionRecordingFilter::encodeCommonFrame(ResponseCommonFrame
   return CommonFilterStatus::Continue;
 };
 
-absl::Status SessionRecordingFilter::initializeRecording(RequestHeaderFrame& frame) {
-  // this downcast is safe; SSHRequestHeaderFrame is the only implementation of RequestHeaderFrame
-  const auto& sshFrame = static_cast<const Codec::SSHRequestHeaderFrame&>(frame);
-  const auto& state = sshFrame.authState();
+absl::Status SessionRecordingFilter::initializeRecording() {
+  auto state = auth_state_.lock();
+  if (!state) {
+    return absl::InternalError("failed to initialize filter: no auth state");
+  }
   if (!state->allow_response) {
     return absl::InternalError("failed to initialize filter: missing AllowResponse in auth state");
   }
   if (!state->allow_response->has_upstream()) {
     return absl::InternalError("failed to initialize filter: upstream not set");
+  }
+  auto routeEntry = encoder_callbacks_->routeEntry();
+  if (routeEntry == nullptr) {
+    return absl::InternalError("failed to initialize filter: no route entry");
   }
   bool shouldRecord{false};
   std::string recording_name;
@@ -125,11 +140,7 @@ absl::Status SessionRecordingFilter::initializeRecording(RequestHeaderFrame& fra
               file->path(), err.err_->getErrorDetails());
     return absl::InternalError("internal error");
   }
-  auto routeEntry = encoder_callbacks_->routeEntry();
-  if (routeEntry == nullptr) {
-    return absl::InternalError("no route entry");
-  }
-  return recorder_->onStreamBegin(sshFrame,
+  return recorder_->onStreamBegin(std::move(state),
                                   std::move(file),
                                   recording_format,
                                   decoder_callbacks_->dispatcher(),

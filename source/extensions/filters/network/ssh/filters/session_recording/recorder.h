@@ -26,7 +26,7 @@ public:
   ~SessionRecorder();
 
   absl::Status onStreamBegin(
-    const Codec::SSHRequestHeaderFrame& frame,
+    Codec::AuthStateSharedPtr auth_state,
     Filesystem::FilePtr file,
     Format format,
     Envoy::Event::Dispatcher& dispatcher,
