@@ -125,11 +125,15 @@ absl::Status SessionRecordingFilter::initializeRecording(RequestHeaderFrame& fra
               file->path(), err.err_->getErrorDetails());
     return absl::InternalError("internal error");
   }
+  auto routeEntry = encoder_callbacks_->routeEntry();
+  if (routeEntry == nullptr) {
+    return absl::InternalError("no route entry");
+  }
   return recorder_->onStreamBegin(sshFrame,
                                   std::move(file),
                                   recording_format,
                                   decoder_callbacks_->dispatcher(),
-                                  encoder_callbacks_->routeEntry()->name());
+                                  routeEntry->name());
 }
 
 FilterFactoryCb
