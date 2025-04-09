@@ -486,6 +486,7 @@ size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT
 // Utility function to decode a list of Decoder objects in order. The size passed to each Decoder's
 // decode method will be adjusted after each is read. Returns the total number of bytes read.
 template <Decoder... Args>
+  requires (sizeof...(Args) > 0)
 absl::StatusOr<size_t> decodeSequence(Envoy::Buffer::Instance& buffer, explicit_size_t auto limit, Args&&... args) noexcept {
   detail::check_sub_message_field_order<Args...>();
 
@@ -517,9 +518,14 @@ absl::StatusOr<size_t> decodeSequence(Envoy::Buffer::Instance& buffer, explicit_
   return n;
 }
 
+inline absl::StatusOr<size_t> decodeSequence(Envoy::Buffer::Instance&, explicit_size_t auto) {
+  return 0;
+}
+
 // Utility function to encode a list of Encoder objects in order. Returns the total number of bytes
 // written.
 template <Encoder... Args>
+  requires (sizeof...(Args) > 0)
 absl::StatusOr<size_t> encodeSequence(Envoy::Buffer::Instance& buffer, const Args&... args) noexcept {
   detail::check_sub_message_field_order<Args...>();
 
@@ -544,6 +550,10 @@ absl::StatusOr<size_t> encodeSequence(Envoy::Buffer::Instance& buffer, const Arg
     return stat;
   }
   return n;
+}
+
+inline absl::StatusOr<size_t> encodeSequence(Envoy::Buffer::Instance&) {
+  return 0;
 }
 
 } // namespace wire
