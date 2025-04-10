@@ -33,6 +33,7 @@ void UserAuthService::registerMessageHandlers(SshMessageDispatcher& dispatcher) 
   dispatcher.registerHandler(wire::SshMessageType::UserAuthSuccess, this);
   dispatcher.registerHandler(wire::SshMessageType::UserAuthFailure, this);
   dispatcher.registerHandler(wire::SshMessageType::UserAuthPubKeyOk, this);
+  dispatcher.registerHandler(wire::SshMessageType::UserAuthBanner, this);
   dispatcher.registerHandler(wire::SshMessageType::UserAuthInfoResponse, this);
   dispatcher.registerHandler(wire::SshMessageType::ExtInfo, this);
   msg_dispatcher_ = dispatcher;
