@@ -82,41 +82,41 @@ absl::Status statusFromErr(int n) {
   return {statusCodeFromErr(n), ssh_err(n)};
 }
 
-SSHKey::SSHKey(sshkey* key)
-    : key_(key) {}
+SSHKey::SSHKey(SshKeyPtr key)
+    : key_(std::move(key)) {}
 
 absl::StatusOr<SSHKey> SSHKey::fromPrivateKeyFile(const std::string& filepath) {
-  sshkey* key = nullptr;
-  auto err = sshkey_load_private(filepath.c_str(), nullptr, &key, nullptr);
+  SshKeyPtr key;
+  auto err = sshkey_load_private(filepath.c_str(), nullptr, std::out_ptr(key), nullptr);
   if (err != 0) {
     return statusFromErr(err);
   }
-  return SSHKey(key);
+  return SSHKey(std::move(key));
 }
 
 absl::StatusOr<SSHKey> SSHKey::fromPublicKeyFile(const std::string& filepath) {
-  sshkey* key = nullptr;
-  auto err = sshkey_load_public(filepath.c_str(), &key, nullptr);
+  SshKeyPtr key;
+  auto err = sshkey_load_public(filepath.c_str(), std::out_ptr(key), nullptr);
   if (err != 0) {
     return statusFromErr(err);
   }
-  return SSHKey(key);
+  return SSHKey(std::move(key));
 }
 
 absl::StatusOr<SSHKey> SSHKey::fromBlob(const bytes& public_key) {
-  sshkey* key = nullptr;
-  if (auto err = sshkey_from_blob(public_key.data(), public_key.size(), &key); err != 0) {
+  SshKeyPtr key;
+  if (auto err = sshkey_from_blob(public_key.data(), public_key.size(), std::out_ptr(key)); err != 0) {
     return statusFromErr(err);
   }
-  return SSHKey(key);
+  return SSHKey(std::move(key));
 }
 
 absl::StatusOr<SSHKey> SSHKey::generate(sshkey_types type, uint32_t bits) {
-  sshkey* key = nullptr;
-  if (auto err = sshkey_generate(type, bits, &key); err != 0) {
+  SshKeyPtr key;
+  if (auto err = sshkey_generate(type, bits, std::out_ptr(key)); err != 0) {
     return statusFromErr(err);
   }
-  return SSHKey(key);
+  return SSHKey(std::move(key));
 }
 
 bool SSHKey::operator==(const SSHKey& other) const {
@@ -129,15 +129,15 @@ bool SSHKey::operator!=(const SSHKey& other) const {
 
 absl::StatusOr<std::string> SSHKey::fingerprint(sshkey_fp_rep representation) const {
   // TODO: make the hash algorithm configurable?
-  char* fp = sshkey_fingerprint(key_.get(), SSH_DIGEST_SHA256, representation);
+  CStringPtr fp{sshkey_fingerprint(key_.get(), SSH_DIGEST_SHA256, representation)};
   if (fp == nullptr) {
     return absl::InvalidArgumentError("sshkey_fingerprint_raw failed");
   }
-  return std::string(fp);
+  return std::string{fp.get()};
 }
 
-std::string SSHKey::name() const {
-  return sshkey_ssh_name(key_.get());
+std::string_view SSHKey::name() const {
+  return {namePtr()};
 }
 
 sshkey_types SSHKey::keyType() const {
@@ -181,7 +181,7 @@ absl::Status SSHKey::convertToSignedUserCertificate(
     return statusFromErr(err);
   }
   if (auto err = sshkey_certify(key_.get(), signer.key_.get(),
-                                signer.name().data(), nullptr, nullptr);
+                                signer.namePtr(), nullptr, nullptr);
       err != 0) {
     return statusFromErr(err);
   }
@@ -189,36 +189,44 @@ absl::Status SSHKey::convertToSignedUserCertificate(
 }
 
 absl::StatusOr<bytes> SSHKey::toBlob() const {
-  uint8_t* buf = nullptr;
+  CBytesPtr buf;
   size_t len = 0;
-  if (auto err = sshkey_to_blob(key_.get(), &buf, &len); err != 0) {
+  if (auto err = sshkey_to_blob(key_.get(), std::out_ptr(buf), &len); err != 0) {
     return statusFromErr(err);
   }
-  return to_bytes(unsafe_forge_span(buf, len));
+  return to_bytes(unsafe_forge_span(buf.get(), len));
 }
 
 absl::StatusOr<bytes> SSHKey::sign(bytes_view payload) const {
-  uint8_t* sig = nullptr;
+  CBytesPtr sig;
   size_t len = 0;
-  auto err = sshkey_sign(key_.get(), &sig, &len, payload.data(), payload.size(),
+  auto err = sshkey_sign(key_.get(), std::out_ptr(sig), &len, payload.data(), payload.size(),
                          nullptr, nullptr, nullptr, 0);
   if (err != 0) {
     return statusFromErr(err);
   }
-  return to_bytes(unsafe_forge_span(sig, len));
+  return to_bytes(unsafe_forge_span(sig.get(), len));
 }
 
 absl::Status SSHKey::verify(bytes_view signature, bytes_view payload) {
   auto err = sshkey_verify(key_.get(),
                            signature.data(), signature.size(),
                            payload.data(), payload.size(),
-                           name().data(),
+                           namePtr(),
                            0,        // bug compatibility
                            nullptr); // TODO: handle u2f signature info
   if (err != 0) {
     return statusFromErr(err);
   }
   return absl::OkStatus();
+}
+
+const char* SSHKey::namePtr() const {
+  return sshkey_ssh_name(key_.get());
+}
+
+sshkey_types SSHKey::keyTypeFromName(const std::string& name) {
+  return static_cast<sshkey_types>(sshkey_type_from_name(name.c_str()));
 }
 
 } // namespace openssh

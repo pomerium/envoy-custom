@@ -117,7 +117,11 @@ class KexAlgorithm : public Logger::Loggable<Logger::Id::filter> {
 public:
   KexAlgorithm(const HandshakeMagics* magics, const Algorithms* algs,
                const host_keypair_t* signer)
-      : magics_(magics), algs_(algs), signer_(signer) {}
+      : magics_(magics), algs_(algs), signer_(signer) {
+    ASSERT(magics_ != nullptr);
+    ASSERT(algs_ != nullptr);
+    ASSERT(signer_ != nullptr);
+  }
   virtual ~KexAlgorithm() = default;
 
   virtual absl::Status handleServerRecv(wire::Message& msg) PURE;
@@ -325,7 +329,7 @@ public:
   absl::StatusOr<Algorithms> negotiateAlgorithms() noexcept;
   absl::StatusOr<std::unique_ptr<KexAlgorithm>> newAlgorithmImpl();
   const host_keypair_t* pickHostKey(std::string_view alg);
-  const host_keypair_t* getHostKey(const std::string& pkalg);
+  const host_keypair_t* getHostKey(sshkey_types pkalg);
   absl::StatusOr<std::string> findCommon(std::string_view what, const string_list& client,
                                          const string_list& server);
   absl::Status loadHostKeys();

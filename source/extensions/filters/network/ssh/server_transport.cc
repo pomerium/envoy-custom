@@ -273,7 +273,7 @@ void SshServerTransport::initUpstream(AuthStateSharedPtr s) {
 
 absl::StatusOr<bytes> SshServerTransport::signWithHostKey(bytes_view in) const {
   auto hostKey = kex_result_->algorithms.host_key;
-  if (auto k = kex_->getHostKey(hostKey); k) {
+  if (auto k = kex_->getHostKey(openssh::SSHKey::keyTypeFromName(hostKey)); k) {
     return k->priv.sign(in);
   }
   return absl::InternalError("no such host key");
@@ -321,7 +321,7 @@ SshServerTransport::handleHostKeysProve(const wire::HostKeysProveRequestMsg& msg
     if (!key.ok()) {
       return key.status();
     }
-    auto hostKey = kex_->getHostKey(key->name());
+    auto hostKey = kex_->getHostKey(key->keyType());
     if (*key != hostKey->pub) {
       // not our key?
       ENVOY_LOG(error, "client requested to prove ownership of a key that isn't ours");

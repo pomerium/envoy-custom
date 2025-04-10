@@ -439,9 +439,7 @@ const host_keypair_t* Kex::pickHostKey(std::string_view alg) {
   }
   return nullptr;
 }
-const host_keypair_t* Kex::getHostKey(const std::string& alg) {
-  auto pktype = sshkey_type_from_name(alg.c_str());
-
+const host_keypair_t* Kex::getHostKey(sshkey_types pktype) {
   for (const auto& keypair : host_keys_) {
     if (keypair.pub.keyType() == pktype) {
       return &keypair;

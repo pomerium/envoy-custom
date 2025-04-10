@@ -21,6 +21,10 @@ using SshKeyPtr = Envoy::CSmartPtr<sshkey, sshkey_free>;
 using SshBufPtr = Envoy::CSmartPtr<sshbuf, sshbuf_free>;
 using SshCipherCtxPtr = Envoy::CSmartPtr<sshcipher_ctx, cipher_free>;
 
+template <typename T = char>
+using CStringPtr = std::unique_ptr<T, decltype([](void* p) { ::free(p); })>;
+using CBytesPtr = CStringPtr<uint8_t>;
+
 absl::StatusCode statusCodeFromErr(int n);
 absl::Status statusFromErr(int n);
 
@@ -38,18 +42,20 @@ public:
   SSHKey& operator=(const SSHKey&) = delete;
   SSHKey& operator=(SSHKey&&) = default;
 
-  explicit SSHKey(sshkey* key);
+  explicit SSHKey(SshKeyPtr key);
 
   static absl::StatusOr<SSHKey> fromPrivateKeyFile(const std::string& filepath);
   static absl::StatusOr<SSHKey> fromPublicKeyFile(const std::string& filepath);
   static absl::StatusOr<SSHKey> fromBlob(const bytes& public_key);
   static absl::StatusOr<SSHKey> generate(sshkey_types type, uint32_t bits);
 
+  static sshkey_types keyTypeFromName(const std::string& name);
+
   bool operator==(const SSHKey& other) const;
   bool operator!=(const SSHKey& other) const;
 
   absl::StatusOr<std::string> fingerprint(sshkey_fp_rep representation = SSH_FP_DEFAULT) const;
-  std::string name() const;
+  std::string_view name() const;
   sshkey_types keyType() const;
 
   // Returns the cert-less equivalent to a certified key type
@@ -67,6 +73,8 @@ public:
   absl::Status verify(bytes_view signature, bytes_view payload);
 
 private:
+  const char* namePtr() const;
+
   SshKeyPtr key_;
 };
 } // namespace openssh
