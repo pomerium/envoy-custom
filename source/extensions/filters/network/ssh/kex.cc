@@ -312,11 +312,15 @@ absl::StatusOr<Algorithms> Kex::negotiateAlgorithms() noexcept {
     }
   }
 
+  wire::KexInitMessage& client_kex = is_server_ ? state_->peer_kex : state_->our_kex;
+  wire::KexInitMessage& server_kex = is_server_ ? state_->our_kex : state_->peer_kex;
+
   // logic below is translated from go ssh/common.go findAgreedAlgorithms
   Algorithms result{};
   {
-    auto common_kex =
-      findCommon("key exchange", state_->peer_kex.kex_algorithms, state_->our_kex.kex_algorithms);
+    auto common_kex = findCommon("key exchange",
+                                 client_kex.kex_algorithms,
+                                 server_kex.kex_algorithms);
     if (!common_kex.ok()) {
       return common_kex.status();
     }
@@ -329,8 +333,9 @@ absl::StatusOr<Algorithms> Kex::negotiateAlgorithms() noexcept {
     }
   }
   {
-    auto common_host_key = findCommon("host key", state_->peer_kex.server_host_key_algorithms,
-                                      state_->our_kex.server_host_key_algorithms);
+    auto common_host_key = findCommon("host key",
+                                      client_kex.server_host_key_algorithms,
+                                      server_kex.server_host_key_algorithms);
     if (!common_host_key.ok()) {
       return common_host_key.status();
     }
@@ -342,8 +347,8 @@ absl::StatusOr<Algorithms> Kex::negotiateAlgorithms() noexcept {
 
   {
     auto common_cipher = findCommon("client to server cipher",
-                                    state_->peer_kex.encryption_algorithms_client_to_server,
-                                    state_->our_kex.encryption_algorithms_client_to_server);
+                                    client_kex.encryption_algorithms_client_to_server,
+                                    server_kex.encryption_algorithms_client_to_server);
     if (!common_cipher.ok()) {
       return common_cipher.status();
     }
@@ -351,8 +356,8 @@ absl::StatusOr<Algorithms> Kex::negotiateAlgorithms() noexcept {
   }
   {
     auto common_cipher = findCommon("server to client cipher",
-                                    state_->peer_kex.encryption_algorithms_server_to_client,
-                                    state_->our_kex.encryption_algorithms_server_to_client);
+                                    client_kex.encryption_algorithms_server_to_client,
+                                    server_kex.encryption_algorithms_server_to_client);
     if (!common_cipher.ok()) {
       return common_cipher.status();
     }
@@ -361,8 +366,9 @@ absl::StatusOr<Algorithms> Kex::negotiateAlgorithms() noexcept {
 
   if (!aeadCiphers.contains(ctos->cipher)) {
     auto common_mac =
-      findCommon("client to server MAC", state_->peer_kex.mac_algorithms_client_to_server,
-                 state_->our_kex.mac_algorithms_client_to_server);
+      findCommon("client to server MAC",
+                 client_kex.mac_algorithms_client_to_server,
+                 server_kex.mac_algorithms_client_to_server);
     if (!common_mac.ok()) {
       return common_mac.status();
     }
@@ -371,8 +377,9 @@ absl::StatusOr<Algorithms> Kex::negotiateAlgorithms() noexcept {
 
   if (!aeadCiphers.contains(stoc->cipher)) {
     auto common_mac =
-      findCommon("server to client MAC", state_->peer_kex.mac_algorithms_server_to_client,
-                 state_->our_kex.mac_algorithms_server_to_client);
+      findCommon("server to client MAC",
+                 client_kex.mac_algorithms_server_to_client,
+                 server_kex.mac_algorithms_server_to_client);
     if (!common_mac.ok()) {
       return common_mac.status();
     }
@@ -381,8 +388,8 @@ absl::StatusOr<Algorithms> Kex::negotiateAlgorithms() noexcept {
 
   {
     auto common_compression = findCommon("client to server compression",
-                                         state_->peer_kex.compression_algorithms_client_to_server,
-                                         state_->our_kex.compression_algorithms_client_to_server);
+                                         client_kex.compression_algorithms_client_to_server,
+                                         server_kex.compression_algorithms_client_to_server);
     if (!common_compression.ok()) {
       return common_compression.status();
     }
@@ -390,8 +397,8 @@ absl::StatusOr<Algorithms> Kex::negotiateAlgorithms() noexcept {
   }
   {
     auto common_compression = findCommon("server to client compression",
-                                         state_->peer_kex.compression_algorithms_server_to_client,
-                                         state_->our_kex.compression_algorithms_server_to_client);
+                                         client_kex.compression_algorithms_server_to_client,
+                                         server_kex.compression_algorithms_server_to_client);
     if (!common_compression.ok()) {
       return common_compression.status();
     }
@@ -401,7 +408,8 @@ absl::StatusOr<Algorithms> Kex::negotiateAlgorithms() noexcept {
   return result;
 }
 
-absl::StatusOr<std::string> Kex::findCommon(std::string_view what, const string_list& client,
+absl::StatusOr<std::string> Kex::findCommon(std::string_view what,
+                                            const string_list& client,
                                             const string_list& server) {
   for (const auto& c : client) {
     for (const auto& s : server) {
