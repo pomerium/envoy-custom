@@ -59,16 +59,16 @@ void SshClientTransport::decode(Envoy::Buffer::Instance& buffer, bool end_stream
     wire::ChannelDataMsg data_msg;
     data_msg.recipient_channel = downstream_state_->handoff_info.channel_info->downstream_channel_id();
     data_msg.data = wire::flushTo<bytes>(buffer);
-    forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id, std::move(data_msg)));
+    forward(std::move(data_msg), FrameTags::EffectiveCommon);
     return;
   }
   TransportBase::decode(buffer, end_stream);
 }
 
 GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::StreamFrame& frame,
-                                                        GenericProxy::EncodingContext& ctx) {
-  switch (dynamic_cast<const SSHStreamFrame&>(frame).frameKind()) {
-  case FrameKind::RequestHeader: {
+                                                        GenericProxy::EncodingContext&) {
+  switch (frame.frameFlags().frameTags() & FrameTags::FrameTypeMask) {
+  case FrameTags::RequestHeader: {
     auto& reqHeader = static_cast<const SSHRequestHeaderFrame&>(frame);
     downstream_state_ = reqHeader.authState();
     if (downstream_state_->channel_mode == ChannelMode::Handoff) {
@@ -85,7 +85,7 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
           confirm.sender_channel = downstream_state_->handoff_info.channel_info->internal_upstream_channel_id();
           confirm.initial_window_size = downstream_state_->handoff_info.channel_info->initial_window_size();
           confirm.max_packet_size = downstream_state_->handoff_info.channel_info->max_packet_size();
-          forward(std::make_unique<SSHResponseHeaderFrame>(downstream_state_->stream_id, StreamStatus(0, true), std::move(confirm)));
+          forward(std::move(confirm), FrameTags::EffectiveHeader);
           return 0;
         }
       }
@@ -100,7 +100,7 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
     }
     return version_exchanger_->writeVersion(downstream_state_->server_version);
   }
-  case FrameKind::RequestCommon: {
+  case FrameTags::RequestCommon: {
     const auto& sshFrame = static_cast<const SSHRequestCommonFrame&>(frame);
     if (upstream_is_direct_tcpip_) {
       return sshFrame.message().visit(
@@ -120,7 +120,6 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
   default:
     throw EnvoyException("bug: unknown frame kind");
   }
-  (void)ctx;
 }
 
 absl::StatusOr<size_t> SshClientTransport::sendMessageToConnection(const wire::Message& msg) {
@@ -154,7 +153,7 @@ absl::Status SshClientTransport::handleMessage(wire::Message&& msg) {
         return absl::OkStatus();
       }
       ENVOY_LOG(debug, "forwarding global request");
-      forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id, std::move(msg)));
+      forward(std::move(msg), FrameTags::EffectiveCommon);
       return absl::OkStatus();
     },
     [&](any_of<wire::GlobalRequestSuccessMsg,
@@ -163,7 +162,7 @@ absl::Status SshClientTransport::handleMessage(wire::Message&& msg) {
                wire::DebugMsg,
                wire::UnimplementedMsg,
                wire::DisconnectMsg> auto& msg) {
-      forward(std::make_unique<SSHResponseCommonFrame>(downstream_state_->stream_id, std::move(msg)));
+      forward(std::move(msg), FrameTags::EffectiveCommon);
       return absl::OkStatus();
     },
     [](auto&) {
@@ -187,21 +186,22 @@ AuthState& SshClientTransport::authState() {
   return *downstream_state_;
 }
 
-void SshClientTransport::forward(std::unique_ptr<SSHStreamFrame> frame) {
-  switch (frame->frameKind()) {
-  case FrameKind::ResponseHeader:
+void SshClientTransport::forward(wire::Message&& msg, FrameTags tags) {
+  if (response_stream_header_sent_) [[likely]] {
+    auto* framePtr = new SSHResponseCommonFrame(std::move(msg), tags);
+    framePtr->setStreamId(streamId());
+    callbacks_->onDecodingSuccess(std::unique_ptr<ResponseCommonFrame>(framePtr));
+  } else {
+    response_stream_header_sent_ = true;
+    auto* framePtr = new SSHResponseHeaderFrame(std::move(msg), tags);
+    framePtr->setStreamId(streamId());
+    callbacks_->onDecodingSuccess(std::unique_ptr<ResponseHeaderFrame>(framePtr));
+  }
+  if ((tags & FrameTags::FrameEffectiveTypeMask) == FrameTags::EffectiveHeader) [[unlikely]] {
     if (authState().upstream_ext_info.has_value() &&
         authState().upstream_ext_info->hasExtension<wire::PingExtension>()) {
       ping_handler_->enableForward(true);
     }
-    response_stream_header_sent_ = true;
-    callbacks_->onDecodingSuccess(std::unique_ptr<ResponseHeaderFrame>(dynamic_cast<SSHResponseHeaderFrame*>(frame.release())));
-    break;
-  case FrameKind::ResponseCommon:
-    callbacks_->onDecodingSuccess(std::unique_ptr<ResponseCommonFrame>(dynamic_cast<ResponseCommonFrame*>(frame.release())));
-    break;
-  default:
-    PANIC("bug: wrong frame type passed to SshClientCodec::forward");
   }
 }
 
@@ -270,7 +270,7 @@ absl::StatusOr<bool> SshClientTransport::interceptMessage(wire::Message& ssh_msg
         }
 
         // handoff is complete, send an empty message to signal the downstream codec
-        forward(SSHResponseHeaderFrame::sentinel(authState().stream_id));
+        forward(wire::IgnoreMsg{}, FrameTags{EffectiveHeader | Sentinel});
         return false;
       }
       return true;
@@ -336,13 +336,7 @@ void SshClientTransport::onDecodingFailure(absl::Status err) {
   wire::DisconnectMsg msg;
   msg.reason_code = code;
   msg.description = statusToString(err);
-  if (response_stream_header_sent_) {
-    forward(std::make_unique<SSHResponseCommonFrame>(
-      streamId(), FrameFlags::FLAG_END_STREAM, std::move(msg)));
-  } else {
-    forward(std::make_unique<SSHResponseHeaderFrame>(
-      streamId(), StreamStatus(code, false), std::move(msg)));
-  }
+  forward(std::move(msg), FrameTags{EffectiveCommon | Error});
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

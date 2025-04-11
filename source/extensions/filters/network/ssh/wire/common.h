@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <utility>
 #include <vector>
 #include <string>
 
@@ -71,10 +72,10 @@ inline constexpr auto format_as(SshMessageType mt) {
 }
 
 constexpr inline SshMessageType operator~(SshMessageType t) {
-  return static_cast<SshMessageType>(~static_cast<uint8_t>(t));
+  return static_cast<SshMessageType>(~std::to_underlying(t));
 }
 constexpr inline SshMessageType operator|(SshMessageType l, SshMessageType r) {
-  return static_cast<SshMessageType>(static_cast<uint8_t>(l) | static_cast<uint8_t>(r));
+  return static_cast<SshMessageType>(std::to_underlying(l) | std::to_underlying(r));
 }
 
 constexpr uint32_t MaxPacketSize = 256 * 1024;

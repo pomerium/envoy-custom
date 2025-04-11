@@ -79,8 +79,9 @@ public:
   virtual ~TransportCallbacks() = default;
   virtual absl::StatusOr<size_t> sendMessageToConnection(const wire::Message& msg);
 
-  virtual void forward(std::unique_ptr<SSHStreamFrame> frame) PURE;
   virtual void writeToConnection(Envoy::Buffer::Instance& buf) const PURE;
+
+  virtual void forward(wire::Message&& msg, FrameTags tags = EffectiveCommon) PURE;
 
   virtual const KexResult& getKexResult() const PURE;
   virtual absl::StatusOr<bytes> signWithHostKey(bytes_view in) const PURE;

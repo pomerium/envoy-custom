@@ -202,19 +202,15 @@ enum EncodingOptions : uint32_t {
 };
 
 consteval EncodingOptions operator|(EncodingOptions lhs, EncodingOptions rhs) {
-  return static_cast<EncodingOptions>(
-    static_cast<std::underlying_type_t<EncodingOptions>>(lhs) |
-    static_cast<std::underlying_type_t<EncodingOptions>>(rhs));
+  return static_cast<EncodingOptions>(std::to_underlying(lhs) | std::to_underlying(rhs));
 }
 
 consteval EncodingOptions operator&(EncodingOptions lhs, EncodingOptions rhs) {
-  return static_cast<EncodingOptions>(
-    static_cast<std::underlying_type_t<EncodingOptions>>(lhs) &
-    static_cast<std::underlying_type_t<EncodingOptions>>(rhs));
+  return static_cast<EncodingOptions>(std::to_underlying(lhs) & std::to_underlying(rhs));
 }
 
 consteval EncodingOptions operator~(EncodingOptions opt) {
-  return static_cast<EncodingOptions>(~static_cast<std::underlying_type_t<EncodingOptions>>(opt));
+  return static_cast<EncodingOptions>(~std::to_underlying(opt));
 }
 
 // the functions below are only used for compile-time checks

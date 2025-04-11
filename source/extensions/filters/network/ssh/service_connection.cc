@@ -66,14 +66,13 @@ absl::Status DownstreamConnectionService::handleMessage(wire::Message&& msg) {
     break;
   }
 
-  auto streamId = authState.stream_id;
   return msg.visit(
     [&](wire::ChannelOpenMsg& msg) {
-      transport_.forward(std::make_unique<SSHRequestCommonFrame>(streamId, std::move(msg)));
+      transport_.forward(std::move(msg));
       return absl::OkStatus();
     },
     [&](wire::ChannelMsg auto& msg) {
-      transport_.forward(std::make_unique<SSHRequestCommonFrame>(streamId, std::move(msg)));
+      transport_.forward(std::move(msg));
       return absl::OkStatus();
     },
     [](auto&) {
@@ -212,7 +211,6 @@ void UpstreamConnectionService::registerMessageHandlers(SshMessageDispatcher& di
 
 absl::Status UpstreamConnectionService::handleMessage(wire::Message&& msg) {
   const auto& authState = transport_.authState();
-  auto streamId = authState.stream_id;
 
   if (authState.multiplexing_info.multiplex_mode == MultiplexMode::Source) {
     if (auto stat = source_multiplexer_->handleUpstreamToDownstreamMessage(msg); !stat.ok()) {
@@ -222,7 +220,7 @@ absl::Status UpstreamConnectionService::handleMessage(wire::Message&& msg) {
 
   return msg.visit(
     [&](wire::ChannelMsg auto& msg) {
-      transport_.forward(std::make_unique<SSHResponseCommonFrame>(streamId, std::move(msg)));
+      transport_.forward(std::move(msg));
       return absl::OkStatus();
     },
     [](auto&) {

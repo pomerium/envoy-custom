@@ -4,6 +4,7 @@
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
 
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
+#include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "source/extensions/filters/network/ssh/message_handler.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
@@ -37,7 +38,7 @@ public:
   absl::StatusOr<bytes> signWithHostKey(bytes_view in) const override;
   const AuthState& authState() const override;
   AuthState& authState() override;
-  void forward(std::unique_ptr<SSHStreamFrame> frame) override;
+  void forward(wire::Message&& message, FrameTags tags = EffectiveCommon) override;
   void onInitialKexDone() override;
 
   void onEvent(Network::ConnectionEvent event) override;

@@ -5,6 +5,7 @@
 
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "source/extensions/filters/network/ssh/common.h"
+#include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
@@ -335,8 +336,11 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
       pending_req_->request.get<wire::PubKeyUserAuthRequestMsg>().signature = *sig;
       return transport_.sendMessageToConnection(*pending_req_).status();
     },
-    [](wire::UserAuthBannerMsg& msg) {
-      ENVOY_LOG(info, "banner: \n{}", msg.message);
+    [&](wire::UserAuthBannerMsg& msg) {
+      // If the downstream is in the auth flow, we can simply forward this along
+      if (transport_.authState().channel_mode == ChannelMode::Normal) {
+        transport_.forward(std::move(msg));
+      }
       return absl::OkStatus();
     },
     [&](wire::ExtInfoMsg& msg) {
@@ -358,8 +362,7 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
         transport_.authState().upstream_ext_info = std::move(info);
       }
 
-      transport_.forward(std::make_unique<SSHResponseHeaderFrame>(
-        transport_.streamId(), StreamStatus(0, true), std::move(msg)));
+      transport_.forward(std::move(msg), EffectiveHeader);
       return absl::OkStatus();
     },
     [&](wire::UserAuthFailureMsg&) {

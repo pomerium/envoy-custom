@@ -34,7 +34,7 @@ public:
   absl::StatusOr<bytes> signWithHostKey(bytes_view in) const override;
   const AuthState& authState() const override;
   AuthState& authState() override;
-  void forward(std::unique_ptr<SSHStreamFrame> frame) override;
+  void forward(wire::Message&& msg, FrameTags tags) override;
 
   void onEvent(Network::ConnectionEvent event) override;
   void onAboveWriteBufferHighWatermark() override {}
