@@ -5,6 +5,7 @@
 #include "source/extensions/filters/network/generic_proxy/codec_callbacks.h"
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
 
+#include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/service.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/transport_base.h"
@@ -15,11 +16,11 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 class UpstreamUserAuthService;
 class UpstreamConnectionService;
 
-class SshClientTransport : public virtual Logger::Loggable<Logger::Id::filter>,
-                           public TransportBase<ClientCodec>,
-                           public UpstreamTransportCallbacks,
-                           public Network::ConnectionCallbacks,
-                           public SshMessageMiddleware {
+class SshClientTransport final : public virtual Logger::Loggable<Logger::Id::filter>,
+                                 public TransportBase<ClientCodec>,
+                                 public UpstreamTransportCallbacks,
+                                 public Network::ConnectionCallbacks,
+                                 public SshMessageMiddleware {
 public:
   SshClientTransport(Api::Api& api,
                      std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
@@ -34,7 +35,8 @@ public:
   absl::StatusOr<bytes> signWithHostKey(bytes_view in) const override;
   const AuthState& authState() const override;
   AuthState& authState() override;
-  void forward(wire::Message&& msg, FrameTags tags) override;
+  void forward(wire::Message&& msg, FrameTags tags = EffectiveCommon) override;
+  void forwardHeader(wire::Message&& msg, FrameTags tags = {}) override;
 
   void onEvent(Network::ConnectionEvent event) override;
   void onAboveWriteBufferHighWatermark() override {}

@@ -82,6 +82,9 @@ public:
   virtual void writeToConnection(Envoy::Buffer::Instance& buf) const PURE;
 
   virtual void forward(wire::Message&& msg, FrameTags tags = EffectiveCommon) PURE;
+  virtual void forwardHeader(wire::Message&& msg, FrameTags tags = {}) {
+    forward(std::move(msg), FrameTags{tags | EffectiveHeader});
+  };
 
   virtual const KexResult& getKexResult() const PURE;
   virtual absl::StatusOr<bytes> signWithHostKey(bytes_view in) const PURE;

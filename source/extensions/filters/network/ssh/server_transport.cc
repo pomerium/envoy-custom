@@ -299,7 +299,7 @@ AuthState& SshServerTransport::authState() {
   return *auth_state_;
 }
 
-void SshServerTransport::forward(wire::Message&& message, FrameTags) {
+void SshServerTransport::forward(wire::Message&& message, [[maybe_unused]] FrameTags tags) {
   auto frame = std::make_unique<SSHRequestCommonFrame>(std::move(message));
   frame->setStreamId(streamId());
   callbacks_->onDecodingSuccess(std::move(frame));

@@ -362,7 +362,7 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
         transport_.authState().upstream_ext_info = std::move(info);
       }
 
-      transport_.forward(std::move(msg), EffectiveHeader);
+      transport_.forwardHeader(std::move(msg));
       return absl::OkStatus();
     },
     [&](wire::UserAuthFailureMsg&) {

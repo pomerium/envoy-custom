@@ -59,7 +59,7 @@ void SshClientTransport::decode(Envoy::Buffer::Instance& buffer, bool end_stream
     wire::ChannelDataMsg data_msg;
     data_msg.recipient_channel = downstream_state_->handoff_info.channel_info->downstream_channel_id();
     data_msg.data = wire::flushTo<bytes>(buffer);
-    forward(std::move(data_msg), FrameTags::EffectiveCommon);
+    forward(std::move(data_msg));
     return;
   }
   TransportBase::decode(buffer, end_stream);
@@ -85,7 +85,7 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
           confirm.sender_channel = downstream_state_->handoff_info.channel_info->internal_upstream_channel_id();
           confirm.initial_window_size = downstream_state_->handoff_info.channel_info->initial_window_size();
           confirm.max_packet_size = downstream_state_->handoff_info.channel_info->max_packet_size();
-          forward(std::move(confirm), FrameTags::EffectiveHeader);
+          forwardHeader(std::move(confirm));
           return 0;
         }
       }
@@ -153,7 +153,7 @@ absl::Status SshClientTransport::handleMessage(wire::Message&& msg) {
         return absl::OkStatus();
       }
       ENVOY_LOG(debug, "forwarding global request");
-      forward(std::move(msg), FrameTags::EffectiveCommon);
+      forward(std::move(msg));
       return absl::OkStatus();
     },
     [&](any_of<wire::GlobalRequestSuccessMsg,
@@ -162,7 +162,7 @@ absl::Status SshClientTransport::handleMessage(wire::Message&& msg) {
                wire::DebugMsg,
                wire::UnimplementedMsg,
                wire::DisconnectMsg> auto& msg) {
-      forward(std::move(msg), FrameTags::EffectiveCommon);
+      forward(std::move(msg));
       return absl::OkStatus();
     },
     [](auto&) {
@@ -197,12 +197,14 @@ void SshClientTransport::forward(wire::Message&& msg, FrameTags tags) {
     framePtr->setStreamId(streamId());
     callbacks_->onDecodingSuccess(std::unique_ptr<ResponseHeaderFrame>(framePtr));
   }
-  if ((tags & FrameTags::FrameEffectiveTypeMask) == FrameTags::EffectiveHeader) [[unlikely]] {
-    if (authState().upstream_ext_info.has_value() &&
-        authState().upstream_ext_info->hasExtension<wire::PingExtension>()) {
-      ping_handler_->enableForward(true);
-    }
+}
+
+void SshClientTransport::forwardHeader(wire::Message&& msg, FrameTags tags) {
+  if (authState().upstream_ext_info.has_value() &&
+      authState().upstream_ext_info->hasExtension<wire::PingExtension>()) {
+    ping_handler_->enableForward(true);
   }
+  forward(std::move(msg), FrameTags{tags | EffectiveHeader});
 }
 
 absl::StatusOr<bool> SshClientTransport::interceptMessage(wire::Message& ssh_msg) {
@@ -270,7 +272,7 @@ absl::StatusOr<bool> SshClientTransport::interceptMessage(wire::Message& ssh_msg
         }
 
         // handoff is complete, send an empty message to signal the downstream codec
-        forward(wire::IgnoreMsg{}, FrameTags{EffectiveHeader | Sentinel});
+        forwardHeader(wire::IgnoreMsg{}, Sentinel);
         return false;
       }
       return true;
@@ -336,7 +338,7 @@ void SshClientTransport::onDecodingFailure(absl::Status err) {
   wire::DisconnectMsg msg;
   msg.reason_code = code;
   msg.description = statusToString(err);
-  forward(std::move(msg), FrameTags{EffectiveCommon | Error});
+  forwardHeader(std::move(msg), Error);
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

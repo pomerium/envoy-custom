@@ -16,11 +16,11 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 class DownstreamUserAuthService;
 class DownstreamConnectionService;
 
-class SshServerTransport : public virtual Logger::Loggable<Logger::Id::filter>,
-                           public TransportBase<ServerCodec>,
-                           public DownstreamTransportCallbacks,
-                           public Network::ConnectionCallbacks,
-                           public StreamMgmtServerMessageHandler {
+class SshServerTransport final : public virtual Logger::Loggable<Logger::Id::filter>,
+                                 public TransportBase<ServerCodec>,
+                                 public DownstreamTransportCallbacks,
+                                 public Network::ConnectionCallbacks,
+                                 public StreamMgmtServerMessageHandler {
 public:
   SshServerTransport(Api::Api& api,
                      std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
