@@ -279,16 +279,13 @@ size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, explicit_size_t auto 
   if (limit == 0) {
     return 0;
   }
-  if (buffer.length() < limit) {
+  if (buffer.length() < limit) [[unlikely]] {
     throw Envoy::EnvoyException("short read");
   }
   if constexpr (Opt & LengthPrefixed) {
     uint32_t entry_len = buffer.drainBEInt<uint32_t>();
-    auto nread = read(buffer, value, entry_len);
-    if (nread != entry_len) [[unlikely]] {
-      throw Envoy::EnvoyException("short read");
-    }
-    return 4 + entry_len;
+    // Invariant: read<SshStringType>(buffer, value, N) always returns N (or throws an exception)
+    return 4 + read(buffer, value, entry_len);
   } else {
     return read(buffer, value, limit);
   }
@@ -328,6 +325,7 @@ size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NO
   detail::check_supported_options<(CommaDelimited | LengthPrefixed | ListSizePrefixed | ListLengthPrefixed), Opt>();
   detail::check_incompatible_options<(CommaDelimited | LengthPrefixed), Opt>();
   detail::check_incompatible_options<(CommaDelimited | ListSizePrefixed), Opt>();
+  detail::check_incompatible_options<(ListSizePrefixed | ListLengthPrefixed), Opt>();
 
   if (limit == 0) {
     return 0;
@@ -436,47 +434,58 @@ size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT
   detail::check_supported_options<(CommaDelimited | LengthPrefixed | ListSizePrefixed | ListLengthPrefixed), Opt>();
   detail::check_incompatible_options<(CommaDelimited | LengthPrefixed), Opt>();
   detail::check_incompatible_options<(CommaDelimited | ListSizePrefixed), Opt>();
+  detail::check_incompatible_options<(ListSizePrefixed | ListLengthPrefixed), Opt>();
 
-  size_t n = 0;
+  size_t total = 0;
   if constexpr (Opt & ListSizePrefixed) {
     buffer.writeBEInt(static_cast<uint32_t>(value.size()));
-    n += 4;
+    total += 4;
   } else if constexpr (Opt & ListLengthPrefixed) {
-    uint32_t sum = 0;
+    uint32_t len = 0;
     for (const auto& elem : value) {
-      sum += elem.size();
+      if constexpr (requires { std::size(elem); }) {
+        // if std::size is available, use it
+        len += std::size(elem);
+      } else {
+        // otherwise fall back to sizeof (for integer/enum types)
+        len += sizeof(elem);
+      }
     }
     if constexpr (Opt & CommaDelimited) {
       if (value.size() > 0) {
-        sum += value.size() - 1; // commas
+        len += value.size() - 1; // commas
       }
     } else if constexpr (Opt & LengthPrefixed) {
-      sum += 4 * value.size(); // size prefixes
+      len += 4 * value.size(); // size prefixes
     }
-    buffer.writeBEInt(static_cast<uint32_t>(sum));
-    n += 4;
+    buffer.writeBEInt(static_cast<uint32_t>(len));
+    total += 4;
   }
   if constexpr (Opt & CommaDelimited) {
     for (size_t i = 0; i < value.size(); i++) {
-      n += write(buffer, value.at(i));
+      auto n = write(buffer, value.at(i));
+      if (n == 0) [[unlikely]] {
+        throw Envoy::EnvoyException("invalid empty string in comma-separated list");
+      }
+      total += n;
       if (i < value.size() - 1) {
         buffer.writeByte(',');
-        n += 1;
+        total += 1;
       }
     }
   } else if constexpr (Opt & LengthPrefixed) {
     Envoy::Buffer::OwnedImpl tmp;
-    for (size_t i = 0; i < value.size(); i++) {
-      n += 4 + write(tmp, value.at(i));
+    for (const auto& elem : value) {
+      total += 4 + write(tmp, elem);
       buffer.writeBEInt(static_cast<uint32_t>(tmp.length()));
       buffer.move(tmp);
     }
   } else {
     for (Writer auto const& entry : value) {
-      n += write(buffer, entry);
+      total += write(buffer, entry);
     }
   }
-  return n;
+  return total;
 }
 
 // Utility function to decode a list of Decoder objects in order. The size passed to each Decoder's
@@ -499,7 +508,7 @@ absl::StatusOr<size_t> decodeSequence(Envoy::Buffer::Instance& buffer, explicit_
       stat = r.status();
       return false;
     }
-    SECURITY_ASSERT(*r <= limit - n, "decode() returned value >= limit");
+    ASSERT(*r <= limit - n, "decode() returned value >= limit");
     n += *r;
     return true;
   };

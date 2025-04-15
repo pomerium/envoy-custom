@@ -1,4 +1,4 @@
-#include "source/extensions/filters/network/ssh/wire/wire_test.h"
+#include "source/extensions/filters/network/ssh/wire/wire_test_common.h"
 
 #include "source/extensions/filters/network/ssh/wire/packet.h"
 #include "source/extensions/filters/network/ssh/wire/field.h"
@@ -100,7 +100,7 @@ TEST(DecodePacketTest, DecodeError) {
   Envoy::Buffer::OwnedImpl buffer;
   buffer.writeBEInt<uint32_t>(0x44);
   buffer.writeBEInt<uint8_t>(0x5);
-  mock_err_encoder m;
+  MockEncoder m;
 
   EXPECT_CALL(m, decode)
     .Times(1)
@@ -116,7 +116,7 @@ TEST(DecodePacketTest, PacketPayloadSizeError) {
   Envoy::Buffer::OwnedImpl buffer;
   buffer.writeBEInt<uint32_t>(0x44);
   buffer.writeBEInt<uint8_t>(0x5);
-  mock_err_encoder m;
+  MockEncoder m;
 
   EXPECT_CALL(m, decode)
     .Times(1)
@@ -135,7 +135,7 @@ TEST(DecodePacketTest, ReadPaddingError) {
   buffer.writeByte(0); //
   buffer.writeByte(0); // wrong padding length
   buffer.writeByte(0); //
-  mock_err_encoder m;
+  MockEncoder m;
 
   EXPECT_CALL(m, decode)
     .Times(1)
@@ -313,7 +313,7 @@ INSTANTIATE_TEST_SUITE_P(
     std::tuple{1000, 255, 744}));
 
 TEST(EncodePacketTest, Encode_EmptyPayloadError) {
-  mock_err_encoder e;
+  MockEncoder e;
   EXPECT_CALL(e, encode)
     .Times(1)
     .WillOnce(Return(0));
@@ -326,7 +326,7 @@ TEST(EncodePacketTest, Encode_EmptyPayloadError) {
 }
 
 TEST(EncodePacketTest, Encode_PayloadTooLargeError) {
-  mock_err_encoder e;
+  MockEncoder e;
   EXPECT_CALL(e, encode)
     .Times(1)
     .WillOnce(Return(MaxPacketSize - 1));
@@ -338,7 +338,7 @@ TEST(EncodePacketTest, Encode_PayloadTooLargeError) {
 }
 
 TEST(EncodePacketTest, Encode_EncoderError) {
-  mock_err_encoder e;
+  MockEncoder e;
   EXPECT_CALL(e, encode)
     .Times(1)
     .WillOnce(Return(absl::InternalError("test")));

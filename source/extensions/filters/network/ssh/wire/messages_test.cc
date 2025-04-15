@@ -1,4 +1,4 @@
-#include "source/extensions/filters/network/ssh/wire/wire_test.h"
+#include "source/extensions/filters/network/ssh/wire/wire_test_common.h"
 
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"

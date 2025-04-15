@@ -35,12 +35,53 @@ envoy_cc_library(
 )
 
 envoy_cc_test(
-    name = "wire_lib_test",
-    srcs = [
-        "encoding_test.cc",
-        "messages_test.cc",
-        "packet_test.cc",
+    name = "encoding_test",
+    srcs = ["encoding_test.cc"],
+    repository = "@envoy",
+    deps = [
+        ":wire_lib",
+        ":wire_test_common",
+        "@com_google_absl//absl/random",
+        "@envoy//source/common/common:random_generator_lib",
+        "@envoy//test/mocks/runtime:runtime_mocks",
+        "@envoy//test/mocks/stream_info:stream_info_mocks",
+        "@envoy//test/test_common:logging_lib",
     ],
+)
+
+envoy_cc_test(
+    name = "messages_test",
+    srcs = ["messages_test.cc"],
+    repository = "@envoy",
+    deps = [
+        ":wire_lib",
+        ":wire_test_common",
+        "@com_google_absl//absl/random",
+        "@envoy//source/common/common:random_generator_lib",
+        "@envoy//test/mocks/runtime:runtime_mocks",
+        "@envoy//test/mocks/stream_info:stream_info_mocks",
+        "@envoy//test/test_common:logging_lib",
+    ],
+)
+
+envoy_cc_test(
+    name = "packet_test",
+    srcs = ["packet_test.cc"],
+    repository = "@envoy",
+    deps = [
+        ":wire_lib",
+        ":wire_test_common",
+        "@com_google_absl//absl/random",
+        "@envoy//source/common/common:random_generator_lib",
+        "@envoy//test/mocks/runtime:runtime_mocks",
+        "@envoy//test/mocks/stream_info:stream_info_mocks",
+        "@envoy//test/test_common:logging_lib",
+    ],
+)
+
+envoy_cc_test(
+    name = "field_test",
+    srcs = ["field_test.cc"],
     repository = "@envoy",
     deps = [
         ":wire_lib",
@@ -56,7 +97,7 @@ envoy_cc_test(
 envoy_cc_test_library(
     name = "wire_test_common",
     hdrs = [
-        "wire_test.h",
+        "wire_test_common.h",
     ],
     repository = "@envoy",
 )

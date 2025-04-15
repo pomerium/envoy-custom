@@ -11,6 +11,7 @@ Checks: >
   -bugprone-switch-missing-default-case,
   -bugprone-branch-clone,
   -bugprone-easily-swappable-parameters,
+  -bugprone-lambda-function-name,
   clang-analyzer-core.DivideZero,
   misc-unused-using-decls,
   modernize-*
