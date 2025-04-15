@@ -1,12 +1,18 @@
 #pragma once
 
 #pragma clang unsafe_buffer_usage begin
-#include "source/common/buffer/buffer_impl.h"
+#include "source/common/buffer/buffer_impl.h" // IWYU pragma: keep
 #pragma clang unsafe_buffer_usage end
 
 #include "absl/status/statusor.h"
 #include "gtest/gtest.h"
-#include "gmock/gmock.h"
+#include "gmock/gmock.h" // IWYU pragma: keep
+
+#define EXPECT_SHORT_READ(expr) EXPECT_THROW_WITH_MESSAGE(expr, EnvoyException, "short read")
+#define EXPECT_BUFFER_UNDERFLOW(expr) EXPECT_THROW_WITH_MESSAGE(expr, EnvoyException, "buffer underflow")
+
+#undef EXPECT_THROW
+#define EXPECT_THROW #warning "use EXPECT_THROW_WITH_MESSAGE instead of EXPECT_THROW"
 
 namespace wire::test {
 

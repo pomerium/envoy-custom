@@ -41,7 +41,7 @@ struct field_base {
   operator T(this auto& self) { return self.value; }
 
   // arrow operator: allow using -> to access the value stored in a field
-  auto* operator->(this auto& self) { return &self.value; }
+  auto* operator->(this auto& self) { return std::addressof(self.value); }
 
   // dereference operator: allow using * to access the value stored in a field
   auto& operator*(this auto& self) { return self.value; }
@@ -55,12 +55,6 @@ struct field_base {
 
   // assignments to field<T> will assign T using its own assignment operators
   field_base& operator=(const T& rhs) {
-    value = rhs;
-    return *this;
-  }
-
-  // same as above, but initializer_list needs its own specialization
-  field_base& operator=(std::initializer_list<T> rhs) {
     value = rhs;
     return *this;
   }
@@ -82,7 +76,6 @@ struct field_base {
   }
 };
 
-// normal field (not conditional)
 template <typename T, EncodingOptions Opt = None>
   requires ReadWriter<type_or_value_type_t<T>>
 struct field : field_base<T, Opt> {

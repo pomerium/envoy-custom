@@ -4,11 +4,6 @@
 
 #include "openssl/rand.h"
 
-#define EXPECT_SHORT_READ(expr) EXPECT_THROW_WITH_MESSAGE(expr, EnvoyException, "short read")
-#define EXPECT_BUFFER_UNDERFLOW(expr) EXPECT_THROW_WITH_MESSAGE(expr, EnvoyException, "buffer underflow")
-
-#undef EXPECT_THROW
-
 namespace wire::test {
 
 // some test bignum values from openssh
@@ -341,8 +336,8 @@ TEST(WriteIntTest, Bool) {
 template <typename T>
 class ReadWriteIntTest : public testing::Test {};
 
-using testIntTypes = Types<uint8_t, uint32_t, uint64_t, SshMessageType>;
-TYPED_TEST_SUITE(ReadWriteIntTest, testIntTypes);
+using BasicFieldTypes = Types<uint8_t, uint32_t, uint64_t, SshMessageType>;
+TYPED_TEST_SUITE(ReadWriteIntTest, BasicFieldTypes);
 
 TYPED_TEST(ReadWriteIntTest, ReadWrite) {
   Buffer::OwnedImpl buffer;

@@ -25,6 +25,7 @@ envoy_cc_library(
     ],
     repository = "@envoy",
     deps = [
+        ":wire_lib_common",
         "//source/extensions/filters/network/ssh:ssh_common_lib",
         "@envoy//envoy/buffer:buffer_interface",
         "@envoy//source/common/buffer:buffer_lib",
@@ -34,13 +35,22 @@ envoy_cc_library(
     ],
 )
 
+envoy_cc_library(
+    name = "wire_lib_common",
+    hdrs = ["common.h"],
+    repository = "@envoy",
+    deps = [
+        "@envoy//source/common/common:fmt_lib",
+    ],
+)
+
 envoy_cc_test(
     name = "encoding_test",
     srcs = ["encoding_test.cc"],
     repository = "@envoy",
     deps = [
         ":wire_lib",
-        ":wire_test_common",
+        ":wire_test_util",
         "@com_google_absl//absl/random",
         "@envoy//source/common/common:random_generator_lib",
         "@envoy//test/mocks/runtime:runtime_mocks",
@@ -55,7 +65,7 @@ envoy_cc_test(
     repository = "@envoy",
     deps = [
         ":wire_lib",
-        ":wire_test_common",
+        ":wire_test_util",
         "@com_google_absl//absl/random",
         "@envoy//source/common/common:random_generator_lib",
         "@envoy//test/mocks/runtime:runtime_mocks",
@@ -70,7 +80,7 @@ envoy_cc_test(
     repository = "@envoy",
     deps = [
         ":wire_lib",
-        ":wire_test_common",
+        ":wire_test_util",
         "@com_google_absl//absl/random",
         "@envoy//source/common/common:random_generator_lib",
         "@envoy//test/mocks/runtime:runtime_mocks",
@@ -85,7 +95,7 @@ envoy_cc_test(
     repository = "@envoy",
     deps = [
         ":wire_lib",
-        ":wire_test_common",
+        ":wire_test_util",
         "@com_google_absl//absl/random",
         "@envoy//source/common/common:random_generator_lib",
         "@envoy//test/mocks/runtime:runtime_mocks",
@@ -100,4 +110,16 @@ envoy_cc_test_library(
         "wire_test_common.h",
     ],
     repository = "@envoy",
+)
+
+envoy_cc_test_library(
+    name = "wire_test_util",
+    hdrs = [
+        "wire_test_util.h",
+    ],
+    repository = "@envoy",
+    deps = [
+        ":wire_lib_common",
+        ":wire_test_common",
+    ],
 )

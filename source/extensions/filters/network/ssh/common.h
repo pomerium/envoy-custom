@@ -7,8 +7,10 @@
 #include <string>
 #include <span>
 
-#include "fmt/std.h"              // IWYU pragma: keep
+#include "fmt/std.h" // IWYU pragma: keep
+#pragma clang unsafe_buffer_usage begin
 #include "absl/status/statusor.h" // IWYU pragma: keep
+#pragma clang unsafe_buffer_usage end
 
 using stream_id_t = uint64_t;
 
