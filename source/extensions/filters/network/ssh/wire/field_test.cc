@@ -4,6 +4,7 @@
 #include "source/extensions/filters/network/ssh/wire/field.h"
 #include "source/extensions/filters/network/ssh/wire/wire_test_util.h"
 #include <compare>
+#include <type_traits>
 
 namespace wire::test {
 
@@ -212,9 +213,15 @@ struct TestSubMsg1 {
   static constexpr uint32_t submsg_key = 1;
   static constexpr auto submsg_key_encoding = None;
 
-  TestSubMsg1() {
-    Uint32 = random_value<uint32_t>();
-    String = random_value<std::string>();
+  constexpr TestSubMsg1() = default;
+  constexpr TestSubMsg1(uint32_t u, const std::string& s)
+      : Uint32(u), String(s) {}
+
+  static TestSubMsg1 random() {
+    TestSubMsg1 msg;
+    msg.Uint32 = random_value<uint32_t>();
+    msg.String = random_value<std::string>();
+    return msg;
   }
 
   field<uint32_t> Uint32;
@@ -239,9 +246,15 @@ struct TestSubMsg2 {
   static constexpr uint32_t submsg_key = 2;
   static constexpr auto submsg_key_encoding = None;
 
-  TestSubMsg2() {
-    Uint8 = random_value<uint32_t>();
-    Bytes = random_value<bytes>();
+  constexpr TestSubMsg2() = default;
+  constexpr TestSubMsg2(uint32_t u, const bytes& b)
+      : Uint8(u), Bytes(b) {}
+
+  static TestSubMsg2 random() {
+    TestSubMsg2 msg;
+    msg.Uint8 = random_value<uint32_t>();
+    msg.Bytes = random_value<bytes>();
+    return msg;
   }
 
   field<uint8_t> Uint8;
@@ -378,7 +391,7 @@ TEST(SubMessageTest, Decode) {
   write_opt<LengthPrefixed>(buffer, "test"s);
   write_opt<TestSubMsg1::submsg_key_encoding>(buffer, TestSubMsg1::submsg_key);
 
-  TestSubMsg1 msg1{};
+  auto msg1 = TestSubMsg1::random();
   EXPECT_TRUE(msg1.encode(buffer).ok());
 
   auto len = buffer.length();
@@ -397,7 +410,7 @@ TEST(SubMessageTest, Decode) {
   write_opt<LengthPrefixed>(buffer, "test"s);
   write_opt<TestSubMsg2::submsg_key_encoding>(buffer, TestSubMsg2::submsg_key);
 
-  TestSubMsg2 msg2{};
+  auto msg2 = TestSubMsg2::random();
   EXPECT_TRUE(msg2.encode(buffer).ok());
 
   len = buffer.length();
@@ -409,7 +422,328 @@ TEST(SubMessageTest, Decode) {
   EXPECT_EQ(msg2, msg.request.get<TestSubMsg2>());
 }
 
+TEST(SubMessageTest, Decode_Unknown) {
+  Buffer::OwnedImpl buffer;
+
+  // recreate TestMessage fields
+  write(buffer, SshMessageType(200));
+  write_opt<LengthPrefixed>(buffer, "test"s);
+  // write a key that does not correspond to one of the known sub-messages
+  write_opt<TestSubMsg2::submsg_key_encoding>(buffer, TestSubMsg2::submsg_key + 10); // unknown key
+  write_opt<LengthPrefixed>(buffer, "hello world"s);                                 // unknown message field
+
+  auto len = buffer.length();
+  TestMessage msg;
+  auto r = msg.decode(buffer, buffer.length());
+  EXPECT_TRUE(r.ok()) << r.status().ToString();
+  EXPECT_EQ(len, *r);
+  EXPECT_EQ(0, buffer.length());
+  EXPECT_FALSE(msg.request.holds_alternative<TestSubMsg1>());
+  EXPECT_FALSE(msg.request.holds_alternative<TestSubMsg2>());
+
+  EXPECT_EQ(to_bytes("\x00\x00\x00\x0B"
+                     "hello world"sv),
+            *msg.request.getUnknownBytesForTest());
+}
+
+TEST(SubMessageTest, Decode_Unknown_Repeated) {
+  // decode another unknown message when there is already a different unknown message stored
+
+  TestMessage msg;
+  Buffer::OwnedImpl buffer;
+
+  write(buffer, SshMessageType(200));
+  write_opt<LengthPrefixed>(buffer, "test"s);
+  write_opt<TestSubMsg2::submsg_key_encoding>(buffer, TestSubMsg2::submsg_key + 10); // unknown key
+  write_opt<LengthPrefixed>(buffer, "hello world"s);                                 // unknown message field
+
+  auto len = buffer.length();
+  auto r = msg.decode(buffer, buffer.length());
+  EXPECT_TRUE(r.ok()) << r.status().ToString();
+  EXPECT_EQ(len, *r);
+  EXPECT_EQ(0, buffer.length());
+  EXPECT_TRUE(msg.request.getUnknownBytesForTest().has_value());
+
+  write(buffer, SshMessageType(200));
+  write_opt<LengthPrefixed>(buffer, "test"s);
+  write_opt<TestSubMsg2::submsg_key_encoding>(buffer, TestSubMsg2::submsg_key + 11); // unknown key
+  write_opt<LengthPrefixed>(buffer, "foo bar"s);                                     // unknown message field
+  len = buffer.length();
+
+  r = msg.decode(buffer, buffer.length());
+  EXPECT_TRUE(r.ok()) << r.status().ToString();
+  EXPECT_EQ(len, *r);
+  EXPECT_EQ(0, buffer.length());
+
+  EXPECT_EQ(to_bytes("\x00\x00\x00\x07"
+                     "foo bar"sv),
+            *msg.request.getUnknownBytesForTest());
+}
+
+TEST(SubMessageTest, Decode_Unknown_Known) {
+  // decode an unknown message, then decode a known message after
+
+  TestMessage msg;
+  Buffer::OwnedImpl buffer;
+
+  // decode an unknown message
+  write(buffer, SshMessageType(200));
+  write_opt<LengthPrefixed>(buffer, "test"s);
+  write_opt<TestSubMsg2::submsg_key_encoding>(buffer, TestSubMsg2::submsg_key + 10); // unknown key
+  write_opt<LengthPrefixed>(buffer, "hello world"s);
+
+  auto len = buffer.length();
+  auto r = msg.decode(buffer, buffer.length());
+  EXPECT_TRUE(r.ok()) << r.status().ToString();
+  EXPECT_EQ(len, *r);
+  EXPECT_EQ(0, buffer.length());
+  EXPECT_TRUE(msg.request.getUnknownBytesForTest().has_value());
+
+  // decode a known message
+  write(buffer, SshMessageType(200));
+  write_opt<LengthPrefixed>(buffer, "test"s);
+  write_opt<TestSubMsg2::submsg_key_encoding>(buffer, TestSubMsg2::submsg_key); // known key
+  auto msg2 = TestSubMsg2::random();
+  EXPECT_TRUE(msg2.encode(buffer).ok());
+
+  len = buffer.length();
+
+  r = msg.decode(buffer, buffer.length());
+  EXPECT_TRUE(r.ok()) << r.status().ToString();
+  EXPECT_EQ(len, *r);
+  EXPECT_EQ(0, buffer.length());
+  EXPECT_TRUE(msg.request.holds_alternative<TestSubMsg2>());
+  EXPECT_EQ(msg2, msg.request.get<TestSubMsg2>());
+
+  EXPECT_FALSE(msg.request.getUnknownBytesForTest().has_value());
+}
+
+TEST(SubMessageTest, DecodeUnknown) {
+  sub_message<TestSubMsg1, TestSubMsg2> submsg;
+
+  Buffer::OwnedImpl buffer;
+  TestSubMsg1 m1;
+  m1.String = "hello world";
+  m1.Uint32 = 0xDEADBEEF;
+  bytes expected = to_bytes("\xDE\xAD\xBE\xEF" // submsg.Uint32
+                            "\x00\x00\x00\x0B" // len(submsg.String)
+                            "hello world"s);   // submsg.String
+
+  EXPECT_TRUE(m1.encode(buffer).ok());
+
+  // leave key_field unset, then decode with invalid key
+  auto r = submsg.decode(buffer, buffer.length());
+  EXPECT_TRUE(r.ok()) << r.status().ToString();
+  EXPECT_EQ(expected.size(), *r);
+
+  EXPECT_EQ(expected, *submsg.getUnknownBytesForTest());
+
+  EXPECT_FALSE(submsg.holds_alternative<TestSubMsg1>());
+
+  // decode again with key_field still unset
+  r = submsg.decodeUnknown();
+  EXPECT_TRUE(r.ok());
+  EXPECT_EQ(expected.size(), *r);
+  EXPECT_FALSE(submsg.holds_alternative<TestSubMsg1>());
+
+  EXPECT_EQ(expected, *submsg.getUnknownBytesForTest());
+
+  // set key_field
+  submsg.key_field() = TestSubMsg1::submsg_key;
+
+  // decode with valid key
+  r = submsg.decodeUnknown();
+  EXPECT_TRUE(r.ok());
+  EXPECT_EQ(expected.size(), *r);
+  EXPECT_TRUE(submsg.holds_alternative<TestSubMsg1>());
+  EXPECT_EQ(m1, submsg.get<TestSubMsg1>());
+  EXPECT_FALSE(submsg.getUnknownBytesForTest().has_value());
+}
+
+TEST(SubMessageTest, DecodeUnknown_KnownValue) {
+  Buffer::OwnedImpl buffer;
+
+  write(buffer, SshMessageType(200));
+  write_opt<LengthPrefixed>(buffer, "test"s);
+  write_opt<TestSubMsg1::submsg_key_encoding>(buffer, TestSubMsg1::submsg_key);
+  EXPECT_TRUE(TestSubMsg1::random().encode(buffer).ok());
+
+  TestMessage msg;
+  EXPECT_TRUE(msg.decode(buffer, buffer.length()).ok());
+  EXPECT_EQ(0, buffer.length());
+  EXPECT_TRUE(msg.request.holds_alternative<TestSubMsg1>());
+
+  EXPECT_ENVOY_BUG(msg.request.decodeUnknown().IgnoreError(), "decodeUnknown() called with known value");
+}
+
 TEST(SubMessageTest, Encode) {
+  TestMessage msg;
+  msg.foo = "test";
+  TestSubMsg1 submsg;
+  submsg.String = "hello world";
+  submsg.Uint32 = 0xDEADBEEF;
+  msg.request = submsg;
+  auto encoded = encodeTo<std::string>(msg);
+  EXPECT_TRUE(encoded.ok()) << encoded.status().ToString();
+  EXPECT_EQ("\xC8"             // 200
+            "\x00\x00\x00\x04" // len(msg.foo)
+            "test"             // msg.foo
+            "\x00\x00\x00\x01" // key field
+            "\xDE\xAD\xBE\xEF" // submsg.Uint32
+            "\x00\x00\x00\x0B" // len(submsg.String)
+            "hello world"s,    // submsg.String
+            *encoded);
+}
+
+TEST(SubMessageTest, Encode_Empty) {
+  TestMessage msg;
+  msg.foo = "test";
+  auto encoded = encodeTo<std::string>(msg);
+  EXPECT_TRUE(encoded.ok()) << encoded.status().ToString();
+  EXPECT_EQ("\xC8"               // 200
+            "\x00\x00\x00\x04"   // len(msg.foo)
+            "test"               // msg.foo
+            "\x00\x00\x00\x00"s, // key field
+            *encoded);
+}
+
+TEST(SubMessageTest, Encode_Unknown) {
+  TestMessage msg;
+  Buffer::OwnedImpl buffer;
+
+  // decode an unknown message
+  write(buffer, SshMessageType(200));
+  write_opt<LengthPrefixed>(buffer, "test"s);
+  write_opt<TestSubMsg2::submsg_key_encoding>(buffer, TestSubMsg2::submsg_key + 10); // unknown key
+  write_opt<LengthPrefixed>(buffer, "hello world"s);
+
+  auto expected = buffer.toString();
+
+  auto len = buffer.length();
+  auto r = msg.decode(buffer, buffer.length());
+  EXPECT_TRUE(r.ok()) << r.status().ToString();
+  EXPECT_EQ(len, *r);
+  EXPECT_EQ(0, buffer.length());
+
+  auto actual = encodeTo<std::string>(msg);
+  EXPECT_TRUE(actual.ok()) << actual.status().ToString();
+
+  EXPECT_EQ(expected, *actual);
+}
+
+class VisitTestSuite : public testing::Test {
+public:
+  void SetUp() override {
+    submsg = sub_message<TestSubMsg1, TestSubMsg2>{};
+    submsg.key_field() = TestSubMsg1::submsg_key;
+    submsg.reset(TestSubMsg1::random());
+  }
+
+  sub_message<TestSubMsg1, TestSubMsg2> submsg;
+};
+
+template <typename T>
+constexpr T& as_nonconst(const T& t) {
+  return const_cast<T&>(t); // NOLINT
+}
+
+TEST(SubMessageTest, Visit) {
+  enum Result {
+    CalledVisitMsg1NonConst = 1,
+    CalledVisitMsg1Const,
+    CalledVisitMsg1RvalueRef,
+
+    CalledVisitMsg2NonConst,
+    CalledVisitMsg2Const,
+    CalledVisitMsg2RvalueRef,
+
+    CalledDefaultAutoRef,
+    CalledDefaultConstAutoRef,
+    CalledDefaultAutoUniversalRef,
+    CalledDefaultAutoPlain,
+  };
+
+  auto visitMsg1NonConst = [](TestSubMsg1&) { return CalledVisitMsg1NonConst; };
+  auto visitMsg1Const = [](const TestSubMsg1&) { return CalledVisitMsg1Const; };
+  auto visitMsg1RvalueRef = [](TestSubMsg1&&) { return CalledVisitMsg1RvalueRef; };
+
+  auto visitMsg2NonConst = [](TestSubMsg2&) { return CalledVisitMsg2NonConst; };
+  auto visitMsg2Const = [](const TestSubMsg2&) { return CalledVisitMsg2Const; };
+
+  auto defaultAutoRef = [](auto&) { return CalledDefaultAutoRef; };
+  auto defaultConstAutoRef = [](const auto&) { return CalledDefaultConstAutoRef; };
+  auto defaultAutoUniversalRef = [](auto&&) { return CalledDefaultAutoUniversalRef; };
+  auto defaultAutoPlain = [](auto) { return CalledDefaultAutoPlain; };
+
+  EXPECT_STATIC_ASSERT(generic_lambda_info<decltype(defaultConstAutoRef), TestSubMsg1>::is_const_ref);
+  EXPECT_STATIC_ASSERT(!generic_lambda_info<decltype(defaultConstAutoRef), TestSubMsg1>::is_mutable_ref);
+  EXPECT_STATIC_ASSERT(!generic_lambda_info<decltype(defaultConstAutoRef), TestSubMsg1>::is_universal_ref);
+
+  EXPECT_STATIC_ASSERT(!generic_lambda_info<decltype(defaultAutoRef), TestSubMsg1>::is_const_ref);
+  EXPECT_STATIC_ASSERT(generic_lambda_info<decltype(defaultAutoRef), TestSubMsg1>::is_mutable_ref);
+  EXPECT_STATIC_ASSERT(!generic_lambda_info<decltype(defaultAutoRef), TestSubMsg1>::is_universal_ref);
+
+  EXPECT_STATIC_ASSERT(!generic_lambda_info<decltype(defaultAutoUniversalRef), TestSubMsg1>::is_const_ref);
+  EXPECT_STATIC_ASSERT(!generic_lambda_info<decltype(defaultAutoUniversalRef), TestSubMsg1>::is_mutable_ref);
+  EXPECT_STATIC_ASSERT(generic_lambda_info<decltype(defaultAutoUniversalRef), TestSubMsg1>::is_universal_ref);
+
+  EXPECT_STATIC_ASSERT(!generic_lambda_info<decltype(defaultAutoPlain), TestSubMsg1>::is_const_ref);
+  EXPECT_STATIC_ASSERT(!generic_lambda_info<decltype(defaultAutoPlain), TestSubMsg1>::is_mutable_ref);
+  EXPECT_STATIC_ASSERT(!generic_lambda_info<decltype(defaultAutoPlain), TestSubMsg1>::is_universal_ref);
+
+  using SubMsgType = sub_message<TestSubMsg1, TestSubMsg2>;
+  constexpr SubMsgType submsg1{TestSubMsg1{1, "test"}};
+  EXPECT_STATIC_ASSERT(as_nonconst(submsg1).visit(visitMsg1NonConst, visitMsg2NonConst) == CalledVisitMsg1NonConst);
+  EXPECT_STATIC_ASSERT(as_nonconst(submsg1).visit(visitMsg1Const, visitMsg2NonConst) == CalledVisitMsg1Const);
+  EXPECT_STATIC_ASSERT(as_nonconst(submsg1).visit(visitMsg1Const, defaultConstAutoRef) == CalledVisitMsg1Const);
+  EXPECT_STATIC_ASSERT(as_nonconst(submsg1).visit(visitMsg1Const, visitMsg2Const, defaultConstAutoRef) == CalledVisitMsg1Const);
+  EXPECT_STATIC_ASSERT(std::move(as_nonconst(submsg1)).visit(visitMsg1RvalueRef, visitMsg2Const, defaultConstAutoRef) == CalledVisitMsg1RvalueRef);
+  EXPECT_STATIC_ASSERT(std::move(as_nonconst(submsg1)).visit(visitMsg1Const, visitMsg2Const, defaultConstAutoRef) == CalledVisitMsg1Const);
+  EXPECT_STATIC_ASSERT(submsg1.visit(visitMsg1Const, visitMsg2Const) == CalledVisitMsg1Const);
+  EXPECT_STATIC_ASSERT(submsg1.visit(visitMsg1Const, visitMsg2Const) == CalledVisitMsg1Const);
+  EXPECT_STATIC_ASSERT(submsg1.visit(visitMsg1Const, defaultAutoRef) == CalledVisitMsg1Const);
+  EXPECT_STATIC_ASSERT(submsg1.visit(visitMsg1Const, defaultConstAutoRef) == CalledVisitMsg1Const);
+  EXPECT_STATIC_ASSERT(submsg1.visit(visitMsg1Const, defaultAutoUniversalRef) == CalledVisitMsg1Const);
+
+  // void return type
+  Result result{};
+  submsg1.visit(
+    [&result](const TestSubMsg1&) { result = CalledVisitMsg1Const; },
+    [&result](const auto&) { result = CalledDefaultConstAutoRef; });
+  EXPECT_EQ(CalledVisitMsg1Const, result);
+
+  // no message set
+  constexpr SubMsgType empty{};
+  EXPECT_STATIC_ASSERT(empty.visit(visitMsg1Const, defaultAutoRef) == 0);
+  EXPECT_STATIC_ASSERT(empty.visit([](const TestSubMsg1&) { static_assert("fail"); },
+                                   [](const auto&) { static_assert("fail"); }),
+                       true);
+
+  // the commented-out lines below would each trigger compile-time errors; corresponding validators follow
+
+  // static_assert(as_nonconst(submsg1).visit(visitMsg1Const, defaultAutoRef) == CalledVisitMsg1Const);
+  EXPECT_STATIC_ASSERT(!overload_validator<basic_visitor, TestSubMsg1&>::validate<decltype(visitMsg1Const), decltype(defaultAutoRef)>());
+  // static_assert(as_nonconst(submsg1).visit(visitMsg1Const, visitMsg2Const, defaultAutoRef) == CalledVisitMsg1Const);
+  EXPECT_STATIC_ASSERT(!overload_validator<basic_visitor, TestSubMsg1&>::validate<decltype(visitMsg1Const), decltype(visitMsg2Const), decltype(defaultAutoRef)>());
+  // static_assert(as_nonconst(submsg1).visit(visitMsg1Const, visitMsg2Const, defaultAutoUniversalRef) == CalledVisitMsg1Const);
+  EXPECT_STATIC_ASSERT(!overload_validator<basic_visitor, TestSubMsg1&>::validate<decltype(visitMsg1Const), decltype(visitMsg2Const), decltype(defaultAutoUniversalRef)>());
+
+  // static_assert(as_nonconst(submsg1).visit(visitMsg1RvalueRef, defaultAutoRef) == CalledVisitMsg1RvalueRef);
+  EXPECT_STATIC_ASSERT(!overload_validator<basic_visitor, TestSubMsg1&>::validate<decltype(visitMsg1RvalueRef), decltype(defaultAutoRef)>());
+  // static_assert(as_nonconst(submsg1).visit(visitMsg1RvalueRef, defaultConstAutoRef) == CalledVisitMsg1RvalueRef);
+  EXPECT_STATIC_ASSERT(!overload_validator<basic_visitor, TestSubMsg1&>::validate<decltype(visitMsg1RvalueRef), decltype(defaultConstAutoRef)>());
+  // static_assert(as_nonconst(submsg1).visit(visitMsg1RvalueRef, defaultUniversalRef) == CalledVisitMsg1RvalueRef);
+  EXPECT_STATIC_ASSERT(!overload_validator<basic_visitor, TestSubMsg1&>::validate<decltype(visitMsg1RvalueRef), decltype(defaultAutoUniversalRef)>());
+  // static_assert(as_nonconst(submsg1).visit(visitMsg1RvalueRef, defaultAutoPlain) == CalledVisitMsg1RvalueRef);
+  EXPECT_STATIC_ASSERT(!overload_validator<basic_visitor, TestSubMsg1&>::validate<decltype(visitMsg1RvalueRef), decltype(defaultAutoPlain)>());
+
+  // static_assert(std::move(as_nonconst(submsg1)).visit(visitMsg1RvalueRef, defaultAutoUniversalRef) == CalledVisitMsg1RvalueRef);
+  EXPECT_STATIC_ASSERT(!overload_validator<basic_visitor, TestSubMsg1&>::validate<decltype(visitMsg1RvalueRef), decltype(defaultAutoUniversalRef)>());
+  // static_assert(std::move(as_nonconst(submsg1)).visit(visitMsg1RvalueRef, defaultAutoPlain) == CalledVisitMsg1RvalueRef);
+  EXPECT_STATIC_ASSERT(!overload_validator<basic_visitor, TestSubMsg1&>::validate<decltype(visitMsg1RvalueRef), decltype(defaultAutoPlain)>());
+
+  // static_assert(submsg1.visit(visitMsg1NonConst, defaultAutoUniversalRef) == CalledVisitMsg1NonConst);
+  EXPECT_STATIC_ASSERT(!const_validator<true, decltype(visitMsg1NonConst)>::validate());
 }
 
 } // namespace wire::test

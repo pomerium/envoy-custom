@@ -144,7 +144,7 @@ absl::Status SourceDownstreamSessionMultiplexer::handleDownstreamToUpstreamMessa
           return absl::OkStatus();
         });
     },
-    [](auto&) {
+    [](const auto&) {
       return absl::OkStatus();
     });
 }

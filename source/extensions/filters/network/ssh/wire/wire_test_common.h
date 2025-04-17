@@ -2,6 +2,9 @@
 
 #pragma clang unsafe_buffer_usage begin
 #include "source/common/buffer/buffer_impl.h" // IWYU pragma: keep
+#if defined(NDEBUG) || defined(ENVOY_CONFIG_COVERAGE)
+#include "test/test_common/logging.h"
+#endif
 #pragma clang unsafe_buffer_usage end
 
 #include "absl/status/statusor.h"
@@ -13,6 +16,18 @@
 
 #undef EXPECT_THROW
 #define EXPECT_THROW #warning "use EXPECT_THROW_WITH_MESSAGE instead of EXPECT_THROW"
+
+#define EXPECT_STATIC_ASSERT_IMPL_(expr) \
+  if consteval {                         \
+    static_assert((expr));               \
+  } else {                               \
+    EXPECT_TRUE((expr));                 \
+  }
+
+// Expands to static_assert at compile time, and EXPECT_TRUE at runtime. Useful for testing
+// constexpr code with coverage.
+#define EXPECT_STATIC_ASSERT(...) \
+  EXPECT_STATIC_ASSERT_IMPL_((__VA_ARGS__))
 
 namespace wire::test {
 
@@ -74,5 +89,15 @@ struct MockEncoder {
 #define EXPECT_THROW_WITHOUT_REGEX(statement, expected_exception, regex_str) \
   EXPECT_THAT_THROWS_MESSAGE(statement, expected_exception,                  \
                              ::testing::Not(::testing::ContainsRegex(regex_str)))
+
+// Expect that the statement hits an ENVOY_BUG containing the specified message.
+#if defined(NDEBUG) || defined(ENVOY_CONFIG_COVERAGE)
+// ENVOY_BUGs in release mode or in a coverage test log error.
+#define EXPECT_ENVOY_BUG(statement, message) EXPECT_LOG_CONTAINS("error", message, statement)
+#else
+// ENVOY_BUGs in (non-coverage) debug mode is fatal.
+#define EXPECT_ENVOY_BUG(statement, message) \
+  EXPECT_DEBUG_DEATH(statement, ::testing::HasSubstr(message))
+#endif
 
 // NOLINTEND

@@ -25,6 +25,11 @@ struct field_base {
   field_base& operator=(const field_base&) = default;
   field_base& operator=(field_base&&) noexcept = default;
 
+  constexpr field_base(const T& t)
+      : value(t) {}
+  constexpr field_base(T&& t)
+      : value(std::move(t)) {}
+
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t limit) noexcept {
     try {
       return read_opt<Opt>(buffer, value, limit);
@@ -80,6 +85,7 @@ template <typename T, EncodingOptions Opt = None>
   requires ReadWriter<type_or_value_type_t<T>>
 struct field : field_base<T, Opt> {
   static_assert(sizeof(field_base<T, Opt>) == sizeof(T));
+  using field_base<T, Opt>::field_base;
   using field_base<T, Opt>::value;
   using field_base<T, Opt>::operator=;
 };
@@ -177,6 +183,14 @@ struct sub_message {
     return contains_type<T, Options...>;
   }
 
+  constexpr sub_message() = default;
+
+  template <typename T>
+    requires (has_option<std::decay_t<T>>())
+  constexpr sub_message(T&& t)
+      : oneof(std::forward<T>(t)),
+        key_field_(std::decay_t<T>::submsg_key) {}
+
   // oneof holds one of the messages in Options, or no value.
   std::optional<std::variant<Options...>> oneof;
 
@@ -205,9 +219,9 @@ struct sub_message {
   // Wrappers around std::get to obtain the value in the variant for a specific type.
   // The oneof must currently have a value.
   template <typename T>
-  decltype(auto) get(this auto& self) { return std::get<T>(*self.oneof); }
+  constexpr decltype(auto) get(this auto& self) { return std::get<T>(*self.oneof); }
   template <size_t I>
-  decltype(auto) get(this auto& self) { return std::get<I>(*self.oneof); }
+  constexpr decltype(auto) get(this auto& self) { return std::get<I>(*self.oneof); }
 
   template <typename T>
   constexpr bool holds_alternative() const {
@@ -225,38 +239,39 @@ struct sub_message {
     // Find the index of the current key in option_keys. The key is read from the previously set
     // key field. If there is no set key, it is treated as an unknown message.
     auto it = option_index_lookup.find(*key_field_);
-    if (it == option_index_lookup.end()) { // not found
-      unknown_ = std::make_shared<bytes>(flushTo<bytes>(buffer, limit));
-      oneof.reset();
-      return limit;
-    } else if (unknown_) {
-      unknown_ = nullptr;
+    if (it != option_index_lookup.end()) [[likely]] {
+      unknown_.reset(); // reset unknown bytes if present (see note in decodeUnknown)
+      return decoders[it->second](oneof, buffer, limit);
     }
-    return decoders[it->second](oneof, buffer, limit);
+
+    // not found
+    unknown_ = flushTo<bytes>(buffer, limit);
+    oneof.reset();
+    return limit;
   }
 
   // Encodes the currently stored message and writes it to the buffer. If no message is stored,
   // does nothing. If an unknown message is stored, it will write the raw bytes of that message
   // to the buffer. Returns the total number of bytes written.
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept {
+    if (oneof.has_value()) [[likely]] {
+      return encoders[(*oneof).index()](*oneof, buffer);
+    }
     if (unknown_) {
       buffer.add(unknown_->data(), unknown_->size());
       return unknown_->size();
     }
-    if (!oneof.has_value()) {
-      return 0;
-    }
-    return encoders[(*oneof).index()](*oneof, buffer);
+    return 0;
   }
 
   // Decodes the message contained in the unknown bytes field.
   absl::StatusOr<size_t> decodeUnknown() noexcept {
-    if (!unknown_) {
-      PANIC("bug: decodeUnknown() called with known value");
+    if (!unknown_.has_value()) [[unlikely]] {
+      ENVOY_BUG(false, "decodeUnknown() called with known value");
+      return absl::InternalError("decodeUnknown() called with known value");
     }
-    // hold a reference to the unknown bytes so they are not freed when decode() unsets it
-    std::shared_ptr<bytes> unknown_ptr = unknown_;
-    return with_buffer_view(*unknown_ptr, [this](Envoy::Buffer::Instance& buffer) {
+    bytes unknown_bytes = *std::exchange(unknown_, std::optional<bytes>{});
+    return with_buffer_view(unknown_bytes, [this](Envoy::Buffer::Instance& buffer) {
       return this->decode(buffer, buffer.length());
     });
   }
@@ -268,35 +283,43 @@ struct sub_message {
   // A "default" case can be provided by passing a lambda of the form
   //  [](auto msg) { ... }
   // and will be invoked if none of the other lambdas match.
-  decltype(auto) visit(this auto& self, auto... fns) {
-    if (self.oneof.has_value()) {
-      return std::visit(overloads{fns...}, *self.oneof);
+  template <typename Self>
+  [[nodiscard]] constexpr decltype(auto) visit(this Self&& self, auto... fns) {
+    if (self.oneof.has_value()) [[likely]] {
+      return std::visit(make_overloads<basic_visitor, Self&&>(fns...), *std::forward<Self>(self).oneof);
     }
-    using return_type = decltype(std::visit(overloads{fns...}, *self.oneof));
+    using return_type = decltype(std::visit(make_overloads<basic_visitor, Self&&>(fns...), *std::forward<Self>(self).oneof));
     if constexpr (!std::is_void_v<return_type>) {
       return return_type{};
     }
   }
 
+  std::optional<bytes> getUnknownBytesForTest() const { return unknown_; }
+
 private:
   // unknown holds raw bytes for an unknown message type.
-  std::shared_ptr<bytes> unknown_;
+  std::optional<bytes> unknown_;
 
   key_field_type key_field_;
 
   // Contains a list of sub-message keys for each option type in the order provided.
   // All option types must be unique.
   static constexpr std::array option_keys = {Options::submsg_key...};
+
+  // Lookup table for finding the index in option_keys for each known key. Keys can have e.g.
+  // string types, so we can't assume they can always be repurposed as indexes.
+  // The result is a map of key:index, like
+  //  {<key1>: 0, <key2>: 1, <key3>: 2}
   static inline const auto option_index_lookup = []<size_t... I>(std::index_sequence<I...>) {
-    return std::unordered_map<key_type, size_t>{{std::pair{key_type{option_keys[I]}, I}...}};
+    return absl::flat_hash_map<key_type, size_t>{{std::pair{key_type{option_keys[I]}, I}...}};
   }(std::make_index_sequence<sizeof...(Options)>{});
 
   using oneof_type = decltype(oneof)::value_type;
-  // This strange looking syntax creates a list of functions, one for each type in Options, where
-  // each function decodes that type and assigns it to the oneof. The order is the same as in
-  // option_keys, so the matching decoder can be looked up by index of the key and called to decode
-  // the corresponding type. The result is a list of functions, like
-  //  {<decoder for A>, <decoder for B>, <decoder for C>} (where Options == <A, B, C>)
+  // Decoders is a list of functions, one for each type in Options, where each function decodes
+  // that type and assigns it to the oneof. The order is the same as in option_keys, so the
+  // matching decoder can be looked up by index of the key and called to decode the corresponding
+  // type. The result is a list of functions, like
+  //  [<decoder for A>, <decoder for B>, <decoder for C>] (where Options == <A, B, C>)
   static constexpr std::array decoders =
     {+[](std::optional<oneof_type>& oneof, Envoy::Buffer::Instance& buffer, size_t limit) noexcept -> absl::StatusOr<size_t> {
       Options opt; // 'Options' is a placeholder, substituted for one of the contained types

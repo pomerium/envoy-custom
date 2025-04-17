@@ -1,7 +1,8 @@
 #pragma once
 
 #include "source/extensions/filters/network/ssh/wire/common.h"
-#include "source/extensions/filters/network/ssh/wire/util.h"
+#include "source/extensions/filters/network/ssh/common.h"
+#include <type_traits>
 
 namespace wire::detail {
 
@@ -29,77 +30,68 @@ template <typename T>
 constexpr bool is_overload = !std::is_same_v<std::remove_cv_t<T>, overload_for_t<T>>;
 
 template <typename T>
-struct visitor_info;
-
-template <typename T>
-struct remove_optref : std::type_identity<T> {};
-
-template <typename T>
-struct remove_optref<Envoy::OptRef<T>> : std::type_identity<T> {};
-
-template <typename T>
-using remove_optref_t = remove_optref<T>::type;
-
-template <typename R, typename T, typename Arg>
-struct visitor_info<R (T::*)(Arg) const> {
-  using return_type = R;
-  using arg_type_with_cv_optref = std::remove_reference_t<Arg>;
-  using arg_type_with_cv = remove_optref_t<arg_type_with_cv_optref>;
-  using arg_type = std::remove_cv_t<arg_type_with_cv>;
-};
-
-template <typename F>
-using visitor_info_t = visitor_info<decltype(&std::decay_t<F>::operator())>;
-
-template <typename F>
-using visitor_arg_type_t = visitor_info_t<F>::arg_type;
-
-template <typename T>
 concept TopLevelMessage = is_top_level_message_v<T>;
 
 template <bool IsConst, typename F>
-struct single_top_level_visitor : F {
-  static constexpr bool selected_overload = false;
+struct opt_ref_validator {
+  consteval static bool validate() {
+    using info_t = visitor_info_t<std::remove_reference_t<F>>;
+    return std::is_same_v<typename info_t::arg_type_with_cv_optref,
+                          opt_ref<typename info_t::arg_type_with_cv>>;
+  }
+};
+
+template <bool IsConst, typename F>
+struct top_level_visitor : F {
+  static constexpr bool is_catchall_visitor = true;
+  template <typename T>
+  using arg_type_transform = T;
+
+  static consteval void validate() {}
   using F::operator();
 };
 
 template <bool IsConst, typename F>
   requires TopLevelMessage<visitor_arg_type_t<F>>
-struct single_top_level_visitor<IsConst, F> : F {
-  static_assert(!IsConst || std::is_const_v<typename visitor_info_t<F>::arg_type_with_cv>,
-                "visited message is const-qualified, but handler has non-const argument type");
-  static constexpr bool selected_overload = false;
-  using arg = visitor_arg_type_t<F>;
+struct top_level_visitor<IsConst, F> : F {
+  constexpr top_level_visitor(F f)
+      : F(f) {}
+  static constexpr bool is_catchall_visitor = false;
+  template <typename T>
+  using arg_type_transform = T;
+
+  static consteval void validate() {
+    if constexpr (!const_validator<IsConst, F>::validate()) {
+      static_assert(false,
+                    "visited message is const-qualified, but handler has non-const argument type");
+    }
+  }
 
   using F::operator();
 };
 
 template <bool IsConst, typename F>
   requires TopLevelMessage<visitor_arg_type_t<F>> && is_overload<visitor_arg_type_t<F>>
-struct single_top_level_visitor<IsConst, F> : private F {
-  single_top_level_visitor(F f)
+struct top_level_visitor<IsConst, F> : private F {
+  constexpr top_level_visitor(F f)
       : F(f) {}
+  static constexpr bool is_catchall_visitor = false;
+  template <typename T>
+  using arg_type_transform = overload_for_t<T>;
 
-  static_assert(std::is_same_v<typename visitor_info_t<F>::arg_type_with_cv_optref,
-                               Envoy::OptRef<typename visitor_info_t<F>::arg_type_with_cv>>,
-                "overloaded messages must be visited as Envoy::OptRef<T>");
-  static_assert(!IsConst || std::is_const_v<typename visitor_info_t<F>::arg_type_with_cv>,
-                "visited message is const-qualified, but handler has non-const argument type");
-  static constexpr bool selected_overload = true;
+  static consteval void validate() {
+    if constexpr (!const_validator<IsConst, F>::validate()) {
+      static_assert(false, "visited message is const-qualified, but handler has non-const argument type");
+    }
+    if constexpr (!opt_ref_validator<IsConst, F>::validate()) {
+      static_assert(false, "overloaded messages must be visited as opt_ref<T>");
+    }
+  }
+
   using arg = visitor_arg_type_t<F>;
-  using overload = overload_for_t<arg>;
-
-  decltype(auto) operator()(overload& o) const {
+  decltype(auto) operator()(arg_type_transform<arg>& o) const {
     return F::operator()(o.template resolve<arg>());
   }
-};
-
-template <typename Self, typename... Fs>
-struct top_level_message_visitor : single_top_level_visitor<std::is_const_v<Self>, Fs>... {
-  constexpr static bool is_const = std::is_const_v<Self>;
-  top_level_message_visitor(Self&, Fs... ts)
-      : single_top_level_visitor<is_const, Fs>{ts}... {};
-  using single_top_level_visitor<is_const, Fs>::operator()...;
 };
 
 } // namespace wire::detail

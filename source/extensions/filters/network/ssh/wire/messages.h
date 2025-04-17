@@ -91,7 +91,7 @@ public:
 
   template <typename T>
     requires (has_overload<T>())
-  Envoy::OptRef<T> resolve() {
+  opt_ref<T> resolve() {
     constexpr auto index = index_of_type<T, Ts...>::value;
     if (*message_.key_field() == 0) {
       message_.key_field() = 1 + index;
@@ -630,11 +630,12 @@ struct Message : BaseSshMsg {
 
   SshMessageType msg_type() const override { return *message.key_field(); }
 
-  decltype(auto) visit(this auto& self, auto... args) {
+  template <typename Self>
+  [[nodiscard]] constexpr decltype(auto) visit(this Self&& self, auto... args) {
     if (self.message.oneof.has_value()) {
-      return std::visit(detail::top_level_message_visitor{self, args...}, *self.message.oneof);
+      return std::visit(make_overloads<detail::top_level_visitor, Self&&>(args...), *std::forward<Self>(self).message.oneof);
     }
-    using return_type = decltype(std::visit(detail::top_level_message_visitor{self, args...}, *self.message.oneof));
+    using return_type = decltype(std::visit(make_overloads<detail::top_level_visitor, Self&&>(args...), *std::forward<Self>(self).message.oneof));
     if constexpr (!std::is_void_v<return_type>) {
       return return_type{};
     }

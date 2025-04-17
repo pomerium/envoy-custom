@@ -13,34 +13,31 @@ TEST(MessageTest, Visit) {
   auto non_overload = [&](const DisconnectMsg& _) {
     return SshMessageType::Disconnect;
   };
-  auto overload = [&](Envoy::OptRef<const KexEcdhInitMessage> _) {
+  auto overload = [&](opt_ref<const KexEcdhInitMessage> _) {
     return SshMessageType::KexInit;
   };
   auto defaultCase = [&](auto&) {
     return SshMessageType::KexInit;
   };
 
-  static_assert(std::is_same_v<detail::visitor_info_t<decltype(overload)>::arg_type_with_cv_optref, Envoy::OptRef<const KexEcdhInitMessage>>);
-  static_assert(std::is_same_v<detail::visitor_info_t<decltype(overload)>::arg_type, KexEcdhInitMessage>);
-  static_assert(detail::is_top_level_message_v<KexEcdhInitMessage>);
-  static_assert(detail::is_top_level_message_v<DisconnectMsg>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<visitor_info_t<decltype(overload)>::arg_type_with_cv_optref, opt_ref<const KexEcdhInitMessage>>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<visitor_info_t<decltype(overload)>::arg_type, KexEcdhInitMessage>);
+  EXPECT_STATIC_ASSERT(detail::is_top_level_message_v<KexEcdhInitMessage>);
+  EXPECT_STATIC_ASSERT(detail::is_top_level_message_v<DisconnectMsg>);
 
-  static_assert(std::is_same_v<detail::visitor_arg_type_t<decltype(overload)>, KexEcdhInitMessage>);
-  static_assert(detail::is_overload<detail::visitor_arg_type_t<decltype(overload)>>);
-  static_assert(std::is_same_v<detail::overload_for_t<detail::visitor_arg_type_t<decltype(overload)>>, OverloadedMessage<KexEcdhInitMessage>>);
-  static_assert(detail::single_top_level_visitor<false, decltype(overload)>::selected_overload);
+  EXPECT_STATIC_ASSERT(std::is_same_v<visitor_arg_type_t<decltype(overload)>, KexEcdhInitMessage>);
+  EXPECT_STATIC_ASSERT(detail::is_overload<visitor_arg_type_t<decltype(overload)>>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<detail::overload_for_t<visitor_arg_type_t<decltype(overload)>>, OverloadedMessage<KexEcdhInitMessage>>);
+  EXPECT_STATIC_ASSERT(!detail::top_level_visitor<false, decltype(overload)>::is_catchall_visitor);
 
-  static_assert(std::is_same_v<detail::visitor_arg_type_t<decltype(non_overload)>, DisconnectMsg>);
-  static_assert(!detail::is_overload<detail::visitor_arg_type_t<decltype(non_overload)>>);
-  static_assert(std::is_same_v<detail::overload_for_t<detail::visitor_arg_type_t<decltype(non_overload)>>, DisconnectMsg>);
-  static_assert(!detail::single_top_level_visitor<false, decltype(non_overload)>::selected_overload);
+  EXPECT_STATIC_ASSERT(std::is_same_v<visitor_arg_type_t<decltype(non_overload)>, DisconnectMsg>);
+  EXPECT_STATIC_ASSERT(!detail::is_overload<visitor_arg_type_t<decltype(non_overload)>>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<detail::overload_for_t<visitor_arg_type_t<decltype(non_overload)>>, DisconnectMsg>);
+  EXPECT_STATIC_ASSERT(!detail::top_level_visitor<false, decltype(non_overload)>::is_catchall_visitor);
 
-  static_assert(!detail::single_top_level_visitor<false, decltype(defaultCase)>::selected_overload);
-
-  static_assert(std::is_invocable_v<decltype([](any_of<wire::IgnoreMsg, wire::DebugMsg, wire::UnimplementedMsg> auto&) {}),
-                                    wire::IgnoreMsg&>);
-  static_assert(std::is_invocable_v<decltype([](wire::detail::TopLevelMessage auto&) {}),
-                                    wire::IgnoreMsg&>);
+  EXPECT_STATIC_ASSERT(detail::top_level_visitor<false, decltype(defaultCase)>::is_catchall_visitor);
+  EXPECT_STATIC_ASSERT(std::is_invocable_v<decltype([](any_of<wire::IgnoreMsg, wire::DebugMsg, wire::UnimplementedMsg> auto&) {}), wire::IgnoreMsg&>);
+  EXPECT_STATIC_ASSERT(std::is_invocable_v<decltype([](wire::detail::TopLevelMessage auto&) {}), wire::IgnoreMsg&>);
 
   auto visitor = [&]() {
     return msg.visit(
@@ -65,10 +62,10 @@ TEST(MessageTest, Visit) {
       [&](const KexInitMessage& _) {
         return SshMessageType::KexInit;
       },
-      [&](Envoy::OptRef<const KexEcdhInitMessage> _) {
+      [&](opt_ref<const KexEcdhInitMessage> _) {
         return SshMessageType::KexECDHInit;
       },
-      [&](Envoy::OptRef<const UserAuthPubKeyOkMsg> _) {
+      [&](opt_ref<const UserAuthPubKeyOkMsg> _) {
         return SshMessageType::UserAuthPubKeyOk;
       },
       [&](const auto&) {
@@ -130,7 +127,7 @@ constexpr int overload(const ChannelRequestMsg& _) {
 }
 
 TEST(MessageTest, Visit_ConceptArgs) {
-  auto visitor = [](const Message& msg) constexpr {
+  auto visitor = [](const Message& msg) {
     return msg.visit(
       [&](ChannelMsg auto& _) {
         return 0;

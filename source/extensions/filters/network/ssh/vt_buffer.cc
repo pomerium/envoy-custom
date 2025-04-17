@@ -1,6 +1,7 @@
 #include "source/extensions/filters/network/ssh/vt_buffer.h"
 
 #include "libvterm/utf8.h"
+#include "source/extensions/filters/network/ssh/common.h"
 
 #pragma clang unsafe_buffer_usage begin
 #include "source/common/buffer/buffer_impl.h"
@@ -238,7 +239,7 @@ void VTCurrentStateTracker::dumpRow(Envoy::Buffer::Instance& out, int row) {
 void VTCurrentStateTracker::dumpTermProps(Envoy::Buffer::Instance& out) {
   for (auto&& [prop, value] : props_) {
     auto str = std::visit(
-      overloads{
+      make_overloads_no_validation(
         [&](bool value) {
           switch (prop) {
           case VTERM_PROP_CURSORVISIBLE:
@@ -285,8 +286,7 @@ void VTCurrentStateTracker::dumpTermProps(Envoy::Buffer::Instance& out) {
           default:
           }
           return ""s;
-        },
-      },
+        }),
       value);
     if (!str.empty()) {
       out.add(str);
@@ -590,7 +590,7 @@ void VTBuffer::dumpRow(Envoy::Buffer::Instance& out, int row) {
 void VTBuffer::dumpTermProps(Envoy::Buffer::Instance& out) {
   for (auto&& [prop, value] : props_) {
     auto str = std::visit(
-      overloads{
+      make_overloads_no_validation(
         [&](bool value) {
           switch (prop) {
           case VTERM_PROP_CURSORVISIBLE:
@@ -637,8 +637,7 @@ void VTBuffer::dumpTermProps(Envoy::Buffer::Instance& out) {
           default:
           }
           return ""s;
-        },
-      },
+        }),
       value);
     if (!str.empty()) {
       out.add(str);
