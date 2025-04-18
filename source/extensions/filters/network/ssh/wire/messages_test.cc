@@ -576,6 +576,11 @@ TYPED_TEST(TopLevelMessagesTestSuite, RoundTrip) {
   }
 }
 
+TYPED_TEST(TopLevelMessagesTestSuite, MessageType) {
+  TypeParam msg;
+  EXPECT_EQ(TypeParam::type, msg.msg_type());
+}
+
 TEST(NonstandardMessagesTest, GlobalRequestSuccessMsg_DecodeErrors) {
   Buffer::OwnedImpl buffer;
   GlobalRequestSuccessMsg msg;
@@ -607,16 +612,28 @@ TEST(NonstandardMessagesTest, GlobalRequestSuccessMsg_EncodeErrors) {
 }
 
 TEST(NonstandardMessagesTest, PubKeyUserAuthRequestMsg_DecodeErrors) {
-  Buffer::OwnedImpl buffer;
-  write(buffer, true);
-  write_opt<LengthPrefixed>(buffer, to_bytes("foo"sv));
-  write_opt<LengthPrefixed>(buffer, to_bytes("bar"sv));
-  write(buffer, static_cast<uint8_t>(1));
-  write(buffer, static_cast<uint8_t>(1));
-  PubKeyUserAuthRequestMsg msg;
-  auto r = msg.decode(buffer, buffer.length());
-  EXPECT_FALSE(r.ok());
-  EXPECT_EQ("buffer underflow", r.status().message());
+  {
+    Buffer::OwnedImpl buffer;
+    write(buffer, true);
+    write_opt<LengthPrefixed>(buffer, to_bytes("foo"sv));
+    write_opt<LengthPrefixed>(buffer, to_bytes("bar"sv));
+    write(buffer, static_cast<uint8_t>(1));
+    write(buffer, static_cast<uint8_t>(1));
+    PubKeyUserAuthRequestMsg msg;
+    auto r = msg.decode(buffer, buffer.length());
+    EXPECT_FALSE(r.ok());
+    EXPECT_EQ("buffer underflow", r.status().message());
+  }
+  {
+    Buffer::OwnedImpl buffer;
+    write(buffer, false);
+    write_opt<LengthPrefixed>(buffer, to_bytes("foo"sv));
+    write_opt<LengthPrefixed>(buffer, to_bytes("bar"sv));
+    write_opt<LengthPrefixed>(buffer, to_bytes("baz"sv));
+    PubKeyUserAuthRequestMsg msg;
+    auto r = msg.decode(buffer, buffer.length());
+    EXPECT_TRUE(r.ok());
+  }
 }
 
 TEST(NonstandardMessagesTest, PubKeyUserAuthRequestMsg_EncodeErrors) {
@@ -687,6 +704,73 @@ TEST(NonstandardMessagesTest, Extension_WriteErrors) {
   EXPECT_THROW_WITH_MESSAGE(write(buffer, ext),
                             EnvoyException,
                             "error encoding extension: Aborted: message size too large");
+}
+
+TEST(OverloadedMessageTest, Resolve) {
+  Buffer::OwnedImpl buffer;
+  UserAuthPubKeyOkMsg overload;
+  overload.public_key = random_value<bytes>();
+  auto r = overload.encode(buffer);
+  EXPECT_TRUE(r.ok());
+
+  OverloadedMessage<UserAuthPubKeyOkMsg, UserAuthInfoRequestMsg> msg;
+  r = msg.decode(buffer, buffer.length());
+  EXPECT_TRUE(r.ok());
+
+  auto ref = msg.resolve<UserAuthPubKeyOkMsg>();
+  EXPECT_TRUE(ref.has_value());
+  EXPECT_EQ(overload, ref.value());
+}
+
+TEST(OverloadedMessageTest, Resolve_WrongType) {
+  Buffer::OwnedImpl buffer;
+  UserAuthPubKeyOkMsg overload;
+  auto r = overload.encode(buffer);
+  EXPECT_TRUE(r.ok());
+
+  OverloadedMessage<UserAuthPubKeyOkMsg, UserAuthInfoRequestMsg> msg;
+  r = msg.decode(buffer, buffer.length());
+  EXPECT_TRUE(r.ok());
+
+  // This won't *necessarily* always fail; it depends on whether one message can be interpreted
+  // as a different type without decoding errors.
+  auto ref = msg.resolve<UserAuthInfoRequestMsg>();
+  EXPECT_FALSE(ref.has_value());
+}
+
+TEST(KeyFieldAccessorsTest, KeyFields) {
+  {
+    UserAuthRequestMsg msg;
+    msg.request = PubKeyUserAuthRequestMsg{};
+    EXPECT_EQ(PubKeyUserAuthRequestMsg::submsg_key, msg.method_name());
+    msg.request = KeyboardInteractiveUserAuthRequestMsg{};
+    EXPECT_EQ(KeyboardInteractiveUserAuthRequestMsg::submsg_key, msg.method_name());
+    msg.request = NoneAuthRequestMsg{};
+    EXPECT_EQ(NoneAuthRequestMsg::submsg_key, msg.method_name());
+  }
+  {
+    ChannelRequestMsg msg;
+    msg.request = PtyReqChannelRequestMsg{};
+    EXPECT_EQ(PtyReqChannelRequestMsg::submsg_key, msg.request_type());
+    msg.request = ShellChannelRequestMsg{};
+    EXPECT_EQ(ShellChannelRequestMsg::submsg_key, msg.request_type());
+    msg.request = WindowDimensionChangeChannelRequestMsg{};
+    EXPECT_EQ(WindowDimensionChangeChannelRequestMsg::submsg_key, msg.request_type());
+  }
+  {
+    GlobalRequestMsg msg;
+    msg.request = HostKeysProveRequestMsg{};
+    EXPECT_EQ(HostKeysProveRequestMsg::submsg_key, msg.request_name());
+    msg.request = HostKeysMsg{};
+    EXPECT_EQ(HostKeysMsg::submsg_key, msg.request_name());
+  }
+  {
+    Extension msg;
+    msg.extension.reset(ServerSigAlgsExtension{});
+    EXPECT_EQ(ServerSigAlgsExtension::submsg_key, msg.extension_name());
+    msg.extension.reset(PingExtension{});
+    EXPECT_EQ(PingExtension::submsg_key, msg.extension_name());
+  }
 }
 
 } // namespace wire::test

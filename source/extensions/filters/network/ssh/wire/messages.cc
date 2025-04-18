@@ -362,16 +362,13 @@ absl::StatusOr<size_t> PubKeyUserAuthRequestMsg::decode(Envoy::Buffer::Instance&
   }
   return n;
 }
+
 absl::StatusOr<size_t> PubKeyUserAuthRequestMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
-  // The check on signature here is important; even if signature was empty, write() would
-  // still append a 4-byte length field containing 0. We also can't check based on has_signature,
-  // because the signature is computed over the wire encoding of this message (sans signature)
-  // and requires has_signature to be true (see RFC4252 sec. 7)
   auto n = encodeSequence(buffer,
                           has_signature,
                           public_key_alg,
                           public_key);
-  if (n.ok() && !signature->empty()) {
+  if (n.ok() && has_signature) {
     return *n + *signature.encode(buffer);
   }
   return n;

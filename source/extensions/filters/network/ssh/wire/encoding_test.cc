@@ -1,11 +1,13 @@
+#include "source/extensions/filters/network/ssh/wire/encoding.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/wire_test_common.h"
-
-#include "source/extensions/filters/network/ssh/wire/encoding.h"
+#include "source/extensions/filters/network/ssh/wire/wire_test_mocks.h"
 
 #include "openssl/rand.h"
 
 namespace wire::test {
+
+USE_MOCK_ENCODER;
 
 // some test bignum values from openssh
 static const bytes bn1 = {0x00, 0x00, 0x00};
@@ -112,10 +114,12 @@ static std::tuple<std::vector<std::string>, std::vector<bytes>> allParams{
     {""},
     {'\0'},
   },
-  {// Test cases for bytes
-   {'t', 'e', 's', 't', 'i', 'n', 'g'},
-   {},
-   {'\0'}},
+  {
+    // Test cases for bytes
+    {'t', 'e', 's', 't', 'i', 'n', 'g'},
+    {},
+    {'\0'},
+  },
 };
 
 template <SshStringType T>
@@ -123,7 +127,7 @@ class EncodeToTest : public testing::Test {
 public:
   EncodeToTest()
       : params{std::get<std::vector<T>>(allParams)} {}
-  MockEncoder encoder{};
+  MockEncoder encoder;
   std::vector<T> params;
 };
 
@@ -448,10 +452,8 @@ TYPED_TEST(ReadWriteStringsTest, ReadOpt_LengthPrefixed) {
   });
   // buffer should now be empty
   EXPECT_EQ(0, this->buffer_.length());
-  EXPECT_NO_THROW({
-    // read with 0 limit should just return 0
-    EXPECT_EQ(0, read_opt<LengthPrefixed>(this->buffer_, out, 0uz));
-  });
+  // length-prefixed read with 0 limit should throw
+  EXPECT_SHORT_READ(read_opt<LengthPrefixed>(this->buffer_, out, 0uz));
   // read with >0 limit should throw
   EXPECT_SHORT_READ(read_opt<LengthPrefixed>(this->buffer_, out, 1uz));
 }
@@ -502,10 +504,7 @@ TYPED_TEST(ReadWriteStringsTest, ReadOpt_None_ShortRead) {
 TYPED_TEST(ReadWriteStringsTest, ReadOpt_LengthPrefixed_ZeroLimit) {
   this->writeInputToBuffer();
   TypeParam out{};
-  EXPECT_NO_THROW({
-    auto n = read_opt<LengthPrefixed>(this->buffer_, out, 0uz);
-    EXPECT_EQ(0, n);
-  });
+  EXPECT_SHORT_READ(read_opt<LengthPrefixed>(this->buffer_, out, 0uz))
   EXPECT_EQ(this->input_size, this->buffer_.length());
 }
 
@@ -580,8 +579,10 @@ TEST(ReadOptTest, OptNone) {
   Buffer::OwnedImpl buffer;
   buffer.writeBEInt<uint32_t>(12345);
   uint32_t out{};
-  auto n = read_opt<None>(buffer, out, static_cast<size_t>(4));
-  EXPECT_EQ(4, n);
+  EXPECT_NO_THROW({
+    auto n = read_opt<None>(buffer, out, static_cast<size_t>(4));
+    EXPECT_EQ(4, n);
+  });
   EXPECT_EQ(0, buffer.length());
   EXPECT_EQ(12345, out);
 }
@@ -589,13 +590,16 @@ TEST(ReadOptTest, OptNone) {
 TEST(ReadOptTest, OptNone_ShortRead) {
   Buffer::OwnedImpl buffer;
   uint32_t out{};
+
   EXPECT_SHORT_READ(read_opt<None>(buffer, out, 4uz));
 }
 
 TEST(ReadOptTest, OptNone_ZeroLimit) {
   Buffer::OwnedImpl buffer;
   uint32_t out{};
-  EXPECT_EQ(0, read_opt<None>(buffer, out, 0uz));
+  EXPECT_NO_THROW({
+    EXPECT_EQ(0, read_opt<None>(buffer, out, 0uz));
+  });
 }
 
 TEST(ReadOptTest, OptLengthPrefixed) {
@@ -603,8 +607,10 @@ TEST(ReadOptTest, OptLengthPrefixed) {
   buffer.writeBEInt<uint32_t>(4);
   buffer.writeBEInt<uint32_t>(12345);
   uint32_t out{};
-  auto n = read_opt<LengthPrefixed>(buffer, out, static_cast<size_t>(4));
-  EXPECT_EQ(8, n);
+  EXPECT_NO_THROW({
+    auto n = read_opt<LengthPrefixed>(buffer, out, static_cast<size_t>(4));
+    EXPECT_EQ(8, n);
+  });
   EXPECT_EQ(0, buffer.length());
   EXPECT_EQ(12345, out);
 }
@@ -618,7 +624,7 @@ TEST(ReadOptTest, OptLengthPrefixed_ShortRead) {
 TEST(ReadOptTest, OptLengthPrefixed_ZeroLimit) {
   Buffer::OwnedImpl buffer;
   uint32_t out{};
-  EXPECT_EQ(0, read_opt<LengthPrefixed>(buffer, out, 0uz));
+  EXPECT_SHORT_READ(read_opt<LengthPrefixed>(buffer, out, 0uz));
 }
 
 TEST(WriteOptTest, OptLengthPrefixed) {
@@ -682,7 +688,9 @@ TEST(ReadOptTest, List_OptNone_ZeroLimit) {
   buffer.writeBEInt<uint32_t>(3);
 
   std::vector<uint32_t> out;
-  EXPECT_EQ(0, read_opt<None>(buffer, out, 0));
+  EXPECT_NO_THROW({
+    EXPECT_EQ(0, read_opt<None>(buffer, out, 0));
+  });
   EXPECT_EQ(12, buffer.length());
 }
 
@@ -702,7 +710,7 @@ TEST(ReadOptTest, List_OptListSizePrefixed_Read) {
   });
 }
 
-TEST(ReadOptTest, List_OptListSizePrefixed_ZeroLength) {
+TEST(ReadOptTest, List_OptListSizePrefixed_ZeroListSize) {
   Buffer::OwnedImpl buffer;
   buffer.writeBEInt<uint32_t>(0);
 
@@ -720,7 +728,7 @@ TEST(ReadOptTest, List_OptListSizePrefixed_ZeroLimit) {
   buffer.writeBEInt<uint32_t>(0);
 
   std::vector<uint32_t> out;
-  EXPECT_EQ(0, read_opt<ListSizePrefixed>(buffer, out, 0));
+  EXPECT_SHORT_READ(read_opt<ListSizePrefixed>(buffer, out, 0));
   EXPECT_EQ(4, buffer.length());
 }
 
@@ -808,7 +816,7 @@ TEST(ReadOptTest, List_OptListLengthPrefixed_ZeroLimit) {
   buffer.writeBEInt<uint32_t>(0);
 
   std::vector<uint32_t> out;
-  EXPECT_EQ(0, read_opt<ListLengthPrefixed>(buffer, out, 0));
+  EXPECT_SHORT_READ(read_opt<ListLengthPrefixed>(buffer, out, 0));
   EXPECT_EQ(4, buffer.length());
 }
 
@@ -872,6 +880,32 @@ TEST(ReadOptTest, List_OptListAndElemLengthPrefixed_Read) {
   });
 }
 
+TEST(ReadOptTest, List_OptListAndElemLengthPrefixed_ZeroListLength) {
+  Buffer::OwnedImpl buffer;
+  buffer.writeBEInt<uint32_t>(0);
+
+  std::vector<uint32_t> out;
+  auto expected = std::vector<uint32_t>{};
+  EXPECT_NO_THROW({
+    auto r = read_opt<(ListLengthPrefixed | LengthPrefixed)>(buffer, out, buffer.length());
+    EXPECT_EQ(4, r);
+    EXPECT_EQ(expected, out);
+  });
+}
+
+TEST(ReadOptTest, List_OptListAndElemLengthPrefixed_ListLengthTooSmall) {
+  Buffer::OwnedImpl buffer;
+  buffer.writeBEInt<uint32_t>(13);
+  buffer.writeBEInt<uint32_t>(0);
+  buffer.writeBEInt<uint32_t>(0);
+  buffer.writeBEInt<uint32_t>(0);
+
+  std::vector<uint32_t> out;
+  EXPECT_THROW_WITH_MESSAGE(read_opt<(ListLengthPrefixed | LengthPrefixed)>(buffer, out, buffer.length()),
+                            EnvoyException,
+                            "invalid list length");
+}
+
 TEST(ReadOptTest, List_OptListAndElemLengthPrefixed_ListElemLenTooSmall) {
   Buffer::OwnedImpl buffer;
   buffer.writeBEInt<uint32_t>(16);
@@ -891,7 +925,7 @@ TEST(ReadOptTest, List_OptListAndElemLengthPrefixed_ZeroLimit) {
   Buffer::OwnedImpl buffer;
   buffer.writeBEInt<uint32_t>(16);
   std::vector<uint32_t> out;
-  EXPECT_EQ(0, read_opt<(ListLengthPrefixed | LengthPrefixed)>(buffer, out, 0));
+  EXPECT_SHORT_READ(read_opt<(ListLengthPrefixed | LengthPrefixed)>(buffer, out, 0));
   EXPECT_EQ(4, buffer.length());
 }
 
@@ -922,8 +956,21 @@ TEST(ReadOptTest, List_OptListSizePrefixedAndElemLengthPrefixed_ZeroLimit) {
   Buffer::OwnedImpl buffer;
   buffer.writeBEInt<uint32_t>(2);
   std::vector<uint32_t> out;
-  EXPECT_EQ(0, read_opt<(ListSizePrefixed | LengthPrefixed)>(buffer, out, 0));
+  EXPECT_SHORT_READ(read_opt<(ListSizePrefixed | LengthPrefixed)>(buffer, out, 0));
   EXPECT_EQ(4, buffer.length());
+}
+
+TEST(ReadOptTest, List_OptListSizePrefixedAndElemLengthPrefixed_ZeroListLength) {
+  Buffer::OwnedImpl buffer;
+  buffer.writeBEInt<uint32_t>(0);
+
+  std::vector<uint32_t> out;
+  auto expected = std::vector<uint32_t>{};
+  EXPECT_NO_THROW({
+    auto r = read_opt<(ListSizePrefixed | LengthPrefixed)>(buffer, out, buffer.length());
+    EXPECT_EQ(4, r);
+    EXPECT_EQ(expected, out);
+  });
 }
 
 TEST(ReadOptTest, List_OptListSizePrefixedAndElemLengthPrefixed_ShortRead) {
@@ -943,14 +990,27 @@ TEST(ReadOptTest, List_OptListSizePrefixedAndElemLengthPrefixed_ZeroListSize) {
 }
 
 TEST(ReadOptTest, List_OptListSizePrefixedAndElemLengthPrefixed_InvalidListSize) {
-  Buffer::OwnedImpl buffer;
-  buffer.writeBEInt<uint32_t>(1); // impossible list size given the buffer length
+  {
+    Buffer::OwnedImpl buffer;
+    buffer.writeBEInt<uint32_t>(1); // impossible list size given the buffer length
 
-  std::vector<uint32_t> out;
-  EXPECT_THROW_WITH_MESSAGE(
-    read_opt<(ListSizePrefixed | LengthPrefixed)>(buffer, out, buffer.length()),
-    EnvoyException,
-    "invalid list size");
+    std::vector<uint32_t> out;
+    EXPECT_THROW_WITH_MESSAGE(read_opt<(ListSizePrefixed | LengthPrefixed)>(buffer, out, buffer.length()),
+                              EnvoyException,
+                              "invalid list size");
+  }
+  {
+    Buffer::OwnedImpl buffer;
+    buffer.writeBEInt<uint32_t>(4); // impossible size given remaining 12 bytes
+    buffer.writeBEInt<uint32_t>(0);
+    buffer.writeBEInt<uint32_t>(0);
+    buffer.writeBEInt<uint32_t>(0);
+
+    std::vector<uint32_t> out;
+    EXPECT_THROW_WITH_MESSAGE(read_opt<(ListSizePrefixed | LengthPrefixed)>(buffer, out, buffer.length()),
+                              EnvoyException,
+                              "invalid list size");
+  }
 }
 
 TEST(ReadOptTest, List_OptListSizePrefixedAndElemLengthPrefixed_Limit) {
@@ -1010,14 +1070,36 @@ TEST(ReadOptTest, List_OptCommaDelimited_ShortRead) {
   EXPECT_SHORT_READ(read_opt<CommaDelimited>(buffer, out, 4));
 }
 
+static const std::vector<std::tuple<std::string, size_t>> comma_delimited_cases_empty_element = {
+  {"foo,bar,", 3},
+  {"foo,,bar", 3},
+  {",foo,bar", 3},
+  {",,", 3},
+  {",foo,", 3},
+  {"foo,,", 3},
+  {",,foo", 3},
+};
+
+static const std::vector<std::tuple<std::string, size_t>> comma_delimited_cases_null_terminated_element = {
+  {"foo,bar,baz\0"s, 3}, // note: embedding \0 needs the literal suffix
+  {"foo,bar\0,baz"s, 3},
+  {"foo\0,bar,baz"s, 3},
+  {"foo\0,bar\0,baz\0"s, 3},
+  {"foo\0,bar,baz\0"s, 3},
+  {"foo,bar\0,baz\0"s, 3},
+  {"foo\0,bar\0,baz"s, 3},
+};
+
+static const std::vector<std::tuple<std::string, size_t>> comma_delimited_cases_null_inside_element = {
+  {"f\0o"s, 1},
+  {"foo,b\0r"s, 2},
+  {"f\0o,b\0r"s, 2},
+  {"f\0o"s, 1},
+  {"foo,b\0r,baz"s, 3},
+};
+
 TEST(ReadOptTest, List_OptCommaDelimited_EmptyElement) {
-  for (const auto& str : {"foo,bar,",
-                          "foo,,bar",
-                          ",foo,bar",
-                          ",,",
-                          ",foo,",
-                          "foo,,",
-                          ",,foo"}) {
+  for (const auto& [str, _] : comma_delimited_cases_empty_element) {
     Buffer::OwnedImpl buffer;
     buffer.add(str);
     std::vector<std::string> out;
@@ -1028,18 +1110,9 @@ TEST(ReadOptTest, List_OptCommaDelimited_EmptyElement) {
 }
 
 TEST(ReadOptTest, List_OptCommaDelimited_NullTerminatedElement) {
-  for (const auto& i : {
-         std::tuple{"foo,bar,baz\0", 12},
-         std::tuple{"foo,bar\0,baz", 12},
-         std::tuple{"foo\0,bar,baz", 12},
-         std::tuple{"foo\0,bar\0,baz\0", 14},
-         std::tuple{"foo\0,bar,baz\0", 13},
-         std::tuple{"foo,bar\0,baz\0", 13},
-         std::tuple{"foo\0,bar\0,baz", 13},
-       }) {
-    auto [str, len] = i;
+  for (const auto& [str, _] : comma_delimited_cases_null_terminated_element) {
     Buffer::OwnedImpl buffer;
-    buffer.add(str, len);
+    write(buffer, str);
     std::vector<std::string> out;
     EXPECT_THROW_WITH_MESSAGE(read_opt<CommaDelimited>(buffer, out, buffer.length()),
                               EnvoyException,
@@ -1048,20 +1121,241 @@ TEST(ReadOptTest, List_OptCommaDelimited_NullTerminatedElement) {
 }
 
 TEST(ReadOptTest, List_OptCommaDelimited_NullInsideElement) {
-  for (const auto& i : {
-         std::tuple{"f\0o", 3},
-         std::tuple{"foo,b\0r", 7},
-         std::tuple{"f\0o,b\0r", 7},
-         std::tuple{"f\0o", 3},
-         std::tuple{"foo,b\0r,baz", 11},
-       }) {
-    auto [str, len] = i;
+  for (const auto& i : comma_delimited_cases_null_inside_element) {
+    auto [str, size] = i;
     Buffer::OwnedImpl buffer;
-    buffer.add(str, len);
+    write(buffer, str);
     std::vector<std::string> out;
     EXPECT_NO_THROW({
-      (void)read_opt<CommaDelimited>(buffer, out, buffer.length());
+      auto r = read_opt<CommaDelimited>(buffer, out, buffer.length());
+      EXPECT_EQ(str.size(), r);
     });
+    EXPECT_EQ(size, out.size());
+  }
+}
+
+TEST(ReadOptTest, List_OptListSizePrefixedAndCommaDelimited_Read) {
+  Buffer::OwnedImpl buffer;
+  write(buffer, static_cast<uint32_t>(3)); // size
+  write_opt<None>(buffer, "foo,bar,baz"s);
+
+  string_list out;
+  EXPECT_NO_THROW({
+    auto r = read_opt<(ListSizePrefixed | CommaDelimited)>(buffer, out, buffer.length());
+    EXPECT_EQ(15, r);
+  });
+  auto expected = string_list{"foo", "bar", "baz"};
+  EXPECT_EQ(expected, out);
+}
+
+TEST(ReadOptTest, List_OptListSizePrefixedAndCommaDelimited_ZeroLimit) {
+  Buffer::OwnedImpl buffer;
+  write(buffer, static_cast<uint32_t>(3)); // size
+  write_opt<None>(buffer, "foo,bar,baz"s);
+
+  string_list out;
+  EXPECT_SHORT_READ(read_opt<(ListSizePrefixed | CommaDelimited)>(buffer, out, 0));
+  EXPECT_EQ(15, buffer.length());
+}
+
+TEST(ReadOptTest, List_OptListSizePrefixedAndCommaDelimited_ExtraData) {
+  Buffer::OwnedImpl buffer;
+  write(buffer, static_cast<uint32_t>(2)); // short size
+  write_opt<None>(buffer, "foo,bar,baz"s); // will stop reading after foo,bar
+
+  string_list out;
+  EXPECT_NO_THROW({
+    auto r = read_opt<(ListSizePrefixed | CommaDelimited)>(buffer, out, buffer.length());
+    EXPECT_EQ(11, r);
+  });
+  auto expected = string_list{"foo", "bar"};
+  EXPECT_EQ(expected, out);
+  EXPECT_EQ(4, buffer.length());
+}
+
+TEST(ReadOptTest, List_OptListSizePrefixedAndCommaDelimited_ShortRead) {
+  Buffer::OwnedImpl buffer;
+  write(buffer, static_cast<uint8_t>(1));
+  write(buffer, static_cast<uint8_t>(1));
+
+  string_list out;
+  EXPECT_BUFFER_UNDERFLOW(read_opt<(ListSizePrefixed | CommaDelimited)>(buffer, out, buffer.length()));
+  EXPECT_EQ(2, buffer.length());
+}
+
+TEST(ReadOptTest, List_OptListSizePrefixedAndCommaDelimited_ZeroListSize) {
+  Buffer::OwnedImpl buffer;
+  write(buffer, static_cast<uint32_t>(0)); // zero size
+  write_opt<None>(buffer, "foo,bar,baz"s); // unrelated data
+
+  string_list out;
+  EXPECT_NO_THROW({
+    auto r = read_opt<(ListSizePrefixed | CommaDelimited)>(buffer, out, buffer.length());
+    EXPECT_EQ(4, r);
+  });
+  EXPECT_TRUE(out.empty());
+  EXPECT_EQ(11, buffer.length());
+}
+
+TEST(ReadOptTest, List_OptListSizePrefixedAndCommaDelimited_InvalidListSize) {
+  Buffer::OwnedImpl buffer;
+  write(buffer, static_cast<uint32_t>(7)); // impossible size given the buffer length
+  write_opt<None>(buffer, "foo,bar,baz"s);
+  //                      "x,x,x,x,x,x,x" <- minimum buffer length for 7 elements is 13
+
+  string_list out;
+  EXPECT_THROW_WITH_MESSAGE(read_opt<(ListSizePrefixed | CommaDelimited)>(buffer, out, buffer.length()),
+                            EnvoyException,
+                            "invalid list size");
+  EXPECT_TRUE(out.empty());
+  EXPECT_EQ(11, buffer.length());
+}
+
+TEST(ReadOptTest, List_OptListSizePrefixedAndCommaDelimited_EmptyElement) {
+  for (const auto& [str, size] : comma_delimited_cases_empty_element) {
+    Buffer::OwnedImpl buffer;
+    write(buffer, static_cast<uint32_t>(size));
+    write_opt<None>(buffer, str);
+    std::vector<std::string> out;
+    auto msg = "invalid empty string in comma-separated list";
+    // depending on the size, the error might be different
+    if (str.size() < 2 * size - 1) {
+      msg = "invalid list size";
+    }
+    EXPECT_THROW_WITH_MESSAGE(read_opt<(ListSizePrefixed | CommaDelimited)>(buffer, out, buffer.length()),
+                              EnvoyException,
+                              msg);
+  }
+}
+
+TEST(ReadOptTest, List_OptListSizePrefixedAndCommaDelimited_NullTerminatedElement) {
+  for (const auto& [str, size] : comma_delimited_cases_null_terminated_element) {
+    Buffer::OwnedImpl buffer;
+    write(buffer, static_cast<uint32_t>(size));
+    EXPECT_EQ(str.size(), write_opt<None>(buffer, str));
+    std::vector<std::string> out;
+    EXPECT_THROW_WITH_MESSAGE(read_opt<(ListSizePrefixed | CommaDelimited)>(buffer, out, buffer.length()),
+                              EnvoyException,
+                              "invalid null-terminated string in comma-separated list");
+  }
+}
+
+TEST(ReadOptTest, List_OptListSizePrefixedAndCommaDelimited_NullInsideElement) {
+  for (const auto& i : comma_delimited_cases_null_inside_element) {
+    auto [str, size] = i;
+    Buffer::OwnedImpl buffer;
+    write(buffer, static_cast<uint32_t>(size));
+    EXPECT_EQ(str.size(), write_opt<None>(buffer, str));
+    std::vector<std::string> out;
+    EXPECT_NO_THROW({
+      auto r = read_opt<(ListSizePrefixed | CommaDelimited)>(buffer, out, buffer.length());
+      EXPECT_EQ(str.size() + 4, r);
+    });
+    EXPECT_EQ(size, out.size());
+  }
+}
+
+TEST(ReadOptTest, List_OptListLengthPrefixedAndCommaDelimited_Read) { // aka NameListFormat
+  Buffer::OwnedImpl buffer;
+  write(buffer, static_cast<uint32_t>(11)); // length
+  write_opt<None>(buffer, "foo,bar,baz"s);
+
+  string_list out;
+  EXPECT_NO_THROW({
+    auto r = read_opt<NameListFormat>(buffer, out, buffer.length());
+    EXPECT_EQ(15, r);
+  });
+  auto expected = string_list{"foo", "bar", "baz"};
+  EXPECT_EQ(expected, out);
+}
+
+TEST(ReadOptTest, List_OptListLengthPrefixedAndCommaDelimited_ZeroLimit) {
+  Buffer::OwnedImpl buffer;
+  write(buffer, static_cast<uint32_t>(11)); // length
+  write_opt<None>(buffer, "foo,bar,baz"s);
+
+  string_list out;
+  EXPECT_SHORT_READ(read_opt<NameListFormat>(buffer, out, 0));
+  EXPECT_EQ(15, buffer.length());
+}
+
+TEST(ReadOptTest, List_OptListLengthPrefixedAndCommaDelimited_ExtraData) {
+  Buffer::OwnedImpl buffer;
+  write(buffer, static_cast<uint32_t>(9)); // short length
+  write_opt<None>(buffer, "foo,bar,baz"s); // the "az" will not be read
+
+  string_list out;
+  EXPECT_NO_THROW({
+    auto r = read_opt<NameListFormat>(buffer, out, buffer.length());
+    EXPECT_EQ(13, r);
+  });
+  auto expected = string_list{"foo", "bar", "b"};
+  EXPECT_EQ(expected, out);
+  EXPECT_EQ(2, buffer.length());
+}
+
+TEST(ReadOptTest, List_OptListLengthPrefixedAndCommaDelimited_ShortRead) {
+  Buffer::OwnedImpl buffer;
+  write(buffer, static_cast<uint32_t>(12)); // length too large
+  write_opt<None>(buffer, "foo,bar,baz"s);
+
+  string_list out;
+  EXPECT_THROW_WITH_MESSAGE(read_opt<NameListFormat>(buffer, out, buffer.length()),
+                            EnvoyException,
+                            "invalid list length");
+  EXPECT_EQ(11, buffer.length());
+}
+
+TEST(ReadOptTest, List_OptListLengthPrefixedAndCommaDelimited_ZeroListLength) {
+  Buffer::OwnedImpl buffer;
+  write(buffer, static_cast<uint32_t>(0)); // zero length
+  write_opt<None>(buffer, "foo,bar,baz"s); // unrelated data
+
+  string_list out;
+  EXPECT_NO_THROW({
+    auto r = read_opt<NameListFormat>(buffer, out, buffer.length());
+    EXPECT_EQ(4, r);
+  });
+  EXPECT_TRUE(out.empty());
+  EXPECT_EQ(11, buffer.length());
+}
+
+TEST(ReadOptTest, List_OptListLengthPrefixedAndCommaDelimited_EmptyElement) {
+  for (const auto& [str, size] : comma_delimited_cases_empty_element) {
+    Buffer::OwnedImpl buffer;
+    write(buffer, static_cast<uint32_t>(str.size()));
+    write_opt<None>(buffer, str);
+    std::vector<std::string> out;
+    EXPECT_THROW_WITH_MESSAGE(read_opt<NameListFormat>(buffer, out, buffer.length()),
+                              EnvoyException,
+                              "invalid empty string in comma-separated list");
+  }
+}
+
+TEST(ReadOptTest, List_OptListLengthPrefixedAndCommaDelimited_NullTerminatedElement) {
+  for (const auto& [str, size] : comma_delimited_cases_null_terminated_element) {
+    Buffer::OwnedImpl buffer;
+    write(buffer, static_cast<uint32_t>(str.size()));
+    EXPECT_EQ(str.size(), write_opt<None>(buffer, str));
+    std::vector<std::string> out;
+    EXPECT_THROW_WITH_MESSAGE(read_opt<NameListFormat>(buffer, out, buffer.length()),
+                              EnvoyException,
+                              "invalid null-terminated string in comma-separated list");
+  }
+}
+
+TEST(ReadOptTest, List_OptOptListLengthPrefixedAndCommaDelimited_NullInsideElement) {
+  for (const auto& i : comma_delimited_cases_null_inside_element) {
+    auto [str, size] = i;
+    Buffer::OwnedImpl buffer;
+    write(buffer, static_cast<uint32_t>(str.size()));
+    EXPECT_EQ(str.size(), write_opt<None>(buffer, str));
+    std::vector<std::string> out;
+    EXPECT_NO_THROW({
+      auto r = read_opt<NameListFormat>(buffer, out, buffer.length());
+      EXPECT_EQ(str.size() + 4, r);
+    });
+    EXPECT_EQ(size, out.size());
   }
 }
 
@@ -1218,7 +1512,7 @@ TEST(EncodeSequenceTest, Error) {
     return write_opt<LengthPrefixed>(buf, "test"s);
   }));
   MockEncoder f3;
-  EXPECT_CALL(f3, encode).WillRepeatedly(Return(absl::InternalError("test")));
+  EXPECT_CALL(f3, encode(_)).WillRepeatedly(Return(absl::InternalError("test")));
   {
     Buffer::OwnedImpl buffer;
     auto r = encodeSequence(buffer, f1, f2, f3);
@@ -1298,7 +1592,7 @@ TEST(DecodeSequenceTest, Error) {
     return read_opt<LengthPrefixed>(buf, out, len);
   }));
   MockEncoder f3;
-  EXPECT_CALL(f3, decode).WillRepeatedly(Return(absl::InternalError("test")));
+  EXPECT_CALL(f3, decode(_, _)).WillRepeatedly(Return(absl::InternalError("test")));
   auto encodedData = bytes{0, 0, 0, 5, 0, 0, 0, 4, 't', 'e', 's', 't'};
 
   {
@@ -1354,6 +1648,67 @@ TEST(DecodeSequenceTest, ShortRead) {
   auto r = decodeSequence(buffer, 1uz, f1);
   EXPECT_FALSE(r.ok());
   EXPECT_EQ(r.status().message(), "short read");
+}
+
+TEST(DecodeSequenceTest, IncompleteRead) {
+  MockEncoder lpstr;
+  EXPECT_CALL(lpstr, decode(_, _)).WillRepeatedly(Invoke([&](Buffer::Instance& buf, size_t len) {
+    std::string s;
+    size_t n{};
+    try {
+      n = read_opt<LengthPrefixed>(buf, s, len);
+    } catch (const Envoy::EnvoyException& e) {
+      return absl::StatusOr<size_t>{absl::InvalidArgumentError(e.what())};
+    }
+    return absl::StatusOr<size_t>{n};
+  }));
+  MockEncoder str;
+  EXPECT_CALL(str, decode(_, _)).WillRepeatedly(Invoke([&](Buffer::Instance& buf, size_t len) {
+    std::string s;
+    size_t n{};
+    try {
+      n = read_opt<None>(buf, s, len);
+    } catch (const Envoy::EnvoyException& e) {
+      return absl::StatusOr<size_t>{absl::InvalidArgumentError(e.what())};
+    }
+    return absl::StatusOr<size_t>{n};
+  }));
+
+  {
+    Buffer::OwnedImpl buf;
+    write_opt<LengthPrefixed>(buf, "str1"s);
+    write_opt<LengthPrefixed>(buf, "str2"s);
+    write_opt<LengthPrefixed>(buf, "str3"s);
+
+    auto r = decodeSequence(buf, static_cast<size_t>(buf.length()), lpstr, lpstr, lpstr, lpstr);
+    EXPECT_FALSE(r.ok());
+    EXPECT_EQ(r.status().message(), "short read");
+  }
+
+  {
+    Buffer::OwnedImpl buf;
+    write_opt<LengthPrefixed>(buf, "str1"s);
+    write_opt<LengthPrefixed>(buf, "str2"s);
+    write_opt<LengthPrefixed>(buf, "str3"s);
+
+    // reading the second string as non-length-prefixed will consume str3, and cause a short read
+    auto r = decodeSequence(buf, static_cast<size_t>(buf.length()), lpstr, str, lpstr);
+    EXPECT_FALSE(r.ok());
+    EXPECT_EQ(r.status().message(), "short read");
+  }
+
+  {
+    Buffer::OwnedImpl buf;
+    auto r = decodeSequence(buf, static_cast<size_t>(buf.length()), lpstr, lpstr, lpstr, lpstr);
+    EXPECT_FALSE(r.ok());
+    EXPECT_EQ(r.status().message(), "short read");
+  }
+  {
+    Buffer::OwnedImpl buf;
+    auto r = decodeSequence(buf, static_cast<size_t>(buf.length()), lpstr);
+    EXPECT_FALSE(r.ok());
+    EXPECT_EQ(r.status().message(), "short read");
+  }
 }
 
 TEST(DecodeSequenceTest, ZeroLimit) {

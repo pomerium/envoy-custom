@@ -343,7 +343,9 @@ struct HostKeysMsg : SubMsg<SshMessageType::GlobalRequest, "hostkeys-00@openssh.
 struct GlobalRequestMsg : Msg<SshMessageType::GlobalRequest> {
   constexpr std::string& request_name() { return *request.key_field(); }
   field<bool> want_reply;
-  sub_message<HostKeysProveRequestMsg, HostKeysMsg> request;
+  sub_message<HostKeysProveRequestMsg,
+              HostKeysMsg>
+    request;
 
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
@@ -509,7 +511,9 @@ struct PingExtension : SubMsg<SshMessageType::ExtInfo, "ping@openssh.com"> {
 
 struct Extension {
   constexpr std::string& extension_name() { return *extension.key_field(); }
-  sub_message<ServerSigAlgsExtension, PingExtension> extension;
+  sub_message<ServerSigAlgsExtension,
+              PingExtension>
+    extension;
 
   Extension() = default;
   template <typename T>

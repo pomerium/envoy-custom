@@ -13,6 +13,7 @@
 #pragma clang unsafe_buffer_usage end
 
 #include "source/extensions/filters/network/ssh/wire/common.h"
+#include "source/extensions/filters/network/ssh/wire/util.h"
 #include "source/extensions/filters/network/ssh/common.h"
 
 namespace wire {
@@ -30,24 +31,7 @@ concept Decoder = requires(T t) {
 } || std::same_as<std::decay_t<T>, no_validation>;
 
 // equivalent to sshbuf_put_bignum2_bytes
-inline size_t writeBignum(Envoy::Buffer::Instance& buffer, std::span<const uint8_t> in) {
-  // skip leading zeros
-  in = in.subspan(std::distance(in.begin(),
-                                std::find_if(in.begin(), in.end(),
-                                             [](const uint8_t& b) { return b != 0; })));
-  size_t in_size = in.size();
-  // prepend a zero byte if the most significant bit is set
-  auto prepend = (in_size > 0 && (in[0] & 0x80) != 0);
-  buffer.writeBEInt(static_cast<uint32_t>(prepend ? (in_size + 1) : in_size));
-  size_t n = 4;
-  if (prepend) {
-    buffer.writeByte(0);
-    n++;
-  }
-  buffer.add(in.data(), in_size);
-  n += in_size;
-  return n;
-}
+size_t writeBignum(Envoy::Buffer::Instance& buffer, std::span<const uint8_t> in);
 
 template <SshStringType T>
 [[nodiscard]] T flushTo(Envoy::Buffer::Instance& buf, size_t n) {
@@ -124,18 +108,8 @@ size_t write(Envoy::Buffer::Instance& buffer, const T& t) {
 }
 
 // read/write bool
-inline size_t read(Envoy::Buffer::Instance& buffer, bool& t, size_t limit) {
-  if (limit == 0 || buffer.length() < limit) {
-    // zero-length integral types are not allowed
-    throw Envoy::EnvoyException("short read");
-  }
-  t = buffer.drainBEInt<uint8_t>() != 0;
-  return sizeof(t);
-}
-inline size_t write(Envoy::Buffer::Instance& buffer, const bool& t) {
-  buffer.writeByte<uint8_t>(t ? 1 : 0);
-  return sizeof(t);
-}
+size_t read(Envoy::Buffer::Instance& buffer, bool& t, size_t limit);
+size_t write(Envoy::Buffer::Instance& buffer, const bool& t);
 
 // read/write string types
 template <SshStringType T>
@@ -277,7 +251,11 @@ size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, explicit_size_t auto 
   detail::check_supported_options<LengthPrefixed, Opt>();
 
   if (limit == 0) {
-    return 0;
+    if constexpr (Opt & (LengthPrefixed | ListSizePrefixed | ListLengthPrefixed)) {
+      throw Envoy::EnvoyException("short read");
+    } else {
+      return 0;
+    }
   }
   if (buffer.length() < limit) [[unlikely]] {
     throw Envoy::EnvoyException("short read");
@@ -285,7 +263,7 @@ size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, explicit_size_t auto 
   if constexpr (Opt & LengthPrefixed) {
     uint32_t entry_len = buffer.drainBEInt<uint32_t>();
     // Invariant: read<SshStringType>(buffer, value, N) always returns N (or throws an exception)
-    return 4 + read(buffer, value, entry_len);
+    return sizeof(uint32_t) + read(buffer, value, entry_len);
   } else {
     return read(buffer, value, limit);
   }
@@ -324,11 +302,14 @@ template <EncodingOptions Opt, typename T>
 size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NOLINT
   detail::check_supported_options<(CommaDelimited | LengthPrefixed | ListSizePrefixed | ListLengthPrefixed), Opt>();
   detail::check_incompatible_options<(CommaDelimited | LengthPrefixed), Opt>();
-  detail::check_incompatible_options<(CommaDelimited | ListSizePrefixed), Opt>();
   detail::check_incompatible_options<(ListSizePrefixed | ListLengthPrefixed), Opt>();
 
   if (limit == 0) {
-    return 0;
+    if constexpr (Opt & (LengthPrefixed | ListSizePrefixed | ListLengthPrefixed)) {
+      throw Envoy::EnvoyException("short read");
+    } else {
+      return 0;
+    }
   }
   if (buffer.length() < limit) {
     throw Envoy::EnvoyException("short read");
@@ -338,35 +319,35 @@ size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NO
   size_t n = 0;
   if constexpr (Opt & ListSizePrefixed) {
     list_size = buffer.drainBEInt<uint32_t>();
-    n += 4;
+    limit = sub_sat(limit, sizeof(uint32_t));
+    n += sizeof(uint32_t);
     if (list_size == 0) {
       return n;
     }
     if constexpr (Opt & CommaDelimited) {
-      if (list_size > (limit - n) / 2 - 1) {
+      if (limit < 2 * list_size - 1) {
         throw Envoy::EnvoyException("invalid list size");
       }
     } else if constexpr (Opt & LengthPrefixed) {
-      if (list_size > (limit - n) / 4) {
+      if (list_size > limit / 4) {
         throw Envoy::EnvoyException("invalid list size");
       }
     }
   } else if constexpr (Opt & ListLengthPrefixed) {
     auto len = buffer.drainBEInt<uint32_t>();
-    n += 4;
+    limit = sub_sat(limit, sizeof(uint32_t));
+    n += sizeof(uint32_t);
     if (len == 0) {
       return n;
     }
     if (buffer.length() < len) {
       throw Envoy::EnvoyException("invalid list length");
     }
-    limit = len + n;
+    limit = std::min(limit, static_cast<size_t>(len));
   }
   if constexpr (Opt & CommaDelimited) {
-    size_t value_read_limit = limit - n;
-    ASSERT(value_read_limit > 0);
     size_t accum = 0;
-    for (size_t i = 0; i < value_read_limit; i++) {
+    for (size_t i = 0; i < limit; i++) {
       char c = buffer.peekInt<char>(accum);
       if (c != ',') {
         ++accum;
@@ -374,7 +355,7 @@ size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NO
       }
 
       // RFC4251 § 5
-      if (accum == 0 || i == value_read_limit - 1) {
+      if (accum == 0 || i == limit - 1) {
         throw Envoy::EnvoyException("invalid empty string in comma-separated list");
       } else if (buffer.peekInt<char>(accum - 1) == 0) {
         throw Envoy::EnvoyException("invalid null-terminated string in comma-separated list");
@@ -385,7 +366,15 @@ size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NO
       SECURITY_ASSERT(nread == accum, "buffer concurrent modification detected");
       value.push_back(std::move(t));
       accum = 0;
+      n += nread;
+      if constexpr (Opt & ListSizePrefixed) {
+        if (value.size() == list_size) {
+          // read exactly the number of elements needed, don't read anything else
+          return n;
+        }
+      }
       buffer.drain(1); // skip the ',' byte (index i)
+      n += 1;
     }
     ASSERT(accum > 0);
     if (buffer.peekInt<char>(accum - 1) == 0) {
@@ -394,19 +383,21 @@ size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NO
     value_type t{};
     auto nread = read(buffer, t, accum);
     SECURITY_ASSERT(nread == accum, "buffer concurrent modification detected");
+    n += nread;
+    // limit isn't used after this
     value.push_back(std::move(t));
-    n += value_read_limit;
   } else {
-    while (limit - n > 0) {
+    while (limit > 0) {
       if constexpr (Opt & ListSizePrefixed) {
         if (value.size() == list_size) {
           break;
         }
       }
-      size_t value_read_limit = limit - n;
+      size_t value_read_limit = limit;
       if constexpr (Opt & LengthPrefixed) {
         value_read_limit = static_cast<size_t>(buffer.drainBEInt<uint32_t>());
-        n += 4;
+        limit = sub_sat(limit, sizeof(uint32_t));
+        n += sizeof(uint32_t);
       }
       value_type t{};
       size_t nread = read(buffer, t, value_read_limit);
@@ -415,6 +406,7 @@ size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NO
           throw Envoy::EnvoyException("short read in list element");
         }
       }
+      limit = sub_sat(limit, nread);
       n += nread;
       value.push_back(std::move(t));
     }
@@ -439,7 +431,7 @@ size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT
   size_t total = 0;
   if constexpr (Opt & ListSizePrefixed) {
     buffer.writeBEInt(static_cast<uint32_t>(value.size()));
-    total += 4;
+    total += sizeof(uint32_t);
   } else if constexpr (Opt & ListLengthPrefixed) {
     uint32_t len = 0;
     for (const auto& elem : value) {
@@ -456,10 +448,10 @@ size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT
         len += value.size() - 1; // commas
       }
     } else if constexpr (Opt & LengthPrefixed) {
-      len += 4 * value.size(); // size prefixes
+      len += sizeof(uint32_t) * value.size(); // size prefixes
     }
     buffer.writeBEInt(static_cast<uint32_t>(len));
-    total += 4;
+    total += sizeof(uint32_t);
   }
   if constexpr (Opt & CommaDelimited) {
     for (size_t i = 0; i < value.size(); i++) {
@@ -476,7 +468,7 @@ size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT
   } else if constexpr (Opt & LengthPrefixed) {
     Envoy::Buffer::OwnedImpl tmp;
     for (const auto& elem : value) {
-      total += 4 + write(tmp, elem);
+      total += sizeof(uint32_t) + write(tmp, elem);
       buffer.writeBEInt(static_cast<uint32_t>(tmp.length()));
       buffer.move(tmp);
     }
@@ -574,8 +566,6 @@ absl::StatusOr<size_t> encodeSequence(Envoy::Buffer::Instance& buffer, const Arg
   return n;
 }
 
-inline absl::StatusOr<size_t> encodeSequence(Envoy::Buffer::Instance&) {
-  return 0;
-}
+absl::StatusOr<size_t> encodeSequence(Envoy::Buffer::Instance&);
 
 } // namespace wire

@@ -105,7 +105,7 @@ struct fixed_string {
   constexpr fixed_string(const char (&str)[N]) {
     std::copy_n(static_cast<const char*>(str), N, static_cast<char*>(value));
   }
-  constexpr std::string_view to_string() const {
+  consteval std::string_view to_string() const {
     return static_cast<const char*>(value);
   }
   friend auto operator<=>(const fixed_string&, const fixed_string&) = default;

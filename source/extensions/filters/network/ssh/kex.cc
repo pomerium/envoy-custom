@@ -19,13 +19,17 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 absl::Status Curve25519Sha256KexAlgorithm::handleServerRecv(wire::Message& msg) {
   return msg.visit(
-    [&](Envoy::OptRef<wire::KexEcdhInitMessage> msg) {
-      if (auto sz = msg->client_pub_key->size(); sz != 32) {
+    [&](opt_ref<wire::KexEcdhInitMessage> opt_msg) {
+      if (!opt_msg.has_value()) {
+        return absl::InvalidArgumentError("invalid key exchange init");
+      }
+      auto& msg = opt_msg->get();
+      if (auto sz = msg.client_pub_key->size(); sz != 32) {
         return absl::InvalidArgumentError(
           fmt::format("invalid peer public key size (expected 32, got {})", sz));
       }
       fixed_bytes<32> client_pub_key;
-      std::copy_n(msg->client_pub_key->begin(), 32, client_pub_key.begin());
+      std::copy_n(msg.client_pub_key->begin(), 32, client_pub_key.begin());
 
       Curve25519Keypair server_keypair;
       kexc25519_keygen(server_keypair.priv.data(), server_keypair.pub.data());
@@ -66,17 +70,18 @@ absl::StatusOr<wire::Message> Curve25519Sha256KexAlgorithm::handleClientSend() {
 
 absl::Status Curve25519Sha256KexAlgorithm::handleClientRecv(wire::Message& msg) {
   return msg.visit(
-    [&](Envoy::OptRef<wire::KexEcdhReplyMsg> msg) {
-      if (!msg.has_value()) {
-        return absl::FailedPreconditionError("unexpected KexEcdhReplyMsg received");
+    [&](opt_ref<wire::KexEcdhReplyMsg> opt_msg) {
+      if (!opt_msg.has_value()) {
+        return absl::FailedPreconditionError("invalid key exchange reply");
       }
-      if (auto sz = msg->ephemeral_pub_key->size(); sz != 32) {
+      auto& msg = opt_msg->get();
+      if (auto sz = msg.ephemeral_pub_key->size(); sz != 32) {
         return absl::AbortedError(
           fmt::format("invalid peer public key size (expected 32, got {})", sz));
       }
 
       fixed_bytes<32> server_pub_key;
-      std::copy_n(msg->ephemeral_pub_key->begin(), 32, server_pub_key.begin());
+      std::copy_n(msg.ephemeral_pub_key->begin(), 32, server_pub_key.begin());
 
       fixed_bytes<32> shared_secret;
       if (!X25519(shared_secret.data(), client_keypair_.priv.data(), server_pub_key.data())) {
@@ -86,7 +91,7 @@ absl::Status Curve25519Sha256KexAlgorithm::handleClientRecv(wire::Message& msg) 
         return absl::AbortedError("peer's curve25519 public value has wrong order");
       }
 
-      auto res = computeClientResult(*msg->host_key, client_keypair_.pub, server_pub_key, shared_secret, *msg->signature);
+      auto res = computeClientResult(*msg.host_key, client_keypair_.pub, server_pub_key, shared_secret, *msg.signature);
       if (!res.ok()) {
         return res.status();
       }

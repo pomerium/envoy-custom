@@ -1,6 +1,7 @@
 load(
     "@envoy//bazel:envoy_build_system.bzl",
     "envoy_cc_library",
+    "envoy_cc_mock",
     "envoy_cc_test",
     "envoy_cc_test_library",
 )
@@ -12,6 +13,7 @@ licenses(["notice"])
 envoy_cc_library(
     name = "wire_lib",
     srcs = [
+        "encoding.cc",
         "messages.cc",
     ],
     hdrs = [
@@ -37,6 +39,7 @@ envoy_cc_library(
 
 envoy_cc_library(
     name = "wire_lib_common",
+    srcs = [],
     hdrs = ["common.h"],
     repository = "@envoy",
     deps = [
@@ -50,6 +53,7 @@ envoy_cc_test(
     repository = "@envoy",
     deps = [
         ":wire_lib",
+        ":wire_test_mocks",
         ":wire_test_util",
         "@com_google_absl//absl/random",
         "@envoy//source/common/common:random_generator_lib",
@@ -65,6 +69,7 @@ envoy_cc_test(
     repository = "@envoy",
     deps = [
         ":wire_lib",
+        ":wire_test_mocks",
         ":wire_test_util",
         "@com_google_absl//absl/random",
         "@envoy//source/common/common:random_generator_lib",
@@ -80,6 +85,7 @@ envoy_cc_test(
     repository = "@envoy",
     deps = [
         ":wire_lib",
+        ":wire_test_mocks",
         ":wire_test_util",
         "@com_google_absl//absl/random",
         "@envoy//source/common/common:random_generator_lib",
@@ -95,6 +101,7 @@ envoy_cc_test(
     repository = "@envoy",
     deps = [
         ":wire_lib",
+        ":wire_test_mocks",
         ":wire_test_util",
         "@com_google_absl//absl/random",
         "@envoy//source/common/common:random_generator_lib",
@@ -106,6 +113,7 @@ envoy_cc_test(
 
 envoy_cc_test_library(
     name = "wire_test_common",
+    srcs = [],
     hdrs = [
         "wire_test_common.h",
     ],
@@ -114,6 +122,7 @@ envoy_cc_test_library(
 
 envoy_cc_test_library(
     name = "wire_test_util",
+    srcs = [],
     hdrs = [
         "wire_test_util.h",
     ],
@@ -122,4 +131,12 @@ envoy_cc_test_library(
         ":wire_lib_common",
         ":wire_test_common",
     ],
+)
+
+envoy_cc_mock(
+    name = "wire_test_mocks",
+    srcs = [],
+    hdrs = ["wire_test_mocks.h"],
+    repository = "@envoy",
+    deps = [],
 )

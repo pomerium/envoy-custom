@@ -3,8 +3,6 @@
 #include <cstdint> // IWYU pragma: keep
 #include <cstdio>  // IWYU pragma: keep
 
-#include "absl/status/statusor.h"
-
 #include "source/common/common/c_smart_ptr.h"
 
 #include "source/extensions/filters/network/ssh/common.h"

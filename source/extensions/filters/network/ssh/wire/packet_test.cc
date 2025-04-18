@@ -1,11 +1,13 @@
-#include "source/extensions/filters/network/ssh/wire/wire_test_common.h"
-
 #include "source/extensions/filters/network/ssh/wire/packet.h"
 #include "source/extensions/filters/network/ssh/wire/field.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
+#include "source/extensions/filters/network/ssh/wire/wire_test_common.h"
+#include "source/extensions/filters/network/ssh/wire/wire_test_mocks.h"
 
 namespace wire::test {
+
+USE_MOCK_ENCODER;
 
 // decodePacket
 
@@ -102,7 +104,7 @@ TEST(DecodePacketTest, DecodeError) {
   buffer.writeBEInt<uint8_t>(0x5);
   MockEncoder m;
 
-  EXPECT_CALL(m, decode)
+  EXPECT_CALL(m, decode(_, _))
     .Times(1)
     .WillOnce(Return(absl::InternalError("test")));
 
@@ -118,7 +120,7 @@ TEST(DecodePacketTest, PacketPayloadSizeError) {
   buffer.writeBEInt<uint8_t>(0x5);
   MockEncoder m;
 
-  EXPECT_CALL(m, decode)
+  EXPECT_CALL(m, decode(_, _))
     .Times(1)
     .WillOnce(Return(999)); // wrong size
 
@@ -314,7 +316,7 @@ INSTANTIATE_TEST_SUITE_P(
 
 TEST(EncodePacketTest, Encode_EmptyPayloadError) {
   MockEncoder e;
-  EXPECT_CALL(e, encode)
+  EXPECT_CALL(e, encode(_))
     .Times(1)
     .WillOnce(Return(0));
 
@@ -327,7 +329,7 @@ TEST(EncodePacketTest, Encode_EmptyPayloadError) {
 
 TEST(EncodePacketTest, Encode_PayloadTooLargeError) {
   MockEncoder e;
-  EXPECT_CALL(e, encode)
+  EXPECT_CALL(e, encode(_))
     .Times(1)
     .WillOnce(Return(MaxPacketSize - 1));
 

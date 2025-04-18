@@ -1,7 +1,5 @@
 #pragma once
 
-#include "absl/status/statusor.h"
-
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "source/extensions/filters/network/ssh/frame.h"

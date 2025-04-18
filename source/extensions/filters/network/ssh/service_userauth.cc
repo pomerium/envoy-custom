@@ -111,11 +111,18 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
 
           // verify the signature
           {
+            // RFC4242 § 7
             Envoy::Buffer::OwnedImpl verifyBuf;
             wire::write_opt<wire::LengthPrefixed>(verifyBuf, transport_.getKexResult().session_id);
-            wire::UserAuthRequestMsg verify = msg;
-            verify.request.get<wire::PubKeyUserAuthRequestMsg>().signature = bytes{};
-            if (auto r = verify.encode(verifyBuf); !r.ok()) {
+            constexpr static wire::field<bool> has_signature = true;
+            if (auto r = wire::encodeMsg(verifyBuf, msg.type,
+                                         msg.username,
+                                         msg.service_name,
+                                         msg.request.key_field(),
+                                         has_signature,
+                                         pubkey_req.public_key_alg,
+                                         pubkey_req.public_key);
+                !r.ok()) {
               return absl::InternalError(statusToString(r.status()));
             }
             auto verifyBytes = wire::flushTo<bytes>(verifyBuf);
@@ -159,14 +166,15 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
           return absl::UnimplementedError("unknown or unsupported auth method");
         });
     },
-    [&](Envoy::OptRef<wire::UserAuthInfoResponseMsg> msg) {
-      if (!msg.has_value()) {
-        return absl::InvalidArgumentError("unexpected UserAuthInfoResponseMsg received");
+    [&](opt_ref<wire::UserAuthInfoResponseMsg> opt_msg) {
+      if (!opt_msg.has_value()) {
+        return absl::InvalidArgumentError("invalid auth response");
       }
+      auto& msg = opt_msg->get();
       InfoResponse info_resp;
       info_resp.set_method("keyboard-interactive");
       KeyboardInteractiveInfoPromptResponses info_method_resp;
-      for (const auto& resp : *msg->responses) {
+      for (const auto& resp : *msg.responses) {
         info_method_resp.add_responses(resp);
       }
       info_resp.mutable_response()->PackFrom(info_method_resp);
@@ -317,23 +325,31 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
 
       return transport_.sendMessageToConnection(*pending_req_).status();
     },
-    [&](Envoy::OptRef<wire::UserAuthPubKeyOkMsg> opt_msg) {
+    [&](opt_ref<wire::UserAuthPubKeyOkMsg> opt_msg) {
       if (!opt_msg.has_value() || !pending_req_) {
-        return absl::FailedPreconditionError("received unexpected UserAuthPubKeyOk message");
+        return absl::FailedPreconditionError("invalid auth response");
       }
       // compute signature
       Envoy::Buffer::OwnedImpl buf;
       wire::write_opt<wire::LengthPrefixed>(buf, transport_.getKexResult().session_id);
-      pending_req_->request.get<wire::PubKeyUserAuthRequestMsg>().has_signature = true; // see PubKeyUserAuthRequestMsg::writeExtra
-      auto stat = pending_req_->encode(buf);
-      if (!stat.ok()) {
-        return statusf("error encoding user auth request: {}", stat.status());
+      auto& pending_pk_req = pending_req_->request.get<wire::PubKeyUserAuthRequestMsg>();
+      constexpr static wire::field<bool> has_signature = true;
+      if (auto r = wire::encodeMsg(buf, pending_req_->type,
+                                   pending_req_->username,
+                                   pending_req_->service_name,
+                                   pending_req_->request.key_field(),
+                                   has_signature,
+                                   pending_pk_req.public_key_alg,
+                                   pending_pk_req.public_key);
+          !r.ok()) {
+        return statusf("error encoding user auth request: {}", r.status());
       }
       auto sig = pending_user_key_.sign(wire::flushTo<bytes>(buf));
       if (!sig.ok()) {
         return statusf("error signing user auth request: {}", sig.status());
       }
-      pending_req_->request.get<wire::PubKeyUserAuthRequestMsg>().signature = *sig;
+      pending_pk_req.has_signature = true;
+      pending_pk_req.signature = *sig;
       return transport_.sendMessageToConnection(*pending_req_).status();
     },
     [&](wire::UserAuthBannerMsg& msg) {

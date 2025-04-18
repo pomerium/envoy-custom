@@ -2,12 +2,13 @@
 
 #pragma clang unsafe_buffer_usage begin
 #include "source/common/buffer/buffer_impl.h" // IWYU pragma: keep
+#include "absl/status/statusor.h"             // IWYU pragma: keep
+
 #if defined(NDEBUG) || defined(ENVOY_CONFIG_COVERAGE)
 #include "test/test_common/logging.h"
 #endif
 #pragma clang unsafe_buffer_usage end
 
-#include "absl/status/statusor.h"
 #include "gtest/gtest.h"
 #include "gmock/gmock.h" // IWYU pragma: keep
 
@@ -40,11 +41,6 @@ using testing::Types;
 
 using Envoy::EnvoyException;
 namespace Buffer = Envoy::Buffer;
-
-struct MockEncoder {
-  MOCK_METHOD(absl::StatusOr<size_t>, decode, (Envoy::Buffer::Instance&, size_t), (noexcept));
-  MOCK_METHOD(absl::StatusOr<size_t>, encode, (Envoy::Buffer::Instance&), (const, noexcept));
-};
 
 } // namespace wire::test
 

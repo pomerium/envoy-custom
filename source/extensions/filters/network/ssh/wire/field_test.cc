@@ -1,12 +1,15 @@
-#include "source/extensions/filters/network/ssh/common.h"
-#include "source/extensions/filters/network/ssh/wire/common.h"
-#include "source/extensions/filters/network/ssh/wire/wire_test_common.h"
 #include "source/extensions/filters/network/ssh/wire/field.h"
+#include "source/extensions/filters/network/ssh/wire/common.h"
+#include "source/extensions/filters/network/ssh/common.h"
+#include "source/extensions/filters/network/ssh/wire/wire_test_common.h"
+#include "source/extensions/filters/network/ssh/wire/wire_test_mocks.h"
 #include "source/extensions/filters/network/ssh/wire/wire_test_util.h"
+
 #include <compare>
-#include <type_traits>
 
 namespace wire::test {
+
+USE_MOCK_ENCODER;
 
 template <typename T>
 class FieldTest : public testing::Test {};

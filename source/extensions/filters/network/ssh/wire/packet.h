@@ -3,7 +3,10 @@
 #include <cstddef>
 #include <cstdint>
 
+#pragma clang unsafe_buffer_usage begin
 #include "source/common/buffer/buffer_impl.h"
+#pragma clang unsafe_buffer_usage end
+
 #include "source/common/common/random_generator.h"
 
 #include "source/extensions/filters/network/ssh/common.h"

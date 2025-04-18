@@ -1,7 +1,9 @@
 #pragma once
 
+#pragma clang unsafe_buffer_usage begin
 #include "absl/status/statusor.h"
 #include "envoy/buffer/buffer.h"
+#pragma clang unsafe_buffer_usage end
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
