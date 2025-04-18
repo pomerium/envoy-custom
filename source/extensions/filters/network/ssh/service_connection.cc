@@ -84,13 +84,15 @@ absl::Status DownstreamConnectionService::handleMessage(wire::Message&& msg) {
 absl::Status DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& msg) { // NOLINT
   switch (msg->message_case()) {
   case pomerium::extensions::ssh::ChannelMessage::kRawBytes: {
-    auto anyMsg = wire::Message::fromString(msg->raw_bytes().value());
-    if (!anyMsg.ok()) {
-      ENVOY_LOG(error, "received invalid channel message");
-      return statusf("received invalid channel message: {}", anyMsg.status());
+    wire::Message anyMsg{};
+    auto stat = with_buffer_view(msg->raw_bytes().value(), [&anyMsg](Envoy::Buffer::Instance& buffer) {
+      return anyMsg.decode(buffer, buffer.length());
+    });
+    if (!stat.ok()) {
+      return statusf("received invalid channel message: {}", stat.status());
     }
-    ENVOY_LOG(debug, "sending channel message to downstream: {}", anyMsg->msg_type());
-    return transport_.sendMessageToConnection(*anyMsg).status();
+    ENVOY_LOG(debug, "sending channel message to downstream: {}", anyMsg.msg_type());
+    return transport_.sendMessageToConnection(std::move(anyMsg)).status();
   }
   case pomerium::extensions::ssh::ChannelMessage::kChannelControl: {
     pomerium::extensions::ssh::SSHChannelControlAction ctrl_action;

@@ -21,13 +21,13 @@ template <typename T>
 concept Encoder = requires(T t) {
   // looks like: absl::StatusOr<size_t> encode(Envoy::Buffer::Instance&) noexcept
   { t.encode(std::declval<Envoy::Buffer::Instance&>()) } noexcept -> std::same_as<absl::StatusOr<size_t>>;
-};
+} || std::same_as<std::decay_t<T>, no_validation>;
 
 template <typename T>
 concept Decoder = requires(T t) {
   // looks like: absl::StatusOr<size_t> decode(Envoy::Buffer::Instance&, size_t) noexcept
   { t.decode(std::declval<Envoy::Buffer::Instance&>(), size_t{}) } noexcept -> std::same_as<absl::StatusOr<size_t>>;
-};
+} || std::same_as<std::decay_t<T>, no_validation>;
 
 // equivalent to sshbuf_put_bignum2_bytes
 inline size_t writeBignum(Envoy::Buffer::Instance& buffer, std::span<const uint8_t> in) {
@@ -493,7 +493,9 @@ size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT
 template <Decoder... Args>
   requires (sizeof...(Args) > 0)
 absl::StatusOr<size_t> decodeSequence(Envoy::Buffer::Instance& buffer, explicit_size_t auto limit, Args&&... args) noexcept {
-  detail::check_sub_message_field_order<Args...>();
+  if constexpr (!std::is_same_v<std::decay_t<first_type_t<Args...>>, no_validation>) {
+    detail::check_sub_message_field_order<Args...>();
+  }
 
   if (buffer.length() < limit) {
     return absl::InvalidArgumentError("short read");
@@ -502,15 +504,19 @@ absl::StatusOr<size_t> decodeSequence(Envoy::Buffer::Instance& buffer, explicit_
   absl::Status stat{};
 
   auto decodeOne = [&](Decoder auto&& field) -> bool {
-    // NB: (limit-n) is allowed to be zero here
-    auto r = field.decode(buffer, limit - n);
-    if (!r.ok()) {
-      stat = r.status();
-      return false;
+    if constexpr (std::is_same_v<std::decay_t<decltype(field)>, no_validation>) {
+      return true;
+    } else {
+      // NB: (limit-n) is allowed to be zero here
+      auto r = field.decode(buffer, limit - n);
+      if (!r.ok()) {
+        stat = r.status();
+        return false;
+      }
+      ASSERT(*r <= limit - n, "decode() returned value >= limit");
+      n += *r;
+      return true;
     }
-    ASSERT(*r <= limit - n, "decode() returned value >= limit");
-    n += *r;
-    return true;
   };
 
   // This fold expression calls decodeOne for each field, and stops if decodeOne returns false.
@@ -532,19 +538,30 @@ inline absl::StatusOr<size_t> decodeSequence(Envoy::Buffer::Instance&, explicit_
 template <Encoder... Args>
   requires (sizeof...(Args) > 0)
 absl::StatusOr<size_t> encodeSequence(Envoy::Buffer::Instance& buffer, const Args&... args) noexcept {
-  detail::check_sub_message_field_order<Args...>();
+  if constexpr (!std::is_same_v<std::decay_t<first_type_t<Args...>>, no_validation>) {
+    detail::check_sub_message_field_order<Args...>();
+  }
 
   size_t n = 0;
   absl::Status stat{};
 
   auto encodeOne = [&](Encoder auto& field) -> bool {
-    auto r = field.encode(buffer);
-    if (!r.ok()) {
-      stat = r.status();
-      return false;
+    if constexpr (std::is_same_v<std::decay_t<decltype(field)>, no_validation>) {
+      return true;
+    } else {
+      auto r = field.encode(buffer);
+      if (!r.ok()) [[unlikely]] {
+        stat = r.status();
+        return false;
+      }
+      n += *r;
+      if (n < MaxPacketSize) [[likely]] {
+        return true;
+      } else {
+        stat = absl::AbortedError("message size too large");
+        return false;
+      }
     }
-    n += *r;
-    return true;
   };
 
   // This fold expression calls encodeOne for each field, and stops if encodeOne returns false.

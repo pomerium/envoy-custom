@@ -21,13 +21,19 @@ template <typename T>
 using overload_for_t = typename overload_for<std::remove_cv_t<T>>::type;
 
 template <typename T>
-struct is_top_level_message;
+struct is_top_level_message : std::false_type {};
 
 template <typename T>
 constexpr bool is_top_level_message_v = is_top_level_message<T>::value;
 
 template <typename T>
 constexpr bool is_overload = !std::is_same_v<std::remove_cv_t<T>, overload_for_t<T>>;
+
+template <typename T>
+struct is_overloaded_message : std::false_type {};
+
+template <typename T>
+constexpr bool is_overloaded_message_v = is_overloaded_message<T>::value;
 
 template <typename T>
 concept TopLevelMessage = is_top_level_message_v<T>;

@@ -1,3 +1,4 @@
+#include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/wire_test_common.h"
 
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
@@ -1235,6 +1236,33 @@ TEST(EncodeSequenceTest, Error) {
   }
 }
 
+TEST(EncodeSequenceTest, MaxMessageSize) {
+  MockEncoder f1;
+  EXPECT_CALL(f1, encode(_)).WillRepeatedly(Invoke([&](Buffer::Instance& buf) {
+    std::string big_data;
+    big_data.resize(MaxPacketSize / 4);
+    buf.add(big_data);
+    return MaxPacketSize / 4;
+  }));
+  Buffer::OwnedImpl buffer;
+  auto r = encodeSequence(buffer, f1, f1, f1, f1, f1);
+  EXPECT_FALSE(r.ok());
+  EXPECT_EQ("message size too large", r.status().message());
+}
+
+TEST(EncodeSequenceTest, NoValidation) {
+  Buffer::OwnedImpl buffer;
+  MockEncoder f1;
+  EXPECT_CALL(f1, encode(_)).WillOnce(Invoke([&](Buffer::Instance& buf) {
+    buf.writeByte(1);
+    return 1;
+  }));
+
+  auto r = encodeSequence(buffer, no_validation{}, f1); // this is ok if it compiles
+  EXPECT_TRUE(r.ok());
+  EXPECT_EQ(1, *r);
+}
+
 TEST(DecodeSequenceTest, Basic) {
   Buffer::OwnedImpl buffer;
   buffer.add(bytes{0, 0, 0, 5, 0, 0, 0, 4, 't', 'e', 's', 't'}.data(), 12);
@@ -1291,6 +1319,24 @@ TEST(DecodeSequenceTest, Error) {
     auto r = decodeSequence(buffer, static_cast<size_t>(buffer.length()), f3, f1, f2);
     EXPECT_FALSE(r.ok());
   }
+}
+
+TEST(DecodeSequenceTest, NoValidation) {
+  Buffer::OwnedImpl buffer;
+  write(buffer, static_cast<uint32_t>(1));
+  MockEncoder f1;
+  EXPECT_CALL(f1, decode(_, _)).WillOnce(Invoke([&](Buffer::Instance& buf, size_t len) {
+    uint32_t out{};
+    auto n = read(buf, out, len);
+    EXPECT_EQ(1, out);
+    return n;
+  }));
+
+  auto r = decodeSequence(buffer, static_cast<size_t>(buffer.length()),
+                          no_validation{}, f1); // this is ok if it compiles
+  EXPECT_TRUE(r.ok());
+  EXPECT_EQ(4, *r);
+  EXPECT_EQ(0, buffer.length());
 }
 
 TEST(EncodeSequenceTest, EmptySequence) {

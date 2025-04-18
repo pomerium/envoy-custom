@@ -1,4 +1,5 @@
 #include "source/extensions/filters/network/ssh/wire/messages.h"
+#include "source/extensions/filters/network/ssh/common.h"
 
 namespace wire {
 
@@ -302,26 +303,14 @@ absl::StatusOr<size_t> HostKeysProveResponseMsg::encode(Envoy::Buffer::Instance&
 
 // GlobalRequestSuccessMsg (non-standard)
 absl::StatusOr<size_t> GlobalRequestSuccessMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
-  auto n = decodeMsg(buffer, type, payload_size);
-  if (!n.ok()) {
-    return n;
-  }
-  auto nresp = response.decode(buffer, payload_size - *n); // always unknown
-  if (!nresp.ok()) {
-    return nresp;
-  }
-  return *n + *nresp;
+  return decodeMsg(buffer, type, payload_size,
+                   no_validation{},
+                   response);
 }
 absl::StatusOr<size_t> GlobalRequestSuccessMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
-  auto n = encodeMsg(buffer, type);
-  if (!n.ok()) {
-    return n;
-  }
-  auto nresp = response.encode(buffer);
-  if (!nresp.ok()) {
-    return nresp;
-  }
-  return *n + *nresp;
+  return encodeMsg(buffer, type,
+                   no_validation{},
+                   response);
 }
 
 // IgnoreMsg
@@ -382,12 +371,8 @@ absl::StatusOr<size_t> PubKeyUserAuthRequestMsg::encode(Envoy::Buffer::Instance&
                           has_signature,
                           public_key_alg,
                           public_key);
-  if (!signature->empty()) {
-    auto sn = signature.encode(buffer);
-    if (!sn.ok()) {
-      return sn;
-    }
-    return *n + *sn;
+  if (n.ok() && !signature->empty()) {
+    return *n + *signature.encode(buffer);
   }
   return n;
 }
@@ -454,10 +439,12 @@ absl::StatusOr<size_t> UserAuthInfoRequestMsg::encode(Envoy::Buffer::Instance& b
 
 // UserAuthInfoResponseMsg
 absl::StatusOr<size_t> UserAuthInfoResponseMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
-  return decodeMsg(buffer, type, payload_size, responses);
+  return decodeMsg(buffer, type, payload_size,
+                   responses);
 }
 absl::StatusOr<size_t> UserAuthInfoResponseMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
-  return encodeMsg(buffer, type, responses);
+  return encodeMsg(buffer, type,
+                   responses);
 }
 
 // UserAuthBannerMsg
@@ -474,10 +461,14 @@ absl::StatusOr<size_t> UserAuthBannerMsg::encode(Envoy::Buffer::Instance& buffer
 
 // UserAuthFailureMsg
 absl::StatusOr<size_t> UserAuthFailureMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
-  return decodeMsg(buffer, type, payload_size, methods, partial);
+  return decodeMsg(buffer, type, payload_size,
+                   methods,
+                   partial);
 }
 absl::StatusOr<size_t> UserAuthFailureMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
-  return encodeMsg(buffer, type, methods, partial);
+  return encodeMsg(buffer, type,
+                   methods,
+                   partial);
 }
 
 // DisconnectMsg
@@ -526,16 +517,17 @@ absl::StatusOr<size_t> PingExtension::encode(Envoy::Buffer::Instance& buffer) co
 size_t read(Envoy::Buffer::Instance& buffer, Extension& ext, size_t payload_size) {
   size_t n = 0;
   if (auto r = ext.extension.key_field().decode(buffer, payload_size); !r.ok()) {
-    throw Envoy::EnvoyException(fmt::format("error decoding extension name: {}", r.status()));
+    throw Envoy::EnvoyException(fmt::format("error decoding extension name: {}", statusToString(r.status())));
   } else {
     n += *r;
   }
+  // extension values are always strings, and thus will always have a length prefix
   auto extDataLen = buffer.peekBEInt<uint32_t>() + 4uz;
   if (extDataLen > payload_size) {
-    throw Envoy::EnvoyException(fmt::format("invalid message length: {}", extDataLen));
+    throw Envoy::EnvoyException(fmt::format("error decoding extension: invalid message length: {}", extDataLen));
   }
   if (auto r = ext.extension.decode(buffer, extDataLen); !r.ok()) {
-    throw Envoy::EnvoyException(fmt::format("error decoding extension: {}", r.status()));
+    throw Envoy::EnvoyException(fmt::format("error decoding extension: {}", statusToString(r.status())));
   } else {
     n += *r;
   }
@@ -544,7 +536,7 @@ size_t read(Envoy::Buffer::Instance& buffer, Extension& ext, size_t payload_size
 size_t write(Envoy::Buffer::Instance& buffer, const Extension& ext) {
   auto n = encodeSequence(buffer, ext.extension.key_field(), ext.extension);
   if (!n.ok()) {
-    throw Envoy::EnvoyException(fmt::format("error encoding extension: {}", n.status()));
+    throw Envoy::EnvoyException(fmt::format("error encoding extension: {}", statusToString(n.status())));
   }
   return *n;
 }
@@ -587,16 +579,6 @@ absl::StatusOr<size_t> Message::decode(Envoy::Buffer::Instance& buffer, size_t p
 absl::StatusOr<size_t> Message::encode(Envoy::Buffer::Instance& buffer) const noexcept {
   // NB: messages encode/decode their own types
   return message.encode(buffer);
-}
-absl::StatusOr<Message> Message::fromString(std::string_view str) {
-  Message m{};
-  auto stat = with_buffer_view(str, [&m](Envoy::Buffer::Instance& buffer) {
-    return m.decode(buffer, buffer.length());
-  });
-  if (!stat.ok()) {
-    return stat.status();
-  }
-  return m;
 }
 
 } // namespace wire

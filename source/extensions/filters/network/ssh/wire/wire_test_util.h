@@ -30,7 +30,7 @@ struct random_value_impl;
 
 template <SshIntegerType T>
 struct random_value_impl<T> {
-  static T operator()() {
+  static auto operator()() {
     if constexpr (std::is_enum_v<T>) {
       return static_cast<T>(absl::Uniform<std::underlying_type_t<T>>(rng));
     } else {
@@ -41,18 +41,20 @@ struct random_value_impl<T> {
 
 template <>
 struct random_value_impl<bool> {
-  static bool operator()() {
-    return absl::Uniform(rng, 0, 1) == 1;
+  static auto operator()() {
+    return absl::Uniform(rng, 0, 2) == 1;
   }
 };
 
 template <>
 struct random_value_impl<std::string> {
-  static std::string operator()() {
+  static auto operator()() {
     std::string s;
-    s.resize(absl::Uniform(rng, 1, 100));
+    s.resize(absl::Uniform(rng, 1, 32));
     for (size_t i = 0; i < s.size(); i++) {
-      s[i] = absl::Uniform(rng, ' ', '~');
+      do {
+        s[i] = absl::Uniform(rng, ' ', '~');
+      } while (s[i] == ',');
     }
     return s;
   }
@@ -60,9 +62,9 @@ struct random_value_impl<std::string> {
 
 template <>
 struct random_value_impl<bytes> {
-  static bytes operator()() {
+  static auto operator()() {
     bytes b;
-    b.resize(absl::Uniform(rng, 1, 100));
+    b.resize(absl::Uniform(rng, 0, 32));
     for (size_t i = 0; i < b.size(); i++) {
       b[i] = absl::Uniform<uint8_t>(rng);
     }
@@ -72,7 +74,7 @@ struct random_value_impl<bytes> {
 
 template <size_t N>
 struct random_value_impl<fixed_bytes<N>> {
-  static fixed_bytes<N> operator()() {
+  static auto operator()() {
     fixed_bytes<N> b;
     for (size_t i = 0; i < N; i++) {
       b[i] = absl::Uniform<uint8_t>(rng);
@@ -80,6 +82,20 @@ struct random_value_impl<fixed_bytes<N>> {
     return b;
   }
 };
+
+template <typename T>
+  requires (!std::same_as<T, uint8_t>)
+struct random_value_impl<std::vector<T>> {
+  static auto operator()() {
+    std::vector<T> v;
+    v.resize(absl::Uniform(rng, 1, 10));
+    for (size_t i = 0; i < v.size(); i++) {
+      v[i] = random_value_impl<T>{}();
+    }
+    return v;
+  }
+};
+
 } // namespace detail
 
 template <typename T>

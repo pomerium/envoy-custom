@@ -19,6 +19,9 @@ template <typename T, EncodingOptions Opt>
 struct field_base {
   T value{};
 
+  using value_type = T;
+  static constexpr EncodingOptions encoding_options = Opt;
+
   field_base() = default;
   field_base(const field_base& other) = default;
   field_base(field_base&& other) noexcept = default;
@@ -117,6 +120,7 @@ absl::StatusOr<size_t> decodeMsg(Envoy::Buffer::Instance& buffer, SshMessageType
 // Utility function to encode a message, including a message type and a list of fields. Returns
 // the total number of bytes written (including the message type byte).
 template <typename... Fields>
+  requires (sizeof...(Fields) > 0)
 absl::StatusOr<size_t> encodeMsg(Envoy::Buffer::Instance& buffer, SshMessageType msg_type, const Fields&... fields) noexcept {
   buffer.writeByte(msg_type);
   auto n = encodeSequence(buffer, fields...);

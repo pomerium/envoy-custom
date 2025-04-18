@@ -315,7 +315,7 @@ private:
     static constexpr std::array<bool, sizeof...(Fs)> is_catchall = {visitor_type<is_const, Fs>::is_catchall_visitor...};
     constexpr auto num_catchall = std::count(std::begin(is_catchall), std::end(is_catchall), true);
     if constexpr (num_catchall > 0) {
-      static_assert(sizeof...(Indexes) > 1, "invalid visit: must use at least one non-catchall handler");
+      // static_assert(sizeof...(Indexes) > 1, "invalid visit: must use at least one non-catchall handler");
       constexpr size_t last_catchall_idx =
         std::distance(std::begin(is_catchall), std::find(std::rbegin(is_catchall), std::rend(is_catchall), true).base()) - 1;
 

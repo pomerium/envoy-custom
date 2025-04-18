@@ -86,6 +86,12 @@ public:
   template <typename T>
     requires (has_overload<std::decay_t<T>>())
   explicit OverloadedMessage(T&& msg) {
+    reset(std::forward<T>(msg));
+  }
+
+  template <typename T>
+    requires (has_overload<std::decay_t<T>>())
+  void reset(T&& msg) {
     message_.reset(overload_opt_for<std::decay_t<T>>{std::forward<T>(msg)});
   }
 
@@ -101,6 +107,10 @@ public:
       }
     }
     return message_.template get<index>();
+  }
+
+  message_type& messageForTest() {
+    return message_;
   }
 
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override {
@@ -179,7 +189,8 @@ struct EmptyMsg : Msg<T> {
     return decodeMsg(buffer, type, payload_size);
   }
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override {
-    return encodeMsg(buffer, type);
+    buffer.writeByte(type);
+    return 1;
   }
 };
 
@@ -594,11 +605,11 @@ template <> struct overload_for<UserAuthInfoRequestMsg> : std::type_identity<Ove
 template <> struct overload_for<UserAuthInfoResponseMsg> : std::type_identity<OverloadedMessage<UserAuthInfoResponseMsg>> {};
 
 template <typename T>
-struct is_top_level_message : std::false_type {};
-
-template <typename T>
   requires (top_level_message::template has_option<overload_for_t<T>>())
 struct is_top_level_message<T> : std::true_type {};
+
+template <typename... Args>
+struct is_overloaded_message<OverloadedMessage<Args...>> : std::true_type {};
 
 } // namespace detail
 
@@ -628,6 +639,10 @@ struct Message : BaseSshMsg {
     }
   }
 
+  void reset() {
+    message = detail::top_level_message{};
+  }
+
   SshMessageType msg_type() const override { return *message.key_field(); }
 
   template <typename Self>
@@ -643,8 +658,6 @@ struct Message : BaseSshMsg {
 
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
-
-  static absl::StatusOr<Message> fromString(std::string_view str);
 };
 
 } // namespace wire
