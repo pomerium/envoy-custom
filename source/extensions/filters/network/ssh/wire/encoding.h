@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <algorithm>
+#include <limits>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -247,7 +248,7 @@ consteval void check_sub_message_field_order() {
 // This specialization handles non-list types as well as strings and 'bytes' (vector<uint8_t>).
 template <EncodingOptions Opt, typename T>
   requires (!is_vector<T>::value || std::is_same_v<T, bytes>)
-size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, explicit_size_t auto limit) { // NOLINT
+size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, explicit_size_t auto limit) { // NOLINT(readability-identifier-naming)
   detail::check_supported_options<LengthPrefixed, Opt>();
 
   if (limit == 0) {
@@ -273,7 +274,7 @@ size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, explicit_size_t auto 
 // This specialization handles non-list types as well as strings and 'bytes' (vector<uint8_t>).
 template <EncodingOptions Opt, typename T>
   requires (!is_vector<T>::value || std::is_same_v<T, bytes>)
-size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT
+size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT(readability-identifier-naming)
   detail::check_supported_options<LengthPrefixed, Opt>();
 
   if constexpr (Opt & LengthPrefixed) {
@@ -299,7 +300,7 @@ size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT
 template <EncodingOptions Opt, typename T>
   requires Reader<typename T::value_type> &&
            (is_vector<T>::value && !std::is_same_v<T, bytes>)
-size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NOLINT
+size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NOLINT(readability-identifier-naming)
   detail::check_supported_options<(CommaDelimited | LengthPrefixed | ListSizePrefixed | ListLengthPrefixed), Opt>();
   detail::check_incompatible_options<(CommaDelimited | LengthPrefixed), Opt>();
   detail::check_incompatible_options<(ListSizePrefixed | ListLengthPrefixed), Opt>();
@@ -347,9 +348,9 @@ size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NO
   }
   if constexpr (Opt & CommaDelimited) {
     size_t accum = 0;
+    auto view = unsafe_forge_span<char>(static_cast<char*>(buffer.linearize(static_cast<uint32_t>(limit))), limit);
     for (size_t i = 0; i < limit; i++) {
-      char c = buffer.peekInt<char>(accum);
-      if (c != ',') {
+      if (view[accum] != ',') {
         ++accum;
         continue;
       }
@@ -357,7 +358,7 @@ size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NO
       // RFC4251 § 5
       if (accum == 0 || i == limit - 1) {
         throw Envoy::EnvoyException("invalid empty string in comma-separated list");
-      } else if (buffer.peekInt<char>(accum - 1) == 0) {
+      } else if (view[accum - 1] == 0) {
         throw Envoy::EnvoyException("invalid null-terminated string in comma-separated list");
       }
 
@@ -375,9 +376,10 @@ size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NO
       }
       buffer.drain(1); // skip the ',' byte (index i)
       n += 1;
+      view = view.subspan(nread + 1);
     }
     ASSERT(accum > 0);
-    if (buffer.peekInt<char>(accum - 1) == 0) {
+    if (view[accum - 1] == 0) {
       throw Envoy::EnvoyException("invalid null-terminated string in comma-separated list");
     }
     value_type t{};
@@ -422,7 +424,7 @@ size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NO
 template <EncodingOptions Opt, typename T>
   requires Writer<typename T::value_type> &&
            (is_vector<T>::value && !std::is_same_v<T, bytes>)
-size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT
+size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT(readability-identifier-naming)
   detail::check_supported_options<(CommaDelimited | LengthPrefixed | ListSizePrefixed | ListLengthPrefixed), Opt>();
   detail::check_incompatible_options<(CommaDelimited | LengthPrefixed), Opt>();
   detail::check_incompatible_options<(CommaDelimited | ListSizePrefixed), Opt>();

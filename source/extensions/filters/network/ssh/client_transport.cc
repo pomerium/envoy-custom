@@ -124,7 +124,7 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
 
 absl::StatusOr<size_t> SshClientTransport::sendMessageToConnection(const wire::Message& msg) {
   if (channel_id_remap_enabled_) {
-    msg.visit( // NOLINT
+    msg.visit(
       [&](wire::ChannelMsg auto& msg) {
         auto it = channel_id_mappings_.find(msg.recipient_channel);
         if (it != channel_id_mappings_.end()) {

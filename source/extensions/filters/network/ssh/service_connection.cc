@@ -81,7 +81,7 @@ absl::Status DownstreamConnectionService::handleMessage(wire::Message&& msg) {
     });
 }
 
-absl::Status DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& msg) { // NOLINT
+absl::Status DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& msg) {
   switch (msg->message_case()) {
   case pomerium::extensions::ssh::ChannelMessage::kRawBytes: {
     wire::Message anyMsg{};

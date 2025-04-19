@@ -214,7 +214,7 @@ absl::Status SshServerTransport::handleMessage(wire::Message&& msg) {
     });
 }
 
-absl::Status SshServerTransport::handleMessage(Grpc::ResponsePtr<ServerMessage>&& msg) { // NOLINT
+absl::Status SshServerTransport::handleMessage(Grpc::ResponsePtr<ServerMessage>&& msg) {
   switch (msg->message_case()) {
   case ServerMessage::kStreamControl:
     switch (msg->stream_control().action_case()) {

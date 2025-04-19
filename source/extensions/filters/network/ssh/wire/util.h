@@ -59,7 +59,7 @@ constexpr T sub_sat(T x, T y) noexcept {
 // otherwise this will panic.
 template <byteArrayLike T, typename F>
   requires std::invocable<F, Envoy::Buffer::Instance&>
-decltype(auto) with_buffer_view(const T& b, F func) { // NOLINT
+decltype(auto) with_buffer_view(const T& b, F func) { // NOLINT(readability-identifier-naming)
   // initialization order is important here; the fragment must live longer than the buffer
   // (destructors are invoked in reverse order)
   BytesViewBufferFragment fragment(b.data(), b.size());

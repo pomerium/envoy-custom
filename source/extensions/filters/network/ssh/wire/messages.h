@@ -19,7 +19,7 @@ namespace wire {
 
 struct BaseSshMsg {
   virtual ~BaseSshMsg() = default;
-  virtual SshMessageType msg_type() const PURE; // NOLINT
+  virtual SshMessageType msg_type() const PURE; // NOLINT(readability-identifier-naming)
 
   virtual absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept PURE;
   virtual absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept PURE;

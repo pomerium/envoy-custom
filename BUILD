@@ -106,6 +106,9 @@ refresh_compile_commands(
     exclude_headers = "external",
     targets = {
         "//:envoy": "",
-        "//source/extensions/filters/network/ssh/wire:wire_lib_test": "",
+        "//source/extensions/filters/network/ssh/wire:encoding_test": "",
+        "//source/extensions/filters/network/ssh/wire:messages_test": "",
+        "//source/extensions/filters/network/ssh/wire:packet_test": "",
+        "//source/extensions/filters/network/ssh/wire:field_test": "",
     },
 )
