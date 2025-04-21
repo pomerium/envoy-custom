@@ -1,6 +1,6 @@
 #pragma once
 
-#include <numeric>
+#include <numeric> // IWYU pragma: keep
 
 // alias for std::sub_sat, which is available in clang under a different name but not technically
 // part of the standard until C++26.

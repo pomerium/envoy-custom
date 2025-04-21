@@ -78,7 +78,7 @@ inline std::string statusToString(const absl::Status& stat) {
   if (stat.ok()) {
     return str;
   }
-  auto [abslName, newName] = status_code_strings(stat.code());
+  auto [abslName, newName] = status_code_strings(static_cast<absl::StatusCode>(stat.raw_code()));
   if (!abslName.empty()) {
     str.replace(0, abslName.size(), newName);
   } else {

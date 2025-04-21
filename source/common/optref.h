@@ -2,6 +2,7 @@
 
 #include <optional>
 #include <functional>
+
 #include "envoy/common/optref.h"
 
 template <typename T>

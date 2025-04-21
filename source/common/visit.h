@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <concepts>
+
 #include "source/common/type_traits.h"
 
 namespace tags {
@@ -139,20 +140,20 @@ private:
     conditional_const_t<is_const, std::decay_t<f_arg_type>> arg;
     if constexpr (catchall_info::is_const_ref) {
       return make_overloads_no_validation<visitor_type>(
-        [](f_arg_type) { return true; },
-        [](const auto&) { return false; })(std::forward_like<Self>(arg));
+        [](f_arg_type) consteval { return true; },
+        [](const auto&) consteval { return false; })(std::forward_like<Self>(arg));
     } else if constexpr (catchall_info::is_mutable_ref) {
       return make_overloads_no_validation<visitor_type>(
-        [](f_arg_type) { return true; },
-        [](auto&) { return false; })(std::forward_like<Self>(arg));
+        [](f_arg_type) consteval { return true; },
+        [](auto&) consteval { return false; })(std::forward_like<Self>(arg));
     } else if constexpr (catchall_info::is_universal_ref) {
       return make_overloads_no_validation<visitor_type>(
-        [](f_arg_type) { return true; },
-        [](auto&&) { return false; })(std::forward_like<Self>(arg));
+        [](f_arg_type) consteval { return true; },
+        [](auto&&) consteval { return false; })(std::forward_like<Self>(arg));
     } else if constexpr (catchall_info::is_plain) {
       return make_overloads_no_validation<visitor_type>(
-        [](f_arg_type) { return true; },
-        [](auto) { return false; })(std::forward_like<Self>(arg));
+        [](f_arg_type) consteval { return true; },
+        [](auto) consteval { return false; })(std::forward_like<Self>(arg));
     }
     static_assert("unreachable");
   }

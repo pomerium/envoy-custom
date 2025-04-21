@@ -115,7 +115,7 @@ constexpr bool all_values_equal = ((Expected == Actual) && ...);
 
 // values_unique returns true if there are no duplicates in the list, otherwise false.
 template <typename T>
-constexpr bool all_values_unique(std::initializer_list<T> arr) {
+consteval bool all_values_unique(std::initializer_list<T> arr) {
   for (size_t i = 0; i < arr.size(); ++i) {
     for (size_t j = i + 1; j < arr.size(); ++j) {
       if (*std::next(arr.begin(), i) == *std::next(arr.begin(), j)) {

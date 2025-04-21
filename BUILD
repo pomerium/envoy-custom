@@ -98,6 +98,7 @@ refresh_compile_commands(
     name = "refresh_compile_commands_all",
     targets = {
         "//:envoy": "",
+        "//test/...": "",
     },
 )
 
@@ -106,10 +107,6 @@ refresh_compile_commands(
     exclude_headers = "external",
     targets = {
         "//:envoy": "",
-        "//test/extensions/filters/network/ssh/wire:encoding_test": "",
-        "//test/extensions/filters/network/ssh/wire:encoding_bench_test": "",
-        "//test/extensions/filters/network/ssh/wire:messages_test": "",
-        "//test/extensions/filters/network/ssh/wire:packet_test": "",
-        "//test/extensions/filters/network/ssh/wire:field_test": "",
+        "//test/...": "",
     },
 )
