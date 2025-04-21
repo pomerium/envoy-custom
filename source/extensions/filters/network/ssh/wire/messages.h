@@ -5,10 +5,6 @@
 #include <string>
 #include <utility>
 
-#pragma clang unsafe_buffer_usage begin
-#include "source/common/buffer/buffer_impl.h"
-#pragma clang unsafe_buffer_usage end
-
 #include "source/common/fixed_string.h"
 
 #include "source/extensions/filters/network/ssh/wire/encoding.h"

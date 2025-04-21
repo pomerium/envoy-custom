@@ -4,7 +4,6 @@
 #include <cstdint>
 #include <tuple>
 #include <type_traits>
-#include <unordered_map>
 #include <utility>
 #include <variant>
 
@@ -12,7 +11,6 @@
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
 #include "source/extensions/filters/network/ssh/wire/util.h"
-#include "source/extensions/filters/network/ssh/common.h"
 
 namespace wire {
 
@@ -317,7 +315,7 @@ private:
   //  {<key1>: 0, <key2>: 1, <key3>: 2}
   static inline const auto option_index_lookup = []<size_t... I>(std::index_sequence<I...>) {
     return absl::flat_hash_map<key_type, size_t>{{std::pair{key_type{option_keys[I]}, I}...}};
-  }(std::make_index_sequence<sizeof...(Options)>{});
+  }(std::index_sequence_for<Options...>{});
 
   using oneof_type = decltype(oneof)::value_type;
   // Decoders is a list of functions, one for each type in Options, where each function decodes

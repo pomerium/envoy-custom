@@ -1,12 +1,11 @@
 #pragma once
 
-#include "source/common/type_traits.h"
 #include "source/common/visit.h"
 #include <cstdio>
 #include <type_traits>
 
 #pragma clang unsafe_buffer_usage begin
-#include "source/common/buffer/buffer_impl.h"
+#include "envoy/buffer/buffer.h"
 #include "absl/status/statusor.h"
 #pragma clang unsafe_buffer_usage end
 

@@ -8,9 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <algorithm>
-#include <limits>
 #include <string>
-#include <type_traits>
 #include <utility>
 
 #pragma clang unsafe_buffer_usage begin
@@ -19,7 +17,6 @@
 #pragma clang unsafe_buffer_usage end
 
 #include "source/extensions/filters/network/ssh/wire/common.h"
-#include "source/extensions/filters/network/ssh/wire/util.h"
 #include "source/extensions/filters/network/ssh/wire/validation.h"
 #include "source/extensions/filters/network/ssh/common.h"
 

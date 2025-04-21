@@ -171,7 +171,10 @@ TEST(MessagesTest, Message_RoundTrip) {
   wire::ExtInfoMsg extInfo;
   wire::PingExtension pingExt;
   pingExt.version = "0";
+  EXPECT_FALSE(extInfo.hasExtension<PingExtension>());
   extInfo.extensions->emplace_back(std::move(pingExt));
+  EXPECT_TRUE(extInfo.hasExtension<PingExtension>());
+  EXPECT_FALSE(extInfo.hasExtension<ServerSigAlgsExtension>());
 
   wire::Message msg = extInfo; // copy
 

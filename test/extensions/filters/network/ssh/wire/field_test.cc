@@ -1,3 +1,4 @@
+#include "source/common/visit.h"
 #include "source/extensions/filters/network/ssh/wire/field.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/common.h"
@@ -714,6 +715,24 @@ TEST(SubMessageTest, Visit) {
     [&result](const auto&) { result = CalledDefaultConstAutoRef; });
   EXPECT_EQ(CalledVisitMsg1Const, result);
 
+  EXPECT_EQ(CalledVisitMsg1Const,
+            std::visit(make_overloads_no_validation(
+                         [](const TestSubMsg1&) -> Result { return CalledVisitMsg1Const; },
+                         [](const auto&) -> Result { return CalledDefaultConstAutoRef; }),
+                       *submsg1.oneof));
+
+  EXPECT_EQ(CalledDefaultConstAutoRef,
+            std::visit(make_overloads_no_validation(
+                         [](TestSubMsg1&) -> Result { return CalledVisitMsg1Const; },
+                         [](const auto&) -> Result { return CalledDefaultConstAutoRef; }),
+                       *submsg1.oneof));
+
+  EXPECT_EQ(CalledVisitMsg1Const,
+            std::visit(make_overloads<basic_visitor, decltype(*submsg1.oneof)>(
+                         [](const TestSubMsg1&) -> Result { return CalledVisitMsg1Const; },
+                         [](const auto&) -> Result { return CalledDefaultConstAutoRef; }),
+                       *submsg1.oneof));
+
   // no message set
   constexpr SubMsgType empty{};
   EXPECT_STATIC_ASSERT(empty.visit(visitMsg1Const, defaultAutoRef) == 0);
@@ -746,6 +765,13 @@ TEST(SubMessageTest, Visit) {
 
   // static_assert(submsg1.visit(visitMsg1NonConst, defaultAutoUniversalRef) == CalledVisitMsg1NonConst);
   EXPECT_STATIC_ASSERT(!const_validator<true, decltype(visitMsg1NonConst)>::validate());
+}
+
+TEST(FormatTest, FormatFields) {
+  field<uint32_t> int_field = 5;
+  field<std::string> str_field = "test"s;
+  EXPECT_EQ(fmt::format("{}", 5), fmt::format("{}", int_field));
+  EXPECT_EQ(fmt::format("{}", "test"s), fmt::format("{}", str_field));
 }
 
 } // namespace wire::test

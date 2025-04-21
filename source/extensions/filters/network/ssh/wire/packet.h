@@ -3,10 +3,6 @@
 #include <cstddef>
 #include <cstdint>
 
-#pragma clang unsafe_buffer_usage begin
-#include "source/common/buffer/buffer_impl.h"
-#pragma clang unsafe_buffer_usage end
-
 #include "source/common/common/random_generator.h"
 
 #include "source/extensions/filters/network/ssh/common.h"
@@ -47,14 +43,12 @@ absl::StatusOr<size_t> decodePacket(Envoy::Buffer::Instance& buffer, T& payload)
   size_t n = 0;
   uint32_t packet_length{};
   uint8_t padding_length{};
-
   try {
     n += read(buffer, packet_length, sizeof(packet_length));
     n += read(buffer, padding_length, sizeof(padding_length));
   } catch (const Envoy::EnvoyException& e) {
     return absl::InvalidArgumentError(fmt::format("error decoding packet header: {}", e.what()));
   }
-
   auto expectedPayloadLen = payloadLength(packet_length, padding_length);
   if (!expectedPayloadLen.ok()) {
     return expectedPayloadLen.status();
@@ -69,7 +63,6 @@ absl::StatusOr<size_t> decodePacket(Envoy::Buffer::Instance& buffer, T& payload)
       *expectedPayloadLen, n));
   }
   n += *actualPayloadLen;
-
   if (buffer.length() < padding_length) {
     return absl::InvalidArgumentError(fmt::format(
       "short read in message padding: expected {} bytes, {} available",
