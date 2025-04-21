@@ -8,6 +8,7 @@
 #include <sshkey.h>
 #include <unistd.h>
 
+#include "source/common/status.h"
 #include "source/extensions/filters/network/ssh/common.h"
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/kex.h"

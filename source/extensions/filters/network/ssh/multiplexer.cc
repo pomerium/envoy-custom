@@ -1,4 +1,5 @@
 #include "source/extensions/filters/network/ssh/multiplexer.h"
+#include "source/common/status.h"
 #include "source/extensions/filters/network/ssh/common.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/wire/encoding.h"

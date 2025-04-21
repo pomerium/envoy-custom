@@ -1,5 +1,6 @@
 #include "source/extensions/filters/network/ssh/client_transport.h"
 
+#include "source/common/status.h"
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"

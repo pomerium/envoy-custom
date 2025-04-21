@@ -1,13 +1,12 @@
+#include "source/common/visit.h"
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
-#include "source/extensions/filters/network/ssh/wire/wire_test_common.h"
-#include "source/extensions/filters/network/ssh/wire/wire_test_mocks.h"
+#include "test/extensions/filters/network/ssh/test_common.h"
+#include "test/extensions/filters/network/ssh/wire/test_mocks.h"
 
 #include "openssl/rand.h"
 
 namespace wire::test {
-
-USE_MOCK_ENCODER;
 
 // some test bignum values from openssh
 static const bytes bn1 = {0x00, 0x00, 0x00};
@@ -1552,7 +1551,7 @@ TEST(EncodeSequenceTest, NoValidation) {
     return 1;
   }));
 
-  auto r = encodeSequence(buffer, no_validation{}, f1); // this is ok if it compiles
+  auto r = encodeSequence(buffer, tags::no_validation{}, f1); // this is ok if it compiles
   EXPECT_TRUE(r.ok());
   EXPECT_EQ(1, *r);
 }
@@ -1627,7 +1626,7 @@ TEST(DecodeSequenceTest, NoValidation) {
   }));
 
   auto r = decodeSequence(buffer, static_cast<size_t>(buffer.length()),
-                          no_validation{}, f1); // this is ok if it compiles
+                          wire::tags::no_validation{}, f1); // this is ok if it compiles
   EXPECT_TRUE(r.ok());
   EXPECT_EQ(4, *r);
   EXPECT_EQ(0, buffer.length());

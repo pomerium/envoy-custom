@@ -1,4 +1,5 @@
 #include "source/extensions/filters/network/ssh/wire/messages.h"
+#include "source/common/status.h"
 #include "source/extensions/filters/network/ssh/common.h"
 
 namespace wire {
@@ -304,12 +305,12 @@ absl::StatusOr<size_t> HostKeysProveResponseMsg::encode(Envoy::Buffer::Instance&
 // GlobalRequestSuccessMsg (non-standard)
 absl::StatusOr<size_t> GlobalRequestSuccessMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
   return decodeMsg(buffer, type, payload_size,
-                   no_validation{},
+                   wire::tags::no_validation{},
                    response);
 }
 absl::StatusOr<size_t> GlobalRequestSuccessMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
   return encodeMsg(buffer, type,
-                   no_validation{},
+                   wire::tags::no_validation{},
                    response);
 }
 

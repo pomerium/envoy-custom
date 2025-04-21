@@ -30,9 +30,7 @@
 #define EXPECT_STATIC_ASSERT(...) \
   EXPECT_STATIC_ASSERT_IMPL_((__VA_ARGS__))
 
-namespace wire::test {
-
-using testing::_;
+using testing::_; // NOLINT(bugprone-reserved-identifier)
 using testing::Eq;
 using testing::Invoke;
 using testing::NiceMock;
@@ -41,8 +39,6 @@ using testing::Types;
 
 using Envoy::EnvoyException;
 namespace Buffer = Envoy::Buffer;
-
-} // namespace wire::test
 
 // =================================================================================================
 // code below vendored from envoy test/test_common/utility.h, which pulls in too many dependencies

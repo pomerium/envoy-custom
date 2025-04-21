@@ -1,11 +1,11 @@
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
 #include "source/extensions/filters/network/ssh/wire/message_traits.h"
-#include "source/extensions/filters/network/ssh/wire/wire_test_common.h"
-
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/common.h"
-#include "source/extensions/filters/network/ssh/wire/wire_test_util.h"
+
+#include "test/extensions/filters/network/ssh/test_common.h"
+#include "test/extensions/filters/network/ssh/wire/test_util.h"
 
 namespace wire::test {
 
@@ -22,24 +22,24 @@ TEST(MessagesTest, Message_Visit) {
     return SshMessageType::KexInit;
   };
 
-  EXPECT_STATIC_ASSERT(std::is_same_v<visitor_info_t<decltype(overload)>::arg_type_with_cv_optref,
+  EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(overload)>::arg_type_with_cv_optref,
                                       opt_ref<const KexEcdhInitMessage>>);
-  EXPECT_STATIC_ASSERT(std::is_same_v<visitor_info_t<decltype(overload)>::arg_type,
+  EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(overload)>::arg_type,
                                       KexEcdhInitMessage>);
   EXPECT_STATIC_ASSERT(wire::detail::is_top_level_message_v<KexEcdhInitMessage>);
   EXPECT_STATIC_ASSERT(wire::detail::is_top_level_message_v<DisconnectMsg>);
 
-  EXPECT_STATIC_ASSERT(std::is_same_v<visitor_arg_type_t<decltype(overload)>,
+  EXPECT_STATIC_ASSERT(std::is_same_v<callable_arg_type_t<decltype(overload)>,
                                       KexEcdhInitMessage>);
-  EXPECT_STATIC_ASSERT(wire::detail::is_overload<visitor_arg_type_t<decltype(overload)>>);
-  EXPECT_STATIC_ASSERT(std::is_same_v<wire::detail::overload_for_t<visitor_arg_type_t<decltype(overload)>>,
+  EXPECT_STATIC_ASSERT(wire::detail::is_overload<callable_arg_type_t<decltype(overload)>>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<wire::detail::overload_for_t<callable_arg_type_t<decltype(overload)>>,
                                       OverloadedMessage<KexEcdhInitMessage>>);
   EXPECT_STATIC_ASSERT(!wire::detail::top_level_visitor<false, decltype(overload)>::is_catchall_visitor);
 
-  EXPECT_STATIC_ASSERT(std::is_same_v<visitor_arg_type_t<decltype(non_overload)>,
+  EXPECT_STATIC_ASSERT(std::is_same_v<callable_arg_type_t<decltype(non_overload)>,
                                       DisconnectMsg>);
-  EXPECT_STATIC_ASSERT(!wire::detail::is_overload<visitor_arg_type_t<decltype(non_overload)>>);
-  EXPECT_STATIC_ASSERT(std::is_same_v<wire::detail::overload_for_t<visitor_arg_type_t<decltype(non_overload)>>,
+  EXPECT_STATIC_ASSERT(!wire::detail::is_overload<callable_arg_type_t<decltype(non_overload)>>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<wire::detail::overload_for_t<callable_arg_type_t<decltype(non_overload)>>,
                                       DisconnectMsg>);
   EXPECT_STATIC_ASSERT(!wire::detail::top_level_visitor<false, decltype(non_overload)>::is_catchall_visitor);
 

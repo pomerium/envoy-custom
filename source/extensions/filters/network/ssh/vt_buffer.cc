@@ -1,6 +1,7 @@
 #include "source/extensions/filters/network/ssh/vt_buffer.h"
 
 #include "libvterm/utf8.h"
+#include "source/common/visit.h"
 #include "source/extensions/filters/network/ssh/common.h"
 
 #pragma clang unsafe_buffer_usage begin

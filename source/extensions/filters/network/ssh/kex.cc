@@ -6,6 +6,7 @@
 #include "openssl/curve25519.h"
 #include "openssl/rand.h"
 
+#include "source/common/status.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/openssh.h"

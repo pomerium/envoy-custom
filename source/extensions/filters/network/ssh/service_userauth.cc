@@ -4,6 +4,7 @@
 #include <memory>
 
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
+#include "source/common/status.h"
 #include "source/extensions/filters/network/ssh/common.h"
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "source/common/status.h"
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
 
 #include "source/extensions/filters/network/ssh/extension_ping.h"

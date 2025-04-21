@@ -1,7 +1,6 @@
 #pragma once
 
 #include <concepts>
-#include <type_traits>
 
 #pragma clang unsafe_buffer_usage begin
 #include "source/common/buffer/buffer_impl.h"
@@ -34,11 +33,6 @@ concept byteArrayLike = requires(T t) {
 };
 
 } // namespace
-
-template <typename T>
-constexpr T sub_sat(T x, T y) noexcept {
-  return std::__sub_sat(x, y);
-}
 
 // with_buffer_view does the following:
 // 1. creates a temporary Envoy::Buffer::Instance

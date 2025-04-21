@@ -60,6 +60,7 @@ envoy_cc_library(
         ":ssh_common_lib",
         "//:libvterm",
         "//:openssh",
+        "//source/common:common_lib",
         "//source/extensions/filters/network/ssh/wire:wire_lib",
         "@envoy//envoy/buffer:buffer_interface",
         "@envoy//envoy/network:connection_interface",

@@ -1,5 +1,9 @@
 #pragma once
 
+#include "source/common/concepts.h"
+#include "source/common/math.h"
+#include "source/common/type_traits.h"
+#include "source/common/visit.h"
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -10,26 +14,28 @@
 #include <utility>
 
 #pragma clang unsafe_buffer_usage begin
+#include "absl/status/statusor.h"
 #include "source/common/buffer/buffer_impl.h"
 #pragma clang unsafe_buffer_usage end
 
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/util.h"
+#include "source/extensions/filters/network/ssh/wire/validation.h"
 #include "source/extensions/filters/network/ssh/common.h"
 
 namespace wire {
 
 template <typename T>
 concept Encoder = requires(T t) {
-  // looks like: absl::StatusOr<size_t> encode(Envoy::Buffer::Instance&) noexcept
+  // looks like: absl::StatusOr<size_t> encode(Envoy::Buffer::Instance&) const noexcept
   { t.encode(std::declval<Envoy::Buffer::Instance&>()) } noexcept -> std::same_as<absl::StatusOr<size_t>>;
-} || std::same_as<std::decay_t<T>, no_validation>;
+};
 
 template <typename T>
 concept Decoder = requires(T t) {
   // looks like: absl::StatusOr<size_t> decode(Envoy::Buffer::Instance&, size_t) noexcept
   { t.decode(std::declval<Envoy::Buffer::Instance&>(), size_t{}) } noexcept -> std::same_as<absl::StatusOr<size_t>>;
-} || std::same_as<std::decay_t<T>, no_validation>;
+};
 
 // equivalent to sshbuf_put_bignum2_bytes
 size_t writeBignum(Envoy::Buffer::Instance& buffer, std::span<const uint8_t> in);
@@ -200,54 +206,12 @@ template <EncodingOptions Incompatible, EncodingOptions Opt>
 consteval void check_incompatible_options() {
   static_assert((Opt & Incompatible) != Incompatible, "incompatible options");
 }
-
-template <typename T>
-struct is_sub_message : std::false_type {};
-
-template <ssize_t I, ssize_t K>
-struct sub_message_index_t {
-  static constexpr ssize_t index = I;
-  static constexpr ssize_t key_field_index = K;
-};
-
-template <typename T, typename... Args>
-consteval ssize_t key_field_index() {
-  if constexpr (is_sub_message<T>::value) {
-    static constexpr auto list = {std::is_same_v<typename T::key_field_type, Args>...};
-    constexpr auto it = std::find(list.begin(), list.end(), true);
-    return it == list.end() ? -1 : std::distance(list.begin(), it);
-  }
-  return -1;
-}
-
-template <typename... Args>
-consteval auto sub_message_index() {
-  static constexpr std::array<bool, sizeof...(Args)> list = {is_sub_message<Args>::value...};
-  static constexpr std::array<ssize_t, sizeof...(Args)> key_list = {key_field_index<Args, Args...>()...};
-  static_assert(list.size() == key_list.size());
-  static constexpr auto submsg_pos = std::find(list.begin(), list.end(), true);
-  if constexpr (submsg_pos == list.end()) {
-    return sub_message_index_t<-1, -1>{};
-  } else {
-    static constexpr ssize_t index = std::distance(list.begin(), submsg_pos);
-    static constexpr ssize_t key_entry = key_list.at(index);
-    return sub_message_index_t<index, key_entry>{};
-  }
-}
-
-template <typename... Args>
-consteval void check_sub_message_field_order() {
-  if constexpr (auto idx = sub_message_index<std::decay_t<Args>...>(); idx.index != -1z) {
-    static_assert(idx.key_field_index >= 0z && idx.key_field_index < idx.index,
-                  "sub_message arguments must be preceded by their corresponding key_field");
-  }
-}
 } // namespace detail
 
 // read_opt is a wrapper around read() that supports additional encoding options.
 // This specialization handles non-list types as well as strings and 'bytes' (vector<uint8_t>).
 template <EncodingOptions Opt, typename T>
-  requires (!is_vector<T>::value || std::is_same_v<T, bytes>)
+  requires (!is_vector_v<T> || is_bytes_v<T>)
 size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, explicit_size_t auto limit) { // NOLINT(readability-identifier-naming)
   detail::check_supported_options<LengthPrefixed, Opt>();
 
@@ -273,7 +237,7 @@ size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, explicit_size_t auto 
 // write_opt is a wrapper around write() that supports additional encoding options.
 // This specialization handles non-list types as well as strings and 'bytes' (vector<uint8_t>).
 template <EncodingOptions Opt, typename T>
-  requires (!is_vector<T>::value || std::is_same_v<T, bytes>)
+  requires (!is_vector_v<T> || is_bytes_v<T>)
 size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT(readability-identifier-naming)
   detail::check_supported_options<LengthPrefixed, Opt>();
 
@@ -299,7 +263,7 @@ size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT(re
 //   length. This option cannot be used together with CommaDelimited.
 template <EncodingOptions Opt, typename T>
   requires Reader<typename T::value_type> &&
-           (is_vector<T>::value && !std::is_same_v<T, bytes>)
+           (is_vector_v<T> && !is_bytes_v<T>)
 size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NOLINT(readability-identifier-naming)
   detail::check_supported_options<(CommaDelimited | LengthPrefixed | ListSizePrefixed | ListLengthPrefixed), Opt>();
   detail::check_incompatible_options<(CommaDelimited | LengthPrefixed), Opt>();
@@ -423,7 +387,7 @@ size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NO
 // write function for fields of list types
 template <EncodingOptions Opt, typename T>
   requires Writer<typename T::value_type> &&
-           (is_vector<T>::value && !std::is_same_v<T, bytes>)
+           (is_vector_v<T> && !is_bytes_v<T>)
 size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT(readability-identifier-naming)
   detail::check_supported_options<(CommaDelimited | LengthPrefixed | ListSizePrefixed | ListLengthPrefixed), Opt>();
   detail::check_incompatible_options<(CommaDelimited | LengthPrefixed), Opt>();
@@ -487,7 +451,7 @@ size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT(re
 template <Decoder... Args>
   requires (sizeof...(Args) > 0)
 absl::StatusOr<size_t> decodeSequence(Envoy::Buffer::Instance& buffer, explicit_size_t auto limit, Args&&... args) noexcept {
-  if constexpr (!std::is_same_v<std::decay_t<first_type_t<Args...>>, no_validation>) {
+  if constexpr (!contains_tag_no_validation<Args...>) {
     detail::check_sub_message_field_order<Args...>();
   }
 
@@ -498,7 +462,7 @@ absl::StatusOr<size_t> decodeSequence(Envoy::Buffer::Instance& buffer, explicit_
   absl::Status stat{};
 
   auto decodeOne = [&](Decoder auto&& field) -> bool {
-    if constexpr (std::is_same_v<std::decay_t<decltype(field)>, no_validation>) {
+    if constexpr (is_tag_no_validation<decltype(field)>) {
       return true;
     } else {
       // NB: (limit-n) is allowed to be zero here
@@ -532,7 +496,7 @@ inline absl::StatusOr<size_t> decodeSequence(Envoy::Buffer::Instance&, explicit_
 template <Encoder... Args>
   requires (sizeof...(Args) > 0)
 absl::StatusOr<size_t> encodeSequence(Envoy::Buffer::Instance& buffer, const Args&... args) noexcept {
-  if constexpr (!std::is_same_v<std::decay_t<first_type_t<Args...>>, no_validation>) {
+  if constexpr (!contains_tag_no_validation<Args...>) {
     detail::check_sub_message_field_order<Args...>();
   }
 
@@ -540,7 +504,7 @@ absl::StatusOr<size_t> encodeSequence(Envoy::Buffer::Instance& buffer, const Arg
   absl::Status stat{};
 
   auto encodeOne = [&](Encoder auto& field) -> bool {
-    if constexpr (std::is_same_v<std::decay_t<decltype(field)>, no_validation>) {
+    if constexpr (is_tag_no_validation<decltype(field)>) {
       return true;
     } else {
       auto r = field.encode(buffer);

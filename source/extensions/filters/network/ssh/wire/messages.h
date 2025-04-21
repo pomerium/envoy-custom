@@ -9,6 +9,8 @@
 #include "source/common/buffer/buffer_impl.h"
 #pragma clang unsafe_buffer_usage end
 
+#include "source/common/fixed_string.h"
+
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/common.h"

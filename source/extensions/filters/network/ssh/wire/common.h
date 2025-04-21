@@ -100,16 +100,4 @@ concept SshStringType =
   std::same_as<T, std::string> ||
   std::same_as<T, std::vector<uint8_t>>;
 
-template <size_t N>
-struct fixed_string {
-  constexpr fixed_string(const char (&str)[N]) {
-    std::copy_n(static_cast<const char*>(str), N, static_cast<char*>(value));
-  }
-  consteval std::string_view to_string() const {
-    return static_cast<const char*>(value);
-  }
-  friend auto operator<=>(const fixed_string&, const fixed_string&) = default;
-
-  char value[N];
-};
 } // namespace wire

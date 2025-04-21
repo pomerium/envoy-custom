@@ -8,6 +8,7 @@
 #include <utility>
 #include <variant>
 
+#include "source/common/visit.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
 #include "source/extensions/filters/network/ssh/wire/util.h"
