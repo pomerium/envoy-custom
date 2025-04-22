@@ -39,8 +39,7 @@ public:
   const AuthState& authState() const override;
   AuthState& authState() override;
   void forward(wire::Message&& message, FrameTags tags = EffectiveCommon) override;
-  void onInitialKexDone() override;
-
+  void onKexCompleted(std::shared_ptr<KexResult> kex_result, bool initial_kex) override;
   void onEvent(Network::ConnectionEvent event) override;
   void onAboveWriteBufferHighWatermark() override {}
   void onBelowWriteBufferLowWatermark() override {}

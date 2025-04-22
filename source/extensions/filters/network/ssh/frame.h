@@ -5,16 +5,17 @@
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/common.h"
+#include <utility>
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 using frame_tags_type = decltype(std::declval<GenericProxy::FrameFlags>().frameTags());
 
 enum FrameTags : frame_tags_type {
-  RequestCommon = 0b00,
-  ResponseCommon = 0b01,
-  RequestHeader = 0b10,
-  ResponseHeader = 0b11,
+  ResponseCommon = 0b00,
+  RequestCommon = 0b01,
+  ResponseHeader = 0b10,
+  RequestHeader = 0b11,
   FrameTypeMask = 0b11,
 
   EffectiveCommon = 0b000,
@@ -50,7 +51,9 @@ public:
 
   void setStreamId(stream_id_t stream_id) { stream_id_ = stream_id; }
 
-  auto& message(this auto& self) { return self.msg_; }
+  template <typename Self>
+  auto&& message(this Self&& self) { return std::forward<Self>(self).msg_; }
+
   stream_id_t streamId() const { return stream_id_; }
   FrameFlags frameFlags() const override {
     return {stream_id_, frame_flags_, FrameTags::ResponseCommon | frame_tags_};
@@ -83,7 +86,9 @@ public:
   }
   std::string_view protocol() const override { return "ssh"; }
 
-  auto& message(this auto& self) { return self.msg_; }
+  template <typename Self>
+  auto&& message(this Self&& self) { return std::forward<Self>(self).msg_; }
+
   stream_id_t streamId() const { return stream_id_; }
   FrameFlags frameFlags() const override {
     return {stream_id_, frame_flags_, FrameTags::ResponseHeader | frame_tags_};
@@ -104,7 +109,9 @@ public:
 
   void setStreamId(stream_id_t stream_id) { stream_id_ = stream_id; }
 
-  auto& message(this auto& self) { return self.msg_; }
+  template <typename Self>
+  auto&& message(this Self&& self) { return std::forward<Self>(self).msg_; }
+
   stream_id_t streamId() const { return stream_id_; }
   FrameFlags frameFlags() const override {
     return {stream_id_, frame_flags_, FrameTags::RequestCommon | FrameTags::EffectiveCommon};
@@ -115,5 +122,24 @@ private:
   stream_id_t stream_id_;
   wire::Message msg_;
 };
+
+inline wire::Message&& extractFrameMessage(const GenericProxy::StreamFrame& frame) {
+  // NOLINTBEGIN(cppcoreguidelines-pro-type-const-cast)
+  switch (frame.frameFlags().frameTags() & FrameTags::FrameTypeMask) {
+  case FrameTags::ResponseCommon:
+    return std::move(const_cast<SSHResponseCommonFrame&>(static_cast<const SSHResponseCommonFrame&>(frame)))
+      .message();
+  case FrameTags::RequestCommon:
+    return std::move(const_cast<SSHRequestCommonFrame&>(static_cast<const SSHRequestCommonFrame&>(frame)))
+      .message();
+  case FrameTags::ResponseHeader:
+    return std::move(const_cast<SSHResponseHeaderFrame&>(static_cast<const SSHResponseHeaderFrame&>(frame)))
+      .message();
+  [[unlikely]]
+  default:
+    PANIC("bug: extractFrameMessage called with RequestHeader frame");
+  }
+  // NOLINTEND(cppcoreguidelines-pro-type-const-cast)
+}
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

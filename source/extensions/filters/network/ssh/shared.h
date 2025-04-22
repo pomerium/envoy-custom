@@ -14,7 +14,7 @@ using ::Envoy::Event::Dispatcher;
 class MirrorCallbacks {
 public:
   virtual ~MirrorCallbacks() = default;
-  virtual void sendMsg(const wire::Message& msg) PURE;
+  virtual void sendMsg(wire::Message&& msg) PURE;
   virtual void onSourceResized(int width, int height) PURE;
   virtual void onStreamEnd(const std::string& msg) PURE;
 };
@@ -22,7 +22,7 @@ public:
 class SourceInterface {
 public:
   virtual ~SourceInterface() = default;
-  virtual void inject(const wire::ChannelDataMsg& msg) PURE;
+  virtual void inject(wire::ChannelDataMsg&& msg) PURE;
   virtual void resize(const wire::WindowDimensionChangeChannelRequestMsg& msg) PURE;
 };
 

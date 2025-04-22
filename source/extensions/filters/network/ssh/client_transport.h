@@ -42,18 +42,18 @@ public:
   void onAboveWriteBufferHighWatermark() override {}
   void onBelowWriteBufferLowWatermark() override {}
 
-  absl::StatusOr<size_t> sendMessageToConnection(const wire::Message& msg) override;
+  absl::StatusOr<size_t> sendMessageToConnection(wire::Message&& msg) override;
 
   stream_id_t streamId() const override;
 
 protected:
-  void onInitialKexDone() override;
+  void onKexCompleted(std::shared_ptr<KexResult> kex_result, bool initial_kex) override;
   void onDecodingFailure(absl::Status err) override;
 
 private:
   void initServices();
   void registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) override;
-  absl::StatusOr<bool> interceptMessage(wire::Message& ssh_msg) override;
+  absl::StatusOr<MiddlewareResult> interceptMessage(wire::Message& ssh_msg) override;
 
   std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> tls_;
   AuthStateSharedPtr downstream_state_;

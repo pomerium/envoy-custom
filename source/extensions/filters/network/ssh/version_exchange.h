@@ -15,7 +15,7 @@ public:
 
 class TransportCallbacks;
 
-class VersionExchanger {
+class VersionExchanger final {
 public:
   VersionExchanger(TransportCallbacks& transport_callbacks,
                    VersionExchangeCallbacks& version_exchange_callbacks);

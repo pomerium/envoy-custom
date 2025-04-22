@@ -21,9 +21,9 @@ protected:
   Api::Api& api_;
 };
 
-class DownstreamConnectionService : public ConnectionService,
-                                    public ChannelStreamCallbacks,
-                                    public Logger::Loggable<Logger::Id::filter> {
+class DownstreamConnectionService final : public ConnectionService,
+                                          public ChannelStreamCallbacks,
+                                          public Logger::Loggable<Logger::Id::filter> {
 public:
   DownstreamConnectionService(TransportCallbacks& callbacks,
                               Api::Api& api,
@@ -46,8 +46,8 @@ private:
   std::shared_ptr<MirrorSessionMultiplexer> mirror_multiplexer_;
 };
 
-class UpstreamConnectionService : public ConnectionService,
-                                  public Logger::Loggable<Logger::Id::filter> {
+class UpstreamConnectionService final : public ConnectionService,
+                                        public Logger::Loggable<Logger::Id::filter> {
 public:
   UpstreamConnectionService(
     UpstreamTransportCallbacks& callbacks,

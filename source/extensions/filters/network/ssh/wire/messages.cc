@@ -4,7 +4,7 @@
 namespace wire {
 
 // KexInitMessage
-absl::StatusOr<size_t> KexInitMessage::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
+absl::StatusOr<size_t> KexInitMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
   return decodeMsg(buffer, type, payload_size,
                    cookie,
                    kex_algorithms,
@@ -20,7 +20,7 @@ absl::StatusOr<size_t> KexInitMessage::decode(Envoy::Buffer::Instance& buffer, s
                    first_kex_packet_follows,
                    reserved);
 }
-absl::StatusOr<size_t> KexInitMessage::encode(Envoy::Buffer::Instance& buffer) const noexcept {
+absl::StatusOr<size_t> KexInitMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
   return encodeMsg(buffer, type,
                    cookie,
                    kex_algorithms,
@@ -38,11 +38,11 @@ absl::StatusOr<size_t> KexInitMessage::encode(Envoy::Buffer::Instance& buffer) c
 }
 
 // KexEcdhInitMessage
-absl::StatusOr<size_t> KexEcdhInitMessage::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
+absl::StatusOr<size_t> KexEcdhInitMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
   return decodeMsg(buffer, type, payload_size,
                    client_pub_key);
 }
-absl::StatusOr<size_t> KexEcdhInitMessage::encode(Envoy::Buffer::Instance& buffer) const noexcept {
+absl::StatusOr<size_t> KexEcdhInitMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
   return encodeMsg(buffer, type,
                    client_pub_key);
 }

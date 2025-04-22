@@ -78,8 +78,8 @@ absl::Status AEADPacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffer::Ins
   }
   if (packlen < wire::MinPacketSize || packlen > wire::MaxPacketSize) {
 #ifdef SSH_DEBUG_SEQNUM
-    for (auto test : std::vector<uint32_t>{seqnum - 1, seqnum + 1, seqnum - 2, seqnum + 2, 0}) {
-      if (cipher_get_length(ctx_.get(), &packlen, test, in_data, in_length) == 0 &&
+    for (auto test : std::vector<uint32_t>{sub_sat(seqnum, 1u), seqnum + 1, sub_sat(seqnum, 2u), seqnum + 2}) {
+      if (cipher_get_length(ctx_.get(), &packlen, test, in_data, static_cast<uint32_t>(in_length)) == 0 &&
           packlen < wire::MaxPacketSize) {
         ENVOY_LOG(warn, "sequence number drift: packet decrypts with seqnr={}, but ours is {}",
                   test, seqnum);
@@ -155,6 +155,7 @@ void generateKeyMaterial(bytes& out, char tag, KexResult* kex_result) {
 
 std::unique_ptr<PacketCipher> PacketCipherFactory::makePacketCipher(direction_t d_read, direction_t d_write,
                                                                     KexResult* kex_result) {
+  ASSERT(!kex_result->session_id.empty());
   if (cipherModes.contains(kex_result->algorithms.r.cipher) &&
       cipherModes.contains(kex_result->algorithms.w.cipher)) {
 

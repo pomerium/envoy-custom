@@ -25,7 +25,7 @@ public:
         // send the reply ourselves
         wire::PongMsg reply;
         reply.data = msg.data;
-        return transport_.sendMessageToConnection(reply).status();
+        return transport_.sendMessageToConnection(std::move(reply)).status();
       },
       [&](wire::PongMsg& msg) {
         if (forward_) {
@@ -71,7 +71,7 @@ public:
         // send the reply ourselves
         wire::PongMsg reply;
         reply.data = msg.data;
-        return transport_.sendMessageToConnection(reply).status();
+        return transport_.sendMessageToConnection(std::move(reply)).status();
       },
       [&](wire::PongMsg& msg) {
         if (forward_) {

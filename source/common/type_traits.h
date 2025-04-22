@@ -107,7 +107,7 @@ using copy_reference_t = std::conditional_t<
   std::conditional_t<
     std::is_lvalue_reference_v<From>,
     std::add_lvalue_reference_t<std::remove_reference_t<To>>,
-    To>>;
+    std::remove_reference_t<To>>>;
 
 // all_values_equal is true if every value in Actual is equal to Expected, otherwise false.
 template <auto Expected, auto... Actual>

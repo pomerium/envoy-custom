@@ -15,7 +15,7 @@ TEST(MessagesTest, Message_Visit) {
   auto non_overload = [&](const DisconnectMsg& _) {
     return SshMessageType::Disconnect;
   };
-  auto overload = [&](opt_ref<const KexEcdhInitMessage> _) {
+  auto overload = [&](opt_ref<const KexEcdhInitMsg> _) {
     return SshMessageType::KexInit;
   };
   auto defaultCase = [&](auto&) {
@@ -23,17 +23,17 @@ TEST(MessagesTest, Message_Visit) {
   };
 
   EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(overload)>::arg_type_with_cv_optref,
-                                      opt_ref<const KexEcdhInitMessage>>);
+                                      opt_ref<const KexEcdhInitMsg>>);
   EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(overload)>::arg_type,
-                                      KexEcdhInitMessage>);
-  EXPECT_STATIC_ASSERT(wire::detail::is_top_level_message_v<KexEcdhInitMessage>);
+                                      KexEcdhInitMsg>);
+  EXPECT_STATIC_ASSERT(wire::detail::is_top_level_message_v<KexEcdhInitMsg>);
   EXPECT_STATIC_ASSERT(wire::detail::is_top_level_message_v<DisconnectMsg>);
 
   EXPECT_STATIC_ASSERT(std::is_same_v<callable_arg_type_t<decltype(overload)>,
-                                      KexEcdhInitMessage>);
+                                      KexEcdhInitMsg>);
   EXPECT_STATIC_ASSERT(wire::detail::is_overload<callable_arg_type_t<decltype(overload)>>);
   EXPECT_STATIC_ASSERT(std::is_same_v<wire::detail::overload_for_t<callable_arg_type_t<decltype(overload)>>,
-                                      OverloadedMessage<KexEcdhInitMessage>>);
+                                      OverloadedMessage<KexEcdhInitMsg>>);
   EXPECT_STATIC_ASSERT(!wire::detail::top_level_visitor<false, decltype(overload)>::is_catchall_visitor);
 
   EXPECT_STATIC_ASSERT(std::is_same_v<callable_arg_type_t<decltype(non_overload)>,
@@ -67,10 +67,10 @@ TEST(MessagesTest, Message_Visit) {
       [&](const ServiceAcceptMsg& _) {
         return SshMessageType::ServiceAccept;
       },
-      [&](const KexInitMessage& _) {
+      [&](const KexInitMsg& _) {
         return SshMessageType::KexInit;
       },
-      [&](opt_ref<const KexEcdhInitMessage> _) {
+      [&](opt_ref<const KexEcdhInitMsg> _) {
         return SshMessageType::KexECDHInit;
       },
       [&](opt_ref<const UserAuthPubKeyOkMsg> _) {
@@ -105,11 +105,11 @@ TEST(MessagesTest, Message_Visit) {
   msg = service_accept_msg;
   EXPECT_EQ(SshMessageType::ServiceAccept, visitor());
 
-  KexInitMessage kex_init_msg;
+  KexInitMsg kex_init_msg;
   msg = kex_init_msg;
   EXPECT_EQ(SshMessageType::KexInit, visitor());
 
-  KexEcdhInitMessage kex_ecdh_init_msg;
+  KexEcdhInitMsg kex_ecdh_init_msg;
   msg = kex_ecdh_init_msg;
   EXPECT_EQ(SshMessageType::KexECDHInit, visitor());
 
@@ -151,7 +151,7 @@ TEST(MessagesTest, Message_Visit_ConceptArgs) {
 
   ChannelDataMsg channel_data_msg;
   ChannelRequestMsg channel_request_msg;
-  KexInitMessage kex_init_msg;
+  KexInitMsg kex_init_msg;
   EXPECT_STATIC_ASSERT(overload(channel_request_msg) == 0);
   EXPECT_STATIC_ASSERT(overload(channel_data_msg) == 1);
   EXPECT_STATIC_ASSERT(overload(kex_init_msg) == 2);
@@ -374,7 +374,7 @@ TEST_FIELDS(ServiceAcceptMsg,
             service_name);
 TEST_FIELDS(ExtInfoMsg,
             extensions);
-TEST_FIELDS(KexInitMessage,
+TEST_FIELDS(KexInitMsg,
             cookie,
             kex_algorithms,
             server_host_key_algorithms,
@@ -451,7 +451,7 @@ TEST_FIELDS(PongMsg,
             data);
 
 // overloaded message types
-TEST_FIELDS(KexEcdhInitMessage,
+TEST_FIELDS(KexEcdhInitMsg,
             client_pub_key);
 TEST_FIELDS(KexEcdhReplyMsg,
             host_key,

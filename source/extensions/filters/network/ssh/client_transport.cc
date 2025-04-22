@@ -3,6 +3,7 @@
 #include "source/common/status.h"
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
+#include "source/extensions/filters/network/ssh/transport_base.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/service_connection.h"
 #include "source/extensions/filters/network/ssh/service_userauth.h"
@@ -70,7 +71,7 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
                                                         GenericProxy::EncodingContext&) {
   switch (frame.frameFlags().frameTags() & FrameTags::FrameTypeMask) {
   case FrameTags::RequestHeader: {
-    auto& reqHeader = static_cast<const SSHRequestHeaderFrame&>(frame);
+    const auto& reqHeader = static_cast<const SSHRequestHeaderFrame&>(frame);
     downstream_state_ = reqHeader.authState();
     if (downstream_state_->channel_mode == ChannelMode::Handoff) {
       if (downstream_state_->allow_response->has_upstream()) {
@@ -102,28 +103,28 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
     return version_exchanger_->writeVersion(downstream_state_->server_version);
   }
   case FrameTags::RequestCommon: {
-    const auto& sshFrame = static_cast<const SSHRequestCommonFrame&>(frame);
-    if (upstream_is_direct_tcpip_) {
-      return sshFrame.message().visit(
-        [this](const wire::ChannelDataMsg& msg) -> absl::StatusOr<size_t> {
-          Envoy::Buffer::OwnedImpl buffer;
-          // NB: ChannelDataMsg data is length-prefixed, but don't write the length here
-          auto size = wire::write(buffer, *msg.data);
-          callbacks_->writeToConnection(buffer);
-          return size;
-        },
-        [](const auto& msg) -> absl::StatusOr<size_t> {
-          return absl::InvalidArgumentError(fmt::format("unexpected message of type {} on direct-tcpip channel", msg.msg_type()));
-        });
+    if (!upstream_is_direct_tcpip_) {
+      return sendMessageToConnection(extractFrameMessage(frame));
     }
-    return sendMessageToConnection(sshFrame.message());
+    auto& sshFrame = static_cast<const SSHRequestCommonFrame&>(frame);
+    return sshFrame.message().visit(
+      [this](const wire::ChannelDataMsg& msg) -> absl::StatusOr<size_t> {
+        Envoy::Buffer::OwnedImpl buffer;
+        // NB: ChannelDataMsg data is length-prefixed, but don't write the length here
+        auto size = wire::write(buffer, *msg.data);
+        callbacks_->writeToConnection(buffer);
+        return size;
+      },
+      [](const auto& msg) -> absl::StatusOr<size_t> {
+        return absl::InvalidArgumentError(fmt::format("unexpected message of type {} on direct-tcpip channel", msg.msg_type()));
+      });
   }
   default:
     throw EnvoyException("bug: unknown frame kind");
   }
 }
 
-absl::StatusOr<size_t> SshClientTransport::sendMessageToConnection(const wire::Message& msg) {
+absl::StatusOr<size_t> SshClientTransport::sendMessageToConnection(wire::Message&& msg) {
   if (channel_id_remap_enabled_) {
     msg.visit(
       [&](wire::ChannelMsg auto& msg) {
@@ -134,7 +135,7 @@ absl::StatusOr<size_t> SshClientTransport::sendMessageToConnection(const wire::M
       },
       [](auto&) {});
   }
-  return UpstreamTransportCallbacks::sendMessageToConnection(msg);
+  return TransportBase::sendMessageToConnection(std::move(msg));
 }
 
 absl::Status SshClientTransport::handleMessage(wire::Message&& msg) {
@@ -208,9 +209,9 @@ void SshClientTransport::forwardHeader(wire::Message&& msg, FrameTags tags) {
   forward(std::move(msg), FrameTags{tags | EffectiveHeader});
 }
 
-absl::StatusOr<bool> SshClientTransport::interceptMessage(wire::Message& ssh_msg) {
+absl::StatusOr<MiddlewareResult> SshClientTransport::interceptMessage(wire::Message& ssh_msg) {
   return ssh_msg.visit(
-    [&](wire::ChannelOpenConfirmationMsg& msg) -> absl::StatusOr<bool> {
+    [&](wire::ChannelOpenConfirmationMsg& msg) -> absl::StatusOr<MiddlewareResult> {
       const auto& info = downstream_state_->handoff_info;
       if (info.handoff_in_progress && msg.recipient_channel == info.channel_info->downstream_channel_id()) {
         channel_id_mappings_[info.channel_info->internal_upstream_channel_id()] = msg.sender_channel;
@@ -228,39 +229,39 @@ absl::StatusOr<bool> SshClientTransport::interceptMessage(wire::Message& ssh_msg
         ptyReq.modes = info.pty_info->modes();
 
         channelReq.request = ptyReq;
-        if (auto r = sendMessageToConnection(channelReq); !r.ok()) {
+        if (auto r = sendMessageToConnection(std::move(channelReq)); !r.ok()) {
           return statusf("error requesting pty: {}", r.status());
         }
-        return false;
+        return Break;
       }
-      return true;
+      return Continue;
     },
-    [&](wire::ChannelOpenFailureMsg& msg) -> absl::StatusOr<bool> {
+    [&](wire::ChannelOpenFailureMsg& msg) -> absl::StatusOr<MiddlewareResult> {
       if (msg.recipient_channel == downstream_state_->handoff_info.channel_info->downstream_channel_id()) {
 
         // couldn't connect to the upstream, bail out
         // still can't forward the message, the downstream thinks
         // the channel is already open
         onDecodingFailure(absl::UnavailableError(*msg.description));
-        return false;
+        return Break;
       }
-      return true;
+      return Continue;
     },
-    [&](wire::UserAuthSuccessMsg&) -> absl::StatusOr<bool> {
+    [&](wire::UserAuthSuccessMsg&) -> absl::StatusOr<MiddlewareResult> {
       wire::ChannelOpenMsg openMsg;
       openMsg.channel_type = downstream_state_->handoff_info.channel_info->channel_type();
       openMsg.sender_channel = downstream_state_->handoff_info.channel_info->downstream_channel_id();
       openMsg.initial_window_size = downstream_state_->handoff_info.channel_info->initial_window_size();
       openMsg.max_packet_size = downstream_state_->handoff_info.channel_info->max_packet_size();
-      if (auto r = sendMessageToConnection(openMsg); !r.ok()) {
+      if (auto r = sendMessageToConnection(std::move(openMsg)); !r.ok()) {
         return statusf("error opening channel: {}", r.status());
       }
-      return false;
+      return Break;
     },
-    [&](wire::UserAuthFailureMsg&) -> absl::StatusOr<bool> {
+    [&](wire::UserAuthFailureMsg&) -> absl::StatusOr<MiddlewareResult> {
       return absl::PermissionDeniedError("");
     },
-    [&](wire::ChannelSuccessMsg&) -> absl::StatusOr<bool> {
+    [&](wire::ChannelSuccessMsg&) -> absl::StatusOr<MiddlewareResult> {
       if (downstream_state_->handoff_info.handoff_in_progress) {
         // open a shell
         // TODO: don't "hard code" this logic
@@ -268,38 +269,44 @@ absl::StatusOr<bool> SshClientTransport::interceptMessage(wire::Message& ssh_msg
         shellReq.recipient_channel = channel_id_mappings_[downstream_state_->handoff_info.channel_info->internal_upstream_channel_id()];
         shellReq.request = wire::ShellChannelRequestMsg{};
         shellReq.want_reply = false;
-        if (auto r = sendMessageToConnection(shellReq); !r.ok()) {
+        if (auto r = sendMessageToConnection(std::move(shellReq)); !r.ok()) {
           return statusf("error requesting shell: {}", r.status());
         }
 
         // handoff is complete, send an empty message to signal the downstream codec
         forwardHeader(wire::IgnoreMsg{}, Sentinel);
-        return false;
+        return Break;
       }
-      return true;
+      return Continue;
     },
-    [&](wire::ChannelFailureMsg&) -> absl::StatusOr<bool> {
+    [&](wire::ChannelFailureMsg&) -> absl::StatusOr<MiddlewareResult> {
       if (downstream_state_->handoff_info.handoff_in_progress) {
         return absl::InternalError("failed to open upstream tty");
       }
-      return true;
+      return Continue;
     },
-    [&](any_of<wire::IgnoreMsg, wire::DebugMsg, wire::UnimplementedMsg> auto&) -> absl::StatusOr<bool> {
+    [&](any_of<wire::IgnoreMsg, wire::DebugMsg, wire::UnimplementedMsg> auto&) -> absl::StatusOr<MiddlewareResult> {
       if (downstream_state_->handoff_info.handoff_in_progress) {
         // ignore these messages during handoff, they can trigger a common frame to be sent too early
-        return false;
+        return Break;
       }
-      return true;
+      return Continue;
     },
-    [](auto&) -> absl::StatusOr<bool> { return true; });
+    [](auto&) -> absl::StatusOr<MiddlewareResult> { return Continue; });
 }
 
-void SshClientTransport::onInitialKexDone() {
-  // send ext_info if we have it and the server supports it
+void SshClientTransport::onKexCompleted(std::shared_ptr<KexResult> kex_result, bool initial_kex) {
+  TransportBase::onKexCompleted(std::move(kex_result), initial_kex);
+
+  if (!initial_kex) {
+    return;
+  }
+
+  // send ext_info if we have it and the server supports it (only after the initial key exchange)
   if (kex_result_->server_supports_ext_info) {
     auto extInfo = outgoingExtInfo();
     if (extInfo.has_value()) {
-      if (auto r = sendMessageToConnection(*extInfo); !r.ok()) {
+      if (auto r = sendMessageToConnection(std::move(extInfo).value()); !r.ok()) {
         onDecodingFailure(statusf("error sending ExtInfo: {}", r.status()));
       }
     }
@@ -338,8 +345,9 @@ void SshClientTransport::onDecodingFailure(absl::Status err) {
 
   wire::DisconnectMsg msg;
   msg.reason_code = code;
-  msg.description = statusToString(err);
+  if (!err.ok()) {
+    msg.description = statusToString(err);
+  }
   forwardHeader(std::move(msg), Error);
 }
-
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

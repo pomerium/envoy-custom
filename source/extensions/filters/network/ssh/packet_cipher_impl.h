@@ -6,7 +6,7 @@
 #include "envoy/buffer/buffer.h"
 #include "source/common/common/logger.h"
 
-#include "source/extensions/filters/network/ssh/kex.h"
+#include "source/extensions/filters/network/ssh/kex_alg.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
 #include "source/extensions/filters/network/ssh/packet_cipher.h"
 #include "source/extensions/filters/network/ssh/common.h"
@@ -33,25 +33,25 @@ protected:
   size_t iv_len_;
 };
 
-class Chacha20Poly1305Cipher : public AEADPacketCipher {
+class Chacha20Poly1305Cipher final : public AEADPacketCipher {
 public:
   Chacha20Poly1305Cipher(bytes iv, bytes key, Mode mode)
       : AEADPacketCipher(cipherChacha20Poly1305, iv, key, mode) {}
 };
 
-class AESGCM128Cipher : public AEADPacketCipher {
+class AESGCM128Cipher final : public AEADPacketCipher {
 public:
   AESGCM128Cipher(bytes iv, bytes key, Mode mode)
       : AEADPacketCipher(cipherAES128GCM, iv, key, mode) {}
 };
 
-class AESGCM256Cipher : public AEADPacketCipher {
+class AESGCM256Cipher final : public AEADPacketCipher {
 public:
   AESGCM256Cipher(bytes iv, bytes key, Mode mode)
       : AEADPacketCipher(cipherAES256GCM, iv, key, mode) {}
 };
 
-class NoCipher : public DirectionalPacketCipher {
+class NoCipher final : public DirectionalPacketCipher {
 public:
   NoCipher() = default;
   absl::Status decryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
