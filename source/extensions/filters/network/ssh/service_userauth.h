@@ -43,12 +43,12 @@ private:
   DownstreamTransportCallbacks& transport_;
 };
 
-class UpstreamUserAuthService : public UserAuthService,
-                                public SshMessageMiddleware {
+class UpstreamUserAuthService final : public UserAuthService,
+                                      public SshMessageMiddleware {
 public:
   using UserAuthService::UserAuthService;
   absl::Status handleMessage(wire::Message&& msg) override;
-  absl::StatusOr<bool> interceptMessage(wire::Message& msg) override;
+  absl::StatusOr<MiddlewareResult> interceptMessage(wire::Message& msg) override;
 
 private:
   bool auth_success_received_{};

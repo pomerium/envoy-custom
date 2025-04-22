@@ -22,6 +22,16 @@ envoy_cc_test(
     ],
 )
 
+envoy_cc_benchmark_binary(
+    name = "encoding_bench_test",
+    srcs = ["encoding_bench_test.cc"],
+    repository = "@envoy",
+    deps = [
+        "//source/extensions/filters/network/ssh/wire:wire_lib",
+        "@com_github_google_benchmark//:benchmark",
+    ],
+)
+
 envoy_cc_test(
     name = "messages_test",
     srcs = ["messages_test.cc"],

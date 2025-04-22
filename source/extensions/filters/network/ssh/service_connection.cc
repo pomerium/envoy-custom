@@ -20,7 +20,7 @@ ConnectionService::ConnectionService(
 absl::Status ConnectionService::requestService() {
   wire::ServiceRequestMsg req;
   req.service_name = name();
-  return transport_.sendMessageToConnection(req).status();
+  return transport_.sendMessageToConnection(std::move(req)).status();
 }
 
 void DownstreamConnectionService::registerMessageHandlers(SshMessageDispatcher& dispatcher) {

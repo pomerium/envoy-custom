@@ -1,325 +1,308 @@
 #include "source/extensions/filters/network/ssh/kex.h"
 
-#include <algorithm>
 #include <memory>
 
-#include "openssl/curve25519.h"
 #include "openssl/rand.h"
 
-#include "source/common/status.h"
+#include "source/extensions/filters/network/ssh/message_handler.h"
+#include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
 
 extern "C" {
 #include "openssh/sshkey.h"
-#include "openssh/kex.h"
 }
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-absl::Status Curve25519Sha256KexAlgorithm::handleServerRecv(wire::Message& msg) {
-  return msg.visit(
-    [&](opt_ref<wire::KexEcdhInitMessage> opt_msg) {
-      if (!opt_msg.has_value()) {
-        return absl::InvalidArgumentError("invalid key exchange init");
-      }
-      auto& msg = opt_msg->get();
-      if (auto sz = msg.client_pub_key->size(); sz != 32) {
-        return absl::InvalidArgumentError(
-          fmt::format("invalid peer public key size (expected 32, got {})", sz));
-      }
-      fixed_bytes<32> client_pub_key;
-      std::copy_n(msg.client_pub_key->begin(), 32, client_pub_key.begin());
-
-      Curve25519Keypair server_keypair;
-      kexc25519_keygen(server_keypair.priv.data(), server_keypair.pub.data());
-
-      fixed_bytes<32> shared_secret;
-      if (!X25519(shared_secret.data(), server_keypair.priv.data(), client_pub_key.data())) {
-        return absl::AbortedError("curve25519 key exchange failed");
-      }
-      if (!CRYPTO_memcmp(shared_secret.data(), curve25519_zeros.data(), 32)) {
-        return absl::AbortedError("peer's curve25519 public value has wrong order");
-      }
-
-      auto blob = signer_->pub.toBlob();
-      if (!blob.ok()) {
-        return statusf("error converting public key to blob: {}", blob.status());
-      }
-      auto res = computeServerResult(*blob, client_pub_key, server_keypair.pub, shared_secret);
-      if (!res.ok()) {
-        return statusf("error computing server result: {}", res.status());
-      }
-      result_ = *res;
-      return absl::OkStatus();
-    },
-    [&msg](auto&) {
-      return absl::FailedPreconditionError(fmt::format("unexpected message received during key exchange: {}", msg.msg_type()));
-    });
-}
-
-absl::StatusOr<wire::Message> Curve25519Sha256KexAlgorithm::handleClientSend() {
-  Curve25519Keypair client_keypair;
-  kexc25519_keygen(client_keypair.priv.data(), client_keypair.pub.data());
-  client_keypair_ = client_keypair;
-  auto msg = wire::KexEcdhInitMessage{};
-
-  msg.client_pub_key = bytes{client_keypair.pub.begin(), client_keypair.pub.end()};
-  return msg;
-}
-
-absl::Status Curve25519Sha256KexAlgorithm::handleClientRecv(wire::Message& msg) {
-  return msg.visit(
-    [&](opt_ref<wire::KexEcdhReplyMsg> opt_msg) {
-      if (!opt_msg.has_value()) {
-        return absl::FailedPreconditionError("invalid key exchange reply");
-      }
-      auto& msg = opt_msg->get();
-      if (auto sz = msg.ephemeral_pub_key->size(); sz != 32) {
-        return absl::AbortedError(
-          fmt::format("invalid peer public key size (expected 32, got {})", sz));
-      }
-
-      fixed_bytes<32> server_pub_key;
-      std::copy_n(msg.ephemeral_pub_key->begin(), 32, server_pub_key.begin());
-
-      fixed_bytes<32> shared_secret;
-      if (!X25519(shared_secret.data(), client_keypair_.priv.data(), server_pub_key.data())) {
-        return absl::AbortedError("curve25519 key exchange failed");
-      }
-      if (!CRYPTO_memcmp(shared_secret.data(), curve25519_zeros.data(), 32)) {
-        return absl::AbortedError("peer's curve25519 public value has wrong order");
-      }
-
-      auto res = computeClientResult(*msg.host_key, client_keypair_.pub, server_pub_key, shared_secret, *msg.signature);
-      if (!res.ok()) {
-        return res.status();
-      }
-      result_ = *res;
-      return absl::OkStatus();
-    },
-    [&msg](auto&) {
-      return absl::FailedPreconditionError(fmt::format(
-        "unexpected message received during key exchange: {}", msg.msg_type()));
-    });
-}
-
-std::shared_ptr<KexResult>&& Curve25519Sha256KexAlgorithm::result() {
-  return std::move(result_);
-};
-
-Kex::Kex(TransportCallbacks& transport_callbacks, KexCallbacks& kex_callbacks,
-         Filesystem::Instance& fs, KexMode mode)
+Kex::Kex(TransportCallbacks& transport_callbacks, KexCallbacks& kex_callbacks, KexMode mode)
     : transport_(transport_callbacks), kex_callbacks_(kex_callbacks),
-      state_(std::make_unique<KexState>()),
-      fs_(fs),
       is_server_(mode == KexMode::Server) {
   THROW_IF_NOT_OK(loadHostKeys());
 }
 
 void Kex::registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) {
   dispatcher.registerHandler(wire::SshMessageType::KexInit, this);
-  dispatcher.registerHandler(wire::SshMessageType::KexECDHInit, this);
-  dispatcher.registerHandler(wire::SshMessageType::KexECDHReply, this);
-  dispatcher.registerHandler(wire::SshMessageType::NewKeys, this);
   msg_dispatcher_ = dispatcher;
 }
 
 void Kex::setVersionStrings(const std::string& ours, const std::string& peer) {
   if (is_server_) {
-    state_->magics.server_version = ours;
-    state_->magics.client_version = peer;
+    server_version_ = ours;
+    client_version_ = peer;
   } else {
-    state_->magics.server_version = peer;
-    state_->magics.client_version = ours;
+    server_version_ = peer;
+    client_version_ = ours;
   }
 }
 
-absl::StatusOr<bool> Kex::interceptMessage(wire::Message& msg) {
+absl::StatusOr<MiddlewareResult> Kex::IncorrectGuessMsgHandler::interceptMessage(wire::Message& msg) {
+  if (self.is_server_) {
+    if (!self.pending_state_->alg_impl->clientInitMessageTypes().contains(msg.msg_type())) {
+      return absl::FailedPreconditionError(fmt::format("unexpected message received: {}", msg.msg_type()));
+    }
+  } else {
+    if (!self.pending_state_->alg_impl->serverReplyMessageTypes().contains(msg.msg_type())) {
+      return absl::FailedPreconditionError(fmt::format("unexpected message received: {}", msg.msg_type()));
+    }
+  }
+  return Break | UninstallSelf;
+}
+
+absl::StatusOr<MiddlewareResult> Kex::KexAlgMsgHandler::interceptMessage(wire::Message& msg) {
+  if (self.is_server_) {
+    if (!self.pending_state_->alg_impl->clientInitMessageTypes().contains(msg.msg_type())) {
+      return absl::FailedPreconditionError(fmt::format("unexpected message received: {}", msg.msg_type()));
+    }
+  } else {
+    if (!self.pending_state_->alg_impl->serverReplyMessageTypes().contains(msg.msg_type())) {
+      return absl::FailedPreconditionError(fmt::format("unexpected message received: {}", msg.msg_type()));
+    }
+  }
+
+  if (self.is_server_) {
+    auto res = self.pending_state_->alg_impl->handleServerRecv(msg);
+    if (!res.ok()) {
+      return statusf("key exchange failed: {}", res.status());
+    }
+    if (!res->has_value()) {
+      // key exchange not complete yet
+      return Break;
+    }
+    self.pending_state_->kex_result = res->value();
+  } else {
+    auto res = self.pending_state_->alg_impl->handleClientRecv(msg);
+    if (!res.ok()) {
+      return statusf("key exchange failed: {}", res.status());
+    }
+    if (!res->has_value()) {
+      // key exchange not complete yet
+      return Break;
+    }
+    self.pending_state_->kex_result = res->value();
+  }
+
+  self.pending_state_->kex_result->client_supports_ext_info = self.pending_state_->client_supports_ext_info;
+  self.pending_state_->kex_result->server_supports_ext_info = self.pending_state_->server_supports_ext_info;
+
+  if (self.isInitialKex()) {
+    self.pending_state_->session_id = self.pending_state_->kex_result->exchange_hash;
+  } else {
+    self.pending_state_->session_id = self.active_state_->session_id;
+  }
+
+  if (self.is_server_) {
+    auto reply = self.pending_state_->alg_impl->buildServerReply(*self.pending_state_->kex_result);
+    if (!reply.ok()) {
+      return reply.status();
+    }
+    if (auto err = self.transport_.sendMessageDirect(std::move(reply).value()); !err.ok()) {
+      return err.status();
+    }
+    // don't return yet, send newkeys first
+  }
+
+  if (auto stat = self.sendNewKeysMsg(); !stat.ok()) {
+    return stat;
+  }
+  self.msg_dispatcher_->installMiddleware(&self.msg_handler_new_keys_);
+  return Break | UninstallSelf;
+}
+
+absl::StatusOr<MiddlewareResult> Kex::NewKeysMsgHandler::interceptMessage(wire::Message& msg) {
+  if (msg.msg_type() != wire::SshMessageType::NewKeys) {
+    return absl::FailedPreconditionError(fmt::format("key exchange error: expected NewKeys, received {}", msg.msg_type()));
+  }
+
+  if ((self.pending_state_->is_server && self.pending_state_->server_supports_ext_info) ||
+      (!self.pending_state_->is_server && self.pending_state_->client_supports_ext_info)) {
+    // this stays active for the next received message only, then is uninstalled
+    self.msg_dispatcher_->installMiddleware(&self.msg_handler_ext_info_);
+  }
+  // done
+  self.onNewKeysMsgReceived();
+  return Break | UninstallSelf;
+}
+
+absl::StatusOr<MiddlewareResult> Kex::ExtInfoMsgHandler::interceptMessage(wire::Message& msg) {
   return msg.visit(
     [&](wire::ExtInfoMsg& msg) {
-      transport_.updatePeerExtInfo(msg);
-      return false;
+      self.transport_.updatePeerExtInfo(msg);
+      return Break | UninstallSelf;
     },
     [](auto&) {
-      return true;
+      return Continue | UninstallSelf;
     });
 }
 
 absl::Status Kex::handleMessage(wire::Message&& msg) noexcept {
   return msg.visit(
-    [&](wire::KexInitMessage& msg) {
-      if (state_->kex_init_received) {
-        return absl::FailedPreconditionError("unexpected KexInit message");
+    [&](wire::KexInitMsg& msg) {
+      if (pending_state_) {
+        return absl::FailedPreconditionError("unexpected KexInit message received");
       }
+      pending_state_ = std::make_unique<KexState>();
+      kex_callbacks_.onKexStarted(isInitialKex());
 
       auto raw_peer_kex_init = encodeTo<bytes>(msg);
       if (!raw_peer_kex_init.ok()) {
         return raw_peer_kex_init.status();
       }
 
+      // set up magics
+      pending_state_->magics.client_version = client_version_;
+      pending_state_->magics.server_version = server_version_;
       if (is_server_) {
-        state_->magics.client_kex_init = std::move(*raw_peer_kex_init);
+        pending_state_->magics.client_kex_init = std::move(*raw_peer_kex_init);
       } else {
-        state_->magics.server_kex_init = std::move(*raw_peer_kex_init);
+        pending_state_->magics.server_kex_init = std::move(*raw_peer_kex_init);
+      }
+      pending_state_->peer_kex = std::move(msg);
+
+      if (auto err = sendKexInitMsg(); !err.ok()) {
+        return err;
       }
 
-      state_->peer_kex = std::move(msg);
-      state_->kex_init_received = true;
-
-      if (!state_->kex_init_sent) {
-        if (auto err = sendKexInit(); !err.ok()) {
-          return err;
-        }
-        state_->kex_init_sent = true;
+      if (auto algs = negotiateAlgorithms(); !algs.ok()) {
+        return algs.status();
+      } else {
+        pending_state_->negotiated_algorithms = *algs;
       }
-      if (!state_->kex_negotiated_algorithms && state_->kex_init_sent && state_->kex_init_received) {
-        if (auto algs = negotiateAlgorithms(); !algs.ok()) {
-          return algs.status();
-        } else {
-          state_->kex_negotiated_algorithms = true;
-          state_->negotiated_algorithms = *algs;
-        }
 
-        auto algImpl = newAlgorithmImpl();
-        if (!algImpl.ok()) {
-          return algImpl.status();
-        }
-
-        if (state_->peer_kex.first_kex_packet_follows) {
-          if ((state_->peer_kex.kex_algorithms[0] != state_->our_kex.kex_algorithms[0]) ||
-              (state_->peer_kex.server_host_key_algorithms[0] !=
-               state_->our_kex.server_host_key_algorithms[0])) {
-            (*algImpl)->ignoreNextPacket();
-          }
-        }
-
-        state_->alg_impl = std::move(*algImpl);
-
-        if (!is_server_) {
-          auto stat = state_->alg_impl->handleClientSend();
-          if (!stat.ok()) {
-            return stat.status();
-          }
-          state_->kex_reply_sent = true;
-          return transport_.sendMessageToConnection(*stat).status();
-        }
-        return absl::OkStatus();
+      auto algImpl = newAlgorithmImpl();
+      if (!algImpl.ok()) {
+        return algImpl.status();
       }
-      return absl::OkStatus();
-    },
-    [&](wire::NewKeysMsg&) {
-      if (state_->kex_newkeys_received) {
-        return absl::FailedPreconditionError("unexpected NewKeys message received");
+
+      if (pending_state_->peer_kex.first_kex_packet_follows) {
+        if ((pending_state_->peer_kex.kex_algorithms[0] != pending_state_->our_kex.kex_algorithms[0]) ||
+            (pending_state_->peer_kex.server_host_key_algorithms[0] !=
+             pending_state_->our_kex.server_host_key_algorithms[0])) {
+          msg_dispatcher_->installMiddleware(&msg_handler_incorrect_guess_);
+        }
       }
-      state_->kex_newkeys_received = true;
-      if ((state_->is_server && state_->server_supports_ext_info) ||
-          (!state_->is_server && state_->client_supports_ext_info)) {
-        // this stays active for the next received message only, then is uninstalled
-        msg_dispatcher_->installNextMessageMiddleware(this);
+
+      pending_state_->alg_impl = std::move(*algImpl);
+
+      if (!is_server_) {
+        auto clientInit = pending_state_->alg_impl->buildClientInit();
+        if (!clientInit.ok()) {
+          return clientInit.status();
+        }
+        if (auto stat = transport_.sendMessageDirect(std::move(clientInit).value()); !stat.ok()) {
+          return stat.status();
+        }
       }
-      // done
-      kex_callbacks_.setKexResult(state_->kex_result);
+      msg_dispatcher_->installMiddleware(&msg_handler_kex_alg_);
       return absl::OkStatus();
     },
     [&](const auto&) {
-      if (state_->kex_result) {
-        return absl::FailedPreconditionError(fmt::format("unexpected message received: {}", msg.msg_type()));
-      }
-      if (!state_->alg_impl) {
-        return absl::FailedPreconditionError(fmt::format("unexpected message received: {}", msg.msg_type()));
-      }
-
-      if (is_server_) {
-        auto stat = state_->alg_impl->handleServerRecv(msg);
-        if (!stat.ok()) {
-          return stat;
-        }
-      } else {
-        auto stat = state_->alg_impl->handleClientRecv(msg);
-        if (!stat.ok()) {
-          return stat;
-        }
-      }
-
-      state_->kex_result = state_->alg_impl->result();
-      state_->alg_impl.reset();
-      state_->kex_result->client_supports_ext_info = state_->client_supports_ext_info;
-      state_->kex_result->server_supports_ext_info = state_->server_supports_ext_info;
-
-      if (is_server_) {
-        if (!state_->kex_reply_sent) {
-          auto firstKeyExchange = !state_->session_id.has_value();
-          if (firstKeyExchange) {
-            state_->session_id = state_->kex_result->exchange_hash;
-          }
-          state_->kex_result->session_id = state_->session_id.value();
-
-          wire::KexEcdhReplyMsg reply;
-          reply.host_key = state_->kex_result->host_key_blob;
-          reply.ephemeral_pub_key = state_->kex_result->ephemeral_pub_key;
-          reply.signature = state_->kex_result->signature;
-          if (auto err = transport_.sendMessageToConnection(reply); !err.ok()) {
-            return err.status();
-          }
-          state_->kex_reply_sent = true;
-          // don't return yet, send newkeys first
-        }
-
-        if (!state_->kex_newkeys_sent) {
-          if (auto err = transport_.sendMessageToConnection(wire::NewKeysMsg{}); !err.ok()) {
-            return err.status();
-          }
-          state_->kex_newkeys_sent = true;
-          // return here to yield and wait for client newkeys. if the buffer isn't empty this will
-          // be called again immediately.
-          return absl::OkStatus();
-        }
-      } else {
-        auto firstKeyExchange = !state_->session_id.has_value();
-        if (firstKeyExchange) {
-          state_->session_id = state_->kex_result->exchange_hash;
-        }
-        state_->kex_result->session_id = state_->session_id.value();
-
-        if (auto err = transport_.sendMessageToConnection(wire::NewKeysMsg{}); !err.ok()) {
-          return err.status();
-        }
-        state_->kex_newkeys_sent = true;
-      }
-      return absl::OkStatus();
+      return absl::InvalidArgumentError(fmt::format("unexpected message received: {}", msg.msg_type()));
     });
+}
+
+absl::Status Kex::sendKexInitMsg() noexcept {
+  wire::KexInitMsg* server_kex_init = &pending_state_->our_kex;
+  server_kex_init->kex_algorithms = preferredKexAlgos;
+
+  if (is_server_) {
+    server_kex_init->kex_algorithms->push_back("ext-info-s");
+    server_kex_init->kex_algorithms->push_back("kex-strict-s-v00@openssh.com");
+  } else {
+    server_kex_init->kex_algorithms->push_back("ext-info-c");
+    server_kex_init->kex_algorithms->push_back("kex-strict-c-v00@openssh.com");
+  }
+  server_kex_init->encryption_algorithms_client_to_server = preferredCiphers;
+  server_kex_init->encryption_algorithms_server_to_client = preferredCiphers;
+  server_kex_init->mac_algorithms_client_to_server = supportedMACs;
+  server_kex_init->mac_algorithms_server_to_client = supportedMACs;
+  server_kex_init->compression_algorithms_client_to_server = {"none"s};
+  server_kex_init->compression_algorithms_server_to_client = {"none"s};
+  RAND_bytes(server_kex_init->cookie->data(), sizeof(server_kex_init->cookie));
+  for (const auto& hostKey : host_keys_) {
+    auto algs = algorithmsForKeyFormat(hostKey.priv.name());
+    server_kex_init->server_host_key_algorithms->append_range(algs);
+  }
+
+  auto raw_kex_init = encodeTo<bytes>(*server_kex_init);
+  if (!raw_kex_init.ok()) {
+    return raw_kex_init.status();
+  }
+  if (is_server_) {
+    pending_state_->magics.server_kex_init = std::move(*raw_kex_init);
+  } else {
+    pending_state_->magics.client_kex_init = std::move(*raw_kex_init);
+  }
+
+  if (auto r = transport_.sendMessageDirect(auto(*server_kex_init)); !r.ok()) {
+    return r.status();
+  }
+
+  // notify transport to pause message forwarding
+  kex_callbacks_.onKexInitMsgSent();
+  return absl::OkStatus();
+}
+
+void Kex::onNewKeysMsgReceived() {
+  // NB: order is important here
+
+  // reset sequence number upon receiving NewKeys
+  ENVOY_LOG(debug, "resetting read sequence number");
+  *transport_.getConnectionState().seq_read = 0;
+
+  bool initial = isInitialKex(); // checks active_state_
+
+  // promote pending state -> active state, deleting the previous active state
+  active_state_ = std::move(pending_state_);
+
+  kex_callbacks_.onKexCompleted(active_state_->kex_result, initial);
+}
+
+absl::Status Kex::sendNewKeysMsg() {
+  // NB: order is important here
+
+  // send the NewKeys message
+  if (auto err = transport_.sendMessageDirect(wire::NewKeysMsg{}); !err.ok()) {
+    return err.status();
+  }
+
+  // reset write sequence number after sending NewKeys
+  ENVOY_LOG(debug, "resetting write sequence number");
+  *transport_.getConnectionState().seq_write = 0;
+
+  // notify transport to resume message forwarding if necessary (using new sequence numbers)
+  return kex_callbacks_.onNewKeysMsgSent();
 }
 
 absl::StatusOr<Algorithms> Kex::negotiateAlgorithms() noexcept {
   if (is_server_) {
-    state_->client_supports_ext_info = absl::c_contains(*state_->peer_kex.kex_algorithms, "ext-info-c");
-    state_->server_supports_ext_info = true;
-    state_->kex_strict = absl::c_contains(*state_->peer_kex.kex_algorithms, "kex-strict-c-v00@openssh.com");
+    pending_state_->client_supports_ext_info = absl::c_contains(*pending_state_->peer_kex.kex_algorithms, "ext-info-c");
+    pending_state_->server_supports_ext_info = true;
+    pending_state_->kex_strict = absl::c_contains(*pending_state_->peer_kex.kex_algorithms, "kex-strict-c-v00@openssh.com");
   } else {
-    state_->client_supports_ext_info = true;
-    state_->server_supports_ext_info = absl::c_contains(*state_->peer_kex.kex_algorithms, "ext-info-s");
-    state_->kex_strict = absl::c_contains(*state_->peer_kex.kex_algorithms, "kex-strict-s-v00@openssh.com");
+    pending_state_->client_supports_ext_info = true;
+    pending_state_->server_supports_ext_info = absl::c_contains(*pending_state_->peer_kex.kex_algorithms, "ext-info-s");
+    pending_state_->kex_strict = absl::c_contains(*pending_state_->peer_kex.kex_algorithms, "kex-strict-s-v00@openssh.com");
   }
 
   if (is_server_) {
     string_list common;
-    absl::c_set_union(*state_->peer_kex.server_host_key_algorithms, rsaSha2256HostKeyAlgs,
+    absl::c_set_union(*pending_state_->peer_kex.server_host_key_algorithms, rsaSha2256HostKeyAlgs,
                       std::back_inserter(common));
     if (!common.empty()) {
-      state_->kex_rsa_sha2_256_supported = true;
+      pending_state_->kex_rsa_sha2_256_supported = true;
     }
     common.clear();
-    absl::c_set_union(*state_->peer_kex.server_host_key_algorithms, rsaSha2512HostKeyAlgs,
+    absl::c_set_union(*pending_state_->peer_kex.server_host_key_algorithms, rsaSha2512HostKeyAlgs,
                       std::back_inserter(common));
     if (!common.empty()) {
-      state_->kex_rsa_sha2_512_supported = true;
+      pending_state_->kex_rsa_sha2_512_supported = true;
     }
   }
 
-  wire::KexInitMessage& client_kex = is_server_ ? state_->peer_kex : state_->our_kex;
-  wire::KexInitMessage& server_kex = is_server_ ? state_->our_kex : state_->peer_kex;
+  wire::KexInitMsg& client_kex = is_server_ ? pending_state_->peer_kex : pending_state_->our_kex;
+  wire::KexInitMsg& server_kex = is_server_ ? pending_state_->our_kex : pending_state_->peer_kex;
 
   // logic below is translated from go ssh/common.go findAgreedAlgorithms
   Algorithms result{};
@@ -429,18 +412,18 @@ absl::StatusOr<std::string> Kex::findCommon(std::string_view what,
 }
 
 absl::StatusOr<std::unique_ptr<KexAlgorithm>> Kex::newAlgorithmImpl() {
-  if (state_->negotiated_algorithms.kex == kexAlgoCurve25519SHA256 ||
-      state_->negotiated_algorithms.kex == kexAlgoCurve25519SHA256LibSSH) {
-    auto hostKey = pickHostKey(state_->negotiated_algorithms.host_key);
+  if (pending_state_->negotiated_algorithms.kex == kexAlgoCurve25519SHA256 ||
+      pending_state_->negotiated_algorithms.kex == kexAlgoCurve25519SHA256LibSSH) {
+    auto hostKey = pickHostKey(pending_state_->negotiated_algorithms.host_key);
     if (hostKey == nullptr) {
       return absl::AbortedError(fmt::format("no matching host key for algorithm: {}",
-                                            state_->negotiated_algorithms.host_key));
+                                            pending_state_->negotiated_algorithms.host_key));
     }
-    return std::make_unique<Curve25519Sha256KexAlgorithm>(&state_->magics,
-                                                          &state_->negotiated_algorithms, hostKey);
+    return std::make_unique<Curve25519Sha256KexAlgorithm>(&pending_state_->magics,
+                                                          &pending_state_->negotiated_algorithms, hostKey);
   }
   return absl::UnimplementedError(
-    fmt::format("unsupported key exchange algorithm: {}", state_->negotiated_algorithms.kex));
+    fmt::format("unsupported key exchange algorithm: {}", pending_state_->negotiated_algorithms.kex));
 }
 
 const host_keypair_t* Kex::pickHostKey(std::string_view alg) {
@@ -487,42 +470,6 @@ absl::Status Kex::loadSshKeyPair(const std::string& priv_key_path, const std::st
     .pub = std::move(*pub),
   });
   return absl::OkStatus();
-}
-
-absl::Status Kex::sendKexInit() noexcept {
-  wire::KexInitMessage* server_kex_init = &state_->our_kex;
-  server_kex_init->kex_algorithms = preferredKexAlgos;
-
-  if (is_server_) {
-    server_kex_init->kex_algorithms->push_back("ext-info-s");
-    server_kex_init->kex_algorithms->push_back("kex-strict-s-v00@openssh.com");
-  } else {
-    server_kex_init->kex_algorithms->push_back("ext-info-c");
-    server_kex_init->kex_algorithms->push_back("kex-strict-c-v00@openssh.com");
-  }
-  server_kex_init->encryption_algorithms_client_to_server = preferredCiphers;
-  server_kex_init->encryption_algorithms_server_to_client = preferredCiphers;
-  server_kex_init->mac_algorithms_client_to_server = supportedMACs;
-  server_kex_init->mac_algorithms_server_to_client = supportedMACs;
-  server_kex_init->compression_algorithms_client_to_server = {"none"s};
-  server_kex_init->compression_algorithms_server_to_client = {"none"s};
-  RAND_bytes(server_kex_init->cookie->data(), sizeof(server_kex_init->cookie));
-  for (const auto& hostKey : host_keys_) {
-    auto algs = algorithmsForKeyFormat(hostKey.priv.name());
-    server_kex_init->server_host_key_algorithms->append_range(algs);
-  }
-
-  auto raw_kex_init = encodeTo<bytes>(*server_kex_init);
-  if (!raw_kex_init.ok()) {
-    return raw_kex_init.status();
-  }
-  if (is_server_) {
-    state_->magics.server_kex_init = std::move(*raw_kex_init);
-  } else {
-    state_->magics.client_kex_init = std::move(*raw_kex_init);
-  }
-
-  return transport_.sendMessageToConnection(*server_kex_init).status();
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

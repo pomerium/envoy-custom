@@ -8,29 +8,6 @@
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-absl::StatusOr<size_t> TransportCallbacks::sendMessageToConnection(const wire::Message& msg) {
-  const auto& cs = getConnectionState();
-
-  Envoy::Buffer::OwnedImpl dec;
-  auto stat = wire::encodePacket(dec, msg, cs.cipher->blockSize(ModeWrite), cs.cipher->aadSize(ModeWrite));
-  if (!stat.ok()) {
-    return statusf("error encoding packet: {}", stat.status());
-  }
-  Envoy::Buffer::OwnedImpl enc;
-  if (auto stat = cs.cipher->encryptPacket(*cs.seq_write, enc, dec); !stat.ok()) {
-    return statusf("error encrypting packet: {}", stat);
-  }
-  (*cs.seq_write)++;
-  if (msg.msg_type() == wire::SshMessageType::NewKeys) {
-    ENVOY_LOG(debug, "resetting write seqnr");
-    *cs.seq_write = 0;
-  }
-
-  size_t n = enc.length();
-  writeToConnection(enc);
-  return n;
-}
-
 std::unique_ptr<AuthState> AuthState::clone() {
   auto newState = std::make_unique<AuthState>();
   newState->server_version = server_version;

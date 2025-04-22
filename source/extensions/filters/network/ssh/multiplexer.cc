@@ -99,12 +99,12 @@ void SourceUpstreamSessionMultiplexer::onMirrorRemoved(std::shared_ptr<MirrorCal
   }
 }
 
-void SourceUpstreamSessionMultiplexer::inject(const wire::ChannelDataMsg& msg) {
+void SourceUpstreamSessionMultiplexer::inject(wire::ChannelDataMsg&& msg) {
   if (!local_dispatcher_.isThreadSafe()) {
-    local_dispatcher_.post([this, msg = msg] { inject(msg); });
+    local_dispatcher_.post([this, msg = std::move(msg)] mutable { inject(std::move(msg)); });
     return;
   }
-  auto r = transport_.sendMessageToConnection(msg);
+  auto r = transport_.sendMessageToConnection(std::move(msg));
   if (!r.ok()) {
     ENVOY_LOG(error, "error sending message: {}", r.status().message());
   }
@@ -204,7 +204,7 @@ absl::Status MirrorSessionMultiplexer::handleDownstreamToUpstreamMessage(wire::M
       confirm.recipient_channel = *sender_channel_;
       confirm.initial_window_size = msg.initial_window_size;
       confirm.max_packet_size = msg.max_packet_size;
-      return transport_.sendMessageToConnection(confirm).status();
+      return transport_.sendMessageToConnection(std::move(confirm)).status();
     },
     [&](const wire::ChannelRequestMsg& channel_req) {
       if (!sender_channel_.has_value()) {
@@ -214,13 +214,13 @@ absl::Status MirrorSessionMultiplexer::handleDownstreamToUpstreamMessage(wire::M
         [&](const wire::PtyReqChannelRequestMsg&) {
           wire::ChannelSuccessMsg success;
           success.recipient_channel = *sender_channel_;
-          return transport_.sendMessageToConnection(success).status();
+          return transport_.sendMessageToConnection(std::move(success)).status();
         },
         [&](const wire::ShellChannelRequestMsg&) {
           ENVOY_LOG(debug, "attaching mirror to session: {}", info_.source_stream_id);
           wire::ChannelSuccessMsg success;
           success.recipient_channel = *sender_channel_;
-          if (auto r = transport_.sendMessageToConnection(success); !r.ok()) {
+          if (auto r = transport_.sendMessageToConnection(std::move(success)); !r.ok()) {
             return statusf("attaching to session failed: error responding to client request: {}", r.status());
           }
 
@@ -243,7 +243,7 @@ absl::Status MirrorSessionMultiplexer::handleDownstreamToUpstreamMessage(wire::M
     [&](const wire::ChannelDataMsg& msg) {
       if (info_.rw_mode == ReadWriteMode::ReadWrite) {
         if (auto l = source_interface_.lock(); l) {
-          l->inject(msg);
+          l->inject(auto(msg));
         }
       }
       if (msg.data->size() == 1 && msg.data->at(0) == 0x03) { // ETX (^C)
@@ -256,12 +256,12 @@ absl::Status MirrorSessionMultiplexer::handleDownstreamToUpstreamMessage(wire::M
     });
 }
 
-void MirrorSessionMultiplexer::sendMsg(const wire::Message& msg) {
+void MirrorSessionMultiplexer::sendMsg(wire::Message&& msg) {
   if (stream_ending_) {
     return;
   }
   if (!local_dispatcher_.isThreadSafe()) {
-    local_dispatcher_.post([this, msg = msg]() { sendMsg(msg); });
+    local_dispatcher_.post([this, msg = std::move(msg)]() mutable { sendMsg(std::move(msg)); });
     return;
   }
   bool send = msg.visit(
@@ -278,7 +278,7 @@ void MirrorSessionMultiplexer::sendMsg(const wire::Message& msg) {
   if (!send) {
     return;
   }
-  auto r = transport_.sendMessageToConnection(msg);
+  auto r = transport_.sendMessageToConnection(std::move(msg));
   if (!r.ok()) {
     ENVOY_LOG(error, "error sending message: {}", r.status().message());
   }
@@ -291,7 +291,7 @@ void MirrorSessionMultiplexer::onUpdate(Envoy::Buffer::Instance& buf) {
   wire::ChannelDataMsg msg;
   msg.data = wire::flushTo<bytes>(buf);
   msg.recipient_channel = *sender_channel_;
-  auto r = transport_.sendMessageToConnection(msg);
+  auto r = transport_.sendMessageToConnection(std::move(msg));
   if (!r.ok()) {
     ENVOY_LOG(error, "error sending message: {}", r.status().message());
   }
@@ -325,7 +325,7 @@ void MirrorSessionMultiplexer::onStreamEnd(const std::string& msg) {
     wire::DisconnectMsg dc;
     dc.reason_code = SSH2_DISCONNECT_BY_APPLICATION;
     dc.description = msg;
-    if (auto r = transport_.sendMessageToConnection(dc); !r.ok()) {
+    if (auto r = transport_.sendMessageToConnection(std::move(dc)); !r.ok()) {
       ENVOY_LOG(error, "error sending disconnect message: {}", r.status().message());
     }
   }

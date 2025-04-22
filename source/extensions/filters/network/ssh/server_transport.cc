@@ -12,6 +12,7 @@
 #include "source/extensions/filters/network/ssh/common.h"
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/kex.h"
+#include "source/extensions/filters/network/ssh/transport_base.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/service_connection.h"
 #include "source/extensions/filters/network/ssh/service_userauth.h"
@@ -89,15 +90,8 @@ GenericProxy::EncodingResult SshServerTransport::encode(const GenericProxy::Stre
   auto tags = frame.frameFlags().frameTags();
   switch (tags & FrameTags::FrameEffectiveTypeMask) {
   [[likely]]
-  case FrameTags::EffectiveCommon: {
-    switch (tags & FrameTags::FrameTypeMask) {
-    [[likely]]
-    case FrameTags::ResponseCommon:
-      return sendMessageToConnection(static_cast<const SSHResponseCommonFrame&>(frame).message());
-    case FrameTags::ResponseHeader:
-      return sendMessageToConnection(static_cast<const SSHResponseHeaderFrame&>(frame).message());
-    }
-  } break;
+  case FrameTags::EffectiveCommon:
+    return sendMessageToConnection(extractFrameMessage(frame));
   case FrameTags::EffectiveHeader: {
     if (authState().handoff_info.handoff_in_progress) {
       authState().handoff_info.handoff_in_progress = false;
@@ -112,12 +106,8 @@ GenericProxy::EncodingResult SshServerTransport::encode(const GenericProxy::Stre
       // instead of handling them ourselves
       ping_handler_->enableForward(true);
     }
-    switch (tags & FrameTags::FrameTypeMask) {
-    case FrameTags::ResponseCommon:
-      return sendMessageToConnection(static_cast<const SSHResponseCommonFrame&>(frame).message());
-    case FrameTags::ResponseHeader:
-      return sendMessageToConnection(static_cast<const SSHResponseHeaderFrame&>(frame).message());
-    }
+
+    return sendMessageToConnection(extractFrameMessage(frame));
   } break;
   }
   PANIC("invalid frame tags");
@@ -163,7 +153,7 @@ absl::Status SshServerTransport::handleMessage(wire::Message&& msg) {
       if (service_names_.contains(msg.service_name)) {
         wire::ServiceAcceptMsg accept;
         accept.service_name = msg.service_name;
-        return sendMessageToConnection(accept).status();
+        return sendMessageToConnection(std::move(accept)).status();
       } else {
         return absl::UnavailableError("service not available");
       }
@@ -179,7 +169,7 @@ absl::Status SshServerTransport::handleMessage(wire::Message&& msg) {
           }
           wire::GlobalRequestSuccessMsg success;
           success.response = **resp;
-          return sendMessageToConnection(success).status();
+          return sendMessageToConnection(std::move(success)).status();
         },
         [](wire::HostKeysMsg&) {
           ENVOY_LOG(warn, "received hostkeys-00@openssh.com (ignoring)");
@@ -306,12 +296,16 @@ void SshServerTransport::forward(wire::Message&& message, [[maybe_unused]] Frame
   callbacks_->onDecodingSuccess(std::move(frame));
 }
 
-void SshServerTransport::onInitialKexDone() {
+void SshServerTransport::onKexCompleted(std::shared_ptr<KexResult> kex_result, bool initial) {
+  TransportBase::onKexCompleted(std::move(kex_result), initial);
+  if (!initial) {
+    return;
+  }
   // send ext_info if we have it and the client supports it
   if (kex_result_->client_supports_ext_info) {
     auto extInfo = outgoingExtInfo();
     if (extInfo.has_value()) {
-      (void)sendMessageToConnection(*extInfo);
+      (void)sendMessageToConnection(std::move(extInfo).value());
     }
   }
 }
@@ -359,7 +353,7 @@ void SshServerTransport::onDecodingFailure(absl::Status status) {
   wire::DisconnectMsg msg;
   msg.reason_code = SSH2_DISCONNECT_BY_APPLICATION;
   msg.description = statusToString(status);
-  (void)sendMessageToConnection(msg);
+  (void)sendMessageToConnection(std::move(msg));
 
   TransportBase::onDecodingFailure(status);
 }

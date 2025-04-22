@@ -130,7 +130,7 @@ struct SubMsg {
   virtual absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const PURE;
 };
 
-struct KexInitMessage : Msg<SshMessageType::KexInit> {
+struct KexInitMsg : Msg<SshMessageType::KexInit> {
   field<fixed_bytes<16>> cookie;
   field<string_list, NameListFormat> kex_algorithms;
   field<string_list, NameListFormat> server_host_key_algorithms;
@@ -149,7 +149,7 @@ struct KexInitMessage : Msg<SshMessageType::KexInit> {
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
 
-struct KexEcdhInitMessage : Msg<SshMessageType::KexECDHInit> {
+struct KexEcdhInitMsg : Msg<SshMessageType::KexECDHInit> {
   field<bytes, LengthPrefixed> client_pub_key;
 
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
@@ -568,9 +568,9 @@ using top_level_message = sub_message<
   ServiceRequestMsg,                                              // 5
   ServiceAcceptMsg,                                               // 6
   ExtInfoMsg,                                                     // 7
-  KexInitMessage,                                                 // 20
+  KexInitMsg,                                                     // 20
   NewKeysMsg,                                                     // 21
-  OverloadedMessage<KexEcdhInitMessage>,                          // 30 (2 overloads, 1 supported)
+  OverloadedMessage<KexEcdhInitMsg>,                              // 30 (2 overloads, 1 supported)
   OverloadedMessage<KexEcdhReplyMsg>,                             // 31 (3 overloads, 1 supported)
   UserAuthRequestMsg,                                             // 50
   UserAuthFailureMsg,                                             // 51
@@ -600,7 +600,7 @@ static_assert(std::is_copy_assignable_v<top_level_message>);
 static_assert(std::is_move_constructible_v<top_level_message>);
 static_assert(std::is_move_assignable_v<top_level_message>);
 
-template <> struct overload_for<KexEcdhInitMessage> : std::type_identity<OverloadedMessage<KexEcdhInitMessage>> {};
+template <> struct overload_for<KexEcdhInitMsg> : std::type_identity<OverloadedMessage<KexEcdhInitMsg>> {};
 template <> struct overload_for<KexEcdhReplyMsg> : std::type_identity<OverloadedMessage<KexEcdhReplyMsg>> {};
 template <> struct overload_for<UserAuthPubKeyOkMsg> : std::type_identity<OverloadedMessage<UserAuthPubKeyOkMsg, UserAuthInfoRequestMsg>> {};
 template <> struct overload_for<UserAuthInfoRequestMsg> : std::type_identity<OverloadedMessage<UserAuthPubKeyOkMsg, UserAuthInfoRequestMsg>> {};
@@ -661,5 +661,7 @@ struct Message : BaseSshMsg {
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept override;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept override;
 };
+
+using MessagePtr = std::unique_ptr<Message>;
 
 } // namespace wire

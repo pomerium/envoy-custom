@@ -5,6 +5,7 @@
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/kex.h"
 #include "source/extensions/filters/network/ssh/packet_cipher.h"
+#include "source/extensions/filters/network/ssh/version_exchange.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/common.h"
 
@@ -16,12 +17,12 @@ static constexpr direction_t serverKeys{'B', 'D', 'F'};
 class PacketCipher;
 
 struct ConnectionState {
+  bool pending_key_exchange{};
   std::unique_ptr<PacketCipher> cipher;
   std::shared_ptr<uint32_t> seq_read;
   std::shared_ptr<uint32_t> seq_write;
   direction_t direction_read;
   direction_t direction_write;
-  // todo: pending key change?
 };
 
 enum class ChannelMode {
@@ -73,11 +74,12 @@ struct AuthState {
 using AuthStateSharedPtr = std::shared_ptr<AuthState>;
 
 class TransportCallbacks : public virtual Logger::Loggable<Logger::Id::filter> {
+  friend class Kex;              // uses getConnectionState and sendMessageDirect
+  friend class VersionExchanger; // uses writeToConnection
+
 public:
   virtual ~TransportCallbacks() = default;
-  virtual absl::StatusOr<size_t> sendMessageToConnection(const wire::Message& msg);
-
-  virtual void writeToConnection(Envoy::Buffer::Instance& buf) const PURE;
+  virtual absl::StatusOr<size_t> sendMessageToConnection(wire::Message&& msg) PURE;
 
   virtual void forward(wire::Message&& msg, FrameTags tags = EffectiveCommon) PURE;
   virtual void forwardHeader(wire::Message&& msg, FrameTags tags = {}) {
@@ -101,6 +103,8 @@ public:
 
 protected:
   virtual const ConnectionState& getConnectionState() const PURE;
+  virtual void writeToConnection(Envoy::Buffer::Instance& buf) const PURE;
+  virtual absl::StatusOr<size_t> sendMessageDirect(wire::Message&& msg) PURE;
 };
 
 class DownstreamTransportCallbacks : public virtual TransportCallbacks {

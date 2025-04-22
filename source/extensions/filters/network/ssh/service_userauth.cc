@@ -48,7 +48,7 @@ void DownstreamUserAuthService::registerMessageHandlers(StreamMgmtServerMessageD
 absl::Status UserAuthService::requestService() {
   wire::ServiceRequestMsg req;
   req.service_name = name();
-  return transport_.sendMessageToConnection(req).status();
+  return transport_.sendMessageToConnection(std::move(req)).status();
 }
 
 static std::pair<std::string_view, std::string_view> splitUsername(std::string_view in) {
@@ -160,7 +160,7 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
         [&](const wire::NoneAuthRequestMsg&) {
           wire::UserAuthFailureMsg failure;
           failure.methods = {"publickey"s};
-          return transport_.sendMessageToConnection(failure).status();
+          return transport_.sendMessageToConnection(std::move(failure)).status();
         },
         [&](const auto&) {
           ENVOY_LOG(debug, "unsupported user auth request {}", msg.method_name());
@@ -247,7 +247,7 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
       wire::UserAuthFailureMsg failure;
       failure.partial = deny.partial();
       failure.methods = string_list(methods.begin(), methods.end());
-      return transport_.sendMessageToConnection(failure).status();
+      return transport_.sendMessageToConnection(std::move(failure)).status();
     }
     case AuthenticationResponse::kInfoRequest: {
       const auto& infoReq = authResp.info_request();
@@ -264,7 +264,7 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
           p.echo = prompt.echo();
           client_req.prompts->push_back(std::move(p));
         }
-        return transport_.sendMessageToConnection(client_req).status();
+        return transport_.sendMessageToConnection(std::move(client_req)).status();
       }
       return absl::InvalidArgumentError("unknown method");
     }
@@ -277,11 +277,11 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
   }
 }
 
-absl::StatusOr<bool> UpstreamUserAuthService::interceptMessage(wire::Message& msg) {
+absl::StatusOr<MiddlewareResult> UpstreamUserAuthService::interceptMessage(wire::Message& msg) {
   if (msg.msg_type() != wire::SshMessageType::UserAuthSuccess) {
     return absl::FailedPreconditionError("received out-of-order ExtInfo message during auth");
   }
-  return true;
+  return Continue | UninstallSelf;
 }
 
 absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
@@ -324,7 +324,7 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
       pending_req_ = std::move(req);
       pending_user_key_ = std::move(*userSessionSshKey);
 
-      return transport_.sendMessageToConnection(*pending_req_).status();
+      return transport_.sendMessageToConnection(auto(*pending_req_)).status();
     },
     [&](opt_ref<wire::UserAuthPubKeyOkMsg> opt_msg) {
       if (!opt_msg.has_value() || !pending_req_) {
@@ -351,7 +351,7 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
       }
       pending_pk_req.has_signature = true;
       pending_pk_req.signature = *sig;
-      return transport_.sendMessageToConnection(*pending_req_).status();
+      return transport_.sendMessageToConnection(auto(*pending_req_)).status();
     },
     [&](wire::UserAuthBannerMsg& msg) {
       // If the downstream is in the auth flow, we can simply forward this along
@@ -365,7 +365,7 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
         return absl::FailedPreconditionError("unexpected ExtInfoMsg received");
       }
       ext_info_ = std::move(msg);
-      msg_dispatcher_->installNextMessageMiddleware(this);
+      msg_dispatcher_->installMiddleware(this);
       return absl::OkStatus();
     },
     [&](wire::UserAuthSuccessMsg& msg) { // forward upstream success to downstream
@@ -379,6 +379,7 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
         transport_.authState().upstream_ext_info = std::move(info);
       }
 
+      pending_req_.reset();
       transport_.forwardHeader(std::move(msg));
       return absl::OkStatus();
     },

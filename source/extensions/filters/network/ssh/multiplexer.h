@@ -33,7 +33,7 @@ public:
   void onMirrorRemoved(std::shared_ptr<MirrorCallbacks> mc) override;
 
   // SourceInterface
-  void inject(const wire::ChannelDataMsg& msg) override;
+  void inject(wire::ChannelDataMsg&& msg) override;
   void resize(const wire::WindowDimensionChangeChannelRequestMsg& msg) override;
 
 private:
@@ -77,7 +77,7 @@ public:
   absl::Status handleDownstreamToUpstreamMessage(wire::Message& msg);
 
   // MirrorCallbacks
-  void sendMsg(const wire::Message& msg) override;
+  void sendMsg(wire::Message&& msg) override;
   void onUpdate(Envoy::Buffer::Instance& buf) override;
   void onSourceResized(int width, int height) override;
   void onStreamEnd(const std::string& msg) override;

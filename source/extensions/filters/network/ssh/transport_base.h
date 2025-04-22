@@ -47,7 +47,7 @@ public:
   void setCodecCallbacks(Callbacks& callbacks) override {
     this->callbacks_ = &callbacks;
     this->registerMessageHandlers(*static_cast<SshMessageDispatcher*>(this));
-    kex_ = std::make_unique<Kex>(*this, *this, api_.fileSystem(), codec_traits<Codec>::kex_mode);
+    kex_ = std::make_unique<Kex>(*this, *this, codec_traits<Codec>::kex_mode);
     kex_->registerMessageHandlers(*this);
     version_exchanger_ = std::make_unique<VersionExchanger>(*this, *kex_);
 
@@ -99,10 +99,6 @@ public:
         onDecodingFailure(statusf("failed to decode packet: {}", n.status()));
         return;
       }
-      if (msg.msg_type() == wire::SshMessageType::NewKeys) {
-        ENVOY_LOG(debug, "resetting read sequence number");
-        *connection_state_->seq_read = 0;
-      }
       ENVOY_LOG(trace, "received message: size: {}, type: {}", *n, msg.msg_type());
       if (auto err = onMessageDecoded(std::move(msg)); !err.ok()) {
         onDecodingFailure(err);
@@ -111,18 +107,6 @@ public:
     }
   }
 
-  void setKexResult(std::shared_ptr<KexResult> kex_result) override {
-    kex_result_ = kex_result;
-
-    connection_state_->cipher =
-      PacketCipherFactory::makePacketCipher(connection_state_->direction_read,
-                                            connection_state_->direction_write,
-                                            kex_result.get());
-    if (!initial_kex_done_) {
-      initial_kex_done_ = true;
-      onInitialKexDone();
-    }
-  }
   const KexResult& getKexResult() const final { return *kex_result_; }
   const ConnectionState& getConnectionState() const final { return *connection_state_; }
   const pomerium::extensions::ssh::CodecConfig& codecConfig() const final { return *config_; }
@@ -148,13 +132,59 @@ public:
     return {peer_ext_info_};
   }
 
+  absl::StatusOr<size_t> sendMessageToConnection(wire::Message&& msg) override {
+    if (!connection_state_->pending_key_exchange) [[likely]] {
+      return sendMessageDirect(std::move(msg));
+    } else {
+      ENVOY_LOG(debug, "queueing message due to pending key exchange: {}", msg.msg_type());
+      enqueueMessage(std::move(msg));
+      return 0uz;
+    }
+  }
+
+  void onKexInitMsgSent() final {
+    connection_state_->pending_key_exchange = true;
+  }
+
+  absl::Status onNewKeysMsgSent() final {
+    if (!pending_messages_.empty()) {
+      ENVOY_LOG(debug, "sending {} messages queued during key exchange", pending_messages_.size());
+      for (auto&& it = pending_messages_.rbegin(); it != pending_messages_.rend(); it++) {
+        if (auto r = sendMessageDirect(std::move(*it)); !r.ok()) {
+          return r.status();
+        }
+      }
+      pending_messages_.clear();
+    }
+    connection_state_->pending_key_exchange = false;
+    return absl::OkStatus();
+  }
+
 protected:
   virtual absl::Status onMessageDecoded(wire::Message&& msg) {
     return dispatch(std::move(msg));
   }
-  virtual void onInitialKexDone() {
-    ENVOY_LOG(debug, "ssh: initial key exchange done");
+  void onKexStarted(bool initial) override {
+    if (initial) {
+      ENVOY_LOG(debug, "starting initial key exchange");
+    } else {
+      ENVOY_LOG(debug, "starting key re-exchange");
+    }
   }
+  void onKexCompleted(std::shared_ptr<KexResult> kex_result, bool initial) override {
+    if (initial) {
+      ENVOY_LOG(debug, "ssh: initial key exchange completed");
+    } else {
+      ENVOY_LOG(debug, "ssh: key re-exchange done");
+    }
+    kex_result_ = kex_result;
+
+    connection_state_->cipher =
+      PacketCipherFactory::makePacketCipher(connection_state_->direction_read,
+                                            connection_state_->direction_write,
+                                            kex_result.get());
+  }
+
   virtual void onDecodingFailure(absl::Status err) {
     if (err.ok()) {
       ENVOY_LOG(info, "ssh: stream {} closing", streamId(), err.message());
@@ -174,6 +204,7 @@ protected:
   std::unique_ptr<Kex> kex_;
   std::shared_ptr<KexResult> kex_result_;
   std::unique_ptr<ConnectionState> connection_state_;
+  std::deque<wire::Message> pending_messages_;
   std::optional<wire::ExtInfoMsg> outgoing_ext_info_;
   std::optional<wire::ExtInfoMsg> peer_ext_info_;
 
@@ -182,6 +213,29 @@ protected:
 private:
   bool version_exchange_done_{};
   bool initial_kex_done_{};
+
+  absl::StatusOr<size_t> sendMessageDirect(wire::Message&& msg) final {
+    const auto& cs = *connection_state_;
+
+    Envoy::Buffer::OwnedImpl dec;
+    auto stat = wire::encodePacket(dec, msg, cs.cipher->blockSize(ModeWrite), cs.cipher->aadSize(ModeWrite));
+    if (!stat.ok()) {
+      return statusf("error encoding packet: {}", stat.status());
+    }
+    Envoy::Buffer::OwnedImpl enc;
+    if (auto stat = cs.cipher->encryptPacket(*cs.seq_write, enc, dec); !stat.ok()) {
+      return statusf("error encrypting packet: {}", stat);
+    }
+    (*cs.seq_write)++;
+
+    size_t n = enc.length();
+    writeToConnection(enc);
+    return n;
+  }
+
+  void enqueueMessage(wire::Message&& msg) {
+    pending_messages_.emplace_front(std::move(msg));
+  }
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
