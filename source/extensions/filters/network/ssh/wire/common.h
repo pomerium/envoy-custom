@@ -1,11 +1,14 @@
 #pragma once
 
 #include <cstdint>
+#include <limits>
+#include <type_traits>
 #include <utility>
 #include <vector>
 #include <string>
 
 #include "fmt/format.h"
+#include "magic_enum/magic_enum.hpp"
 
 namespace wire {
 
@@ -67,10 +70,6 @@ enum class SshMessageType : uint8_t {
   Pong = 193,
 };
 
-inline constexpr auto format_as(SshMessageType mt) {
-  return fmt::underlying(mt);
-}
-
 constexpr inline SshMessageType operator~(SshMessageType t) {
   return static_cast<SshMessageType>(~std::to_underlying(t));
 }
@@ -100,4 +99,18 @@ concept SshStringType =
   std::same_as<T, std::string> ||
   std::same_as<T, std::vector<uint8_t>>;
 
+} // namespace wire
+
+namespace magic_enum::customize {
+template <>
+struct enum_range<wire::SshMessageType> {
+  static constexpr int min = std::numeric_limits<std::underlying_type_t<wire::SshMessageType>>::min();
+  static constexpr int max = std::numeric_limits<std::underlying_type_t<wire::SshMessageType>>::max();
+};
+} // namespace magic_enum::customize
+
+namespace wire {
+inline constexpr auto format_as(SshMessageType mt) {
+  return fmt::format("{} ({})", magic_enum::enum_name(mt), std::to_underlying(mt));
+}
 } // namespace wire

@@ -35,17 +35,17 @@ void SshClientTransport::setCodecCallbacks(GenericProxy::ClientCodecCallbacks& c
 
 void SshClientTransport::initServices() {
   user_auth_svc_ = std::make_unique<UpstreamUserAuthService>(*this, api_);
-  user_auth_svc_->registerMessageHandlers(*this);
   connection_svc_ = std::make_unique<UpstreamConnectionService>(*this, api_, tls_);
-  connection_svc_->registerMessageHandlers(*this);
   ping_handler_ = std::make_unique<UpstreamPingExtensionHandler>(*this);
-  ping_handler_->registerMessageHandlers(*this);
 
   services_[user_auth_svc_->name()] = user_auth_svc_.get();
   services_[connection_svc_->name()] = connection_svc_.get();
 }
 
 void SshClientTransport::registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) {
+  // initial key exchange must be complete before handling any non-kex messages
+  ASSERT(kex_result_ != nullptr);
+
   dispatcher.registerHandler(wire::SshMessageType::ServiceAccept, this);
   dispatcher.registerHandler(wire::SshMessageType::GlobalRequest, this);
   dispatcher.registerHandler(wire::SshMessageType::RequestSuccess, this);
@@ -54,6 +54,10 @@ void SshClientTransport::registerMessageHandlers(MessageDispatcher<wire::Message
   dispatcher.registerHandler(wire::SshMessageType::Debug, this);
   dispatcher.registerHandler(wire::SshMessageType::Unimplemented, this);
   dispatcher.registerHandler(wire::SshMessageType::Disconnect, this);
+
+  user_auth_svc_->registerMessageHandlers(*this);
+  connection_svc_->registerMessageHandlers(*this);
+  ping_handler_->registerMessageHandlers(*this);
 }
 
 void SshClientTransport::decode(Envoy::Buffer::Instance& buffer, bool end_stream) {

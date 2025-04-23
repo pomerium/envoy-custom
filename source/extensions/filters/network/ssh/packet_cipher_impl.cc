@@ -18,14 +18,32 @@ PacketCipher::PacketCipher(std::unique_ptr<DirectionalPacketCipher> read,
                            std::unique_ptr<DirectionalPacketCipher> write)
     : read_(std::move(read)), write_(std::move(write)) {}
 
-absl::Status PacketCipher::encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
-                                         Envoy::Buffer::Instance& in) {
+absl::StatusOr<size_t> PacketCipher::encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
+                                                   Envoy::Buffer::Instance& in) {
   return write_->encryptPacket(seqnum, out, in);
 }
 
-absl::Status PacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
-                                         Envoy::Buffer::Instance& in) {
+absl::StatusOr<size_t> PacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
+                                                   Envoy::Buffer::Instance& in) {
   return read_->decryptPacket(seqnum, out, in);
+}
+
+size_t PacketCipher::rekeyAfterBytes(Mode mode) {
+  // RFC4344 § 3.2 states:
+  //  Let L be the block length (in bits) of an SSH encryption method's
+  //  block cipher (e.g., 128 for AES).  If L is at least 128, then, after
+  //  rekeying, an SSH implementation SHOULD NOT encrypt more than 2**(L/4)
+  //  blocks before rekeying again.
+
+  auto l = blockSize(mode) * 8;
+  if (l >= 128) {
+    return 1 << (l / 4);
+  }
+
+  // cont.:
+  //  If L is less than 128, [...] rekey at least once for every gigabyte
+  //  of transmitted data.
+  return 1 << 30;
 }
 
 AEADPacketCipher::AEADPacketCipher(const char* cipher_name, bytes iv, bytes key,
@@ -41,8 +59,8 @@ AEADPacketCipher::AEADPacketCipher(const char* cipher_name, bytes iv, bytes key,
   ctx_.reset(cipher_ctx);
 }
 
-absl::Status AEADPacketCipher::encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
-                                             Envoy::Buffer::Instance& in) {
+absl::StatusOr<size_t> AEADPacketCipher::encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
+                                                       Envoy::Buffer::Instance& in) {
 
   auto in_length = in.length();
   auto in_data = static_cast<uint8_t*>(in.linearize(static_cast<uint32_t>(in_length)));
@@ -61,16 +79,16 @@ absl::Status AEADPacketCipher::encryptPacket(uint32_t seqnum, Envoy::Buffer::Ins
 
   in.drain(in_length);
   out.add(out_data.data(), out_data.size());
-  return absl::OkStatus();
+  return in_length;
 }
 
-absl::Status AEADPacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
-                                             Envoy::Buffer::Instance& in) {
-  if (in.length() < block_len_) {
-    return absl::OkStatus(); // incomplete packet
+absl::StatusOr<size_t> AEADPacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
+                                                       Envoy::Buffer::Instance& in) {
+  auto in_length = in.length();
+  if (in_length < block_len_) {
+    return 0; // incomplete packet
   }
 
-  auto in_length = in.length();
   auto in_data = static_cast<uint8_t*>(in.linearize(static_cast<uint32_t>(in_length)));
   uint32_t packlen = 0;
   if (cipher_get_length(ctx_.get(), &packlen, seqnum, in_data, static_cast<uint32_t>(in_length)) != 0) {
@@ -92,8 +110,9 @@ absl::Status AEADPacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffer::Ins
     return absl::AbortedError(fmt::format("padding error: need {} block {} mod {}", packlen,
                                           block_len_, packlen % block_len_));
   }
-  if (in_length < aad_len_ + packlen + auth_len_) {
-    return absl::OkStatus(); // incomplete packet
+  size_t need = packlen + aad_len_ + auth_len_;
+  if (in_length < need) {
+    return 0; // incomplete packet
   }
 
   bytes out_data;
@@ -105,10 +124,10 @@ absl::Status AEADPacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffer::Ins
     return absl::AbortedError(fmt::format("cipher_crypt failed: {}", ssh_err(r)));
   }
 
-  in.drain(packlen + aad_len_ + auth_len_);
+  in.drain(need);
   out.add(out_data.data(), out_data.size());
 
-  return absl::OkStatus();
+  return need;
 }
 
 namespace {
@@ -217,24 +236,25 @@ std::unique_ptr<PacketCipher> PacketCipherFactory::makeUnencryptedPacketCipher()
   return std::make_unique<PacketCipher>(std::make_unique<NoCipher>(), std::make_unique<NoCipher>());
 }
 
-absl::Status NoCipher::decryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
-                                     Envoy::Buffer::Instance& in) {
+absl::StatusOr<size_t> NoCipher::decryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
+                                               Envoy::Buffer::Instance& in) {
   uint32_t packlen = in.peekBEInt<uint32_t>();
   if (packlen < wire::MinPacketSize || packlen > wire::MaxPacketSize) {
     return absl::AbortedError("invalid packet size");
   }
-  auto need = packlen + 4;
+  uint32_t need = packlen + 4;
   if (in.length() < need) {
-    return absl::OkStatus(); // incomplete packet
+    return 0; // incomplete packet
   }
   out.move(in, need);
-  return absl::OkStatus();
+  return need;
 }
 
-absl::Status NoCipher::encryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
-                                     Envoy::Buffer::Instance& in) {
-  out.move(in);
-  return absl::OkStatus();
+absl::StatusOr<size_t> NoCipher::encryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
+                                               Envoy::Buffer::Instance& in) {
+  size_t in_len = in.length();
+  out.move(in, in_len);
+  return in_len;
 }
 
 size_t NoCipher::blockSize() {

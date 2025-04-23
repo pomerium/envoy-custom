@@ -114,7 +114,7 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
           {
             // RFC4242 § 7
             Envoy::Buffer::OwnedImpl verifyBuf;
-            wire::write_opt<wire::LengthPrefixed>(verifyBuf, transport_.getKexResult().session_id);
+            wire::write_opt<wire::LengthPrefixed>(verifyBuf, transport_.sessionId());
             constexpr static wire::field<bool> has_signature = true;
             if (auto r = wire::encodeMsg(verifyBuf, msg.type,
                                          msg.username,
@@ -332,7 +332,7 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
       }
       // compute signature
       Envoy::Buffer::OwnedImpl buf;
-      wire::write_opt<wire::LengthPrefixed>(buf, transport_.getKexResult().session_id);
+      wire::write_opt<wire::LengthPrefixed>(buf, transport_.sessionId());
       auto& pending_pk_req = pending_req_->request.get<wire::PubKeyUserAuthRequestMsg>();
       constexpr static wire::field<bool> has_signature = true;
       if (auto r = wire::encodeMsg(buf, pending_req_->type,
@@ -370,7 +370,7 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
     },
     [&](wire::UserAuthSuccessMsg& msg) { // forward upstream success to downstream
       // this comment intentionally placed here for searchability ^
-      ENVOY_LOG(info, "user auth success: \n{} [{}]", pending_req_->username,
+      ENVOY_LOG(info, "user auth success: {} [{}]", pending_req_->username,
                 pending_req_->method_name());
       if (ext_info_.has_value()) {
         transport_.updatePeerExtInfo(std::move(ext_info_));

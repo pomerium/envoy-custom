@@ -4,7 +4,6 @@
 #include <memory>
 #include <string>
 
-#include "envoy/filesystem/filesystem.h"
 #include "source/extensions/filters/network/ssh/kex_alg.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/version_exchange.h"
@@ -22,6 +21,8 @@ struct KexState {
   std::unique_ptr<KexAlgorithm> alg_impl;
   KexResultSharedPtr kex_result;
 
+  bool kex_init_sent{};
+  bool kex_init_received{};
   bool client_supports_ext_info{};
   bool server_supports_ext_info{};
   bool ext_info_sent{};
@@ -37,9 +38,7 @@ public:
   virtual ~KexCallbacks() = default;
   virtual void onKexStarted(bool initial_kex) PURE;
   virtual void onKexCompleted(std::shared_ptr<KexResult> kex_result, bool initial_kex) PURE;
-
   virtual void onKexInitMsgSent() PURE;
-  virtual absl::Status onNewKeysMsgSent() PURE;
 };
 
 enum class KexMode {
@@ -66,6 +65,7 @@ public:
   absl::Status loadHostKeys();
   absl::Status loadSshKeyPair(const std::string& priv_key_path, const std::string& pub_key_path);
   void setVersionStrings(const std::string& ours, const std::string& peer) override;
+  absl::Status initiateRekey();
 
 private:
   struct IncorrectGuessMsgHandler final : public SshMessageMiddleware {
@@ -93,7 +93,9 @@ private:
     Kex& self;
   };
 
-  inline bool isInitialKex() { return active_state_ == nullptr; }
+  inline bool isInitialKex() {
+    return active_state_ == nullptr;
+  }
 
   KexAlgMsgHandler msg_handler_kex_alg_{*this};
   NewKeysMsgHandler msg_handler_new_keys_{*this};

@@ -30,6 +30,8 @@ envoy_version = "182e0dd26d878bc015a1286f2815676080cecf17"
 
 openssh_version = "V_9_9_P1"
 
+magic_enum_version = "a413fcc9c46a020a746907136a384c227f3cd095"
+
 http_archive(
     name = "envoy",
     patch_args = [
@@ -121,4 +123,20 @@ envoy_http_archive(
     patches = [
         "//patches/libvterm:0001-makefile.patch",
     ],
+)
+
+envoy_http_archive(
+    name = "magic_enum",
+    build_file_content = """cc_library(name = "magic_enum", hdrs = glob(["include/magic_enum/*.hpp"]), includes = ["include"], visibility = ["//visibility:public"])""",
+    locations = dict(
+        magic_enum = dict(
+            license = "MIT",
+            license_url = "https://github.com/Neargye/magic_enum/blob/master/LICENSE",
+            project_name = "magic_enum",
+            sha256 = "4fd719717102b308527528fa26ea93ce3c9d583aae8ffaf68e1199906ce22382",
+            strip_prefix = "magic_enum-" + magic_enum_version,
+            urls = ["https://github.com/Neargye/magic_enum/archive/" + magic_enum_version + ".zip"],
+            version = magic_enum_version,
+        ),
+    ),
 )

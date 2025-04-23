@@ -37,7 +37,6 @@ SshServerTransport::SshServerTransport(Api::Api& api,
   THROW_IF_NOT_OK_REF(grpcClient.status());
   mgmt_client_ = std::make_unique<StreamManagementServiceClient>(*grpcClient);
   channel_client_ = std::make_unique<ChannelStreamServiceClient>(*grpcClient);
-  this->registerMessageHandlers(*mgmt_client_);
 
   wire::ExtInfoMsg extInfo;
   wire::PingExtension pingExt;
@@ -47,6 +46,9 @@ SshServerTransport::SshServerTransport(Api::Api& api,
 };
 
 void SshServerTransport::registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) {
+  // initial key exchange must be complete before handling any non-kex messages
+  ASSERT(kex_result_ != nullptr);
+
   dispatcher.registerHandler(wire::SshMessageType::ServiceRequest, this);
   dispatcher.registerHandler(wire::SshMessageType::GlobalRequest, this);
   dispatcher.registerHandler(wire::SshMessageType::RequestSuccess, this);
@@ -55,6 +57,13 @@ void SshServerTransport::registerMessageHandlers(MessageDispatcher<wire::Message
   dispatcher.registerHandler(wire::SshMessageType::Debug, this);
   dispatcher.registerHandler(wire::SshMessageType::Unimplemented, this);
   dispatcher.registerHandler(wire::SshMessageType::Disconnect, this);
+
+  user_auth_service_->registerMessageHandlers(*this);
+  ping_handler_->registerMessageHandlers(*this);
+  connection_service_->registerMessageHandlers(*this);
+
+  user_auth_service_->registerMessageHandlers(*mgmt_client_);
+  this->registerMessageHandlers(*mgmt_client_);
 }
 
 void SshServerTransport::registerMessageHandlers(
@@ -74,12 +83,8 @@ void SshServerTransport::setCodecCallbacks(Callbacks& callbacks) {
 
 void SshServerTransport::initServices() {
   user_auth_service_ = std::make_unique<DownstreamUserAuthService>(*this, api_);
-  user_auth_service_->registerMessageHandlers(*this);
-  user_auth_service_->registerMessageHandlers(*mgmt_client_);
   connection_service_ = std::make_unique<DownstreamConnectionService>(*this, api_, tls_);
-  connection_service_->registerMessageHandlers(*this);
   ping_handler_ = std::make_unique<DownstreamPingExtensionHandler>(*this);
-  ping_handler_->registerMessageHandlers(*this);
 
   service_names_.insert(user_auth_service_->name());
   service_names_.insert(connection_service_->name());

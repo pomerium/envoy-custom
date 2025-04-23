@@ -16,13 +16,13 @@ static constexpr direction_t serverKeys{'B', 'D', 'F'};
 
 class PacketCipher;
 
-struct ConnectionState {
+struct CipherState {
   bool pending_key_exchange{};
   std::unique_ptr<PacketCipher> cipher;
-  std::shared_ptr<uint32_t> seq_read;
-  std::shared_ptr<uint32_t> seq_write;
-  direction_t direction_read;
-  direction_t direction_write;
+  uint32_t seq_read{};
+  uint32_t seq_write{};
+  uint64_t read_bytes_remaining{};
+  uint64_t write_bytes_remaining{};
 };
 
 enum class ChannelMode {
@@ -74,7 +74,7 @@ struct AuthState {
 using AuthStateSharedPtr = std::shared_ptr<AuthState>;
 
 class TransportCallbacks : public virtual Logger::Loggable<Logger::Id::filter> {
-  friend class Kex;              // uses getConnectionState and sendMessageDirect
+  friend class Kex;              // uses reset{Read|Write}SequenceNumber and sendMessageDirect
   friend class VersionExchanger; // uses writeToConnection
 
 public:
@@ -86,7 +86,7 @@ public:
     forward(std::move(msg), FrameTags{tags | EffectiveHeader});
   };
 
-  virtual const KexResult& getKexResult() const PURE;
+  virtual const bytes& sessionId() const PURE;
   virtual absl::StatusOr<bytes> signWithHostKey(bytes_view in) const PURE;
   virtual const AuthState& authState() const PURE;
   virtual AuthState& authState() PURE;
@@ -102,9 +102,10 @@ public:
   virtual std::optional<wire::ExtInfoMsg> peerExtInfo() const PURE;
 
 protected:
-  virtual const ConnectionState& getConnectionState() const PURE;
   virtual void writeToConnection(Envoy::Buffer::Instance& buf) const PURE;
   virtual absl::StatusOr<size_t> sendMessageDirect(wire::Message&& msg) PURE;
+  virtual uint64_t resetReadSequenceNumber() PURE;
+  virtual uint64_t resetWriteSequenceNumber() PURE;
 };
 
 class DownstreamTransportCallbacks : public virtual TransportCallbacks {

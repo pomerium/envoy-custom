@@ -33,6 +33,7 @@ envoy_cc_library(
         "@envoy//source/common/common:fmt_lib",
         "@envoy//source/common/common:random_generator_lib",
         "@envoy//source/common/common:utility_lib",
+        "@magic_enum",
     ],
 )
 

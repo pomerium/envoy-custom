@@ -149,9 +149,13 @@ absl::Status Kex::handleMessage(wire::Message&& msg) noexcept {
   return msg.visit(
     [&](wire::KexInitMsg& msg) {
       if (pending_state_) {
-        return absl::FailedPreconditionError("unexpected KexInit message received");
+        if (!pending_state_->kex_init_sent || pending_state_->kex_init_received) {
+          return absl::FailedPreconditionError("unexpected KexInit message received");
+        }
+      } else {
+        pending_state_ = std::make_unique<KexState>();
       }
-      pending_state_ = std::make_unique<KexState>();
+      pending_state_->kex_init_received = true;
       auto initial_kex = isInitialKex();
       kex_callbacks_.onKexStarted(initial_kex);
 
@@ -170,8 +174,10 @@ absl::Status Kex::handleMessage(wire::Message&& msg) noexcept {
       }
       pending_state_->peer_kex = std::move(msg);
 
-      if (auto err = sendKexInitMsg(initial_kex); !err.ok()) {
-        return err;
+      if (!pending_state_->kex_init_sent) {
+        if (auto err = sendKexInitMsg(initial_kex); !err.ok()) {
+          return err;
+        }
       }
 
       if (auto algs = negotiateAlgorithms(initial_kex); !algs.ok()) {
@@ -247,12 +253,16 @@ absl::Status Kex::sendKexInitMsg(bool initial_kex) noexcept {
     pending_state_->magics.client_kex_init = std::move(*raw_kex_init);
   }
 
+  // notify transport to pause message forwarding
+  // this is called before actually sending the message to prevent recursively initiating a
+  // key re-exchange
+  kex_callbacks_.onKexInitMsgSent();
+
   if (auto r = transport_.sendMessageDirect(auto(*server_kex_init)); !r.ok()) {
     return r.status();
   }
+  pending_state_->kex_init_sent = true;
 
-  // notify transport to pause message forwarding
-  kex_callbacks_.onKexInitMsgSent();
   return absl::OkStatus();
 }
 
@@ -260,8 +270,9 @@ void Kex::onNewKeysMsgReceived() {
   // NB: order is important here
 
   // reset sequence number upon receiving NewKeys
-  ENVOY_LOG(debug, "resetting read sequence number (prev: {})", *transport_.getConnectionState().seq_read);
-  *transport_.getConnectionState().seq_read = 0;
+  auto prev = transport_.resetReadSequenceNumber();
+  ENVOY_LOG(debug, "ssh [{}]: resetting read sequence number (prev: {})",
+            is_server_ ? "server" : "client", prev);
 
   bool initial = isInitialKex(); // checks active_state_
 
@@ -280,11 +291,11 @@ absl::Status Kex::sendNewKeysMsg() {
   }
 
   // reset write sequence number after sending NewKeys
-  ENVOY_LOG(debug, "resetting write sequence number (prev: {})", *transport_.getConnectionState().seq_write);
-  *transport_.getConnectionState().seq_write = 0;
+  auto prev = transport_.resetWriteSequenceNumber();
+  ENVOY_LOG(debug, "ssh [{}]: resetting write sequence number (prev: {})",
+            is_server_ ? "server" : "client", prev);
 
-  // notify transport to resume message forwarding if necessary (using new sequence numbers)
-  return kex_callbacks_.onNewKeysMsgSent();
+  return absl::OkStatus();
 }
 
 absl::StatusOr<Algorithms> Kex::negotiateAlgorithms(bool initial_kex) noexcept {
@@ -302,6 +313,10 @@ absl::StatusOr<Algorithms> Kex::negotiateAlgorithms(bool initial_kex) noexcept {
     pending_state_->client_supports_ext_info = active_state_->client_supports_ext_info;
     pending_state_->server_supports_ext_info = active_state_->server_supports_ext_info;
     pending_state_->kex_strict = active_state_->kex_strict;
+  }
+
+  if (!pending_state_->kex_strict) {
+    return absl::InvalidArgumentError("strict key exchange mode is required");
   }
 
   if (is_server_) {
@@ -333,7 +348,7 @@ absl::StatusOr<Algorithms> Kex::negotiateAlgorithms(bool initial_kex) noexcept {
     }
     result.kex = *common_kex;
 
-    // RFC8308 section 2.2
+    // RFC8308 § 2.2
     if (invalid_key_exchange_methods.contains(result.kex)) {
       return absl::InvalidArgumentError(
         fmt::format("negotiated an invalid key exchange method: {}", result.kex));
@@ -490,4 +505,15 @@ absl::Status Kex::loadSshKeyPair(const std::string& priv_key_path, const std::st
   return absl::OkStatus();
 }
 
+absl::Status Kex::initiateRekey() {
+  if (pending_state_) {
+    PANIC("bug: initiateRekey called recursively");
+  }
+  if (!active_state_) {
+    PANIC("bug: initiateRekey called without active state");
+  }
+
+  pending_state_ = std::make_unique<KexState>();
+  return sendKexInitMsg(false);
+}
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

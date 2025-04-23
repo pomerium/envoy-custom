@@ -4,6 +4,7 @@
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
 
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
+#include "source/extensions/filters/network/ssh/extension_ping.h"
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "source/extensions/filters/network/ssh/message_handler.h"
@@ -56,8 +57,7 @@ private:
   absl::Status handleMessage(wire::Message&& msg) override;
   absl::Status handleMessage(Grpc::ResponsePtr<ServerMessage>&& msg) override;
   void registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) override;
-  void registerMessageHandlers(
-    MessageDispatcher<Grpc::ResponsePtr<ServerMessage>>& dispatcher) override;
+  void registerMessageHandlers(MessageDispatcher<Grpc::ResponsePtr<ServerMessage>>& dispatcher) override;
 
   void sendMgmtClientMessage(const ClientMessage& msg) override;
 

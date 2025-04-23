@@ -124,8 +124,15 @@ template <>
 struct message_case_type<wire::Message> : std::type_identity<wire::SshMessageType> {};
 
 template <>
+struct message_case_type<wire::MessagePtr> : std::type_identity<wire::SshMessageType> {};
+
+template <>
 inline wire::SshMessageType messageCase(const wire::Message& msg) {
   return msg.msg_type();
+}
+template <>
+inline wire::SshMessageType messageCase(const wire::MessagePtr& msg) {
+  return msg->msg_type();
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

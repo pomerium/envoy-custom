@@ -5,6 +5,7 @@
 #include "source/extensions/filters/network/generic_proxy/codec_callbacks.h"
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
 
+#include "source/extensions/filters/network/ssh/extension_ping.h"
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/service.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"

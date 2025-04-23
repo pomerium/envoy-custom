@@ -18,10 +18,10 @@ class AEADPacketCipher : public DirectionalPacketCipher,
 public:
   AEADPacketCipher(const char* cipher_name, bytes iv, bytes key, Mode mode);
 
-  absl::Status decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
-                             Envoy::Buffer::Instance& in) override;
-  absl::Status encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
-                             Envoy::Buffer::Instance& in) override;
+  absl::StatusOr<size_t> decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
+                                       Envoy::Buffer::Instance& in) override;
+  absl::StatusOr<size_t> encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
+                                       Envoy::Buffer::Instance& in) override;
   size_t blockSize() override;
   size_t aadSize() override;
 
@@ -54,10 +54,10 @@ public:
 class NoCipher final : public DirectionalPacketCipher {
 public:
   NoCipher() = default;
-  absl::Status decryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
-                             Envoy::Buffer::Instance& in) override;
-  absl::Status encryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
-                             Envoy::Buffer::Instance& in) override;
+  absl::StatusOr<size_t> decryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
+                                       Envoy::Buffer::Instance& in) override;
+  absl::StatusOr<size_t> encryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
+                                       Envoy::Buffer::Instance& in) override;
   size_t blockSize() override;
   size_t aadSize() override;
 };

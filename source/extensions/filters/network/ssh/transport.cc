@@ -3,8 +3,6 @@
 #include <memory>
 
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
-#include "source/common/status.h"
-#include "source/extensions/filters/network/ssh/wire/packet.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -28,4 +26,5 @@ std::unique_ptr<AuthState> AuthState::clone() {
   }
   return newState;
 }
+
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
