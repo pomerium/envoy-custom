@@ -54,7 +54,7 @@ To run tests with code coverage, create a `bazel` task in `.vscode/tasks.json` a
         "--experimental_fetch_all_coverage_outputs"
       ]
     }
-  ],
+  ]
 }
 ```
 
@@ -68,4 +68,20 @@ The following vscode extensions are recommended:
 - https://marketplace.visualstudio.com/items?itemName=llvm-vs-code-extensions.vscode-clangd
 - https://marketplace.visualstudio.com/items?itemName=vadimcn.vscode-lldb
 
-Generate `compile_commands.json` by running `tools/vscode/refresh_compdb.sh`.
+### Clangd config
+
+The following clangd extension settings are recommended:
+
+```json
+"clangd.checkUpdates": true,
+"clangd.arguments": [
+    "--clang-tidy",
+    "--header-insertion=never",
+    "--all-scopes-completion",
+    "--compile-commands-dir=${workspaceFolder}/",
+    "--query-driver=**",
+    "--pch-storage=memory" // optional
+    "-j",
+    "xx" // <- set this to (number of cores / 2)
+],
+```
