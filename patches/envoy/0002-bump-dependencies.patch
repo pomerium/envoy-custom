@@ -1,37 +1,11 @@
-diff --git a/bazel/BUILD b/bazel/BUILD
-index 437718eb14..d0903bb625 100644
---- a/bazel/BUILD
-+++ b/bazel/BUILD
-@@ -463,7 +463,7 @@ config_setting(
- 
- cc_proto_library(
-     name = "grpc_health_proto",
--    deps = ["@com_github_grpc_grpc//src/proto/grpc/health/v1:_health_proto_only"],
-+    deps = ["@com_github_grpc_grpc//src/proto/grpc/health/v1:health_proto"],
- )
- 
- config_setting(
 diff --git a/bazel/grpc.patch b/bazel/grpc.patch
-index b09770279a..308eb7c829 100644
+index b09770279a..a852690ac4 100644
 --- a/bazel/grpc.patch
 +++ b/bazel/grpc.patch
-@@ -24,16 +24,25 @@ index 1bb970e049..81265483e9 100644
-      ],
-  )
-  
--diff --git a/bazel/generate_cc.bzl b/bazel/generate_cc.bzl
--index a2c7f3a1bb..cd023ebb06 100644
----- a/bazel/generate_cc.bzl
--+++ b/bazel/generate_cc.bzl
--@@ -134,7 +134,7 @@ def generate_cc_impl(ctx):
-- 
--     # Include the output directory so that protoc puts the generated code in the
--     # right directory.
---    arguments.append("--proto_path={0}{1}".format(dir_out, proto_root))
--+    arguments.append("--proto_path={0}".format(dir_out))
--     arguments += [_get_srcs_file_path(proto) for proto in protos]
-- 
--     # create a list of well known proto files if the argument is non-None
+@@ -37,3 +37,25 @@ index a2c7f3a1bb..cd023ebb06 100644
+      arguments += [_get_srcs_file_path(proto) for proto in protos]
+
+      # create a list of well known proto files if the argument is non-None
 +diff --git a/third_party/BUILD b/third_party/BUILD
 +index 77cb52d0fc..5f69f71978 100644
 +--- a/third_party/BUILD
@@ -54,19 +28,7 @@ index b09770279a..308eb7c829 100644
 +     tags = ["manual"],
 + )
 +
-diff --git a/bazel/repositories.bzl b/bazel/repositories.bzl
-index 3e5a2366dd..1977450bb5 100644
---- a/bazel/repositories.bzl
-+++ b/bazel/repositories.bzl
-@@ -866,8 +866,6 @@ def _com_github_luajit_luajit():
- def _com_github_google_tcmalloc():
-     external_http_archive(
-         name = "com_github_google_tcmalloc",
--        patches = ["@envoy//bazel:tcmalloc.patch"],
--        patch_args = ["-p1"],
-     )
- 
- def _com_github_gperftools_gperftools():
+
 diff --git a/bazel/repository_locations.bzl b/bazel/repository_locations.bzl
 index caf9659217..411e66514d 100644
 --- a/bazel/repository_locations.bzl
@@ -75,10 +37,10 @@ index caf9659217..411e66514d 100644
          project_name = "tcmalloc",
          project_desc = "Fast, multi-threaded malloc implementation",
          project_url = "https://github.com/google/tcmalloc",
--        version = "e33c7bc60415127c104006d3301c96902f98d42a",
--        sha256 = "14a2c91b71d6719558768a79671408c9acd8284b418e80386c5888047e2c15aa",
-+        version = "1d6650b3b2a31f6bdc6dd4b7e7d5fdd60e287369",
-+        sha256 = "c29282cf1c66131e3c95ded1f9e780d525d9ae2b19b48b723022d949da718491",
+-        version = "5da4a882003102fba0c0c0e8f6372567057332eb",
+-        sha256 = "fd92d64d8302f1677570fdff844e8152c314e559a6c788c6bfc3844954d0dabd",
++        version = "0c3faab546c22d67e11327c6c6c7c34c1707c5db",
++        sha256 = "621824a62f56ea25f947bb64e107b7c6fb8b31199c46115dc783a670be35e2ca",
          strip_prefix = "tcmalloc-{version}",
          urls = ["https://github.com/google/tcmalloc/archive/{version}.tar.gz"],
          use_category = ["dataplane_core", "controlplane"],
@@ -88,30 +50,8 @@ index caf9659217..411e66514d 100644
          project_url = "https://grpc.io",
 -        version = "1.63.2",
 -        sha256 = "5b5b9c6507ec166ec0e9e82f58280c36544540ecdd818eaab7b8601596b74c9e",
-+        version = "1.70.1",
-+        sha256 = "c4e85806a3a23fd2a78a9f8505771ff60b2beef38305167d50f5e8151728e426",
++        version = "1.66.2",
++        sha256 = "1343e2d0c4cbd36cbfbbe4c7305a5529a7a044212c57b9dbfd929a6ceda285f4",
          strip_prefix = "grpc-{version}",
          urls = ["https://github.com/grpc/grpc/archive/v{version}.tar.gz"],
          use_category = ["dataplane_core", "controlplane"],
-diff --git a/bazel/tcmalloc.patch b/bazel/tcmalloc.patch
-deleted file mode 100644
-index eb7cc2b025..0000000000
---- a/bazel/tcmalloc.patch
-+++ /dev/null
-@@ -1,16 +0,0 @@
--diff --git a/tcmalloc/page_allocator_interface.h b/tcmalloc/page_allocator_interface.h
--index f9bf0bd..593f130 100644
----- a/tcmalloc/page_allocator_interface.h
--+++ b/tcmalloc/page_allocator_interface.h
--@@ -80,7 +80,10 @@ class PageAllocatorInterface {
--   virtual void PrintInPbtxt(PbtxtRegion* region)
--       ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
-- 
---  const PageAllocInfo& info() const { return info_; }
--+  const PageAllocInfo& info() const
--+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
--+    return info_;
--+  }
-- 
--  protected:
--   PageAllocInfo info_ ABSL_GUARDED_BY(pageheap_lock);
