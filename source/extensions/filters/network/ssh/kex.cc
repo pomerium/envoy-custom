@@ -1,7 +1,5 @@
 #include "source/extensions/filters/network/ssh/kex.h"
 
-#include <memory>
-
 #include "openssl/rand.h"
 
 #include "source/extensions/filters/network/ssh/kex_alg.h"
@@ -11,16 +9,11 @@
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
 
-extern "C" {
-#include "openssh/sshkey.h"
-}
-
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 Kex::Kex(TransportCallbacks& transport_callbacks, KexCallbacks& kex_callbacks, KexMode mode)
     : transport_(transport_callbacks), kex_callbacks_(kex_callbacks),
       is_server_(mode == KexMode::Server) {
-  THROW_IF_NOT_OK(loadHostKeys());
 }
 
 void Kex::registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) {
@@ -36,6 +29,10 @@ void Kex::setVersionStrings(const std::string& ours, const std::string& peer) {
     server_version_ = peer;
     client_version_ = ours;
   }
+}
+
+void Kex::setHostKeys(std::vector<openssh::SSHKeyPtr> host_keys) {
+  host_keys_ = std::move(host_keys);
 }
 
 absl::StatusOr<MiddlewareResult> Kex::IncorrectGuessMsgHandler::interceptMessage(wire::Message& msg) {
@@ -239,7 +236,7 @@ absl::Status Kex::sendKexInitMsg(bool initial_kex) noexcept {
   server_kex_init->compression_algorithms_server_to_client = {"none"s};
   RAND_bytes(server_kex_init->cookie->data(), sizeof(server_kex_init->cookie));
   for (const auto& hostKey : host_keys_) {
-    auto algs = algorithmsForKeyFormat(hostKey.priv.name());
+    auto algs = algorithmsForKeyFormat(hostKey->name());
     server_kex_init->server_host_key_algorithms->append_range(algs);
   }
 
@@ -459,50 +456,23 @@ absl::StatusOr<std::unique_ptr<KexAlgorithm>> Kex::newAlgorithmImpl() {
     fmt::format("unsupported key exchange algorithm: {}", pending_state_->negotiated_algorithms.kex));
 }
 
-const host_keypair_t* Kex::pickHostKey(std::string_view alg) {
+const openssh::SSHKey* Kex::pickHostKey(std::string_view alg) {
   for (const auto& keypair : host_keys_) {
-    for (const auto& keyAlg : algorithmsForKeyFormat(keypair.pub.name())) {
+    for (const auto& keyAlg : algorithmsForKeyFormat(keypair->name())) {
       if (alg == keyAlg) {
-        return &keypair;
+        return keypair.get();
       }
     }
   }
   return nullptr;
 }
-const host_keypair_t* Kex::getHostKey(sshkey_types pktype) {
+const openssh::SSHKey* Kex::getHostKey(sshkey_types pktype) {
   for (const auto& keypair : host_keys_) {
-    if (keypair.pub.keyType() == pktype) {
-      return &keypair;
+    if (keypair->keyType() == pktype) {
+      return keypair.get();
     }
   }
   return nullptr;
-}
-
-absl::Status Kex::loadHostKeys() {
-  auto hostKeys = transport_.codecConfig().host_keys();
-  for (const auto& hostKey : hostKeys) {
-    auto err = loadSshKeyPair(hostKey.private_key_file(), hostKey.public_key_file());
-    if (!err.ok()) {
-      return err;
-    }
-  }
-  return absl::OkStatus();
-}
-
-absl::Status Kex::loadSshKeyPair(const std::string& priv_key_path, const std::string& pub_key_path) {
-  auto priv = openssh::SSHKey::fromPrivateKeyFile(priv_key_path);
-  if (!priv.ok()) {
-    return priv.status();
-  }
-  auto pub = openssh::SSHKey::fromPublicKeyFile(pub_key_path);
-  if (!pub.ok()) {
-    return pub.status();
-  }
-  host_keys_.emplace_back(host_keypair_t{
-    .priv = std::move(*priv),
-    .pub = std::move(*pub),
-  });
-  return absl::OkStatus();
 }
 
 absl::Status Kex::initiateRekey() {
@@ -516,4 +486,5 @@ absl::Status Kex::initiateRekey() {
   pending_state_ = std::make_unique<KexState>();
   return sendKexInitMsg(false);
 }
+
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

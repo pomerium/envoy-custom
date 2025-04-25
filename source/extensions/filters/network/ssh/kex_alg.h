@@ -18,11 +18,6 @@ extern "C" {
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-struct host_keypair_t {
-  openssh::SSHKey priv;
-  openssh::SSHKey pub;
-};
-
 static constexpr auto kexAlgoCurve25519SHA256LibSSH = "curve25519-sha256@libssh.org";
 static constexpr auto kexAlgoCurve25519SHA256 = "curve25519-sha256";
 
@@ -135,7 +130,7 @@ class KexAlgorithm : public Logger::Loggable<Logger::Id::filter> {
 
 public:
   KexAlgorithm(const HandshakeMagics* magics, const Algorithms* algs,
-               const host_keypair_t* signer)
+               const openssh::SSHKey* signer)
       : magics_(magics), algs_(algs), signer_(signer) {
     ASSERT(magics_ != nullptr);
     ASSERT(algs_ != nullptr);
@@ -154,7 +149,7 @@ public:
 protected:
   const HandshakeMagics* magics_;
   const Algorithms* algs_;
-  const host_keypair_t* signer_;
+  const openssh::SSHKey* signer_;
 
   bool shouldIgnorePacket() {
     if (!should_ignore_one_) {
@@ -195,7 +190,7 @@ protected:
     result->host_key_blob = host_key_blob;
 
     auto digest = computeExchangeHash(host_key_blob, client_pub_key, server_pub_key, shared_secret);
-    auto sig = signer_->priv.sign(digest);
+    auto sig = signer_->sign(digest);
     if (!sig.ok()) {
       return statusf("error signing exchange hash: {}", sig.status());
     }
@@ -222,12 +217,12 @@ protected:
 
     auto digest = computeExchangeHash(host_key_blob, client_pub_key, server_pub_key, shared_secret);
 
-    auto server_host_key = openssh::SSHKey::fromBlob(host_key_blob);
-    if (!server_host_key.ok()) {
-      return statusf("error reading host key blob: {}", server_host_key.status());
+    auto server_host_pubkey = openssh::SSHKey::fromPublicKeyBlob(host_key_blob);
+    if (!server_host_pubkey.ok()) {
+      return statusf("error reading host key blob: {}", server_host_pubkey.status());
     }
 
-    auto stat = server_host_key->verify(signature, digest);
+    auto stat = (*server_host_pubkey)->verify(signature, digest);
     if (!stat.ok()) {
       return statusf("signature failed verification: {}", stat);
     }

@@ -55,17 +55,18 @@ public:
       KexCallbacks& kex_callbacks,
       KexMode mode);
 
-  void registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) override;
-  absl::StatusOr<Algorithms> negotiateAlgorithms(bool initial_kex) noexcept;
-  absl::StatusOr<std::unique_ptr<KexAlgorithm>> newAlgorithmImpl();
-  const host_keypair_t* pickHostKey(std::string_view alg);
-  const host_keypair_t* getHostKey(sshkey_types pkalg);
-  absl::StatusOr<std::string> findCommon(std::string_view what, const string_list& client,
-                                         const string_list& server);
-  absl::Status loadHostKeys();
-  absl::Status loadSshKeyPair(const std::string& priv_key_path, const std::string& pub_key_path);
-  void setVersionStrings(const std::string& ours, const std::string& peer) override;
   absl::Status initiateRekey();
+  const openssh::SSHKey* pickHostKey(std::string_view alg);
+  const openssh::SSHKey* getHostKey(sshkey_types pkalg);
+
+  // SshMessageHandler
+  void registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) override;
+  absl::Status handleMessage(wire::Message&& msg) noexcept override;
+
+  // VersionExchangeCallbacks
+  void setVersionStrings(const std::string& ours, const std::string& peer) override;
+
+  void setHostKeys(std::vector<openssh::SSHKeyPtr> host_keys);
 
 private:
   struct IncorrectGuessMsgHandler final : public SshMessageMiddleware {
@@ -93,20 +94,23 @@ private:
     Kex& self;
   };
 
-  inline bool isInitialKex() {
-    return active_state_ == nullptr;
-  }
-
   KexAlgMsgHandler msg_handler_kex_alg_{*this};
   NewKeysMsgHandler msg_handler_new_keys_{*this};
   ExtInfoMsgHandler msg_handler_ext_info_{*this};
   IncorrectGuessMsgHandler msg_handler_incorrect_guess_{*this};
 
-  absl::Status handleMessage(wire::Message&& msg) noexcept override;
+  // absl::Status loadHostKeys();
+  // absl::Status loadSshKeyPair(const std::string& priv_key_path, const std::string& pub_key_path);
+
+  absl::StatusOr<Algorithms> negotiateAlgorithms(bool initial_kex) noexcept;
+  absl::StatusOr<std::unique_ptr<KexAlgorithm>> newAlgorithmImpl();
+  absl::StatusOr<std::string> findCommon(std::string_view what, const string_list& client,
+                                         const string_list& server);
 
   absl::Status sendKexInitMsg(bool initial_kex) noexcept;
   absl::Status sendNewKeysMsg();
   void onNewKeysMsgReceived();
+  inline bool isInitialKex() { return active_state_ == nullptr; }
 
   std::string client_version_;
   std::string server_version_;
@@ -115,7 +119,7 @@ private:
   std::unique_ptr<KexState> pending_state_;
   std::unique_ptr<KexState> active_state_;
   bool is_server_;
-  std::vector<host_keypair_t> host_keys_;
+  std::vector<openssh::SSHKeyPtr> host_keys_;
   Envoy::OptRef<MessageDispatcher<wire::Message>> msg_dispatcher_;
 };
 

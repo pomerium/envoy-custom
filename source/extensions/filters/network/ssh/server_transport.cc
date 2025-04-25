@@ -73,6 +73,11 @@ void SshServerTransport::registerMessageHandlers(
 
 void SshServerTransport::setCodecCallbacks(Callbacks& callbacks) {
   TransportBase::setCodecCallbacks(callbacks);
+  if (auto keys = openssh::loadHostKeysFromConfig(codecConfig()); !keys.ok()) {
+    throw Envoy::EnvoyException(statusToString(keys.status()));
+  } else {
+    kex_->setHostKeys(std::move(*keys));
+  }
   initServices();
   mgmt_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus, std::string err) {
     onDecodingFailure(absl::CancelledError(err));
@@ -285,7 +290,7 @@ void SshServerTransport::initUpstream(AuthStateSharedPtr s) {
 absl::StatusOr<bytes> SshServerTransport::signWithHostKey(bytes_view in) const {
   auto hostKey = kex_result_->algorithms.host_key;
   if (auto k = kex_->getHostKey(openssh::SSHKey::keyTypeFromName(hostKey)); k) {
-    return k->priv.sign(in);
+    return k->sign(in);
   }
   return absl::InternalError("no such host key");
 }
@@ -323,12 +328,12 @@ absl::StatusOr<std::unique_ptr<wire::HostKeysProveResponseMsg>>
 SshServerTransport::handleHostKeysProve(const wire::HostKeysProveRequestMsg& msg) {
   std::vector<bytes> signatures;
   for (const auto& keyBlob : *msg.hostkeys) {
-    auto key = openssh::SSHKey::fromBlob(keyBlob);
+    auto key = openssh::SSHKey::fromPublicKeyBlob(keyBlob);
     if (!key.ok()) {
       return key.status();
     }
-    auto hostKey = kex_->getHostKey(key->keyType());
-    if (*key != hostKey->pub) {
+    auto hostKey = kex_->getHostKey((*key)->keyType());
+    if (hostKey == nullptr || **key != *hostKey) {
       // not our key?
       ENVOY_LOG(error, "client requested to prove ownership of a key that isn't ours");
       return absl::InvalidArgumentError("requested key is invalid");
@@ -337,7 +342,7 @@ SshServerTransport::handleHostKeysProve(const wire::HostKeysProveRequestMsg& msg
     wire::write_opt<wire::LengthPrefixed>(tmp, "hostkeys-prove-00@openssh.com"s);
     wire::write_opt<wire::LengthPrefixed>(tmp, kex_result_->session_id);
     wire::write_opt<wire::LengthPrefixed>(tmp, keyBlob);
-    auto sig = key->sign(wire::flushTo<bytes>(tmp));
+    auto sig = (*key)->sign(wire::flushTo<bytes>(tmp));
     if (!sig.ok()) {
       return statusf("sshkey_sign failed: {}", sig.status());
     }

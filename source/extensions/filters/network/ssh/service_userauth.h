@@ -19,10 +19,9 @@ public:
 protected:
   TransportCallbacks& transport_;
   Api::Api& api_;
-  openssh::SSHKey ca_user_key_;
-  openssh::SSHKey ca_user_pubkey_;
+  openssh::SSHKeyPtr ca_user_key_;
   std::unique_ptr<wire::UserAuthRequestMsg> pending_req_;
-  openssh::SSHKey pending_user_key_;
+  openssh::SSHKeyPtr pending_user_key_;
   Envoy::OptRef<MessageDispatcher<wire::Message>> msg_dispatcher_;
 };
 

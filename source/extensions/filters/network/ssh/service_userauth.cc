@@ -19,14 +19,9 @@ using namespace pomerium::extensions::ssh;
 UserAuthService::UserAuthService(TransportCallbacks& callbacks, Api::Api& api)
     : transport_(callbacks), api_(api) {
   {
-    auto privKey = openssh::SSHKey::fromPrivateKeyFile(transport_.codecConfig().user_ca_key().private_key_file());
+    auto privKey = openssh::SSHKey::fromPrivateKeyFile(transport_.codecConfig().user_ca_key());
     THROW_IF_NOT_OK_REF(privKey.status());
     ca_user_key_ = std::move(*privKey);
-  }
-  {
-    auto pubKey = openssh::SSHKey::fromPublicKeyFile(transport_.codecConfig().user_ca_key().public_key_file());
-    THROW_IF_NOT_OK_REF(pubKey.status());
-    ca_user_pubkey_ = std::move(*pubKey);
   }
 }
 
@@ -75,7 +70,7 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
 
       return msg.request.visit(
         [&](const wire::PubKeyUserAuthRequestMsg& pubkey_req) {
-          auto userPubKey = openssh::SSHKey::fromBlob(pubkey_req.public_key);
+          auto userPubKey = openssh::SSHKey::fromPublicKeyBlob(pubkey_req.public_key);
           if (!userPubKey.ok()) {
             return userPubKey.status();
           }
@@ -127,7 +122,7 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
               return absl::InternalError(statusToString(r.status()));
             }
             auto verifyBytes = wire::flushTo<bytes>(verifyBuf);
-            if (auto stat = userPubKey->verify(*pubkey_req.signature, verifyBytes); !stat.ok()) {
+            if (auto stat = (*userPubKey)->verify(*pubkey_req.signature, verifyBytes); !stat.ok()) {
               return stat;
             }
           }
@@ -290,7 +285,11 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
       if (!transport_.authState().allow_response) {
         return absl::InternalError("missing AllowResponse in auth state");
       }
-      auto userSessionSshKey = openssh::SSHKey::generate(KEY_ED25519, 256);
+      auto res = openssh::SSHKey::generate(KEY_ED25519, 256);
+      if (!res.ok()) {
+        return res.status();
+      }
+      auto userSessionSshKey = std::move(res).value();
       auto stat = userSessionSshKey->convertToSignedUserCertificate(
         1,
         {transport_.authState().allow_response->username()},
@@ -302,7 +301,7 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
           openssh::ExtensionPermitUserRc,
         },
         absl::Hours(24),
-        ca_user_key_);
+        *ca_user_key_);
       if (!stat.ok()) {
         return statusf("error generating user certificate: {}", stat);
       }
@@ -315,14 +314,14 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
       pubkeyReq.has_signature = false;
       pubkeyReq.public_key_alg = "ssh-ed25519-cert-v01@openssh.com";
 
-      auto blob = userSessionSshKey->toBlob();
+      auto blob = userSessionSshKey->toPublicKeyBlob();
       if (!blob.ok()) {
         return statusf("error serializing user session key: {}", blob.status());
       }
       pubkeyReq.public_key = *blob;
       req->request = std::move(pubkeyReq);
       pending_req_ = std::move(req);
-      pending_user_key_ = std::move(*userSessionSshKey);
+      pending_user_key_ = std::move(userSessionSshKey);
 
       return transport_.sendMessageToConnection(auto(*pending_req_)).status();
     },
@@ -345,7 +344,7 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
           !r.ok()) {
         return statusf("error encoding user auth request: {}", r.status());
       }
-      auto sig = pending_user_key_.sign(wire::flushTo<bytes>(buf));
+      auto sig = pending_user_key_->sign(wire::flushTo<bytes>(buf));
       if (!sig.ok()) {
         return statusf("error signing user auth request: {}", sig.status());
       }

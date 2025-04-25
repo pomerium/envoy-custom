@@ -15,16 +15,11 @@ option go_package = "github.com/pomerium/envoy-custom/api/extensions/filters/net
 message Config {}
 
 message CodecConfig {
-  repeated HostKeyPair host_keys       = 1;
-  HostKeyPair          user_ca_key     = 2;
-  optional uint64      rekey_threshold = 3;
+  repeated string host_keys       = 1;
+  string          user_ca_key     = 2;
+  optional uint64 rekey_threshold = 3;
 
   envoy.config.core.v3.GrpcService grpc_service = 4;
-}
-
-message HostKeyPair {
-  string public_key_file  = 1;
-  string private_key_file = 2;
 }
 
 // The StreamManagement service is implemented by the Pomerium Authorize

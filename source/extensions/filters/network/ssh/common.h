@@ -11,7 +11,11 @@
 
 #include "source/common/bytes.h" // IWYU pragma: keep
 
+// envoy internal stream id
 using stream_id_t = uint64_t;
+
+// packet sequence number
+using seqnum_t = uint32_t;
 
 struct direction_t {
   char iv_tag;

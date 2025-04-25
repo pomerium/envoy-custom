@@ -16,38 +16,34 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 class AEADPacketCipher : public DirectionalPacketCipher,
                          public Logger::Loggable<Logger::Id::filter> {
 public:
-  AEADPacketCipher(const char* cipher_name, bytes iv, bytes key, Mode mode);
+  AEADPacketCipher(const char* cipher_name, bytes iv, bytes key, openssh::CipherMode mode);
 
   absl::StatusOr<size_t> decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
                                        Envoy::Buffer::Instance& in) override;
   absl::StatusOr<size_t> encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
                                        Envoy::Buffer::Instance& in) override;
   size_t blockSize() override;
-  size_t aadSize() override;
+  size_t aadLen() override;
 
 protected:
-  openssh::SshCipherCtxPtr ctx_;
-  size_t block_len_;
-  size_t aad_len_;
-  size_t auth_len_;
-  size_t iv_len_;
+  openssh::SSHCipher ctx_;
 };
 
 class Chacha20Poly1305Cipher final : public AEADPacketCipher {
 public:
-  Chacha20Poly1305Cipher(bytes iv, bytes key, Mode mode)
+  Chacha20Poly1305Cipher(bytes iv, bytes key, openssh::CipherMode mode)
       : AEADPacketCipher(cipherChacha20Poly1305, iv, key, mode) {}
 };
 
 class AESGCM128Cipher final : public AEADPacketCipher {
 public:
-  AESGCM128Cipher(bytes iv, bytes key, Mode mode)
+  AESGCM128Cipher(bytes iv, bytes key, openssh::CipherMode mode)
       : AEADPacketCipher(cipherAES128GCM, iv, key, mode) {}
 };
 
 class AESGCM256Cipher final : public AEADPacketCipher {
 public:
-  AESGCM256Cipher(bytes iv, bytes key, Mode mode)
+  AESGCM256Cipher(bytes iv, bytes key, openssh::CipherMode mode)
       : AEADPacketCipher(cipherAES256GCM, iv, key, mode) {}
 };
 
@@ -59,23 +55,23 @@ public:
   absl::StatusOr<size_t> encryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
                                        Envoy::Buffer::Instance& in) override;
   size_t blockSize() override;
-  size_t aadSize() override;
+  size_t aadLen() override;
 };
 
-struct CipherMode {
+struct CipherSpec {
   size_t keySize;
   size_t ivSize;
 
-  std::function<std::unique_ptr<DirectionalPacketCipher>(bytes, bytes, Mode)> create;
+  std::function<std::unique_ptr<DirectionalPacketCipher>(bytes, bytes, openssh::CipherMode)> create;
 };
 
 // clang-format off
-static const std::map<std::string, CipherMode> cipherModes{
+static const std::map<std::string, CipherSpec> ciphers{
   {
     cipherChacha20Poly1305, {
       .keySize = 64,
       .ivSize  = 0,
-      .create  = [](bytes iv, bytes key, Mode mode) {
+      .create  = [](bytes iv, bytes key, openssh::CipherMode mode) {
         return std::make_unique<Chacha20Poly1305Cipher>(iv, key, mode);
       }
     }
@@ -84,7 +80,7 @@ static const std::map<std::string, CipherMode> cipherModes{
     cipherAES128GCM, {
       .keySize = 16,
       .ivSize = 12,
-      .create = [](bytes iv, bytes key, Mode mode) {
+      .create = [](bytes iv, bytes key, openssh::CipherMode mode) {
         return std::make_unique<AESGCM128Cipher>(iv, key, mode);
       }
     },
@@ -93,7 +89,7 @@ static const std::map<std::string, CipherMode> cipherModes{
     cipherAES256GCM, {
       .keySize = 32,
       .ivSize = 12,
-      .create = [](bytes iv, bytes key, Mode mode) {
+      .create = [](bytes iv, bytes key, openssh::CipherMode mode) {
         return std::make_unique<AESGCM256Cipher>(iv, key, mode);
       }
     }

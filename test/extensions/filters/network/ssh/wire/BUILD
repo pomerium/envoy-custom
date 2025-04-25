@@ -27,6 +27,18 @@ envoy_cc_benchmark_binary(
     srcs = ["encoding_bench_test.cc"],
     repository = "@envoy",
     deps = [
+        ":wire_test_util",
+        "//source/extensions/filters/network/ssh/wire:wire_lib",
+        "@com_github_google_benchmark//:benchmark",
+    ],
+)
+
+envoy_cc_benchmark_binary(
+    name = "messages_bench_test",
+    srcs = ["messages_bench_test.cc"],
+    repository = "@envoy",
+    deps = [
+        ":wire_test_util",
         "//source/extensions/filters/network/ssh/wire:wire_lib",
         "@com_github_google_benchmark//:benchmark",
     ],
@@ -84,12 +96,14 @@ envoy_cc_test_library(
     name = "wire_test_util",
     srcs = [],
     hdrs = [
+        "test_field_reflect.h",
         "test_util.h",
     ],
     repository = "@envoy",
     deps = [
         "//source/extensions/filters/network/ssh/wire:wire_lib_common",
         "//test/extensions/filters/network/ssh:test_common",
+        "@com_google_absl//absl/random",
     ],
 )
 

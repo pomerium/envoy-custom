@@ -1,5 +1,7 @@
 #pragma once
 
+#include <concepts>
+
 #include "source/common/math.h"
 #include "source/common/status.h"
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
@@ -15,8 +17,9 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 template <typename T>
 struct codec_traits;
 
-template <>
-struct codec_traits<ServerCodec> {
+template <typename T>
+  requires std::derived_from<T, ServerCodec>
+struct codec_traits<T> {
   using callbacks_type = ServerCodecCallbacks;
   static constexpr direction_t direction_read = clientKeys;
   static constexpr direction_t direction_write = serverKeys;
@@ -24,8 +27,9 @@ struct codec_traits<ServerCodec> {
   static constexpr std::string_view name = "server";
 };
 
-template <>
-struct codec_traits<ClientCodec> {
+template <typename T>
+  requires std::derived_from<T, ClientCodec>
+struct codec_traits<T> {
   using callbacks_type = ClientCodecCallbacks;
   static constexpr direction_t direction_read = serverKeys;
   static constexpr direction_t direction_write = clientKeys;
@@ -65,8 +69,8 @@ public:
     cipher_state_.cipher = PacketCipherFactory::makeUnencryptedPacketCipher();
     cipher_state_.seq_read = 0;
     cipher_state_.seq_write = 0;
-    cipher_state_.read_bytes_remaining = cipher_state_.cipher->rekeyAfterBytes(ModeRead);
-    cipher_state_.write_bytes_remaining = cipher_state_.cipher->rekeyAfterBytes(ModeWrite);
+    cipher_state_.read_bytes_remaining = cipher_state_.cipher->rekeyAfterBytes(openssh::CipherMode::Read);
+    cipher_state_.write_bytes_remaining = cipher_state_.cipher->rekeyAfterBytes(openssh::CipherMode::Write);
   }
 
   void decode(Envoy::Buffer::Instance& buffer, bool /*end_stream*/) override {
@@ -196,8 +200,8 @@ protected:
       ENVOY_LOG(debug, "ssh [{}]: new write bytes remaining: {}", codec_traits<Codec>::name, cipher_state_.write_bytes_remaining);
 
     } else {
-      cipher_state_.read_bytes_remaining = cipher_state_.cipher->rekeyAfterBytes(ModeRead);
-      cipher_state_.write_bytes_remaining = cipher_state_.cipher->rekeyAfterBytes(ModeWrite);
+      cipher_state_.read_bytes_remaining = cipher_state_.cipher->rekeyAfterBytes(openssh::CipherMode::Read);
+      cipher_state_.write_bytes_remaining = cipher_state_.cipher->rekeyAfterBytes(openssh::CipherMode::Write);
     }
 
     cipher_state_.pending_key_exchange = false;
@@ -277,7 +281,10 @@ private:
 
   absl::StatusOr<size_t> sendMessageDirect(wire::Message&& msg) final {
     Envoy::Buffer::OwnedImpl dec;
-    auto stat = wire::encodePacket(dec, msg, cipher_state_.cipher->blockSize(ModeWrite), cipher_state_.cipher->aadSize(ModeWrite));
+    auto stat = wire::encodePacket(dec,
+                                   msg,
+                                   cipher_state_.cipher->blockSize(openssh::CipherMode::Write),
+                                   cipher_state_.cipher->aadSize(openssh::CipherMode::Write));
     if (!stat.ok()) {
       return statusf("error encoding packet: {}", stat.status());
     }

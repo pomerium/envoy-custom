@@ -30,6 +30,11 @@ SshClientTransport::SshClientTransport(
 
 void SshClientTransport::setCodecCallbacks(GenericProxy::ClientCodecCallbacks& callbacks) {
   TransportBase::setCodecCallbacks(callbacks);
+  if (auto keys = openssh::loadHostKeysFromConfig(codecConfig()); !keys.ok()) {
+    throw Envoy::EnvoyException(statusToString(keys.status()));
+  } else {
+    kex_->setHostKeys(std::move(*keys));
+  }
   initServices();
 }
 
@@ -179,7 +184,7 @@ absl::Status SshClientTransport::handleMessage(wire::Message&& msg) {
 
 absl::StatusOr<bytes> SshClientTransport::signWithHostKey(bytes_view in) const {
   if (auto k = kex_->getHostKey(openssh::SSHKey::keyTypeFromName(kex_result_->algorithms.host_key)); k) {
-    return k->priv.sign(in);
+    return k->sign(in);
   }
   return absl::InternalError("no such host key");
 }

@@ -4,13 +4,7 @@
 #include <algorithm>
 #include <iterator>
 
-#include "source/extensions/filters/network/ssh/kex.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
-
-extern "C" {
-#include "openssh/ssherr.h"
-#include "openssh/cipher.h"
-}
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -28,7 +22,7 @@ absl::StatusOr<size_t> PacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffe
   return read_->decryptPacket(seqnum, out, in);
 }
 
-size_t PacketCipher::rekeyAfterBytes(Mode mode) {
+size_t PacketCipher::rekeyAfterBytes(openssh::CipherMode mode) {
   // RFC4344 § 3.2 states:
   //  Let L be the block length (in bits) of an SSH encryption method's
   //  block cipher (e.g., 128 for AES).  If L is at least 128, then, after
@@ -47,88 +41,44 @@ size_t PacketCipher::rekeyAfterBytes(Mode mode) {
 }
 
 AEADPacketCipher::AEADPacketCipher(const char* cipher_name, bytes iv, bytes key,
-                                   Mode mode) {
-  auto cipher = cipher_by_name(cipher_name);
-  block_len_ = cipher_blocksize(cipher);
-  auth_len_ = cipher_authlen(cipher);
-  iv_len_ = cipher_ivlen(cipher);
-  aad_len_ = 4; // NOLINT // TODO
-  sshcipher_ctx* cipher_ctx = nullptr;
-  cipher_init(&cipher_ctx, cipher, key.data(), static_cast<uint32_t>(key.size()),
-              iv.data(), static_cast<uint32_t>(iv.size()), mode);
-  ctx_.reset(cipher_ctx);
-}
+                                   openssh::CipherMode mode)
+    : ctx_(openssh::SSHCipher(cipher_name, iv, key, mode)) {}
 
 absl::StatusOr<size_t> AEADPacketCipher::encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
                                                        Envoy::Buffer::Instance& in) {
 
-  auto in_length = in.length();
-  auto in_data = static_cast<uint8_t*>(in.linearize(static_cast<uint32_t>(in_length)));
-  uint32_t packlen = static_cast<uint32_t>(in_length);
-
-  bytes out_data;
-  out_data.resize(packlen + auth_len_);
-
-  auto r = cipher_crypt(ctx_.get(), seqnum, out_data.data(), in_data,
-                        static_cast<uint32_t>(packlen - aad_len_),
-                        static_cast<uint32_t>(aad_len_),
-                        static_cast<uint32_t>(auth_len_));
-  if (r != 0) {
-    return absl::AbortedError(fmt::format("cipher_crypt failed: {}", ssh_err(r)));
-  }
-
-  in.drain(in_length);
-  out.add(out_data.data(), out_data.size());
-  return in_length;
+  return ctx_.encryptPacket(seqnum, out, in);
 }
 
 absl::StatusOr<size_t> AEADPacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
                                                        Envoy::Buffer::Instance& in) {
   auto in_length = in.length();
-  if (in_length < block_len_) {
+  if (in_length < ctx_.blockSize()) {
     return 0; // incomplete packet
   }
 
-  auto in_data = static_cast<uint8_t*>(in.linearize(static_cast<uint32_t>(in_length)));
   uint32_t packlen = 0;
-  if (cipher_get_length(ctx_.get(), &packlen, seqnum, in_data, static_cast<uint32_t>(in_length)) != 0) {
-    return absl::AbortedError("packet too small");
-  }
-  if (packlen < wire::MinPacketSize || packlen > wire::MaxPacketSize) {
-#ifdef SSH_DEBUG_SEQNUM
-    for (auto test : std::vector<uint32_t>{sub_sat(seqnum, 1u), seqnum + 1, sub_sat(seqnum, 2u), seqnum + 2}) {
-      if (cipher_get_length(ctx_.get(), &packlen, test, in_data, static_cast<uint32_t>(in_length)) == 0 &&
-          packlen < wire::MaxPacketSize) {
-        ENVOY_LOG(warn, "sequence number drift: packet decrypts with seqnr={}, but ours is {}",
-                  test, seqnum);
-      }
-    }
-#endif
-    return absl::AbortedError(fmt::format("bad packet length: {} (seqnr {})", packlen, seqnum));
-  }
-  if (packlen % block_len_ != 0) {
-    return absl::AbortedError(fmt::format("padding error: need {} block {} mod {}", packlen,
-                                          block_len_, packlen % block_len_));
-  }
-  size_t need = packlen + aad_len_ + auth_len_;
-  if (in_length < need) {
-    return 0; // incomplete packet
+  if (auto l = ctx_.packetLength(seqnum, in); !l.ok()) {
+    return l.status();
+  } else {
+    packlen = *l;
   }
 
-  bytes out_data;
-  out_data.resize(packlen + aad_len_);
-
-  auto r = cipher_crypt(ctx_.get(), seqnum, out_data.data(), in_data, packlen,
-                        static_cast<uint32_t>(aad_len_), static_cast<uint32_t>(auth_len_));
-  if (r != 0) {
-    return absl::AbortedError(fmt::format("cipher_crypt failed: {}", ssh_err(r)));
+  auto r = ctx_.decryptPacket(seqnum, out, in, packlen);
+  if (!r.ok()) {
+    return r.status();
   }
 
-  in.drain(need);
-  out.add(out_data.data(), out_data.size());
-
-  return need;
+  return *r;
 }
+
+size_t AEADPacketCipher::blockSize() {
+  return ctx_.blockSize();
+};
+
+size_t AEADPacketCipher::aadLen() {
+  return ctx_.aadLen();
+};
 
 namespace {
 void generateKeyMaterial(bytes& out, char tag, KexResult* kex_result) {
@@ -175,11 +125,11 @@ void generateKeyMaterial(bytes& out, char tag, KexResult* kex_result) {
 std::unique_ptr<PacketCipher> PacketCipherFactory::makePacketCipher(direction_t d_read, direction_t d_write,
                                                                     KexResult* kex_result) {
   ASSERT(!kex_result->session_id.empty());
-  if (cipherModes.contains(kex_result->algorithms.r.cipher) &&
-      cipherModes.contains(kex_result->algorithms.w.cipher)) {
+  if (ciphers.contains(kex_result->algorithms.r.cipher) &&
+      ciphers.contains(kex_result->algorithms.w.cipher)) {
 
-    const auto& readMode = cipherModes.at(kex_result->algorithms.r.cipher);
-    const auto& writeMode = cipherModes.at(kex_result->algorithms.w.cipher);
+    const auto& readMode = ciphers.at(kex_result->algorithms.r.cipher);
+    const auto& writeMode = ciphers.at(kex_result->algorithms.w.cipher);
 
     bytes readIv;
     readIv.reserve(readMode.ivSize);
@@ -197,40 +147,33 @@ std::unique_ptr<PacketCipher> PacketCipherFactory::makePacketCipher(direction_t 
     writeKey.reserve(writeMode.keySize);
     generateKeyMaterial(writeKey, d_write.key_tag, kex_result);
 
-    return std::make_unique<PacketCipher>(readMode.create(readIv, readKey, ModeRead),
-                                          writeMode.create(writeIv, writeKey, ModeWrite));
+    return std::make_unique<PacketCipher>(readMode.create(readIv, readKey, openssh::CipherMode::Read),
+                                          writeMode.create(writeIv, writeKey, openssh::CipherMode::Write));
   }
   ENVOY_LOG(error, "unsupported algorithm; read={}, write={}",
             kex_result->algorithms.r.cipher, kex_result->algorithms.w.cipher);
   throw EnvoyException("unsupported algorithm"); // shouldn't get here ideally
 }
 
-size_t PacketCipher::blockSize(Mode mode) {
+size_t PacketCipher::blockSize(openssh::CipherMode mode) {
   switch (mode) {
-  case ModeRead:
+  case openssh::CipherMode::Read:
     return read_->blockSize();
-  case ModeWrite:
+  case openssh::CipherMode::Write:
     return write_->blockSize();
   }
   throw EnvoyException("unknown mode");
 }
 
-size_t PacketCipher::aadSize(Mode mode) {
+size_t PacketCipher::aadSize(openssh::CipherMode mode) {
   switch (mode) {
-  case ModeRead:
-    return read_->aadSize();
-  case ModeWrite:
-    return write_->aadSize();
+  case openssh::CipherMode::Read:
+    return read_->aadLen();
+  case openssh::CipherMode::Write:
+    return write_->aadLen();
   }
   throw EnvoyException("unknown mode");
 }
-
-size_t AEADPacketCipher::blockSize() {
-  return block_len_;
-};
-size_t AEADPacketCipher::aadSize() {
-  return aad_len_;
-};
 
 std::unique_ptr<PacketCipher> PacketCipherFactory::makeUnencryptedPacketCipher() {
   return std::make_unique<PacketCipher>(std::make_unique<NoCipher>(), std::make_unique<NoCipher>());
@@ -262,7 +205,7 @@ size_t NoCipher::blockSize() {
   return 8;
 }
 
-size_t NoCipher::aadSize() {
+size_t NoCipher::aadLen() {
   return 0;
 }
 

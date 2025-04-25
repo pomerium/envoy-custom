@@ -1,5 +1,6 @@
 load(
     "@envoy//bazel:envoy_build_system.bzl",
+    "envoy_cc_mock",
     "envoy_cc_test",
     "envoy_cc_test_library",
     "envoy_package",
@@ -14,6 +15,8 @@ envoy_cc_test_library(
     srcs = [],
     hdrs = [
         "test_common.h",
+        "test_config.h",
+        "test_data.h",
     ],
     repository = "@envoy",
 )
@@ -29,5 +32,31 @@ envoy_cc_test(
         "//source/extensions/filters/network/ssh:pomerium_ssh",
         "@envoy//test/extensions/filters/network/generic_proxy/mocks:codec_mocks",
         "@envoy//test/mocks/server:factory_context_mocks",
+    ],
+)
+
+envoy_cc_test(
+    name = "kex_test",
+    srcs = [
+        "kex_test.cc",
+    ],
+    repository = "@envoy",
+    deps = [
+        ":test_common",
+        ":test_mocks",
+        "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "@envoy//test/extensions/filters/network/generic_proxy/mocks:codec_mocks",
+        "@envoy//test/mocks/server:factory_context_mocks",
+    ],
+)
+
+envoy_cc_mock(
+    name = "test_mocks",
+    srcs = [],
+    hdrs = ["test_mocks.h"],
+    repository = "@envoy",
+    deps = [
+        "//:openssh",
+        "//source/extensions/filters/network/ssh:pomerium_ssh",
     ],
 )

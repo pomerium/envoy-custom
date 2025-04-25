@@ -1,15 +1,23 @@
 #include "source/extensions/filters/network/ssh/openssh.h"
 
 #include "absl/time/time.h"
+#include "source/extensions/filters/network/ssh/common.h"
+#include "source/common/common/assert.h"
+#include "source/extensions/filters/network/ssh/wire/common.h"
 
 extern "C" {
 #include "openssh/ssh2.h"
 #include "openssh/authfile.h"
 #include "openssh/digest.h"
 #include "openssh/ssherr.h"
+#include "openssh/sshbuf.h"
 }
 
 namespace openssh {
+
+namespace detail {
+using sshbuf_ptr = Envoy::CSmartPtr<sshbuf, sshbuf_free>;
+} // namespace detail
 
 absl::StatusCode statusCodeFromErr(int n) {
   switch (n) {
@@ -82,41 +90,32 @@ absl::Status statusFromErr(int n) {
   return {statusCodeFromErr(n), ssh_err(n)};
 }
 
-SSHKey::SSHKey(SshKeyPtr key)
+SSHKey::SSHKey(detail::sshkey_ptr key)
     : key_(std::move(key)) {}
 
-absl::StatusOr<SSHKey> SSHKey::fromPrivateKeyFile(const std::string& filepath) {
-  SshKeyPtr key;
+absl::StatusOr<SSHKeyPtr> SSHKey::fromPrivateKeyFile(const std::string& filepath) {
+  detail::sshkey_ptr key;
   auto err = sshkey_load_private(filepath.c_str(), nullptr, std::out_ptr(key), nullptr);
   if (err != 0) {
     return statusFromErr(err);
   }
-  return SSHKey(std::move(key));
+  return std::unique_ptr<SSHKey>(new SSHKey(std::move(key)));
 }
 
-absl::StatusOr<SSHKey> SSHKey::fromPublicKeyFile(const std::string& filepath) {
-  SshKeyPtr key;
-  auto err = sshkey_load_public(filepath.c_str(), std::out_ptr(key), nullptr);
-  if (err != 0) {
-    return statusFromErr(err);
-  }
-  return SSHKey(std::move(key));
-}
-
-absl::StatusOr<SSHKey> SSHKey::fromBlob(const bytes& public_key) {
-  SshKeyPtr key;
+absl::StatusOr<SSHKeyPtr> SSHKey::fromPublicKeyBlob(const bytes& public_key) {
+  detail::sshkey_ptr key;
   if (auto err = sshkey_from_blob(public_key.data(), public_key.size(), std::out_ptr(key)); err != 0) {
     return statusFromErr(err);
   }
-  return SSHKey(std::move(key));
+  return std::unique_ptr<SSHKey>(new SSHKey(std::move(key)));
 }
 
-absl::StatusOr<SSHKey> SSHKey::generate(sshkey_types type, uint32_t bits) {
-  SshKeyPtr key;
+absl::StatusOr<SSHKeyPtr> SSHKey::generate(sshkey_types type, uint32_t bits) {
+  detail::sshkey_ptr key;
   if (auto err = sshkey_generate(type, bits, std::out_ptr(key)); err != 0) {
     return statusFromErr(err);
   }
-  return SSHKey(std::move(key));
+  return std::unique_ptr<SSHKey>(new SSHKey(std::move(key)));
 }
 
 bool SSHKey::operator==(const SSHKey& other) const {
@@ -188,13 +187,38 @@ absl::Status SSHKey::convertToSignedUserCertificate(
   return absl::OkStatus();
 }
 
-absl::StatusOr<bytes> SSHKey::toBlob() const {
+absl::StatusOr<bytes> SSHKey::toPublicKeyBlob() const {
   CBytesPtr buf;
   size_t len = 0;
   if (auto err = sshkey_to_blob(key_.get(), std::out_ptr(buf), &len); err != 0) {
     return statusFromErr(err);
   }
   return to_bytes(unsafe_forge_span(buf.get(), len));
+}
+
+absl::StatusOr<std::string> SSHKey::toPrivateKeyPem() const {
+  detail::sshbuf_ptr buf(sshbuf_new());
+  if (auto err = sshkey_private_to_fileblob(
+        key_.get(), buf.get(), "", "", SSHKEY_PRIVATE_PEM, nullptr, 0);
+      err != 0) {
+    return statusFromErr(err);
+  }
+  auto view = unsafe_forge_span(sshbuf_ptr(buf.get()), sshbuf_len(buf.get()));
+  return std::string(view.begin(), view.end());
+}
+
+absl::StatusOr<std::string> SSHKey::toPublicKeyPem() const {
+  detail::sshbuf_ptr buf(sshbuf_new());
+  detail::sshkey_ptr pub;
+
+  if (auto err = sshkey_from_private(key_.get(), std::out_ptr(pub)); err != 0) {
+    return statusFromErr(err);
+  }
+  if (auto err = sshkey_format_text(pub.get(), buf.get()); err != 0) {
+    return statusFromErr(err);
+  }
+  auto view = unsafe_forge_span(sshbuf_ptr(buf.get()), sshbuf_len(buf.get()));
+  return std::string(view.begin(), view.end());
 }
 
 absl::StatusOr<bytes> SSHKey::sign(bytes_view payload) const {
@@ -229,4 +253,114 @@ sshkey_types SSHKey::keyTypeFromName(const std::string& name) {
   return static_cast<sshkey_types>(sshkey_type_from_name(name.c_str()));
 }
 
+absl::StatusOr<std::vector<openssh::SSHKeyPtr>> loadHostKeysFromConfig(
+  const pomerium::extensions::ssh::CodecConfig& config) {
+  auto hostKeys = config.host_keys();
+  std::vector<openssh::SSHKeyPtr> out;
+  for (const auto& hostKey : hostKeys) {
+    auto key = openssh::SSHKey::fromPrivateKeyFile(hostKey);
+    if (!key.ok()) {
+      return key.status();
+    }
+    out.push_back(std::move(*key));
+  }
+  return out;
+}
+
+// SSHCipher
+
+SSHCipher::SSHCipher(const std::string& cipher_name,
+                     bytes iv, bytes key,
+                     CipherMode mode) {
+  auto cipher = cipher_by_name(cipher_name.c_str());
+  if (cipher == nullptr) {
+    PANIC(fmt::format("unknown cipher: {}", cipher_name));
+  }
+  block_size_ = cipher_blocksize(cipher);
+  auth_len_ = cipher_authlen(cipher);
+  iv_len_ = cipher_ivlen(cipher);
+  aad_len_ = (auth_len_ != 0) ? static_cast<uint32_t>(sizeof(seqnum_t)) : 0;
+
+  auto err = cipher_init(std::out_ptr(ctx_), cipher, key.data(), static_cast<uint32_t>(key.size()),
+                         iv.data(), static_cast<uint32_t>(iv.size()), std::to_underlying(mode));
+  if (err != 0) {
+    PANIC(fmt::format("cipher_init failed: {}", ssh_err(err)));
+  }
+}
+
+absl::StatusOr<size_t> SSHCipher::encryptPacket(seqnum_t seqnum,
+                                                Envoy::Buffer::Instance& out,
+                                                Envoy::Buffer::Instance& in) {
+  auto in_length = in.length();
+  auto in_data = in.linearize(static_cast<uint32_t>(in_length));
+  uint32_t packlen = static_cast<uint32_t>(in_length);
+  auto out_data = out.reserveSingleSlice(packlen + auth_len_);
+  auto r = cipher_crypt(ctx_.get(), seqnum,
+                        static_cast<uint8_t*>(out_data.slice().mem_),
+                        static_cast<uint8_t*>(in_data),
+                        static_cast<uint32_t>(packlen - aad_len_),
+                        static_cast<uint32_t>(aad_len_),
+                        static_cast<uint32_t>(auth_len_));
+  if (r != 0) {
+    return absl::AbortedError(fmt::format("encrypt failed: {}", ssh_err(r)));
+  }
+  in.drain(in_length);
+  auto out_len = out_data.length();
+  out_data.commit(out_len);
+  return out_len;
+}
+
+absl::StatusOr<size_t> SSHCipher::decryptPacket(seqnum_t seqnum,
+                                                Envoy::Buffer::Instance& out,
+                                                Envoy::Buffer::Instance& in,
+                                                uint32_t packet_length) {
+  size_t need = packet_length + aad_len_ + auth_len_;
+  if (in.length() < need) {
+    return 0; // incomplete packet
+  }
+
+  auto in_data = static_cast<uint8_t*>(in.linearize(static_cast<uint32_t>(need)));
+  auto out_data = out.reserveSingleSlice(packet_length + aad_len_);
+  auto r = cipher_crypt(ctx_.get(), seqnum,
+                        static_cast<uint8_t*>(out_data.slice().mem_),
+                        in_data,
+                        packet_length,
+                        aad_len_,
+                        auth_len_);
+  if (r != 0) {
+    return absl::AbortedError(fmt::format("decrypt failed: {}", ssh_err(r)));
+  }
+  in.drain(need);
+  out_data.commit(out_data.length());
+  return need;
+}
+
+absl::StatusOr<uint32_t> SSHCipher::packetLength(seqnum_t seqnum,
+                                                 const Envoy::Buffer::Instance& in) {
+  uint32_t packlen = 0;
+  std::array<uint8_t, 4> packet_header{};
+  in.copyOut(0, 4, &packet_header);
+  auto err = cipher_get_length(ctx_.get(), &packlen, seqnum,
+                               packet_header.data(), packet_header.size());
+  if (err != 0) {
+    return absl::InvalidArgumentError("packet too small");
+  }
+  if (packlen < wire::MinPacketSize || packlen > wire::MaxPacketSize) {
+#ifdef SSH_DEBUG_SEQNUM
+    for (auto test : std::vector<uint32_t>{sub_sat(seqnum, 1u), seqnum + 1, sub_sat(seqnum, 2u), seqnum + 2}) {
+      if (cipher_get_length(ctx_.get(), &packlen, test, in_data, static_cast<uint32_t>(in_length)) == 0 &&
+          packlen < wire::MaxPacketSize) {
+        ENVOY_LOG(warn, "sequence number drift: packet decrypts with seqnr={}, but ours is {}",
+                  test, seqnum);
+      }
+    }
+#endif
+    return absl::AbortedError(fmt::format("bad packet length: {} (seqnr {})", packlen, seqnum));
+  }
+  if (packlen % block_size_ != 0) {
+    return absl::AbortedError(fmt::format("padding error: need {} block {} mod {}", packlen,
+                                          block_size_, packlen % block_size_));
+  }
+  return packlen;
+}
 } // namespace openssh

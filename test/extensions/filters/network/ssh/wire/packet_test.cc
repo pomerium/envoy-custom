@@ -320,7 +320,7 @@ TEST(EncodePacketTest, Encode_EmptyPayloadError) {
 
   Envoy::Buffer::OwnedImpl buffer;
 
-  auto r = encodePacket(buffer, e);
+  auto r = encodePacket(buffer, e, 8, 0);
   EXPECT_FALSE(r.ok());
   EXPECT_EQ(absl::InvalidArgumentError("message encoded to 0 bytes"), r.status());
 }
@@ -332,7 +332,7 @@ TEST(EncodePacketTest, Encode_PayloadTooLargeError) {
     .WillOnce(Return(MaxPacketSize - 1));
 
   Envoy::Buffer::OwnedImpl buffer;
-  auto r = encodePacket(buffer, e);
+  auto r = encodePacket(buffer, e, 8, 0);
   EXPECT_FALSE(r.ok());
   EXPECT_EQ(absl::InvalidArgumentError("encoded message is larger than the max packet size"), r.status());
 }
@@ -344,7 +344,7 @@ TEST(EncodePacketTest, Encode_EncoderError) {
     .WillOnce(Return(absl::InternalError("test")));
 
   Envoy::Buffer::OwnedImpl buffer;
-  auto r = encodePacket(buffer, e);
+  auto r = encodePacket(buffer, e, 8, 0);
   EXPECT_FALSE(r.ok());
   EXPECT_EQ(absl::InternalError("test"), r.status());
 }

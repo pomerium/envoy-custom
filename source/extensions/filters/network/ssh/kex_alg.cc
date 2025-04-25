@@ -39,7 +39,7 @@ absl::StatusOr<std::optional<KexResultSharedPtr>> Curve25519Sha256KexAlgorithm::
         return absl::AbortedError("peer's curve25519 public value has wrong order");
       }
 
-      auto blob = signer_->pub.toBlob();
+      auto blob = signer_->toPublicKeyBlob();
       if (!blob.ok()) {
         return statusf("error converting public key to blob: {}", blob.status());
       }

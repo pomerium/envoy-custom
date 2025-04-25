@@ -75,8 +75,8 @@ absl::StatusOr<size_t> decodePacket(Envoy::Buffer::Instance& buffer, T& payload)
 
 template <Encoder T>
 absl::StatusOr<size_t> encodePacket(Envoy::Buffer::Instance& out, const T& msg,
-                                    size_t cipher_block_size = 8,
-                                    size_t aad_len = 0,
+                                    size_t cipher_block_size,
+                                    size_t aad_len,
                                     bool random_padding = true) noexcept {
   Envoy::Buffer::OwnedImpl payloadBytes;
   auto payload_length = msg.encode(payloadBytes);
