@@ -2,7 +2,12 @@ workspace(name = "pomerium_envoy")
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
-envoy_version = "1.33.0"
+envoy_version = "d7809ba2b07fd869d49bfb122b27f6a7977b4d94"
+
+local_repository(
+    name = "envoy_build_config",
+    path = "bazel/envoy_build_config",
+)
 
 http_archive(
     name = "envoy",
@@ -13,9 +18,9 @@ http_archive(
     patches = [
         "//:patches/0002-opentelemetry-tracer-lib-visibility.patch",
     ],
-    sha256 = "f9e0d838eff2a3e8ede4273313db592aada4392d85865d7b2ce752fbd9da3591",
+    sha256 = "3a8254aae4b775e3cc362c753b25a285b9cd248efe6d4efcc492f0ad045a33be",
     strip_prefix = "envoy-" + envoy_version,
-    url = "https://github.com/envoyproxy/envoy/archive/refs/tags/v" + envoy_version + ".zip",
+    url = "https://github.com/envoyproxy/envoy/archive/" + envoy_version + ".zip",
 )
 
 load("@envoy//bazel:api_binding.bzl", "envoy_api_binding")
