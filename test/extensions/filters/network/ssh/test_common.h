@@ -18,6 +18,24 @@
 #undef EXPECT_THROW
 #define EXPECT_THROW #warning "use EXPECT_THROW_WITH_MESSAGE instead of EXPECT_THROW"
 
+#define EXPECT_OK(expr)                                                                  \
+  do {                                                                                   \
+    absl::Status s = (expr);                                                             \
+    EXPECT_TRUE(s.ok()) << "status code: " << s.code() << "; message: " << s.ToString(); \
+  } while (false);
+
+#define MSG(msg_type, ...)                            \
+  [] {                                                \
+    /*NOLINTNEXTLINE*/                                \
+    using MsgType_ = std::decay_t<msg_type>;          \
+    return VariantWith<MsgType_>(AllOf(__VA_ARGS__)); \
+  }()
+
+#define FIELD_EQ(name, ...) FIELD_EQ_IMPL_(name, (__VA_ARGS__))
+
+#define FIELD_EQ_IMPL_(name, ...) \
+  Field(#name, &MsgType_::name, Eq(__VA_ARGS__))
+
 #define EXPECT_STATIC_ASSERT_IMPL_(expr) \
   if consteval {                         \
     static_assert((expr));               \
@@ -31,9 +49,13 @@
   EXPECT_STATIC_ASSERT_IMPL_((__VA_ARGS__))
 
 using testing::_; // NOLINT(bugprone-reserved-identifier)
+using testing::AllOf;
+using testing::AllOfArray;
 using testing::Eq;
+using testing::Field;
 using testing::Invoke;
 using testing::NiceMock;
+using testing::Property;
 using testing::Return;
 using testing::Types;
 

@@ -19,6 +19,24 @@ envoy_cc_test_library(
         "test_data.h",
     ],
     repository = "@envoy",
+    deps = [
+        "@envoy//test/mocks/api:api_mocks",
+        "@envoy//test/mocks/filesystem:filesystem_mocks",
+    ],
+)
+
+envoy_cc_mock(
+    name = "test_mocks",
+    srcs = [],
+    hdrs = ["test_mocks.h"],
+    repository = "@envoy",
+    deps = [
+        "//:openssh",
+        "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "@envoy//test/mocks/api:api_mocks",
+        "@envoy//test/mocks/filesystem:filesystem_mocks",
+        "@envoy//test/mocks/server:factory_context_mocks",
+    ],
 )
 
 envoy_cc_test(
@@ -45,18 +63,8 @@ envoy_cc_test(
         ":test_common",
         ":test_mocks",
         "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "//test/extensions/filters/network/ssh/wire:wire_test_util",
         "@envoy//test/extensions/filters/network/generic_proxy/mocks:codec_mocks",
-        "@envoy//test/mocks/server:factory_context_mocks",
-    ],
-)
-
-envoy_cc_mock(
-    name = "test_mocks",
-    srcs = [],
-    hdrs = ["test_mocks.h"],
-    repository = "@envoy",
-    deps = [
-        "//:openssh",
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "@envoy//test/mocks/api:api_mocks",
     ],
 )

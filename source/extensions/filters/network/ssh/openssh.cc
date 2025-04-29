@@ -102,6 +102,20 @@ absl::StatusOr<SSHKeyPtr> SSHKey::fromPrivateKeyFile(const std::string& filepath
   return std::unique_ptr<SSHKey>(new SSHKey(std::move(key)));
 }
 
+absl::StatusOr<SSHKeyPtr> SSHKey::fromPrivateKeyFile(Envoy::Filesystem::Instance& fs, const std::string& filepath) {
+  auto data = fs.fileReadToEnd(filepath);
+  if (!data.ok()) {
+    return data.status();
+  }
+  detail::sshkey_ptr key;
+  detail::sshbuf_ptr tmp_buf = sshbuf_from(data->data(), data->size());
+  auto err = sshkey_parse_private_fileblob_type(tmp_buf.get(), KEY_UNSPEC, nullptr, std::out_ptr(key), nullptr);
+  if (err != 0) {
+    return statusFromErr(err);
+  }
+  return std::unique_ptr<SSHKey>(new SSHKey(std::move(key)));
+}
+
 absl::StatusOr<SSHKeyPtr> SSHKey::fromPublicKeyBlob(const bytes& public_key) {
   detail::sshkey_ptr key;
   if (auto err = sshkey_from_blob(public_key.data(), public_key.size(), std::out_ptr(key)); err != 0) {
@@ -363,4 +377,5 @@ absl::StatusOr<uint32_t> SSHCipher::packetLength(seqnum_t seqnum,
   }
   return packlen;
 }
+
 } // namespace openssh

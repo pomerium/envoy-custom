@@ -5,53 +5,58 @@
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include <type_traits>
 
-namespace wire::test {
-
+namespace wire {
 template <typename T>
 struct test_field_reflect;
+}
 
-#define EXPAND_CALL_1(f1) visitor(m.f1);
+template <typename T>
+concept FieldReflectable = requires(T t) {
+  wire::test_field_reflect<T>::visit_fields(t, [](std::string_view, auto&&) {});
+};
+
+#define EXPAND_CALL_1(f1) visitor(#f1, m.f1);
 #define EXPAND_CALL_2(f1, ...) \
-  visitor(m.f1);               \
+  visitor(#f1, m.f1);          \
   EXPAND_CALL_1(__VA_ARGS__)
 #define EXPAND_CALL_3(f1, ...) \
-  visitor(m.f1);               \
+  visitor(#f1, m.f1);          \
   EXPAND_CALL_2(__VA_ARGS__)
 #define EXPAND_CALL_4(f1, ...) \
-  visitor(m.f1);               \
+  visitor(#f1, m.f1);          \
   EXPAND_CALL_3(__VA_ARGS__)
 #define EXPAND_CALL_5(f1, ...) \
-  visitor(m.f1);               \
+  visitor(#f1, m.f1);          \
   EXPAND_CALL_4(__VA_ARGS__)
 #define EXPAND_CALL_6(f1, ...) \
-  visitor(m.f1);               \
+  visitor(#f1, m.f1);          \
   EXPAND_CALL_5(__VA_ARGS__)
 #define EXPAND_CALL_7(f1, ...) \
-  visitor(m.f1);               \
+  visitor(#f1, m.f1);          \
   EXPAND_CALL_6(__VA_ARGS__)
 #define EXPAND_CALL_8(f1, ...) \
-  visitor(m.f1);               \
+  visitor(#f1, m.f1);          \
   EXPAND_CALL_7(__VA_ARGS__)
 #define EXPAND_CALL_9(f1, ...) \
-  visitor(m.f1);               \
+  visitor(#f1, m.f1);          \
   EXPAND_CALL_8(__VA_ARGS__)
 #define EXPAND_CALL_10(f1, ...) \
-  visitor(m.f1);                \
+  visitor(#f1, m.f1);           \
   EXPAND_CALL_9(__VA_ARGS__)
 #define EXPAND_CALL_11(f1, ...) \
-  visitor(m.f1);                \
+  visitor(#f1, m.f1);           \
   EXPAND_CALL_10(__VA_ARGS__)
 #define EXPAND_CALL_12(f1, ...) \
-  visitor(m.f1);                \
+  visitor(#f1, m.f1);           \
   EXPAND_CALL_11(__VA_ARGS__)
 #define EXPAND_CALL_13(f1, ...) \
-  visitor(m.f1);                \
+  visitor(#f1, m.f1);           \
   EXPAND_CALL_12(__VA_ARGS__)
 #define EXPAND_CALL_14(f1, ...) \
-  visitor(m.f1);                \
+  visitor(#f1, m.f1);           \
   EXPAND_CALL_13(__VA_ARGS__)
 #define EXPAND_CALL_15(f1, ...) \
-  visitor(m.f1);                \
+  visitor(#f1, m.f1);           \
   EXPAND_CALL_14(__VA_ARGS__)
 
 #define GET_MACRO(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, \
@@ -66,56 +71,92 @@ struct test_field_reflect;
             EXPAND_CALL_3, EXPAND_CALL_2, EXPAND_CALL_1)    \
   (__VA_ARGS__)
 
-#define TEST_FIELDS(msg, ...)                                                                    \
-  template <>                                                                                    \
-  struct test_field_reflect<msg> {                                                               \
-    static constexpr void visit_fields([[maybe_unused]] msg& m, [[maybe_unused]] auto visitor) { \
-      __VA_OPT__(EXPAND_CALLS(__VA_ARGS__))                                                      \
-    };                                                                                           \
-  };
-
-template <typename T, EncodingOptions Opt>
-struct test_field_reflect<wire::field<T, Opt>> {
-  static constexpr void visit_fields(wire::field<T, Opt>& m, auto visitor) {
-    visitor(m);
-  }
-};
-template <>
-struct test_field_reflect<wire::PubKeyUserAuthRequestMsg> {
-  static constexpr void visit_fields(wire::PubKeyUserAuthRequestMsg& m, auto visitor) {
-    visitor(m.public_key);
-    visitor(m.public_key_alg);
-    visitor(m.has_signature);
-    visitor(m.signature);
-  }
-};
+#define TEST_FIELDS(msg, ...)                                                                        \
+  template <>                                                                                        \
+  struct wire::test_field_reflect<wire::msg> {                                                       \
+    template <typename T>                                                                            \
+      requires std::same_as<std::decay_t<T>, wire::msg>                                              \
+    static constexpr void visit_fields([[maybe_unused]] T& m, [[maybe_unused]] auto visitor) {       \
+      __VA_OPT__(EXPAND_CALLS(__VA_ARGS__))                                                          \
+    };                                                                                               \
+  };                                                                                                 \
+  template <>                                                                                        \
+  struct fmt::formatter<wire::msg> : formatter<string_view> {                                        \
+    auto format(const ::wire::msg& m, format_context& ctx) const -> format_context::iterator {       \
+      auto out = fmt::memory_buffer();                                                               \
+      out.append(std::string_view(#msg ":\n"));                                                      \
+      ::wire::test_field_reflect<::wire::msg>::visit_fields(m, [&](std::string_view name, auto& f) { \
+        out.append(std::string_view("  "));                                                          \
+        out.append(name);                                                                            \
+        out.append(std::string_view(": "));                                                          \
+        fmt::format_to(std::back_inserter(out), "{}", f);                                            \
+        out.append(std::string_view("\n"));                                                          \
+      });                                                                                            \
+      return formatter<string_view>::format(fmt::to_string(out), ctx);                               \
+    }                                                                                                \
+  };                                                                                                 \
+  static_assert(FieldReflectable<wire::msg>);
 
 template <typename... Overloads>
-struct test_field_reflect<wire::OverloadedMessage<Overloads...>> {
-  static constexpr void visit_fields(wire::OverloadedMessage<Overloads...>& m, auto visitor) {
-    auto random_index = absl::Uniform<size_t>(detail::rng, 0, sizeof...(Overloads));
+struct wire::test_field_reflect<wire::OverloadedMessage<Overloads...>> {
+  static constexpr void visit_fields(OverloadedMessage<Overloads...>& m, auto visitor) {
+    auto random_index = absl::Uniform<size_t>(test::detail::rng, 0, sizeof...(Overloads));
     // choose one of the overloads at random
-    auto resolvers = {std::function{[&]() {
+    using visitor_type = decltype(visitor);
+    auto resolvers = {+[](OverloadedMessage<Overloads...>& m, visitor_type visitor) {
       Overloads o;
-      visitor(o);
+      visitor("", o);
       m.reset(std::move(o));
-    }}...};
-    (*std::next(std::begin(resolvers), random_index))();
+    }...};
+    (*std::next(std::begin(resolvers), random_index))(m, visitor);
   };
 };
 
 template <typename... Options>
-struct test_field_reflect<wire::sub_message<Options...>> {
-  static constexpr void visit_fields(wire::sub_message<Options...>& m, auto visitor) {
-    auto random_index = absl::Uniform<size_t>(detail::rng, 0, sizeof...(Options));
+struct wire::test_field_reflect<wire::sub_message<Options...>> {
+  static constexpr void visit_fields(sub_message<Options...>& m, auto visitor) {
+    auto random_index = absl::Uniform<size_t>(test::detail::rng, 0, sizeof...(Options));
     // choose one of the options at random
-    auto resolvers = {std::function{[&]() {
+    using visitor_type = decltype(visitor);
+    auto resolvers = {+[](sub_message<Options...>& m, visitor_type visitor) {
       Options o;
-      visitor(o);
+      visitor("", o);
       m.reset(std::move(o));
-    }}...};
-    (*std::next(std::begin(resolvers), random_index))();
+    }...};
+    (*std::next(std::begin(resolvers), random_index))(m, visitor);
   };
+};
+
+template <typename... Options>
+struct fmt::formatter<wire::sub_message<Options...>> : formatter<string_view> {
+  auto format(const ::wire::sub_message<Options...> msg, format_context& ctx) const
+    -> format_context::iterator {
+    if (!msg.oneof.has_value()) {
+      return formatter<string_view>::format("sub_message holding no value", ctx);
+    }
+    return formatter<string_view>::format(
+      msg.visit([&](const Options& v) {
+        return fmt::format("sub_message holding {}", v);
+      }...),
+      ctx);
+  }
+};
+
+template <typename... Args>
+struct fmt::formatter<wire::OverloadedMessage<Args...>> : formatter<string_view> {
+  auto format(const wire::OverloadedMessage<Args...>&, format_context& ctx) const
+    -> format_context::iterator {
+    return formatter<string_view>::format(
+      fmt::format("[overloaded message: {}]", std::vector<string_view>{type_name<Args>()...}), ctx);
+  }
+};
+
+template <>
+struct fmt::formatter<wire::Message> : formatter<decltype(wire::Message::message)> {
+  auto format(const wire::Message& f, format_context& ctx) const
+    -> format_context::iterator {
+    return formatter<decltype(f.message)>::format(f.message, ctx);
+  }
 };
 
 TEST_FIELDS(DisconnectMsg,
@@ -134,6 +175,12 @@ TEST_FIELDS(ServiceRequestMsg,
             service_name);
 TEST_FIELDS(ServiceAcceptMsg,
             service_name);
+TEST_FIELDS(ServerSigAlgsExtension,
+            public_key_algorithms_accepted);
+TEST_FIELDS(PingExtension,
+            version);
+TEST_FIELDS(Extension,
+            extension);
 TEST_FIELDS(ExtInfoMsg,
             extensions);
 TEST_FIELDS(KexInitMsg,
@@ -231,6 +278,11 @@ TEST_FIELDS(UserAuthInfoResponseMsg,
             responses);
 
 // sub-messages
+TEST_FIELDS(PubKeyUserAuthRequestMsg,
+            has_signature,
+            public_key_alg,
+            public_key,
+            signature);
 TEST_FIELDS(HostKeysProveRequestMsg,
             hostkeys);
 TEST_FIELDS(HostKeysProveResponseMsg,
@@ -239,12 +291,7 @@ TEST_FIELDS(KeyboardInteractiveUserAuthRequestMsg,
             language_tag,
             submethods);
 TEST_FIELDS(NoneAuthRequestMsg);
-TEST_FIELDS(ServerSigAlgsExtension,
-            public_key_algorithms_accepted);
-TEST_FIELDS(PingExtension,
-            version);
-TEST_FIELDS(Extension,
-            extension);
+
 TEST_FIELDS(PtyReqChannelRequestMsg,
             term_env,
             width_columns,
@@ -262,21 +309,23 @@ TEST_FIELDS(HostKeysMsg,
             hostkeys);
 TEST_FIELDS(UserAuthInfoPrompt,
             prompt,
-            echo)
+            echo);
+
+namespace wire {
 
 template <typename T>
-struct is_field : std::false_type {};
+  requires wire::is_field_v<T> || FieldReflectable<T>
+std::ostream& operator<<(std::ostream& os, const T& t) {
+  return os << fmt::to_string(t);
+}
 
-template <typename T, EncodingOptions Opt>
-struct is_field<wire::field<T, Opt>> : std::true_type {};
+} // namespace wire
 
-static_assert(is_field<wire::field<uint32_t>>::value);
-static_assert(is_field<wire::field<std::string, LengthPrefixed>>::value);
-static_assert(!is_field<KexInitMsg>::value);
+namespace wire::test {
 
 template <typename T>
 void populateFields(T& msg) {
-  test_field_reflect<T>::visit_fields(msg, []<typename Field>(this auto self, Field& field) -> void {
+  test_field_reflect<T>::visit_fields(msg, []<typename Field>(this auto self, std::string_view, Field& field) -> void {
     using field_type = std::decay_t<Field>;
     if constexpr (is_field<field_type>::value) {
       field = random_value<typename field_type::value_type>();

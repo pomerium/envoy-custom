@@ -16,9 +16,24 @@ using fixed_bytes_view = std::span<const uint8_t, N>;
 
 using bytes_list = std::vector<bytes>;
 
-template <typename T>
-static constexpr bool is_bytes_v = std::is_same_v<T, bytes>;
-
 constexpr bytes to_bytes(const auto& view) {
   return {view.begin(), view.end()};
 }
+
+template <typename T>
+struct is_bytes : std::false_type {};
+
+template <>
+struct is_bytes<bytes> : std::true_type {};
+
+template <typename T>
+static constexpr bool is_bytes_v = is_bytes<T>::value;
+
+template <typename T>
+struct is_fixed_bytes : std::false_type {};
+
+template <size_t N>
+struct is_fixed_bytes<fixed_bytes<N>> : std::true_type {};
+
+template <typename T>
+static constexpr bool is_fixed_bytes_v = is_fixed_bytes<T>::value;

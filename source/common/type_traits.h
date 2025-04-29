@@ -1,6 +1,7 @@
 #pragma once
 
 #include "source/common/optref.h"
+#include <source_location>
 
 // Supplemental type traits
 
@@ -152,3 +153,18 @@ struct is_vector<std::vector<T, Allocator>> : std::true_type {};
 
 template <typename T>
 static constexpr bool is_vector_v = is_vector<T>::value;
+
+template <typename T>
+constexpr std::string_view type_name() {
+  std::string_view fn = std::source_location::current().function_name();
+#if (defined(__GNUC__) && !defined(__clang__))
+  fn.remove_prefix(std::char_traits<char>::length("constexpr std::string_view type_name() [with T = "));
+  fn.remove_suffix(std::char_traits<char>::length("; std::string_view = std::basic_string_view<char>]"));
+#elif (defined(__GNUC__) && defined(__clang__))
+  fn.remove_prefix(std::char_traits<char>::length("std::string_view type_name() [T = "));
+  fn.remove_suffix(std::char_traits<char>::length("]"));
+#else
+#error "unsupported compiler"
+#endif
+  return fn;
+}

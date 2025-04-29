@@ -118,7 +118,8 @@ public:
         return;
       }
 
-      cipher_state_.read_bytes_remaining = sub_sat<uint64_t>(cipher_state_.read_bytes_remaining, *bytes_read);
+      cipher_state_.read_bytes_remaining = sub_sat(cipher_state_.read_bytes_remaining,
+                                                   static_cast<uint64_t>(*bytes_read));
       if (!cipher_state_.pending_key_exchange &&
           (cipher_state_.read_bytes_remaining == 0 || next_read_seq > seqnum_rekey_limit)) {
         ENVOY_LOG(debug, "ssh [{}]: read rekey threshold was reached, initiating key re-exchange (bytes remaining: {}; packets sent: {})",
@@ -296,7 +297,8 @@ private:
     size_t n = enc.length();
     writeToConnection(enc);
 
-    cipher_state_.write_bytes_remaining = sub_sat<uint64_t>(cipher_state_.write_bytes_remaining, *bytes_written);
+    cipher_state_.write_bytes_remaining = sub_sat(cipher_state_.write_bytes_remaining,
+                                                  static_cast<uint64_t>(*bytes_written));
     if (!cipher_state_.pending_key_exchange &&
         (cipher_state_.write_bytes_remaining == 0 || cipher_state_.seq_write > seqnum_rekey_limit)) {
       ENVOY_LOG(debug, "ssh [{}]: write rekey threshold was reached, initiating key re-exchange (bytes remaining: {}; packets sent: {})",

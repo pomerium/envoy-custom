@@ -204,7 +204,6 @@ TEST(MessagesTest, Message_CopyMove) {
   data.data->resize(100);
   auto data_ptr = data.data->data();
   m1.message.reset(std::move(data));
-
   // move
   wire::Message m2{std::move(m1)};
   // a moved-from optional with a value will still have a value, and the variant will still contain
@@ -475,6 +474,47 @@ TEST(KeyFieldAccessorsTest, KeyFields) {
     msg.extension.reset(PingExtension{});
     EXPECT_EQ(PingExtension::submsg_key, msg.extension_name());
   }
+}
+
+TEST(MessageFormatting, TestMessageFormatting) {
+  EXPECT_EQ(type_name<void>(), "void");
+  KexInitMsg m;
+  m.cookie = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+  m.kex_algorithms = {"a", "b"};
+  m.server_host_key_algorithms = {"c", "d"};
+  m.encryption_algorithms_client_to_server = {"e", "f"};
+  m.encryption_algorithms_server_to_client = {"g", "h"};
+  m.mac_algorithms_client_to_server = {"i", "j"};
+  m.mac_algorithms_server_to_client = {"k", "l"};
+  m.compression_algorithms_client_to_server = {"m", "n"};
+  m.compression_algorithms_server_to_client = {"o", "p"};
+  m.languages_client_to_server = {"q", "r"};
+  m.languages_server_to_client = {"s", "t"};
+  m.first_kex_packet_follows = false;
+  m.reserved = 0;
+
+  EXPECT_EQ(
+    R"(
+KexInitMsg:
+  cookie: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+  kex_algorithms: ["a", "b"]
+  server_host_key_algorithms: ["c", "d"]
+  encryption_algorithms_client_to_server: ["e", "f"]
+  encryption_algorithms_server_to_client: ["g", "h"]
+  mac_algorithms_client_to_server: ["i", "j"]
+  mac_algorithms_server_to_client: ["k", "l"]
+  compression_algorithms_client_to_server: ["m", "n"]
+  compression_algorithms_server_to_client: ["o", "p"]
+  languages_client_to_server: ["q", "r"]
+  languages_server_to_client: ["s", "t"]
+  first_kex_packet_follows: false
+  reserved: 0
+)"sv.substr(1),
+    testing::PrintToString(m));
+
+  EXPECT_EQ(R"(["a", "b"])"s, testing::PrintToString(m.kex_algorithms));
+
+  EXPECT_THAT(m, Field(&KexInitMsg::kex_algorithms, Eq(string_list{"a", "b"})));
 }
 
 } // namespace wire::test

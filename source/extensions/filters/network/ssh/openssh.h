@@ -10,6 +10,7 @@
 #pragma clang unsafe_buffer_usage begin
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "envoy/buffer/buffer.h"
+#include "envoy/filesystem/filesystem.h"
 #pragma clang unsafe_buffer_usage end
 
 extern "C" {
@@ -48,6 +49,7 @@ public:
   bool operator!=(const SSHKey& other) const;
 
   static absl::StatusOr<std::unique_ptr<SSHKey>> fromPrivateKeyFile(const std::string& filepath);
+  static absl::StatusOr<std::unique_ptr<SSHKey>> fromPrivateKeyFile(Envoy::Filesystem::Instance& fs, const std::string& filepath);
   static absl::StatusOr<std::unique_ptr<SSHKey>> fromPublicKeyBlob(const bytes& public_key);
   static absl::StatusOr<std::unique_ptr<SSHKey>> generate(sshkey_types type, uint32_t bits);
 

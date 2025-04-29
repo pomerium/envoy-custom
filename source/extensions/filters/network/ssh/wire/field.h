@@ -7,6 +7,11 @@
 #include <utility>
 #include <variant>
 
+#pragma clang unsafe_buffer_usage begin
+#include "absl/strings/escaping.h"
+#include "fmt/ranges.h"
+#pragma clang unsafe_buffer_usage end
+
 #include "source/common/visit.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
@@ -91,6 +96,15 @@ struct field : field_base<T, Opt> {
   using field_base<T, Opt>::value;
   using field_base<T, Opt>::operator=;
 };
+
+template <typename T>
+struct is_field : std::false_type {};
+
+template <typename T, EncodingOptions Opt>
+struct is_field<field<T, Opt>> : std::true_type {};
+
+template <typename T>
+static constexpr bool is_field_v = is_field<T>::value;
 
 // Utility function to decode a message, including a message type and a list of fields. The decoded
 // message type is validated to ensure it matches the expected type. Returns the total number of
@@ -345,9 +359,28 @@ private:
 
 // fmt::formatter specialization for field types - formats the value contained in the field.
 template <typename T, wire::EncodingOptions Opt>
+  requires (!is_vector_v<T> || is_bytes_v<T>)
 struct fmt::formatter<wire::field<T, Opt>> : fmt::formatter<T> {
-  auto format(wire::field<T, Opt> c, format_context& ctx) const
+  auto format(const wire::field<T, Opt>& f, format_context& ctx) const
     -> format_context::iterator {
-    return formatter<T>::format(c.value, ctx);
+    return formatter<T>::format(f.value, ctx);
+  }
+};
+
+template <typename T, wire::EncodingOptions Opt>
+  requires (!std::is_same_v<T, uint8_t>)
+struct fmt::formatter<wire::field<std::vector<T>, Opt>> : formatter<string_view> {
+  auto format(const wire::field<std::vector<T>, Opt>& f, format_context& ctx) const
+    -> format_context::iterator {
+    return formatter<string_view>::format(fmt::format("{}", f.value), ctx);
+  }
+};
+
+template <>
+struct fmt::formatter<bytes> : fmt::formatter<string_view> {
+  auto format(const ::bytes& b, format_context& ctx) const
+    -> format_context::iterator {
+    return fmt::formatter<string_view>::format(
+      absl::BytesToHexString(std::string_view{reinterpret_cast<const char*>(b.data()), b.size()}), ctx);
   }
 };
