@@ -1,8 +1,9 @@
 #pragma once
 
+#pragma clang unsafe_buffer_usage begin
 #include "libvterm/vterm.h"
-
 #include "envoy/buffer/buffer.h"
+#pragma clang unsafe_buffer_usage end
 #include "source/common/common/c_smart_ptr.h"
 #include "source/extensions/filters/network/ssh/common.h"
 

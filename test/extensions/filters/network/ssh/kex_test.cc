@@ -5,8 +5,8 @@
 #include "test/extensions/filters/network/ssh/wire/test_field_reflect.h"
 #include "test/extensions/filters/network/ssh/wire/test_util.h"
 #include "source/extensions/filters/network/ssh/kex.h"
+#include "test/mocks/api/mocks.h"
 #include "gtest/gtest.h"
-#include "gtest/gtest-spi.h"
 #include <coroutine>
 
 namespace wire {
@@ -721,10 +721,23 @@ TEST_F(ServerKexTest, IncorrectClientGuess_WrongMessageType) {
 
 TEST_F(ServerKexTest, ClientInitiatedRekey) {
   ContinueUntilEnd();
+  for (auto i = 0; i < 10; i++) {
+    auto rekeyInit = normal_client_kex_init_msg;
+    rekeyInit.kex_algorithms = all_kex_algorithms;
+    sequence = startKexSequence(rekeyInit, false);
+    ContinueUntilEnd();
+  }
+}
+
+TEST_F(ServerKexTest, ClientInitiatedRekey_NewAlgorithms) {
+  ContinueUntilEnd();
   auto rekeyInit = normal_client_kex_init_msg;
-  rekeyInit.kex_algorithms = all_kex_algorithms;
+  rekeyInit.encryption_algorithms_client_to_server = {"aes256-gcm@openssh.com"};
+  rekeyInit.encryption_algorithms_server_to_client = {"aes256-gcm@openssh.com"};
   sequence = startKexSequence(rekeyInit, false);
   ContinueUntilEnd();
+  kex_->getActiveStateForTest().kex_result->algorithms.r.cipher = "aes256-gcm@openssh.com";
+  kex_->getActiveStateForTest().kex_result->algorithms.w.cipher = "aes256-gcm@openssh.com";
 }
 
 } // namespace test

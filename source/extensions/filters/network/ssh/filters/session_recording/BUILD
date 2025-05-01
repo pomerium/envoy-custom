@@ -25,6 +25,11 @@ envoy_cc_library(
         "recorder.h",
         "uploader.h",
     ],
+    copts = [
+        "-Wimplicit-fallthrough",
+        "-Wimplicit-int-conversion",
+        "-Wunsafe-buffer-usage",
+    ],
     repository = "@envoy",
     deps = [
         ":session_recording_cc_proto",

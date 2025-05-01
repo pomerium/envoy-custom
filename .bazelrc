@@ -26,7 +26,6 @@ build --enable_platform_specific_config
 build:linux --config=libc++20
 build:linux --copt="-Wno-error=thread-safety-reference-return"
 build:linux --copt="-Wno-error=missing-field-initializers"
-build --per_file_copt="^//source/extensions/filters/network/ssh/.*@-Wunsafe-buffer-usage,-Wimplicit-fallthrough,-fsafe-buffer-usage-suggestions,-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST"
 build:linux --cxxopt=-std=c++23 --host_cxxopt=-std=c++23
 build:macos --cxxopt=-std=c++23 --host_cxxopt=-std=c++23
 

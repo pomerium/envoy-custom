@@ -1,9 +1,9 @@
 #include "source/extensions/filters/network/ssh/vt_buffer.h"
 
-#include "libvterm/utf8.h"
 #include "source/common/visit.h"
 #include "source/extensions/filters/network/ssh/common.h"
 
+#include "libvterm/utf8.h"
 #pragma clang unsafe_buffer_usage begin
 #include "source/common/buffer/buffer_impl.h"
 #pragma clang unsafe_buffer_usage end
@@ -204,9 +204,10 @@ void VTCurrentStateTracker::dumpCell(Envoy::Buffer::Instance& out, const VTermSc
     out.add("m");
   }
 
-  for (int i = 0; i < VTERM_MAX_CHARS_PER_CELL && (cell.chars[i] != 0u); i++) {
+  auto chars = std::span{cell.chars};
+  for (size_t i = 0; i < chars.size() && (chars[i] != 0u); i++) {
     std::array<char, 6> bytes;
-    auto n = fill_utf8(cell.chars[i], bytes.data());
+    auto n = fill_utf8(chars[i], bytes.data());
     ASSERT(n <= 6);
     out.add(std::string_view{unsafe_forge_span(bytes.data(), n)});
   }
@@ -555,9 +556,10 @@ void VTBuffer::dumpCell(Envoy::Buffer::Instance& out, const VTermScreenCell& cel
     out.add("m");
   }
 
-  for (int i = 0; i < VTERM_MAX_CHARS_PER_CELL && (cell.chars[i] != 0u); i++) {
+  auto chars = std::span{cell.chars};
+  for (size_t i = 0; i < chars.size() && (chars[i] != 0u); i++) {
     std::array<char, 6> bytes;
-    auto n = fill_utf8(cell.chars[i], bytes.data());
+    auto n = fill_utf8(chars[i], bytes.data());
     ASSERT(n <= 6);
     out.add(std::string_view{unsafe_forge_span(bytes.data(), n)});
   }

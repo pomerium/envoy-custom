@@ -2,14 +2,10 @@
 
 #include <memory>
 
-#include "envoy/event/dispatcher.h"
-
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
-
-using ::Envoy::Event::Dispatcher;
 
 class MirrorCallbacks {
 public:

@@ -3,7 +3,9 @@
 #include <memory>
 #include <string>
 
+#pragma clang unsafe_buffer_usage begin
 #include "envoy/buffer/buffer.h"
+#pragma clang unsafe_buffer_usage end
 #include "source/common/common/logger.h"
 
 #include "source/extensions/filters/network/ssh/kex_alg.h"

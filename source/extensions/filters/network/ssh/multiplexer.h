@@ -2,7 +2,9 @@
 
 #include <memory>
 
+#pragma clang unsafe_buffer_usage begin
 #include "envoy/thread_local/thread_local.h"
+#pragma clang unsafe_buffer_usage end
 
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/frame.h"

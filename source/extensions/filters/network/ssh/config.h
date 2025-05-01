@@ -3,8 +3,10 @@
 #include <cerrno>
 #include <unistd.h>
 
+#pragma clang unsafe_buffer_usage begin
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
+#pragma clang unsafe_buffer_usage end
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "source/extensions/filters/network/ssh/shared.h"
 

@@ -99,6 +99,7 @@ envoy_http_archive(
     patch_tool = "patch",
     patches = [
         "//patches/openssh:0001-libcrypto-rename.patch",
+        "//patches/openssh:0002-no-define-mkstemp.patch",
     ],
 )
 

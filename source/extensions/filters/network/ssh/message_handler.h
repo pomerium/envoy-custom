@@ -3,11 +3,13 @@
 #include <unordered_map>
 #include <utility>
 
+#pragma clang unsafe_buffer_usage begin
 #include "absl/status/status.h"
+#include "source/common/common/assert.h"
+#pragma clang unsafe_buffer_usage end
 #include "fmt/format.h"
 
 #include "envoy/common/pure.h"
-#include "source/common/common/assert.h"
 
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 

@@ -183,7 +183,7 @@ protected:
     ssh_digest_memory(hash_alg, buf, exchangeHash.length(), digest_buf.data(), digest_len);
     exchangeHash.drain(exchangeHash.length());
     digest_len = ssh_digest_bytes(hash_alg);
-    return to_bytes(bytes_view{digest_buf.begin(), digest_len});
+    return to_bytes(bytes_view{digest_buf}.first(digest_len));
   }
 
   absl::StatusOr<KexResultSharedPtr> computeServerResult(const auto& host_key_blob,

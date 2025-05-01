@@ -56,6 +56,7 @@ envoy_cc_library(
     copts = [
         "-Wimplicit-fallthrough",
         "-Wimplicit-int-conversion",
+        "-Wunsafe-buffer-usage",
     ],
     repository = "@envoy",
     deps = [

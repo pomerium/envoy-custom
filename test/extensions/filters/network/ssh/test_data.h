@@ -1,16 +1,14 @@
 #pragma once
 
-#include "source/common/filesystem/filesystem_impl.h"
-
-// openssh defines 'mkstemp', which clashes with envoy syscall mock classes
-// https://github.com/openssh/openssh-portable/blob/master/openbsd-compat/openbsd-compat.h#L152
-#ifdef mkstemp
-#undef mkstemp
-#endif
-#include "test/mocks/api/mocks.h"
-
 #include "test/extensions/filters/network/ssh/test_common.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
+
+namespace Envoy::Api {
+class MockApi;
+}
+namespace Envoy::Filesystem {
+class MockInstance;
+}
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -36,13 +34,6 @@ inline const std::map<std::string, std::string> test_file_contents = {
 
 };
 
-inline void setupMockFilesystem(NiceMock<Api::MockApi>& api, NiceMock<Filesystem::MockInstance>& file_system) {
-  EXPECT_CALL(api, fileSystem()).WillRepeatedly(ReturnRef(file_system));
-
-  EXPECT_CALL(file_system, fileReadToEnd(_))
-    .WillRepeatedly([](const std::string& filename) {
-      return absl::StatusOr<std::string>{test_file_contents.at(filename)};
-    });
-}
+void setupMockFilesystem(NiceMock<Api::MockApi>& api, NiceMock<Filesystem::MockInstance>& file_system);
 } // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
