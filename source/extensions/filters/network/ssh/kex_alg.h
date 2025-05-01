@@ -77,6 +77,8 @@ struct DirectionAlgorithms {
   std::string cipher;
   std::string mac;
   std::string compression;
+
+  auto operator<=>(const DirectionAlgorithms&) const = default;
 };
 
 struct Algorithms {
@@ -84,6 +86,8 @@ struct Algorithms {
   std::string host_key;
   DirectionAlgorithms w;
   DirectionAlgorithms r;
+
+  auto operator<=>(const Algorithms&) const = default;
 };
 
 struct HandshakeMagics {
@@ -112,10 +116,12 @@ struct KexResult {
   bytes signature;
   HashFunction hash;
   bytes session_id;
-  bytes ephemeral_pub_key;
+  bytes server_ephemeral_pub_key;
   Algorithms algorithms;
   bool client_supports_ext_info;
   bool server_supports_ext_info;
+
+  auto operator<=>(const KexResult&) const = default;
 
   void encodeSharedSecret(bytes& out) {
     Envoy::Buffer::OwnedImpl tmp;
@@ -199,7 +205,7 @@ protected:
     result->shared_secret = to_bytes(shared_secret);
     result->signature = *sig;
     result->hash = SHA256;
-    result->ephemeral_pub_key = to_bytes(server_pub_key);
+    result->server_ephemeral_pub_key = to_bytes(server_pub_key);
     // session id is not set here
 
     return result;
@@ -231,7 +237,7 @@ protected:
     result->shared_secret = to_bytes(shared_secret);
     result->signature = signature;
     result->hash = SHA256;
-    result->ephemeral_pub_key = to_bytes(server_pub_key);
+    result->server_ephemeral_pub_key = to_bytes(server_pub_key);
     // session id is not set here
 
     return result;

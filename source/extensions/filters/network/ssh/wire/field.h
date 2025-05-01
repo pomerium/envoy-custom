@@ -119,9 +119,7 @@ absl::StatusOr<size_t> decodeMsg(Envoy::Buffer::Instance& buffer, SshMessageType
   }
   if (auto mt = buffer.drainInt<SshMessageType>(); mt != msg_type) {
     return absl::InvalidArgumentError(
-      fmt::format("decoded unexpected message type {}, expected {}",
-                  static_cast<uint8_t>(mt),
-                  static_cast<uint8_t>(msg_type)));
+      fmt::format("decoded unexpected message type {}, expected {}", mt, msg_type));
   }
   auto n = decodeSequence(buffer, limit - 1, std::forward<Fields>(fields)...);
   if (n.ok()) {

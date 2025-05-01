@@ -38,11 +38,11 @@ void Kex::setHostKeys(std::vector<openssh::SSHKeyPtr> host_keys) {
 absl::StatusOr<MiddlewareResult> Kex::IncorrectGuessMsgHandler::interceptMessage(wire::Message& msg) {
   if (self.is_server_) {
     if (!self.pending_state_->alg_impl->clientInitMessageTypes().contains(msg.msg_type())) {
-      return absl::FailedPreconditionError(fmt::format("unexpected message received: {}", msg.msg_type()));
+      return absl::InvalidArgumentError(fmt::format("unexpected message received: {}", msg.msg_type()));
     }
   } else {
     if (!self.pending_state_->alg_impl->serverReplyMessageTypes().contains(msg.msg_type())) {
-      return absl::FailedPreconditionError(fmt::format("unexpected message received: {}", msg.msg_type()));
+      return absl::InvalidArgumentError(fmt::format("unexpected message received: {}", msg.msg_type()));
     }
   }
   return Break | UninstallSelf;
@@ -51,11 +51,11 @@ absl::StatusOr<MiddlewareResult> Kex::IncorrectGuessMsgHandler::interceptMessage
 absl::StatusOr<MiddlewareResult> Kex::KexAlgMsgHandler::interceptMessage(wire::Message& msg) {
   if (self.is_server_) {
     if (!self.pending_state_->alg_impl->clientInitMessageTypes().contains(msg.msg_type())) {
-      return absl::FailedPreconditionError(fmt::format("unexpected message received: {}", msg.msg_type()));
+      return absl::InvalidArgumentError(fmt::format("unexpected message received: {}", msg.msg_type()));
     }
   } else {
     if (!self.pending_state_->alg_impl->serverReplyMessageTypes().contains(msg.msg_type())) {
-      return absl::FailedPreconditionError(fmt::format("unexpected message received: {}", msg.msg_type()));
+      return absl::InvalidArgumentError(fmt::format("unexpected message received: {}", msg.msg_type()));
     }
   }
 
@@ -236,7 +236,7 @@ absl::Status Kex::sendKexInitMsg(bool initial_kex) noexcept {
   server_kex_init->compression_algorithms_server_to_client = {"none"s};
   RAND_bytes(server_kex_init->cookie->data(), sizeof(server_kex_init->cookie));
   for (const auto& hostKey : host_keys_) {
-    auto algs = algorithmsForKeyFormat(hostKey->name());
+    auto algs = algorithmsForKeyFormat(hostKey->keyTypeName());
     server_kex_init->server_host_key_algorithms->append_range(algs);
   }
 
@@ -424,6 +424,14 @@ absl::StatusOr<Algorithms> Kex::negotiateAlgorithms(bool initial_kex) noexcept {
     stoc->compression = *common_compression;
   }
 
+  if (!client_kex.languages_client_to_server->empty()) {
+    return absl::UnimplementedError("unsupported client to server language");
+  }
+
+  if (!client_kex.languages_server_to_client->empty()) {
+    return absl::UnimplementedError("unsupported server to client language");
+  }
+
   return result;
 }
 
@@ -437,7 +445,7 @@ absl::StatusOr<std::string> Kex::findCommon(std::string_view what,
       }
     }
   }
-  return absl::AbortedError(fmt::format(
+  return absl::InvalidArgumentError(fmt::format(
     "no common algorithm for {}; client offered: {}; server offered: {}", what, client, server));
 }
 
@@ -445,10 +453,7 @@ absl::StatusOr<std::unique_ptr<KexAlgorithm>> Kex::newAlgorithmImpl() {
   if (pending_state_->negotiated_algorithms.kex == kexAlgoCurve25519SHA256 ||
       pending_state_->negotiated_algorithms.kex == kexAlgoCurve25519SHA256LibSSH) {
     auto hostKey = pickHostKey(pending_state_->negotiated_algorithms.host_key);
-    if (hostKey == nullptr) {
-      return absl::AbortedError(fmt::format("no matching host key for algorithm: {}",
-                                            pending_state_->negotiated_algorithms.host_key));
-    }
+    ASSERT(hostKey != nullptr);
     return std::make_unique<Curve25519Sha256KexAlgorithm>(&pending_state_->magics,
                                                           &pending_state_->negotiated_algorithms, hostKey);
   }
@@ -458,7 +463,7 @@ absl::StatusOr<std::unique_ptr<KexAlgorithm>> Kex::newAlgorithmImpl() {
 
 const openssh::SSHKey* Kex::pickHostKey(std::string_view alg) {
   for (const auto& keypair : host_keys_) {
-    for (const auto& keyAlg : algorithmsForKeyFormat(keypair->name())) {
+    for (const auto& keyAlg : algorithmsForKeyFormat(keypair->keyTypeName())) {
       if (alg == keyAlg) {
         return keypair.get();
       }

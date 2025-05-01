@@ -111,6 +111,9 @@ struct enum_range<wire::SshMessageType> {
 
 namespace wire {
 inline constexpr auto format_as(SshMessageType mt) {
-  return fmt::format("{} ({})", magic_enum::enum_name(mt), std::to_underlying(mt));
+  if (magic_enum::enum_contains(mt)) {
+    return fmt::format("{} ({})", magic_enum::enum_name(mt), std::to_underlying(mt));
+  }
+  return fmt::format("{}", std::to_underlying(mt));
 }
 } // namespace wire

@@ -645,6 +645,10 @@ struct Message final : BaseSshMsg {
     message = detail::top_level_message{};
   }
 
+  bool has_value() const {
+    return message.oneof.has_value();
+  }
+
   SshMessageType msg_type() const override { return *message.key_field(); }
 
   template <typename Self>

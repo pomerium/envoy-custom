@@ -1,5 +1,7 @@
 #pragma once
 
+#include "source/common/optref.h"
+#include "source/common/type_traits.h"
 #pragma clang unsafe_buffer_usage begin
 #include "source/common/buffer/buffer_impl.h" // IWYU pragma: keep
 #include "absl/status/statusor.h"             // IWYU pragma: keep
@@ -24,17 +26,68 @@
     EXPECT_TRUE(s.ok()) << "status code: " << s.code() << "; message: " << s.ToString(); \
   } while (false);
 
-#define MSG(msg_type, ...)                            \
-  [] {                                                \
-    /*NOLINTNEXTLINE*/                                \
-    using MsgType_ = std::decay_t<msg_type>;          \
-    return VariantWith<MsgType_>(AllOf(__VA_ARGS__)); \
+#define ASSERT_OK(expr)                                                                             \
+  do {                                                                                              \
+    absl::Status s = (expr);                                                                        \
+    [&] { ASSERT_TRUE(s.ok()) << "status code: " << s.code() << "; message: " << s.ToString(); }(); \
+  } while (false);
+
+// NOLINTBEGIN(readability-identifier-naming)
+template <typename T>
+class WhenResolvedAsMatcher {
+public:
+  explicit WhenResolvedAsMatcher(const testing::Matcher<T>& matcher)
+      : matcher_(matcher) {}
+
+  void DescribeTo(::std::ostream* os) const {
+    *os << "when resolved as " << ::type_name<T>() << ",";
+    matcher_.DescribeTo(os);
+  }
+
+  void DescribeNegationTo(::std::ostream* os) const {
+    *os << "when resolved as " << ::type_name<T>() << ",";
+    matcher_.DescribeNegationTo(os);
+  }
+
+  template <typename Overloaded>
+  bool MatchAndExplain(Overloaded ov, testing::MatchResultListener* listener) const {
+    opt_ref<T> t = ov.template resolve<T>();
+    if (!t.has_value()) {
+      *listener << "which did not resolve";
+      return false;
+    }
+    return MatchPrintAndExplain(t.value().get(), this->matcher_, listener);
+  }
+
+protected:
+  const testing::Matcher<T> matcher_;
+};
+
+template <typename T>
+inline testing::PolymorphicMatcher<WhenResolvedAsMatcher<T>>
+WhenResolvedAs(const testing::Matcher<T>& inner_matcher) {
+  return testing::MakePolymorphicMatcher(WhenResolvedAsMatcher<T>{inner_matcher});
+}
+
+#define MSG(msg_type, ...)                                                                                      \
+  [&] {                                                                                                         \
+    using MsgType_ = msg_type;                                                                                  \
+    if constexpr (wire::detail::is_overload<MsgType_>) {                                                        \
+      return VariantWith<wire::detail::overload_for_t<MsgType_>>(WhenResolvedAs<MsgType_>(AllOf(__VA_ARGS__))); \
+    } else {                                                                                                    \
+      return VariantWith<MsgType_>(AllOf(__VA_ARGS__));                                                         \
+    }                                                                                                           \
   }()
+// NOLINTEND(readability-identifier-naming)
 
 #define FIELD_EQ(name, ...) FIELD_EQ_IMPL_(name, (__VA_ARGS__))
 
 #define FIELD_EQ_IMPL_(name, ...) \
   Field(#name, &MsgType_::name, Eq(__VA_ARGS__))
+
+#define CONCATENATE_IMPL_(a, b) a##b
+#define CONCATENATE(a, b) CONCATENATE_IMPL_(a, b)
+#define IN_SEQUENCE ::testing::InSequence CONCATENATE(in_sequence_, __LINE__)
 
 #define EXPECT_STATIC_ASSERT_IMPL_(expr) \
   if consteval {                         \
@@ -51,13 +104,17 @@
 using testing::_; // NOLINT(bugprone-reserved-identifier)
 using testing::AllOf;
 using testing::AllOfArray;
+using testing::DoAll;
 using testing::Eq;
 using testing::Field;
+using testing::InSequence;
 using testing::Invoke;
 using testing::NiceMock;
 using testing::Property;
 using testing::Return;
+using testing::SaveArg;
 using testing::Types;
+using testing::VariantWith;
 
 using Envoy::EnvoyException;
 namespace Buffer = Envoy::Buffer;

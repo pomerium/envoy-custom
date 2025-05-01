@@ -149,7 +149,7 @@ absl::StatusOr<std::string> SSHKey::fingerprint(sshkey_fp_rep representation) co
   return std::string{fp.get()};
 }
 
-std::string_view SSHKey::name() const {
+std::string_view SSHKey::keyTypeName() const {
   return {namePtr()};
 }
 
@@ -376,6 +376,21 @@ absl::StatusOr<uint32_t> SSHCipher::packetLength(seqnum_t seqnum,
                                           block_size_, packlen % block_size_));
   }
   return packlen;
+}
+
+std::vector<std::string_view> SSHKey::algorithmsForKeyType() const {
+  switch (keyType()) {
+  case KEY_RSA:
+    return {"rsa-sha2-256",
+            "rsa-sha2-512",
+            keyTypeName()}; // "ssh-rsa"
+  case KEY_RSA_CERT:
+    return {"rsa-sha2-256-cert-v01@openssh.com",
+            "rsa-sha2-512-cert-v01@openssh.com",
+            keyTypeName()}; // "ssh-rsa-cert-v01@openssh.com"
+  default:
+    return {keyTypeName()};
+  }
 }
 
 } // namespace openssh

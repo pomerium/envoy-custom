@@ -50,7 +50,7 @@ absl::StatusOr<std::optional<KexResultSharedPtr>> Curve25519Sha256KexAlgorithm::
       return *res;
     },
     [&msg](auto&) -> absl::StatusOr<std::optional<KexResultSharedPtr>> {
-      return absl::FailedPreconditionError(fmt::format("unexpected message received during key exchange: {}", msg.msg_type()));
+      return absl::InvalidArgumentError(fmt::format("unexpected message received: {}", msg.msg_type()));
     });
 }
 
@@ -58,7 +58,7 @@ absl::StatusOr<std::optional<KexResultSharedPtr>> Curve25519Sha256KexAlgorithm::
   return msg.visit(
     [&](opt_ref<wire::KexEcdhReplyMsg> opt_msg) -> absl::StatusOr<std::optional<KexResultSharedPtr>> {
       if (!opt_msg.has_value()) {
-        return absl::FailedPreconditionError("invalid key exchange reply");
+        return absl::InvalidArgumentError("invalid key exchange reply");
       }
       auto& msg = opt_msg->get();
       if (auto sz = msg.ephemeral_pub_key->size(); sz != 32) {
@@ -84,8 +84,7 @@ absl::StatusOr<std::optional<KexResultSharedPtr>> Curve25519Sha256KexAlgorithm::
       return *res;
     },
     [&msg](auto&) -> absl::StatusOr<std::optional<KexResultSharedPtr>> {
-      return absl::FailedPreconditionError(fmt::format(
-        "unexpected message received during key exchange: {}", msg.msg_type()));
+      return absl::InvalidArgumentError(fmt::format("unexpected message received: {}", msg.msg_type()));
     });
 }
 
@@ -107,7 +106,7 @@ const KexAlgorithm::MessageTypeList& Curve25519Sha256KexAlgorithm::clientInitMes
 absl::StatusOr<wire::Message> Curve25519Sha256KexAlgorithm::buildServerReply(const KexResult& res) {
   wire::KexEcdhReplyMsg reply;
   reply.host_key = res.host_key_blob;
-  reply.ephemeral_pub_key = res.ephemeral_pub_key;
+  reply.ephemeral_pub_key = res.server_ephemeral_pub_key;
   reply.signature = res.signature;
   return reply;
 }

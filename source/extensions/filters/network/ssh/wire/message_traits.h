@@ -24,7 +24,7 @@ template <bool IsConst, typename F>
 struct opt_ref_validator {
   consteval static bool validate() {
     using info_t = callable_info_t<std::remove_reference_t<F>>;
-    return std::is_same_v<typename info_t::arg_type_with_cv_optref,
+    return std::is_same_v<typename info_t::raw_arg_type,
                           opt_ref<typename info_t::arg_type_with_cv>>;
   }
 };
@@ -96,12 +96,12 @@ struct top_level_visitor<IsConst, F> : private F {
       static_assert(false, "visited message is const-qualified, but handler has non-const argument type");
     }
     if constexpr (!opt_ref_validator<IsConst, F>::validate()) {
-      static_assert(false, "overloaded messages must be visited as opt_ref<T>");
+      static_assert(false, "overloaded messages must be visited as `opt_ref<T>` or `opt_ref<const T>` (by value)");
     }
   }
 
   using arg = callable_arg_type_t<F>;
-  decltype(auto) operator()(arg_type_transform<arg>& o) const {
+  decltype(auto) operator()(arg_type_transform<arg> o) const {
     return F::operator()(o.template resolve<arg>());
   }
 };

@@ -78,6 +78,13 @@ public:
     dispatch_.erase(message_type);
   }
 
+  void unregisterHandler(MessageHandler<T>* handler) {
+    std::erase_if(dispatch_, [&handler](const auto& kv) {
+      const auto& [_, v] = kv;
+      return v == handler;
+    });
+  }
+
   // Installs a message middleware that will intercept all messages before they are dispatched to
   // the corresponding message handler.
   void installMiddleware(MessageMiddleware<T>* middleware) {
@@ -88,7 +95,7 @@ protected:
   absl::Status dispatch(T&& msg) {
     if (!middlewares_.empty()) {
       auto last = std::prev(middlewares_.end());
-      for (auto it = middlewares_.begin(); std::prev(it) != last;) {
+      for (auto it = middlewares_.begin(); it != middlewares_.end() && std::prev(it) != last;) {
         auto r = (*it)->interceptMessage(msg);
         if (!r.ok()) {
           return r.status();
@@ -108,7 +115,7 @@ protected:
     message_case_type_t<T> mt = messageCase(msg);
     auto&& it = dispatch_.find(mt);
     if (it == dispatch_.end()) [[unlikely]] {
-      return absl::Status(absl::StatusCode::kInternal, fmt::format("received unexpected message type: {}", mt));
+      return absl::Status(absl::StatusCode::kInvalidArgument, fmt::format("unexpected message received: {}", mt));
     }
     return it->second->handleMessage(std::move(msg));
   }

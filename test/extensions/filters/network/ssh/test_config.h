@@ -13,9 +13,9 @@ inline std::shared_ptr<CodecConfig> newConfig() {
 }
 
 inline void configureKeys(std::shared_ptr<CodecConfig>& config) {
-  *config->add_host_keys() = "test_host_ed25519_key";
-  *config->add_host_keys() = "test_host_rsa_key";
-  *config->mutable_user_ca_key() = "test_user_ca_key";
+  *config->add_host_keys() = "server/test_host_ed25519_key";
+  *config->add_host_keys() = "server/test_host_rsa_key";
+  *config->mutable_user_ca_key() = "server/test_user_ca_key";
 }
 } // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

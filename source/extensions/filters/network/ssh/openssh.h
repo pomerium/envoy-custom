@@ -56,8 +56,9 @@ public:
   static sshkey_types keyTypeFromName(const std::string& name);
 
   absl::StatusOr<std::string> fingerprint(sshkey_fp_rep representation = SSH_FP_DEFAULT) const;
-  std::string_view name() const;
+  std::string_view keyTypeName() const;
   sshkey_types keyType() const;
+  std::vector<std::string_view> algorithmsForKeyType() const;
 
   // Returns the cert-less equivalent to a certified key type
   sshkey_types keyTypePlain() const;

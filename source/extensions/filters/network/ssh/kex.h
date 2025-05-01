@@ -68,6 +68,8 @@ public:
 
   void setHostKeys(std::vector<openssh::SSHKeyPtr> host_keys);
 
+  KexState& getPendingStateForTest() { return *pending_state_; }
+
 private:
   struct IncorrectGuessMsgHandler final : public SshMessageMiddleware {
     explicit IncorrectGuessMsgHandler(Kex& self)

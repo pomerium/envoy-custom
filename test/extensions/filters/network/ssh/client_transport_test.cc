@@ -15,7 +15,7 @@ namespace test {
 class ClientTransportTest : public testing::Test {
 public:
   ClientTransportTest() {
-    setupMockFilesystem(api_);
+    setupMockFilesystem(api_, file_system_);
     initializeCodec();
   }
 
@@ -31,6 +31,7 @@ public:
 
   std::unique_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> tls_slot_;
   NiceMock<Api::MockApi> api_;
+  NiceMock<Filesystem::MockInstance> file_system_;
   ThreadLocal::MockInstance tls_allocator_;
   NiceMock<MockServerCodecCallbacks> codec_callbacks_;
   NiceMock<Network::MockServerConnection> mock_connection_;
