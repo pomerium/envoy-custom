@@ -37,7 +37,6 @@ http_archive(
     patch_args = [
         "-p1",
     ],
-    patch_tool = "patch",
     patches = [
         "//patches/envoy:0001-revert-deps-drop-BoringSSL-linkstatic-patch-38621.patch",
         "//patches/envoy:0002-bump-dependencies.patch",

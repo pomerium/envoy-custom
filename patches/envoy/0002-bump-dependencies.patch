@@ -4,7 +4,7 @@ index b09770279a..a852690ac4 100644
 +++ b/bazel/grpc.patch
 @@ -37,3 +37,25 @@ index a2c7f3a1bb..cd023ebb06 100644
       arguments += [_get_srcs_file_path(proto) for proto in protos]
-
+  
       # create a list of well known proto files if the argument is non-None
 +diff --git a/third_party/BUILD b/third_party/BUILD
 +index 77cb52d0fc..5f69f71978 100644
