@@ -13,6 +13,7 @@ envoy_cc_library(
     hdrs = [
         "bytes.h",
         "concepts.h",
+        "factory.h",
         "fixed_string.h",
         "math.h",
         "optref.h",

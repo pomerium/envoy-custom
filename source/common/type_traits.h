@@ -25,6 +25,16 @@ using callable_info_t = callable_info<decltype(&std::decay_t<F>::operator())>;
 template <typename F>
 using callable_arg_type_t = callable_info_t<F>::arg_type;
 
+template <typename T>
+struct function_info;
+
+template <typename R, typename T, typename... Args>
+struct function_info<R (T::*)(Args...)> {
+  using return_type = R;
+  using object_type = T;
+  using args_type = std::tuple<Args...>;
+};
+
 // generic_lambda_info can be used to detect whether a lambda function was defined with an argument
 // type of 'auto', 'auto&, 'const auto&', or 'auto&&'. This is useful for validation purposes when
 // working with std::visit.

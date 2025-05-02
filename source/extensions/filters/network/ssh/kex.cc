@@ -11,8 +11,15 @@
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-Kex::Kex(TransportCallbacks& transport_callbacks, KexCallbacks& kex_callbacks, KexMode mode)
-    : transport_(transport_callbacks), kex_callbacks_(kex_callbacks),
+Kex::Kex(TransportCallbacks& transport_callbacks,
+         KexCallbacks& kex_callbacks,
+         KexAlgorithmFactoryRegistry& algorithm_factories,
+         DirectionalPacketCipherFactoryRegistry& cipher_factories,
+         KexMode mode)
+    : transport_(transport_callbacks),
+      kex_callbacks_(kex_callbacks),
+      algorithm_factories_(algorithm_factories),
+      cipher_factories_(cipher_factories),
       is_server_(mode == KexMode::Server) {
 }
 
@@ -181,11 +188,6 @@ absl::Status Kex::handleMessage(wire::Message&& msg) noexcept {
         pending_state_->negotiated_algorithms = *algs;
       }
 
-      auto algImpl = newAlgorithmImpl();
-      if (!algImpl.ok()) {
-        return algImpl.status();
-      }
-
       if (pending_state_->peer_kex.first_kex_packet_follows) {
         if ((pending_state_->peer_kex.kex_algorithms[0] != pending_state_->our_kex.kex_algorithms[0]) ||
             (pending_state_->peer_kex.server_host_key_algorithms[0] !=
@@ -194,7 +196,7 @@ absl::Status Kex::handleMessage(wire::Message&& msg) noexcept {
         }
       }
 
-      pending_state_->alg_impl = std::move(*algImpl);
+      pending_state_->alg_impl = createKexAlgorithm();
 
       if (!is_server_) {
         if (auto stat = transport_.sendMessageDirect(
@@ -213,7 +215,7 @@ absl::Status Kex::handleMessage(wire::Message&& msg) noexcept {
 
 absl::Status Kex::sendKexInitMsg(bool initial_kex) noexcept {
   wire::KexInitMsg* server_kex_init = &pending_state_->our_kex;
-  server_kex_init->kex_algorithms = preferredKexAlgos;
+  server_kex_init->kex_algorithms = algorithm_factories_.namesByPriority();
 
   if (initial_kex) {
     if (is_server_) {
@@ -291,7 +293,7 @@ absl::Status Kex::sendNewKeysMsg() {
   return absl::OkStatus();
 }
 
-absl::StatusOr<Algorithms> Kex::negotiateAlgorithms(bool initial_kex) noexcept {
+absl::StatusOr<Algorithms> Kex::negotiateAlgorithms(bool initial_kex) const noexcept {
   if (initial_kex) {
     if (is_server_) {
       pending_state_->client_supports_ext_info = absl::c_contains(*pending_state_->peer_kex.kex_algorithms, "ext-info-c");
@@ -433,7 +435,7 @@ absl::StatusOr<Algorithms> Kex::negotiateAlgorithms(bool initial_kex) noexcept {
 
 absl::StatusOr<std::string> Kex::findCommon(std::string_view what,
                                             const string_list& client,
-                                            const string_list& server) {
+                                            const string_list& server) const {
   for (const auto& c : client) {
     for (const auto& s : server) {
       if (c == s) {
@@ -445,19 +447,17 @@ absl::StatusOr<std::string> Kex::findCommon(std::string_view what,
     "no common algorithm for {}; client offered: {}; server offered: {}", what, client, server));
 }
 
-absl::StatusOr<std::unique_ptr<KexAlgorithm>> Kex::newAlgorithmImpl() {
-  if (pending_state_->negotiated_algorithms.kex == kexAlgoCurve25519SHA256 ||
-      pending_state_->negotiated_algorithms.kex == kexAlgoCurve25519SHA256LibSSH) {
-    auto hostKey = pickHostKey(pending_state_->negotiated_algorithms.host_key);
-    ASSERT(hostKey != nullptr);
-    return std::make_unique<Curve25519Sha256KexAlgorithm>(&pending_state_->magics,
-                                                          &pending_state_->negotiated_algorithms, hostKey);
-  }
-  return absl::UnimplementedError(
-    fmt::format("unsupported key exchange algorithm: {}", pending_state_->negotiated_algorithms.kex));
+std::unique_ptr<KexAlgorithm> Kex::createKexAlgorithm() const {
+  auto hostKey = pickHostKey(pending_state_->negotiated_algorithms.host_key);
+  ASSERT(hostKey != nullptr);
+  return algorithm_factories_
+    .factoryForName(pending_state_->negotiated_algorithms.kex)
+    ->create(&pending_state_->magics,
+             &pending_state_->negotiated_algorithms,
+             hostKey);
 }
 
-const openssh::SSHKey* Kex::pickHostKey(std::string_view alg) {
+const openssh::SSHKey* Kex::pickHostKey(std::string_view alg) const {
   for (const auto& keypair : host_keys_) {
     for (const auto& keyAlg : algorithmsForKeyFormat(keypair->keyTypeName())) {
       if (alg == keyAlg) {
@@ -467,7 +467,7 @@ const openssh::SSHKey* Kex::pickHostKey(std::string_view alg) {
   }
   return nullptr;
 }
-const openssh::SSHKey* Kex::getHostKey(sshkey_types pktype) {
+const openssh::SSHKey* Kex::getHostKey(sshkey_types pktype) const {
   for (const auto& keypair : host_keys_) {
     if (keypair->keyType() == pktype) {
       return keypair.get();
@@ -488,4 +488,75 @@ absl::Status Kex::initiateRekey() {
   return sendKexInitMsg(false);
 }
 
+namespace {
+void generateKeyMaterial(bytes& out, char tag, KexResult* kex_result) {
+  // translated from go ssh/transport.go
+  bytes digestsSoFar;
+
+  using namespace std::placeholders;
+  while (out.size() < out.capacity()) {
+    size_t digest_size = 0;
+    bssl::ScopedEVP_MD_CTX ctx;
+    switch (kex_result->hash) {
+    case SHA256:
+      EVP_DigestInit(ctx.get(), EVP_sha256());
+      digest_size = 32;
+      break;
+    case SHA512:
+      EVP_DigestInit(ctx.get(), EVP_sha512());
+      digest_size = 64;
+      break;
+    default:
+      throw EnvoyException("unsupported hash algorithm");
+    }
+    bytes encoded_k;
+    kex_result->encodeSharedSecret(encoded_k);
+    EVP_DigestUpdate(ctx.get(), encoded_k.data(), encoded_k.size());
+    EVP_DigestUpdate(ctx.get(), kex_result->exchange_hash.data(), kex_result->exchange_hash.size());
+    if (digestsSoFar.size() == 0) {
+      EVP_DigestUpdate(ctx.get(), &tag, 1);
+      EVP_DigestUpdate(ctx.get(), kex_result->session_id.data(), kex_result->session_id.size());
+    } else {
+      EVP_DigestUpdate(ctx.get(), digestsSoFar.data(), digestsSoFar.size());
+    }
+    bytes digest(digest_size, 0);
+    EVP_DigestFinal(ctx.get(), digest.data(), nullptr);
+    auto toCopy = std::min(out.capacity() - out.size(), digest.size());
+    if (toCopy > 0) {
+      std::copy_n(digest.begin(), toCopy, std::back_inserter(out));
+      std::copy(digest.begin(), digest.end(), std::back_inserter(digestsSoFar));
+    }
+  }
+}
+} // namespace
+
+std::unique_ptr<PacketCipher> Kex::makePacketCipher(direction_t d_read, direction_t d_write,
+                                                    KexResult* kex_result) const {
+  ASSERT(!kex_result->session_id.empty());
+  auto readFactory = cipher_factories_.factoryForName(kex_result->algorithms.r.cipher);
+  auto writeFactory = cipher_factories_.factoryForName(kex_result->algorithms.w.cipher);
+
+  bytes readIv;
+  readIv.reserve(readFactory->ivSize());
+  generateKeyMaterial(readIv, d_read.iv_tag, kex_result);
+  bytes readKey;
+  readKey.reserve(readFactory->keySize());
+  generateKeyMaterial(readKey, d_read.key_tag, kex_result);
+
+  // todo: non-aead ciphers?
+
+  bytes writeIv;
+  writeIv.reserve(writeFactory->ivSize());
+  generateKeyMaterial(writeIv, d_write.iv_tag, kex_result);
+  bytes writeKey;
+  writeKey.reserve(writeFactory->keySize());
+  generateKeyMaterial(writeKey, d_write.key_tag, kex_result);
+
+  return std::make_unique<PacketCipher>(readFactory->create(readIv, readKey, openssh::CipherMode::Read),
+                                        writeFactory->create(writeIv, writeKey, openssh::CipherMode::Write));
+
+  ENVOY_LOG(error, "unsupported algorithm; read={}, write={}",
+            kex_result->algorithms.r.cipher, kex_result->algorithms.w.cipher);
+  throw EnvoyException("unsupported algorithm"); // shouldn't get here ideally
+}
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

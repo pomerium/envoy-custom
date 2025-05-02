@@ -5,6 +5,7 @@
 #include <memory>
 #include <string>
 
+#include "source/common/factory.h"
 #include "source/common/status.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
@@ -17,11 +18,6 @@ extern "C" {
 }
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
-
-static constexpr auto kexAlgoCurve25519SHA256LibSSH = "curve25519-sha256@libssh.org";
-static constexpr auto kexAlgoCurve25519SHA256 = "curve25519-sha256";
-
-static const string_list preferredKexAlgos = {kexAlgoCurve25519SHA256, kexAlgoCurve25519SHA256LibSSH};
 
 static constexpr auto cipherAES128GCM = "aes128-gcm@openssh.com";
 static constexpr auto cipherAES256GCM = "aes256-gcm@openssh.com";
@@ -136,12 +132,7 @@ class KexAlgorithm : public Logger::Loggable<Logger::Id::filter> {
 
 public:
   KexAlgorithm(const HandshakeMagics* magics, const Algorithms* algs,
-               const openssh::SSHKey* signer)
-      : magics_(magics), algs_(algs), signer_(signer) {
-    ASSERT(magics_ != nullptr);
-    ASSERT(algs_ != nullptr);
-    ASSERT(signer_ != nullptr);
-  }
+               const openssh::SSHKey* signer);
   virtual ~KexAlgorithm() = default;
 
   using MessageTypeList = absl::flat_hash_set<wire::SshMessageType>;
@@ -157,18 +148,10 @@ protected:
   const Algorithms* algs_;
   const openssh::SSHKey* signer_;
 
-  bool shouldIgnorePacket() {
-    if (!should_ignore_one_) {
-      return false;
-    }
-    should_ignore_one_ = false;
-    return true;
-  }
-
-  bytes computeExchangeHash(const auto& host_key_blob,
-                            const auto& client_pub_key,
-                            const auto& server_pub_key,
-                            const auto& shared_secret) {
+  bytes computeExchangeHash(wire::Writer auto const& host_key_blob,
+                            wire::Writer auto const& client_pub_key,
+                            wire::Writer auto const& server_pub_key,
+                            wire::Writer auto const& shared_secret) {
     Envoy::Buffer::OwnedImpl exchangeHash;
     magics_->encode(exchangeHash);
     wire::write_opt<wire::LengthPrefixed>(exchangeHash, host_key_blob);
@@ -186,10 +169,10 @@ protected:
     return to_bytes(bytes_view{digest_buf}.first(digest_len));
   }
 
-  absl::StatusOr<KexResultSharedPtr> computeServerResult(const auto& host_key_blob,
-                                                         const auto& client_pub_key,
-                                                         const auto& server_pub_key,
-                                                         const auto& shared_secret) {
+  absl::StatusOr<KexResultSharedPtr> computeServerResult(wire::Writer auto const& host_key_blob,
+                                                         wire::Writer auto const& client_pub_key,
+                                                         wire::Writer auto const& server_pub_key,
+                                                         wire::Writer auto const& shared_secret) {
 
     auto result = std::make_shared<KexResult>();
     result->algorithms = *algs_;
@@ -211,10 +194,10 @@ protected:
     return result;
   }
 
-  absl::StatusOr<KexResultSharedPtr> computeClientResult(const auto& host_key_blob,
-                                                         const auto& client_pub_key,
-                                                         const auto& server_pub_key,
-                                                         const auto& shared_secret,
+  absl::StatusOr<KexResultSharedPtr> computeClientResult(wire::Writer auto const& host_key_blob,
+                                                         wire::Writer auto const& client_pub_key,
+                                                         wire::Writer auto const& server_pub_key,
+                                                         wire::Writer auto const& shared_secret,
                                                          const bytes& signature) {
 
     auto result = std::make_shared<KexResult>();
@@ -242,38 +225,21 @@ protected:
 
     return result;
   }
-
-private:
-  bool should_ignore_one_{};
-
-  void ignoreNextPacket() {
-    should_ignore_one_ = true;
-  }
 };
 
-struct Curve25519Keypair {
-  std::array<uint8_t, 32> priv;
-  std::array<uint8_t, 32> pub;
-};
-
-static const std::array<uint8_t, 32> curve25519_zeros{};
-
-class Curve25519Sha256KexAlgorithm : public KexAlgorithm {
+class KexAlgorithmFactory {
 public:
-  using KexAlgorithm::KexAlgorithm;
-
-  absl::StatusOr<std::optional<KexResultSharedPtr>> handleServerRecv(wire::Message& msg) override;
-  absl::StatusOr<std::optional<KexResultSharedPtr>> handleClientRecv(wire::Message& msg) override;
-  wire::Message buildClientInit() override;
-  const MessageTypeList& clientInitMessageTypes() const override;
-  wire::Message buildServerReply(const KexResult&) override;
-  const MessageTypeList& serverReplyMessageTypes() const override;
-
-private:
-  Curve25519Keypair client_keypair_;
-
-  absl::Status buildResult(uint8_t client_pub_key[32], uint8_t shared_secret[32],
-                           Curve25519Keypair server_keypair);
+  virtual ~KexAlgorithmFactory() = default;
+  virtual std::vector<std::pair<std::string, priority_t>> names() const PURE;
+  virtual std::unique_ptr<KexAlgorithm> create(const HandshakeMagics* magics, const Algorithms* algs,
+                                               const openssh::SSHKey* signer) const PURE;
 };
+
+using KexAlgorithmFactoryRegistry = PriorityAwareFactoryRegistry<KexAlgorithmFactory,
+                                                                 KexAlgorithm,
+                                                                 const HandshakeMagics*,
+                                                                 const Algorithms*,
+                                                                 const openssh::SSHKey*>;
+using KexAlgorithmFactoryPtr = std::unique_ptr<KexAlgorithmFactory>;
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

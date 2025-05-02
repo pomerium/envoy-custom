@@ -6,10 +6,11 @@
 #include "source/common/status.h"
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
 
+#include "source/extensions/filters/network/ssh/kex_alg_curve25519.h"
+#include "source/extensions/filters/network/ssh/packet_cipher_aead.h"
 #include "source/extensions/filters/network/ssh/wire/packet.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/version_exchange.h"
-#include "source/extensions/filters/network/ssh/packet_cipher_impl.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
@@ -57,16 +58,21 @@ class TransportBase : public Codec,
 public:
   TransportBase(Api::Api& api,
                 std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config)
-      : api_(api), config_(config) {}
+      : api_(api), config_(config) {
+    algorithm_factories_.registerType<Curve25519Sha256KexAlgorithmFactory>();
+    cipher_factories_.registerType<Chacha20Poly1305CipherFactory>();
+    cipher_factories_.registerType<AESGCM128CipherFactory>();
+    cipher_factories_.registerType<AESGCM256CipherFactory>();
+  }
   using Callbacks = codec_traits<Codec>::callbacks_type;
 
   void setCodecCallbacks(Callbacks& callbacks) override {
     this->callbacks_ = &callbacks;
-    kex_ = std::make_unique<Kex>(*this, *this, codec_traits<Codec>::kex_mode);
+    kex_ = std::make_unique<Kex>(*this, *this, algorithm_factories_, cipher_factories_, codec_traits<Codec>::kex_mode);
     kex_->registerMessageHandlers(*this);
     version_exchanger_ = std::make_unique<VersionExchanger>(*this, *kex_);
 
-    cipher_state_.cipher = PacketCipherFactory::makeUnencryptedPacketCipher();
+    cipher_state_.cipher = std::make_unique<PacketCipher>(std::make_unique<NoCipher>(), std::make_unique<NoCipher>());
     cipher_state_.seq_read = 0;
     cipher_state_.seq_write = 0;
     cipher_state_.read_bytes_remaining = cipher_state_.cipher->rekeyAfterBytes(openssh::CipherMode::Read);
@@ -190,10 +196,9 @@ protected:
     ASSERT(cipher_state_.pending_key_exchange);
     kex_result_ = kex_result;
 
-    cipher_state_.cipher =
-      PacketCipherFactory::makePacketCipher(codec_traits<Codec>::direction_read,
-                                            codec_traits<Codec>::direction_write,
-                                            kex_result.get());
+    cipher_state_.cipher = kex_->makePacketCipher(codec_traits<Codec>::direction_read,
+                                                  codec_traits<Codec>::direction_write,
+                                                  kex_result.get());
     if (config_->has_rekey_threshold()) {
       cipher_state_.read_bytes_remaining = std::max<uint64_t>(256, config_->rekey_threshold());
       cipher_state_.write_bytes_remaining = std::max<uint64_t>(256, config_->rekey_threshold());
@@ -263,6 +268,9 @@ protected:
   std::shared_ptr<KexResult> kex_result_;
   std::optional<wire::ExtInfoMsg> outgoing_ext_info_;
   std::optional<wire::ExtInfoMsg> peer_ext_info_;
+
+  KexAlgorithmFactoryRegistry algorithm_factories_;
+  DirectionalPacketCipherFactoryRegistry cipher_factories_;
 
   Api::Api& api_;
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config_;

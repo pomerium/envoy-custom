@@ -5,6 +5,7 @@
 #include <string>
 
 #include "source/extensions/filters/network/ssh/kex_alg.h"
+#include "source/extensions/filters/network/ssh/packet_cipher.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/version_exchange.h"
 #include "source/extensions/filters/network/ssh/message_handler.h"
@@ -53,11 +54,13 @@ class Kex final : public VersionExchangeCallbacks,
 public:
   Kex(TransportCallbacks& transport_callbacks,
       KexCallbacks& kex_callbacks,
+      KexAlgorithmFactoryRegistry& algorithm_factories,
+      DirectionalPacketCipherFactoryRegistry& cipher_factories,
       KexMode mode);
 
   absl::Status initiateRekey();
-  const openssh::SSHKey* pickHostKey(std::string_view alg);
-  const openssh::SSHKey* getHostKey(sshkey_types pkalg);
+  const openssh::SSHKey* pickHostKey(std::string_view alg) const;
+  const openssh::SSHKey* getHostKey(sshkey_types pkalg) const;
 
   // SshMessageHandler
   void registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) override;
@@ -68,8 +71,11 @@ public:
 
   void setHostKeys(std::vector<openssh::SSHKeyPtr> host_keys);
 
-  KexState& getPendingStateForTest() { return *pending_state_; }
-  KexState& getActiveStateForTest() { return *active_state_; }
+  std::unique_ptr<PacketCipher> makePacketCipher(direction_t d_read, direction_t d_write,
+                                                 KexResult* kex_result) const;
+
+  KexState& getPendingStateForTest() const { return *pending_state_; }
+  KexState& getActiveStateForTest() const { return *active_state_; }
 
 private:
   struct IncorrectGuessMsgHandler final : public SshMessageMiddleware {
@@ -102,23 +108,24 @@ private:
   ExtInfoMsgHandler msg_handler_ext_info_{*this};
   IncorrectGuessMsgHandler msg_handler_incorrect_guess_{*this};
 
-  // absl::Status loadHostKeys();
-  // absl::Status loadSshKeyPair(const std::string& priv_key_path, const std::string& pub_key_path);
+  absl::StatusOr<Algorithms> negotiateAlgorithms(bool initial_kex) const noexcept;
+  std::unique_ptr<KexAlgorithm> createKexAlgorithm() const;
 
-  absl::StatusOr<Algorithms> negotiateAlgorithms(bool initial_kex) noexcept;
-  absl::StatusOr<std::unique_ptr<KexAlgorithm>> newAlgorithmImpl();
   absl::StatusOr<std::string> findCommon(std::string_view what, const string_list& client,
-                                         const string_list& server);
+                                         const string_list& server) const;
 
   absl::Status sendKexInitMsg(bool initial_kex) noexcept;
   absl::Status sendNewKeysMsg();
   void onNewKeysMsgReceived();
-  inline bool isInitialKex() { return active_state_ == nullptr; }
+  inline bool isInitialKex() const { return active_state_ == nullptr; }
+
+  TransportCallbacks& transport_;
+  KexCallbacks& kex_callbacks_;
+  KexAlgorithmFactoryRegistry& algorithm_factories_;
+  DirectionalPacketCipherFactoryRegistry& cipher_factories_;
 
   std::string client_version_;
   std::string server_version_;
-  TransportCallbacks& transport_;
-  KexCallbacks& kex_callbacks_;
   std::unique_ptr<KexState> pending_state_;
   std::unique_ptr<KexState> active_state_;
   bool is_server_;

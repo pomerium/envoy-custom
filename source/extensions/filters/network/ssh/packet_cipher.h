@@ -2,7 +2,10 @@
 
 #include <cstdint>
 
+#pragma clang unsafe_buffer_usage begin
 #include "envoy/buffer/buffer.h"
+#pragma clang unsafe_buffer_usage end
+#include "source/common/factory.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
@@ -14,25 +17,63 @@ public:
                                                Envoy::Buffer::Instance& in) PURE;
   virtual absl::StatusOr<size_t> encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
                                                Envoy::Buffer::Instance& in) PURE;
-  virtual size_t blockSize() PURE;
-  virtual size_t aadLen() PURE;
+  virtual size_t blockSize() const PURE;
+  virtual size_t aadLen() const PURE;
 };
+
+using iv_type = bytes;
+using key_type = bytes;
+
+class DirectionalPacketCipherFactory {
+public:
+  virtual ~DirectionalPacketCipherFactory() = default;
+  virtual std::vector<std::pair<std::string, priority_t>> names() const PURE;
+  virtual std::unique_ptr<DirectionalPacketCipher> create(const iv_type& iv,
+                                                          const key_type& key,
+                                                          openssh::CipherMode mode) const PURE;
+  virtual size_t ivSize() const PURE;
+  virtual size_t keySize() const PURE;
+};
+
+class DirectionalPacketCipherFactoryRegistry : public PriorityAwareFactoryRegistry<DirectionalPacketCipherFactory,
+                                                                                   DirectionalPacketCipher,
+                                                                                   iv_type,
+                                                                                   key_type,
+                                                                                   openssh::CipherMode> {};
+using DirectionalPacketCipherFactoryPtr = std::unique_ptr<DirectionalPacketCipherFactory>;
 
 class PacketCipher {
 public:
   PacketCipher(std::unique_ptr<DirectionalPacketCipher> read,
                std::unique_ptr<DirectionalPacketCipher> write);
+
   absl::StatusOr<size_t> encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
                                        Envoy::Buffer::Instance& in);
   absl::StatusOr<size_t> decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
                                        Envoy::Buffer::Instance& in);
   size_t blockSize(openssh::CipherMode mode);
   size_t aadSize(openssh::CipherMode mode);
+  size_t keySize(openssh::CipherMode mode);
+  size_t ivSize(openssh::CipherMode mode);
   size_t rekeyAfterBytes(openssh::CipherMode mode);
 
 private:
   std::unique_ptr<DirectionalPacketCipher> read_;
   std::unique_ptr<DirectionalPacketCipher> write_;
+};
+
+class NoCipher final : public DirectionalPacketCipher {
+public:
+  NoCipher() = default;
+  absl::StatusOr<size_t> decryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
+                                       Envoy::Buffer::Instance& in) override;
+  absl::StatusOr<size_t> encryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
+                                       Envoy::Buffer::Instance& in) override;
+  size_t blockSize() const override {
+    // Minimum block size is 8 according to RFC4253 § 6
+    return 8;
+  }
+  size_t aadLen() const override { return 0; }
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

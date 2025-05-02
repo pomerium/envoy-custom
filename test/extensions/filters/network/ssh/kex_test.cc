@@ -1,3 +1,5 @@
+#include "source/extensions/filters/network/ssh/kex_alg_curve25519.h"
+#include "source/extensions/filters/network/ssh/packet_cipher_aead.h"
 #include "test/extensions/filters/network/ssh/test_data.h"
 #include "test/extensions/filters/network/ssh/test_common.h"
 #include "test/extensions/filters/network/ssh/test_config.h"
@@ -259,6 +261,10 @@ public:
     configureKeys(config_);
     client_host_keys_.push_back(*openssh::SSHKey::fromPrivateKeyFile(api_.fileSystem(), "client/test_host_ed25519_key"));
     client_host_keys_.push_back(*openssh::SSHKey::fromPrivateKeyFile(api_.fileSystem(), "client/test_host_rsa_key"));
+    algorithm_factories_.registerType<Curve25519Sha256KexAlgorithmFactory>();
+    cipher_factories_.registerType<Chacha20Poly1305CipherFactory>();
+    cipher_factories_.registerType<AESGCM128CipherFactory>();
+    cipher_factories_.registerType<AESGCM256CipherFactory>();
   }
 
   auto loadHostKeys() {
@@ -282,7 +288,7 @@ public:
     dispatch_incoming_ = std::make_unique<TestMsgDispatcher>();
     transport_callbacks_ = std::make_unique<testing::StrictMock<MockTransportCallbacks>>();
     kex_callbacks_ = std::make_unique<testing::StrictMock<MockKexCallbacks>>();
-    kex_ = std::make_unique<Kex>(*transport_callbacks_, *kex_callbacks_, KexMode::Server);
+    kex_ = std::make_unique<Kex>(*transport_callbacks_, *kex_callbacks_, algorithm_factories_, cipher_factories_, KexMode::Server);
     kex_->setHostKeys(loadHostKeys());
     kex_->setVersionStrings("SSH-2.0-Server", "SSH-2.0-Client");
     kex_->registerMessageHandlers(*dispatch_incoming_);
@@ -336,6 +342,9 @@ protected:
   std::unique_ptr<TestMsgDispatcher> dispatch_incoming_;
   std::unique_ptr<testing::StrictMock<MockTransportCallbacks>> transport_callbacks_;
   std::unique_ptr<testing::StrictMock<MockKexCallbacks>> kex_callbacks_;
+
+  KexAlgorithmFactoryRegistry algorithm_factories_;
+  DirectionalPacketCipherFactoryRegistry cipher_factories_;
 
   KexSequence sequence;
   KexSequence startKexSequence(wire::KexInitMsg client_kex_init, bool initial_kex = true) {
@@ -392,10 +401,12 @@ protected:
       .server_kex_init = *encodeTo<bytes>(sequence.server_kex_init_),
     };
 
-    Curve25519Sha256KexAlgorithm alg(&magics, &pendingState.negotiated_algorithms, client_hostkey);
+    auto alg = algorithm_factories_
+                 .factoryForName(pendingState.negotiated_algorithms.kex)
+                 ->create(&magics, &pendingState.negotiated_algorithms, client_hostkey);
 
     // ECDH
-    wire::Message clientInit = alg.buildClientInit();
+    wire::Message clientInit = alg->buildClientInit();
     clientInit.visit(
       [&](opt_ref<wire::KexEcdhInitMsg> msg) {
         sequence.client_ecdh_init_ = *msg;
@@ -417,7 +428,7 @@ protected:
     }
     co_yield AfterEcdhInitSent;
 
-    auto r = alg.handleClientRecv(sequence.server_ecdh_reply_);
+    auto r = alg->handleClientRecv(sequence.server_ecdh_reply_);
     if (!r.ok()) {
       co_return r.status();
     }
@@ -588,7 +599,7 @@ TEST_F(AlgorithmNegotiationTest, NoCommonKexAlgorithms) {
   ContinueAndExpectSoftError(absl::InvalidArgumentError(
     fmt::format("no common algorithm for key exchange; client offered: {}; server offered: {}",
                 sequence.client_kex_init_.kex_algorithms,
-                append(preferredKexAlgos, "ext-info-s", "kex-strict-s-v00@openssh.com"))));
+                append(algorithm_factories_.namesByPriority(), "ext-info-s", "kex-strict-s-v00@openssh.com"))));
 }
 
 TEST_F(AlgorithmNegotiationTest, InvalidKeyExchangeMethod) {
@@ -768,6 +779,10 @@ TEST_F(ServerKexTest, SendNewKeysFail) {
 }
 
 TEST_F(ServerKexTest, UnexpectedKexInit) {
+  ContinueUntil(AfterKexInitSent);
+  auto r = dispatch_incoming_->dispatch(wire::Message{wire::KexInitMsg{}});
+  EXPECT_FALSE(r.ok());
+  EXPECT_EQ(r.message(), "unexpected message received: KexInit (20)");
 }
 
 TEST_F(ServerKexTest, SendKexInitFail) {
@@ -780,7 +795,16 @@ TEST_F(ServerKexTest, SendKexInitFail) {
   ContinueAndExpectError(absl::InternalError("test error"));
 }
 
-TEST_F(ServerKexTest, NewAlgorithmFail) {
+TEST_F(ServerKexTest, MultiStepAlgorithm) {
+}
+
+TEST_F(ServerKexTest, PickHostKey) {
+}
+
+TEST_F(ServerKexTest, GetHostKey) {
+}
+
+TEST_F(ServerKexTest, InitiateRekey) {
 }
 
 } // namespace test
