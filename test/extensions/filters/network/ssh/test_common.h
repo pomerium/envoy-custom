@@ -24,13 +24,13 @@
   do {                                                                                   \
     absl::Status s = (expr);                                                             \
     EXPECT_TRUE(s.ok()) << "status code: " << s.code() << "; message: " << s.ToString(); \
-  } while (false);
+  } while (false)
 
-#define ASSERT_OK(expr)                                                                             \
-  do {                                                                                              \
-    absl::Status s = (expr);                                                                        \
-    [&] { ASSERT_TRUE(s.ok()) << "status code: " << s.code() << "; message: " << s.ToString(); }(); \
-  } while (false);
+#define ASSERT_OK(expr)                                                                  \
+  do {                                                                                   \
+    absl::Status s = (expr);                                                             \
+    ASSERT_TRUE(s.ok()) << "status code: " << s.code() << "; message: " << s.ToString(); \
+  } while (false)
 
 // NOLINTBEGIN(readability-identifier-naming)
 template <typename T>

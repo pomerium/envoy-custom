@@ -147,9 +147,9 @@ public:
   using MessageTypeList = absl::flat_hash_set<wire::SshMessageType>;
   virtual absl::StatusOr<std::optional<KexResultSharedPtr>> handleServerRecv(wire::Message& msg) PURE;
   virtual absl::StatusOr<std::optional<KexResultSharedPtr>> handleClientRecv(wire::Message& msg) PURE;
-  virtual absl::StatusOr<wire::Message> buildClientInit() PURE;
+  virtual wire::Message buildClientInit() PURE;
   virtual const MessageTypeList& clientInitMessageTypes() const PURE;
-  virtual absl::StatusOr<wire::Message> buildServerReply(const KexResult&) PURE;
+  virtual wire::Message buildServerReply(const KexResult&) PURE;
   virtual const MessageTypeList& serverReplyMessageTypes() const PURE;
 
 protected:
@@ -264,9 +264,9 @@ public:
 
   absl::StatusOr<std::optional<KexResultSharedPtr>> handleServerRecv(wire::Message& msg) override;
   absl::StatusOr<std::optional<KexResultSharedPtr>> handleClientRecv(wire::Message& msg) override;
-  absl::StatusOr<wire::Message> buildClientInit() override;
+  wire::Message buildClientInit() override;
   const MessageTypeList& clientInitMessageTypes() const override;
-  absl::StatusOr<wire::Message> buildServerReply(const KexResult&) override;
+  wire::Message buildServerReply(const KexResult&) override;
   const MessageTypeList& serverReplyMessageTypes() const override;
 
 private:

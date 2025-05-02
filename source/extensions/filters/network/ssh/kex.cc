@@ -95,11 +95,9 @@ absl::StatusOr<MiddlewareResult> Kex::KexAlgMsgHandler::interceptMessage(wire::M
   self.pending_state_->kex_result = std::move(pendingKexResult);
 
   if (self.is_server_) {
-    auto reply = self.pending_state_->alg_impl->buildServerReply(*self.pending_state_->kex_result);
-    if (!reply.ok()) {
-      return reply.status();
-    }
-    if (auto err = self.transport_.sendMessageDirect(std::move(reply).value()); !err.ok()) {
+    if (auto err = self.transport_.sendMessageDirect(
+          self.pending_state_->alg_impl->buildServerReply(*self.pending_state_->kex_result));
+        !err.ok()) {
       return err.status();
     }
     // don't return yet, send newkeys first
@@ -199,11 +197,9 @@ absl::Status Kex::handleMessage(wire::Message&& msg) noexcept {
       pending_state_->alg_impl = std::move(*algImpl);
 
       if (!is_server_) {
-        auto clientInit = pending_state_->alg_impl->buildClientInit();
-        if (!clientInit.ok()) {
-          return clientInit.status();
-        }
-        if (auto stat = transport_.sendMessageDirect(std::move(clientInit).value()); !stat.ok()) {
+        if (auto stat = transport_.sendMessageDirect(
+              pending_state_->alg_impl->buildClientInit());
+            !stat.ok()) {
           return stat.status();
         }
       }

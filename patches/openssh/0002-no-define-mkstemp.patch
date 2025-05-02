@@ -1,0 +1,12 @@
+diff --git a/openbsd-compat/openbsd-compat.h b/openbsd-compat/openbsd-compat.h
+index 0823d6a83..ac9906c84 100644
+--- a/openbsd-compat/openbsd-compat.h
++++ b/openbsd-compat/openbsd-compat.h
+@@ -149,7 +149,6 @@ int mkstemp(char *path);
+ char *mkdtemp(char *path);
+ #endif
+ 
+-#define mkstemp(x) _ssh_mkstemp(x)
+ int _ssh_mkstemp(char *);
+ 
+ #ifndef HAVE_DAEMON

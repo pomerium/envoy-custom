@@ -24,6 +24,7 @@ envoy_cc_test_library(
         "//source/extensions/filters/network/ssh:ssh_cc_proto",
         "@envoy//test/mocks/api:api_mocks",
         "@envoy//test/mocks/filesystem:filesystem_mocks",
+        "@envoy//test/test_common:logging_lib",
     ],
 )
 
