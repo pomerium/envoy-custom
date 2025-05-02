@@ -208,7 +208,10 @@ struct KexSequence {
 
   bool resume() {
     ASSERT(coro != nullptr);
-    ASSERT(!coro.done());
+    EXPECT_FALSE(coro.done()) << "sequence exited unexpectedly with status: " << coro.promise().result->ToString();
+    if (coro.done()) {
+      return false;
+    }
     coro.resume();
     return !coro.done();
   }
@@ -365,8 +368,8 @@ protected:
       EXPECT_SERVER_REPLY_VAR(&sequence.server_kex_init_,
                               wire::KexInitMsg,
                               FIELD_EQ(kex_algorithms,
-                                       initial_kex ? string_list{"curve25519-sha256", "curve25519-sha256@libssh.org", "ext-info-s", "kex-strict-s-v00@openssh.com"}
-                                                   : string_list{"curve25519-sha256", "curve25519-sha256@libssh.org"}),
+                                       initial_kex ? append(algorithm_factories_.namesByPriority(), "ext-info-s", "kex-strict-s-v00@openssh.com")
+                                                   : algorithm_factories_.namesByPriority()),
                               FIELD_EQ(server_host_key_algorithms, string_list{"ssh-ed25519", "rsa-sha2-256", "rsa-sha2-512", "ssh-rsa"}),
                               FIELD_EQ(encryption_algorithms_client_to_server, string_list{"chacha20-poly1305@openssh.com", "aes128-gcm@openssh.com", "aes256-gcm@openssh.com"}),
                               FIELD_EQ(encryption_algorithms_server_to_client, string_list{"chacha20-poly1305@openssh.com", "aes128-gcm@openssh.com", "aes256-gcm@openssh.com"}),
@@ -795,13 +798,68 @@ TEST_F(ServerKexTest, SendKexInitFail) {
   ContinueAndExpectError(absl::InternalError("test error"));
 }
 
+class TestMultiStepKexAlgorithm : public Curve25519Sha256KexAlgorithm {
+public:
+  using Curve25519Sha256KexAlgorithm::Curve25519Sha256KexAlgorithm;
+
+  bool first{true};
+
+  const MessageTypeList& clientInitMessageTypes() const override {
+    static MessageTypeList list{wire::KexEcdhInitMsg::type, wire::DebugMsg::type};
+    return list;
+  }
+
+  absl::StatusOr<std::optional<KexResultSharedPtr>> handleServerRecv(wire::Message& msg) override {
+    if (first) {
+      first = false;
+      EXPECT_EQ(msg.msg_type(), wire::DebugMsg::type);
+      return std::optional<KexResultSharedPtr>{};
+    }
+    EXPECT_EQ(msg.msg_type(), wire::KexEcdhInitMsg::type);
+    return Curve25519Sha256KexAlgorithm::handleServerRecv(msg);
+  }
+};
+
+class TestMultiStepKexAlgorithmFactory : public Curve25519Sha256KexAlgorithmFactory {
+public:
+  std::vector<std::pair<std::string, priority_t>> names() const override {
+    return {{"test-multi-step", 99}};
+  }
+  std::unique_ptr<KexAlgorithm> create(
+    const HandshakeMagics* magics,
+    const Algorithms* algs,
+    const openssh::SSHKey* signer) const override {
+    return std::make_unique<TestMultiStepKexAlgorithm>(magics, algs, signer);
+  }
+};
+
 TEST_F(ServerKexTest, MultiStepAlgorithm) {
+  algorithm_factories_.registerType<TestMultiStepKexAlgorithmFactory>();
+  ContinueUntil(BeforeKexInitSent);
+  sequence.client_kex_init_.kex_algorithms = {"test-multi-step", "kex-strict-c-v00@openssh.com"};
+  ContinueUntil(BeforeEcdhInitSent);
+  EXPECT_OK(dispatch_incoming_->dispatch(wire::Message{wire::DebugMsg{}}));
+  ContinueUntilEnd();
 }
 
 TEST_F(ServerKexTest, PickHostKey) {
+  auto ed25519Key = *openssh::SSHKey::fromPrivateKeyFile(api_.fileSystem(), "server/test_host_ed25519_key");
+  auto rsaKey = *openssh::SSHKey::fromPrivateKeyFile(api_.fileSystem(), "server/test_host_rsa_key");
+  EXPECT_EQ(*kex_->pickHostKey("ssh-ed25519"), *ed25519Key);
+  EXPECT_EQ(*kex_->pickHostKey("rsa-sha2-512"), *rsaKey);
+  EXPECT_EQ(*kex_->pickHostKey("rsa-sha2-256"), *rsaKey);
+  EXPECT_EQ(*kex_->pickHostKey("ssh-rsa"), *rsaKey);
+  EXPECT_EQ(kex_->pickHostKey("nonexistent"), nullptr);
+  EXPECT_EQ(kex_->pickHostKey("rsa-sha2-256-cert-v01@openssh.com"), nullptr);
+  EXPECT_EQ(kex_->pickHostKey("ssh-ed25519-cert-v01@openssh.com"), nullptr);
 }
 
 TEST_F(ServerKexTest, GetHostKey) {
+  auto ed25519Key = *openssh::SSHKey::fromPrivateKeyFile(api_.fileSystem(), "server/test_host_ed25519_key");
+  auto rsaKey = *openssh::SSHKey::fromPrivateKeyFile(api_.fileSystem(), "server/test_host_rsa_key");
+  EXPECT_EQ(*kex_->getHostKey(ed25519Key->keyType()), *ed25519Key);
+  EXPECT_EQ(*kex_->getHostKey(rsaKey->keyType()), *rsaKey);
+  EXPECT_EQ(kex_->getHostKey(static_cast<sshkey_types>(99)), nullptr);
 }
 
 TEST_F(ServerKexTest, InitiateRekey) {
