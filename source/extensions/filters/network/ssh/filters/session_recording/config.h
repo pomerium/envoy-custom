@@ -3,7 +3,10 @@
 #include <memory>
 
 #pragma clang unsafe_buffer_usage begin
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshorten-64-to-32"
 #include "source/extensions/filters/network/generic_proxy/interface/filter.h"
+#pragma clang diagnostic pop
 #include "api/extensions/filters/network/ssh/filters/session_recording/session_recording.pb.h"
 #pragma clang unsafe_buffer_usage end
 

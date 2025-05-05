@@ -84,7 +84,7 @@ void RecordingUploader::doUpload(const RecordingMetadata& metadata) {
                                    ? Compression::Compressor::State::Finish
                                    : Compression::Compressor::State::Flush);
 
-    EVP_DigestUpdate(checksum.get(), buffer.linearize(buffer.length()), buffer.length());
+    EVP_DigestUpdate(checksum.get(), buffer.linearize(static_cast<uint32_t>(buffer.length())), buffer.length());
     RecordingData data;
     data.mutable_chunk()->resize(buffer.length());
     buffer.copyOut(0, buffer.length(), data.mutable_chunk()->data());

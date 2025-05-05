@@ -23,6 +23,11 @@ envoy_cc_library(
         "util.h",
         "validation.h",
     ],
+    copts = [
+        "-Wimplicit-fallthrough",
+        "-Wimplicit-int-conversion",
+        "-Wunsafe-buffer-usage",
+    ],
     repository = "@envoy",
     deps = [
         ":wire_lib_common",
@@ -41,6 +46,11 @@ envoy_cc_library(
     name = "wire_lib_common",
     srcs = [],
     hdrs = ["common.h"],
+    copts = [
+        "-Wimplicit-fallthrough",
+        "-Wimplicit-int-conversion",
+        "-Wunsafe-buffer-usage",
+    ],
     repository = "@envoy",
     deps = [
         "@envoy//source/common/common:fmt_lib",

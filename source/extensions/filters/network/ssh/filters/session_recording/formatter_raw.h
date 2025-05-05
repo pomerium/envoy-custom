@@ -126,7 +126,7 @@ private:
       out[i] = (value & 0x7F) | 0x80;
       value >>= 7;
     }
-    out.back() = value;
+    out.back() = static_cast<uint8_t>(value);
   }
 
   bool encrypted_;

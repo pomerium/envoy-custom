@@ -19,6 +19,18 @@ namespace detail {
 using sshbuf_ptr = Envoy::CSmartPtr<sshbuf, sshbuf_free>;
 } // namespace detail
 
+namespace interop {
+char** cloneStringListForC(const std::vector<std::string>& input) {
+  char** out = static_cast<char**>(::calloc(input.size() + 1, sizeof(char*)));
+  auto outSpan = unsafe_forge_span(out, input.size() + 1);
+  for (size_t i = 0; i < input.size(); i++) {
+    outSpan[i] = ::strdup(input[i].c_str());
+  }
+  outSpan.back() = nullptr;
+  return out;
+}
+} // namespace interop
+
 absl::StatusCode statusCodeFromErr(int n) {
   switch (n) {
   case SSH_ERR_SUCCESS:                   return absl::StatusCode::kOk;
@@ -173,11 +185,7 @@ absl::Status SSHKey::convertToSignedUserCertificate(
   key_->cert->type = SSH2_CERT_TYPE_USER;
   key_->cert->serial = serial;
   key_->cert->nprincipals = static_cast<uint32_t>(principals.size());
-  auto principals_arr = std::make_unique<char*[]>(principals.size());
-  for (size_t i = 0; i < principals.size(); i++) {
-    principals_arr[i] = strdup(principals[i].c_str());
-  }
-  key_->cert->principals = principals_arr.release();
+  key_->cert->principals = interop::cloneStringListForC(principals);
   key_->cert->extensions = sshbuf_new();
   std::sort(extensions.begin(), extensions.end());
   for (const auto& ext : extensions) {

@@ -33,7 +33,7 @@ void BufferedFileOutput::flushBuffer() {
   flush_timer_->disableTimer();
   do {
     auto len = buffer_.length();
-    char* slice = static_cast<char*>(buffer_.linearize(len));
+    char* slice = static_cast<char*>(buffer_.linearize(static_cast<uint32_t>(len)));
     file_.write(std::string_view{unsafe_forge_span(slice, len)});
     buffer_.drain(len);
   } while (buffer_.highWatermarkTriggered());

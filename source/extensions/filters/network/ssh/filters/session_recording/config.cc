@@ -5,7 +5,10 @@
 #include "envoy/compression/compressor/config.h"
 
 #pragma clang unsafe_buffer_usage begin
-#include "source/common/grpc/async_client_impl.h"
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wshorten-64-to-32"
+#include "external/envoy/source/common/grpc/async_client_impl.h"
+#pragma clang diagnostic pop
 #include "source/common/config/utility.h"
 #pragma clang unsafe_buffer_usage end
 
