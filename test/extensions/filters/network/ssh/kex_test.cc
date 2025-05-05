@@ -148,6 +148,8 @@ enum SuspensionPoint {
   AfterNewKeysSent,
   BeforeExtInfoSent,
   AfterExtInfoSent,
+
+  DoInitiateRekey = 99,
 };
 
 inline SuspensionPoint operator+(SuspensionPoint lhs, SuspensionPoint rhs) {
@@ -350,7 +352,7 @@ protected:
   DirectionalPacketCipherFactoryRegistry cipher_factories_;
 
   KexSequence sequence;
-  KexSequence startKexSequence(wire::KexInitMsg client_kex_init, bool initial_kex = true) {
+  KexSequence startKexSequence(wire::KexInitMsg client_kex_init, bool initial_kex = true, bool server_initiated_rekey = false) {
     if (!initial_kex) {
       verifyAndResetMocks();
     }
@@ -363,21 +365,36 @@ protected:
     // send client kex init
     co_yield BeforeKexInitSent;
     if (!sequence.expecting_error_) {
-      EXPECT_CALL(*kex_callbacks_, onKexStarted(initial_kex)).Times(1);
-      EXPECT_CALL(*kex_callbacks_, onKexInitMsgSent()).Times(1);
-      EXPECT_SERVER_REPLY_VAR(&sequence.server_kex_init_,
-                              wire::KexInitMsg,
-                              FIELD_EQ(kex_algorithms,
-                                       initial_kex ? append(algorithm_factories_.namesByPriority(), "ext-info-s", "kex-strict-s-v00@openssh.com")
-                                                   : algorithm_factories_.namesByPriority()),
-                              FIELD_EQ(server_host_key_algorithms, string_list{"ssh-ed25519", "rsa-sha2-256", "rsa-sha2-512", "ssh-rsa"}),
-                              FIELD_EQ(encryption_algorithms_client_to_server, string_list{"chacha20-poly1305@openssh.com", "aes128-gcm@openssh.com", "aes256-gcm@openssh.com"}),
-                              FIELD_EQ(encryption_algorithms_server_to_client, string_list{"chacha20-poly1305@openssh.com", "aes128-gcm@openssh.com", "aes256-gcm@openssh.com"}),
-                              FIELD_EQ(mac_algorithms_client_to_server, string_list{}),
-                              FIELD_EQ(mac_algorithms_server_to_client, string_list{}),
-                              FIELD_EQ(compression_algorithms_client_to_server, string_list{"none"}),
-                              FIELD_EQ(compression_algorithms_server_to_client, string_list{"none"}),
-                              FIELD_EQ(first_kex_packet_follows, false));
+      auto expectOnKexStarted = [&] { EXPECT_CALL(*kex_callbacks_, onKexStarted(initial_kex)).Times(1); };
+      auto expectOnKexInitMsgSent = [&] { EXPECT_CALL(*kex_callbacks_, onKexInitMsgSent()); };
+      auto expectServerKexInit = [&] {
+        EXPECT_SERVER_REPLY_VAR(&sequence.server_kex_init_,
+                                wire::KexInitMsg,
+                                FIELD_EQ(kex_algorithms,
+                                         initial_kex ? append(algorithm_factories_.namesByPriority(), "ext-info-s", "kex-strict-s-v00@openssh.com")
+                                                     : algorithm_factories_.namesByPriority()),
+                                FIELD_EQ(server_host_key_algorithms, string_list{"ssh-ed25519", "rsa-sha2-256", "rsa-sha2-512", "ssh-rsa"}),
+                                FIELD_EQ(encryption_algorithms_client_to_server, cipher_factories_.namesByPriority()),
+                                FIELD_EQ(encryption_algorithms_server_to_client, cipher_factories_.namesByPriority()),
+                                FIELD_EQ(mac_algorithms_client_to_server, string_list{}),
+                                FIELD_EQ(mac_algorithms_server_to_client, string_list{}),
+                                FIELD_EQ(compression_algorithms_client_to_server, string_list{"none"}),
+                                FIELD_EQ(compression_algorithms_server_to_client, string_list{"none"}),
+                                FIELD_EQ(first_kex_packet_follows, false));
+      };
+      // the order of operations is different depending on who initiates the key (re-)exchange
+      if (server_initiated_rekey) {
+        expectOnKexInitMsgSent();
+        expectServerKexInit();
+        expectOnKexStarted();
+      } else {
+        expectOnKexStarted();
+        expectOnKexInitMsgSent();
+        expectServerKexInit();
+      }
+    }
+    if (server_initiated_rekey) {
+      co_yield DoInitiateRekey;
     }
     if (auto stat = dispatch_incoming_->dispatch(auto(sequence.client_kex_init_)); !stat.ok()) {
       co_return stat;
@@ -643,19 +660,32 @@ TEST_F(AlgorithmNegotiationTest, NoCommonServerToClientCipher) {
                 string_list{"chacha20-poly1305@openssh.com", "aes128-gcm@openssh.com", "aes256-gcm@openssh.com"})));
 }
 
-TEST_F(AlgorithmNegotiationTest, NoCommonClientToServerMac) {
+TEST_F(AlgorithmNegotiationTest, NoCommonClientToServerMac_AEAD) {
   ContinueUntil(BeforeKexInitSent);
   // as long as an AEAD cipher is selected, mac algorithms are not negotiated
   sequence.client_kex_init_.mac_algorithms_client_to_server = {"never-before-seen"};
   ContinueUntilEnd();
 }
 
-TEST_F(AlgorithmNegotiationTest, NoCommonServerToClientMac) {
+TEST_F(AlgorithmNegotiationTest, NoCommonServerToClientMac_AEAD) {
   ContinueUntil(BeforeKexInitSent);
   // as long as an AEAD cipher is selected, mac algorithms are not negotiated
   sequence.client_kex_init_.mac_algorithms_server_to_client = {"never-before-seen"};
   ContinueUntilEnd();
 }
+
+class TestCipher : public DirectionalPacketCipherFactory {
+public:
+  std::vector<std::pair<std::string, priority_t>> names() const override {
+    return {{"aes128-ctr", 1}};
+  }
+  size_t ivSize() const override {
+    return 0;
+  }
+  size_t keySize() const override {
+    return 16;
+  }
+};
 
 TEST_F(AlgorithmNegotiationTest, NoCommonClientToServerCompression) {
   ContinueUntil(BeforeKexInitSent);
@@ -736,6 +766,18 @@ TEST_F(ServerKexTest, ClientInitiatedRekey_NewAlgorithms) {
   ContinueUntilEnd();
   kex_->getActiveStateForTest().kex_result->algorithms.r.cipher = "aes256-gcm@openssh.com";
   kex_->getActiveStateForTest().kex_result->algorithms.w.cipher = "aes256-gcm@openssh.com";
+}
+
+TEST_F(ServerKexTest, ServerInitiatedRekey) {
+  ContinueUntilEnd();
+  for (auto i = 0; i < 10; i++) {
+    auto rekeyInit = normal_client_kex_init_msg;
+    rekeyInit.kex_algorithms = all_kex_algorithms;
+    sequence = startKexSequence(rekeyInit, false, true);
+    ContinueUntil(DoInitiateRekey);
+    ASSERT_OK(kex_->initiateRekey());
+    ContinueUntilEnd();
+  }
 }
 
 TEST_F(ServerKexTest, EcdhFailure_KeySize) {
@@ -860,9 +902,6 @@ TEST_F(ServerKexTest, GetHostKey) {
   EXPECT_EQ(*kex_->getHostKey(ed25519Key->keyType()), *ed25519Key);
   EXPECT_EQ(*kex_->getHostKey(rsaKey->keyType()), *rsaKey);
   EXPECT_EQ(kex_->getHostKey(static_cast<sshkey_types>(99)), nullptr);
-}
-
-TEST_F(ServerKexTest, InitiateRekey) {
 }
 
 } // namespace test
