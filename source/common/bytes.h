@@ -14,6 +14,9 @@ using fixed_bytes = std::array<uint8_t, N>;
 template <size_t N>
 using fixed_bytes_view = std::span<const uint8_t, N>;
 
+static_assert(fixed_bytes_view<1>{{}}.size() ==
+              fixed_bytes_view<1>{{}}.size_bytes());
+
 using bytes_list = std::vector<bytes>;
 
 constexpr bytes to_bytes(const auto& view) {

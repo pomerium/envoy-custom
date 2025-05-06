@@ -309,7 +309,7 @@ size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NO
   }
   if constexpr (Opt & CommaDelimited) {
     size_t accum = 0;
-    auto view = unsafe_forge_span<char>(static_cast<char*>(buffer.linearize(static_cast<uint32_t>(limit))), limit);
+    auto view = linearizeToSpan(buffer, limit);
     for (size_t i = 0; i < limit; i++) {
       if (view[accum] != ',') {
         ++accum;

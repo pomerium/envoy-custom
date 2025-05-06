@@ -19,73 +19,6 @@ extern "C" {
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-static constexpr auto cipherAES128GCM = "aes128-gcm@openssh.com";
-static constexpr auto cipherAES256GCM = "aes256-gcm@openssh.com";
-static constexpr auto cipherChacha20Poly1305 = "chacha20-poly1305@openssh.com";
-
-static const string_list preferredCiphers = {cipherChacha20Poly1305, cipherAES128GCM, cipherAES256GCM};
-
-static const std::unordered_set<std::string> invalid_key_exchange_methods = {
-  "ext-info-c",
-  "ext-info-s",
-  "kex-strict-c-v00@openssh.com",
-  "kex-strict-s-v00@openssh.com",
-};
-
-static const string_list rsaSha2256HostKeyAlgs = {
-  "rsa-sha2-256",
-  "rsa-sha2-256-cert-v01@openssh.com",
-};
-
-static const string_list rsaSha2512HostKeyAlgs = {
-  "rsa-sha2-512",
-  "rsa-sha2-512-cert-v01@openssh.com",
-};
-
-inline string_list algorithmsForKeyFormat(std::string_view key_format) {
-  if (key_format == "ssh-rsa") {
-    return {"rsa-sha2-256", "rsa-sha2-512", "ssh-rsa"};
-  } else if (key_format == "ssh-rsa-cert-v01@openssh.com") {
-    return {"rsa-sha2-256-cert-v01@openssh.com", "rsa-sha2-512-cert-v01@openssh.com",
-            "ssh-rsa-cert-v01@openssh.com"};
-  }
-  return {std::string(key_format)};
-}
-
-// TODO: non-AEAD cipher support
-static const string_list supportedMACs{
-  // "hmac-sha2-256-etm@openssh.com",
-  // "hmac-sha2-512-etm@openssh.com",
-  // "hmac-sha2-256",
-  // "hmac-sha2-512",
-  // "hmac-sha1",
-  // "hmac-sha1-96",
-};
-
-// from go ssh/common.go
-static const std::set<std::string> aeadCiphers = {
-  cipherAES128GCM,
-  cipherAES256GCM,
-  cipherChacha20Poly1305,
-};
-
-struct DirectionAlgorithms {
-  std::string cipher;
-  std::string mac;
-  std::string compression;
-
-  auto operator<=>(const DirectionAlgorithms&) const = default;
-};
-
-struct Algorithms {
-  std::string kex;
-  std::string host_key;
-  DirectionAlgorithms w;
-  DirectionAlgorithms r;
-
-  auto operator<=>(const Algorithms&) const = default;
-};
-
 struct HandshakeMagics {
   std::string client_version;
   std::string server_version;
@@ -100,7 +33,7 @@ struct HandshakeMagics {
   }
 };
 
-enum HashFunction {
+enum HashFunction : int {
   SHA256 = SSH_DIGEST_SHA256,
   SHA512 = SSH_DIGEST_SHA512,
 };
@@ -159,14 +92,12 @@ protected:
     wire::write_opt<wire::LengthPrefixed>(exchangeHash, server_pub_key);
     wire::writeBignum(exchangeHash, shared_secret);
 
-    fixed_bytes<SSH_DIGEST_MAX_LENGTH> digest_buf;
-    size_t digest_len = digest_buf.size();
-    auto buf = exchangeHash.linearize(static_cast<uint32_t>(exchangeHash.length()));
+    fixed_bytes<SSH_DIGEST_MAX_LENGTH> digestBuf;
+    auto exchangeHashBuf = linearizeToSpan(exchangeHash);
     auto hash_alg = kex_hash_from_name(algs_->kex.c_str());
-    ssh_digest_memory(hash_alg, buf, exchangeHash.length(), digest_buf.data(), digest_len);
+    ssh_digest_memory(hash_alg, exchangeHashBuf.data(), exchangeHashBuf.size(), digestBuf.data(), digestBuf.size());
     exchangeHash.drain(exchangeHash.length());
-    digest_len = ssh_digest_bytes(hash_alg);
-    return to_bytes(bytes_view{digest_buf}.first(digest_len));
+    return to_bytes(bytes_view{digestBuf}.first(ssh_digest_bytes(hash_alg)));
   }
 
   absl::StatusOr<KexResultSharedPtr> computeServerResult(wire::Writer auto const& host_key_blob,

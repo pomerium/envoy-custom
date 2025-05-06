@@ -214,38 +214,37 @@ absl::Status Kex::handleMessage(wire::Message&& msg) noexcept {
 }
 
 absl::Status Kex::sendKexInitMsg(bool initial_kex) noexcept {
-  wire::KexInitMsg* server_kex_init = &pending_state_->our_kex;
-  server_kex_init->kex_algorithms = algorithm_factories_.namesByPriority();
+  wire::KexInitMsg* kexInit = &pending_state_->our_kex;
+  kexInit->kex_algorithms = algorithm_factories_.namesByPriority();
 
   if (initial_kex) {
     if (is_server_) {
-      server_kex_init->kex_algorithms->push_back("ext-info-s");
-      server_kex_init->kex_algorithms->push_back("kex-strict-s-v00@openssh.com");
+      kexInit->kex_algorithms->push_back("ext-info-s");
+      kexInit->kex_algorithms->push_back("kex-strict-s-v00@openssh.com");
     } else {
-      server_kex_init->kex_algorithms->push_back("ext-info-c");
-      server_kex_init->kex_algorithms->push_back("kex-strict-c-v00@openssh.com");
+      kexInit->kex_algorithms->push_back("ext-info-c");
+      kexInit->kex_algorithms->push_back("kex-strict-c-v00@openssh.com");
     }
   }
-  server_kex_init->encryption_algorithms_client_to_server = preferredCiphers;
-  server_kex_init->encryption_algorithms_server_to_client = preferredCiphers;
-  server_kex_init->mac_algorithms_client_to_server = supportedMACs;
-  server_kex_init->mac_algorithms_server_to_client = supportedMACs;
-  server_kex_init->compression_algorithms_client_to_server = {"none"s};
-  server_kex_init->compression_algorithms_server_to_client = {"none"s};
-  RAND_bytes(server_kex_init->cookie->data(), sizeof(server_kex_init->cookie));
+  kexInit->encryption_algorithms_client_to_server = cipher_factories_.namesByPriority();
+  kexInit->encryption_algorithms_server_to_client = cipher_factories_.namesByPriority();
+  kexInit->mac_algorithms_client_to_server = SupportedMACs;
+  kexInit->mac_algorithms_server_to_client = SupportedMACs;
+  kexInit->compression_algorithms_client_to_server = {"none"s};
+  kexInit->compression_algorithms_server_to_client = {"none"s};
+  RAND_bytes(kexInit->cookie->data(), sizeof(kexInit->cookie));
   for (const auto& hostKey : host_keys_) {
-    auto algs = algorithmsForKeyFormat(hostKey->keyTypeName());
-    server_kex_init->server_host_key_algorithms->append_range(algs);
+    kexInit->server_host_key_algorithms->append_range(hostKey->signatureAlgorithmsForKeyType());
   }
 
-  auto raw_kex_init = encodeTo<bytes>(*server_kex_init);
-  if (!raw_kex_init.ok()) {
-    return raw_kex_init.status();
+  auto rawKexInit = encodeTo<bytes>(*kexInit);
+  if (!rawKexInit.ok()) {
+    return rawKexInit.status();
   }
   if (is_server_) {
-    pending_state_->magics.server_kex_init = std::move(*raw_kex_init);
+    pending_state_->magics.server_kex_init = std::move(*rawKexInit);
   } else {
-    pending_state_->magics.client_kex_init = std::move(*raw_kex_init);
+    pending_state_->magics.client_kex_init = std::move(*rawKexInit);
   }
 
   // notify transport to pause message forwarding
@@ -253,7 +252,7 @@ absl::Status Kex::sendKexInitMsg(bool initial_kex) noexcept {
   // key re-exchange
   kex_callbacks_.onKexInitMsgSent();
 
-  if (auto r = transport_.sendMessageDirect(auto(*server_kex_init)); !r.ok()) {
+  if (auto r = transport_.sendMessageDirect(auto(*kexInit)); !r.ok()) {
     return r.status();
   }
   pending_state_->kex_init_sent = true;
@@ -316,13 +315,13 @@ absl::StatusOr<Algorithms> Kex::negotiateAlgorithms(bool initial_kex) const noex
 
   if (is_server_) {
     string_list common;
-    absl::c_set_union(*pending_state_->peer_kex.server_host_key_algorithms, rsaSha2256HostKeyAlgs,
+    absl::c_set_union(*pending_state_->peer_kex.server_host_key_algorithms, RsaSha2256HostKeyAlgs,
                       std::back_inserter(common));
     if (!common.empty()) {
       pending_state_->kex_rsa_sha2_256_supported = true;
     }
     common.clear();
-    absl::c_set_union(*pending_state_->peer_kex.server_host_key_algorithms, rsaSha2512HostKeyAlgs,
+    absl::c_set_union(*pending_state_->peer_kex.server_host_key_algorithms, RsaSha2512HostKeyAlgs,
                       std::back_inserter(common));
     if (!common.empty()) {
       pending_state_->kex_rsa_sha2_512_supported = true;
@@ -344,7 +343,7 @@ absl::StatusOr<Algorithms> Kex::negotiateAlgorithms(bool initial_kex) const noex
     result.kex = *common_kex;
 
     // RFC8308 § 2.2
-    if (invalid_key_exchange_methods.contains(result.kex)) {
+    if (InvalidKeyExchangeMethods.contains(result.kex)) {
       return absl::InvalidArgumentError(
         fmt::format("negotiated an invalid key exchange method: {}", result.kex));
     }
@@ -359,9 +358,6 @@ absl::StatusOr<Algorithms> Kex::negotiateAlgorithms(bool initial_kex) const noex
     result.host_key = *common_host_key;
   }
 
-  DirectionAlgorithms* stoc = is_server_ ? &result.w : &result.r;
-  DirectionAlgorithms* ctos = is_server_ ? &result.r : &result.w;
-
   {
     auto common_cipher = findCommon("client to server cipher",
                                     client_kex.encryption_algorithms_client_to_server,
@@ -369,7 +365,7 @@ absl::StatusOr<Algorithms> Kex::negotiateAlgorithms(bool initial_kex) const noex
     if (!common_cipher.ok()) {
       return common_cipher.status();
     }
-    ctos->cipher = *common_cipher;
+    result.client_to_server.cipher = *common_cipher;
   }
   {
     auto common_cipher = findCommon("server to client cipher",
@@ -378,10 +374,10 @@ absl::StatusOr<Algorithms> Kex::negotiateAlgorithms(bool initial_kex) const noex
     if (!common_cipher.ok()) {
       return common_cipher.status();
     }
-    stoc->cipher = *common_cipher;
+    result.server_to_client.cipher = *common_cipher;
   }
 
-  if (!aeadCiphers.contains(ctos->cipher)) {
+  if (!AEADCiphers.contains(result.client_to_server.cipher)) {
     auto common_mac =
       findCommon("client to server MAC",
                  client_kex.mac_algorithms_client_to_server,
@@ -389,10 +385,10 @@ absl::StatusOr<Algorithms> Kex::negotiateAlgorithms(bool initial_kex) const noex
     if (!common_mac.ok()) {
       return common_mac.status();
     }
-    ctos->mac = *common_mac;
+    result.client_to_server.mac = *common_mac;
   }
 
-  if (!aeadCiphers.contains(stoc->cipher)) {
+  if (!AEADCiphers.contains(result.server_to_client.cipher)) {
     auto common_mac =
       findCommon("server to client MAC",
                  client_kex.mac_algorithms_server_to_client,
@@ -400,7 +396,7 @@ absl::StatusOr<Algorithms> Kex::negotiateAlgorithms(bool initial_kex) const noex
     if (!common_mac.ok()) {
       return common_mac.status();
     }
-    stoc->mac = *common_mac;
+    result.server_to_client.mac = *common_mac;
   }
 
   {
@@ -410,7 +406,7 @@ absl::StatusOr<Algorithms> Kex::negotiateAlgorithms(bool initial_kex) const noex
     if (!common_compression.ok()) {
       return common_compression.status();
     }
-    ctos->compression = *common_compression;
+    result.client_to_server.compression = *common_compression;
   }
   {
     auto common_compression = findCommon("server to client compression",
@@ -419,7 +415,7 @@ absl::StatusOr<Algorithms> Kex::negotiateAlgorithms(bool initial_kex) const noex
     if (!common_compression.ok()) {
       return common_compression.status();
     }
-    stoc->compression = *common_compression;
+    result.server_to_client.compression = *common_compression;
   }
 
   if (!client_kex.languages_client_to_server->empty()) {
@@ -457,35 +453,37 @@ std::unique_ptr<KexAlgorithm> Kex::createKexAlgorithm() const {
              hostKey);
 }
 
-const openssh::SSHKey* Kex::pickHostKey(std::string_view alg) const {
+const openssh::SSHKey* Kex::pickHostKey(std::string_view signature_algorithm) const {
   for (const auto& keypair : host_keys_) {
-    for (const auto& keyAlg : algorithmsForKeyFormat(keypair->keyTypeName())) {
-      if (alg == keyAlg) {
+    for (const auto& keyAlg : keypair->signatureAlgorithmsForKeyType()) {
+      if (signature_algorithm == keyAlg) {
         return keypair.get();
       }
     }
   }
   return nullptr;
 }
-const openssh::SSHKey* Kex::getHostKey(sshkey_types pktype) const {
+const openssh::SSHKey* Kex::getHostKey(sshkey_types key_type) const {
   for (const auto& keypair : host_keys_) {
-    if (keypair->keyType() == pktype) {
+    if (keypair->keyType() == key_type) {
       return keypair.get();
     }
   }
   return nullptr;
 }
 
-absl::Status Kex::initiateRekey() {
+absl::Status Kex::initiateKex() {
   if (pending_state_) {
-    PANIC("bug: initiateRekey called recursively");
+    IS_ENVOY_BUG("bug: initiateKex called during key exchange");
+    return absl::InternalError("bug: initiateKex called during key exchange");
   }
-  if (!active_state_) {
-    PANIC("bug: initiateRekey called without active state");
+  bool initial = isInitialKex();
+  if (is_server_ && initial) {
+    IS_ENVOY_BUG("bug: server cannot start initial key exchange");
+    return absl::InternalError("bug: server cannot start initial key exchange");
   }
-
   pending_state_ = std::make_unique<KexState>();
-  return sendKexInitMsg(false);
+  return sendKexInitMsg(initial);
 }
 
 namespace {
@@ -495,32 +493,18 @@ void generateKeyMaterial(bytes& out, char tag, KexResult* kex_result) {
 
   using namespace std::placeholders;
   while (out.size() < out.capacity()) {
-    size_t digest_size = 0;
-    bssl::ScopedEVP_MD_CTX ctx;
-    switch (kex_result->hash) {
-    case SHA256:
-      EVP_DigestInit(ctx.get(), EVP_sha256());
-      digest_size = 32;
-      break;
-    case SHA512:
-      EVP_DigestInit(ctx.get(), EVP_sha512());
-      digest_size = 64;
-      break;
-    default:
-      throw EnvoyException("unsupported hash algorithm");
-    }
+    openssh::Hash hash(kex_result->hash);
     bytes encoded_k;
     kex_result->encodeSharedSecret(encoded_k);
-    EVP_DigestUpdate(ctx.get(), encoded_k.data(), encoded_k.size());
-    EVP_DigestUpdate(ctx.get(), kex_result->exchange_hash.data(), kex_result->exchange_hash.size());
+    hash.write(encoded_k);
+    hash.write(kex_result->exchange_hash);
     if (digestsSoFar.size() == 0) {
-      EVP_DigestUpdate(ctx.get(), &tag, 1);
-      EVP_DigestUpdate(ctx.get(), kex_result->session_id.data(), kex_result->session_id.size());
+      hash.write(tag);
+      hash.write(kex_result->session_id);
     } else {
-      EVP_DigestUpdate(ctx.get(), digestsSoFar.data(), digestsSoFar.size());
+      hash.write(digestsSoFar);
     }
-    bytes digest(digest_size, 0);
-    EVP_DigestFinal(ctx.get(), digest.data(), nullptr);
+    bytes digest = hash.sum();
     auto toCopy = std::min(out.capacity() - out.size(), digest.size());
     if (toCopy > 0) {
       std::copy_n(digest.begin(), toCopy, std::back_inserter(out));
@@ -530,33 +514,37 @@ void generateKeyMaterial(bytes& out, char tag, KexResult* kex_result) {
 }
 } // namespace
 
-std::unique_ptr<PacketCipher> Kex::makePacketCipher(direction_t d_read, direction_t d_write,
+std::unique_ptr<PacketCipher> Kex::makePacketCipher(DirectionTags d_read,
+                                                    DirectionTags d_write,
+                                                    KexMode mode,
                                                     KexResult* kex_result) const {
   ASSERT(!kex_result->session_id.empty());
-  auto readFactory = cipher_factories_.factoryForName(kex_result->algorithms.r.cipher);
-  auto writeFactory = cipher_factories_.factoryForName(kex_result->algorithms.w.cipher);
+  const auto& readAlgs = readDirectionAlgsForMode(kex_result->algorithms, mode);
+  const auto& writeAlgs = writeDirectionAlgsForMode(kex_result->algorithms, mode);
+  auto readFactory = cipher_factories_.factoryForName(readAlgs.cipher);
+  auto writeFactory = cipher_factories_.factoryForName(writeAlgs.cipher);
 
-  bytes readIv;
-  readIv.reserve(readFactory->ivSize());
-  generateKeyMaterial(readIv, d_read.iv_tag, kex_result);
-  bytes readKey;
-  readKey.reserve(readFactory->keySize());
-  generateKeyMaterial(readKey, d_read.key_tag, kex_result);
+  DerivedKeys read;
+  read.iv.reserve(readFactory->ivSize());
+  generateKeyMaterial(read.iv, d_read.iv_tag, kex_result);
+  read.key.reserve(readFactory->keySize());
+  generateKeyMaterial(read.key, d_read.key_tag, kex_result);
+  if (!readAlgs.mac.empty()) {
+    read.mac.reserve(MACKeySizes.at(readAlgs.mac));
+    generateKeyMaterial(read.mac, d_read.mac_key_tag, kex_result);
+  }
 
-  // todo: non-aead ciphers?
+  DerivedKeys write;
+  write.iv.reserve(writeFactory->ivSize());
+  generateKeyMaterial(write.iv, d_write.iv_tag, kex_result);
+  write.key.reserve(writeFactory->keySize());
+  generateKeyMaterial(write.key, d_write.key_tag, kex_result);
+  if (!writeAlgs.mac.empty()) {
+    write.mac.reserve(MACKeySizes.at(writeAlgs.mac));
+    generateKeyMaterial(write.mac, d_write.mac_key_tag, kex_result);
+  }
 
-  bytes writeIv;
-  writeIv.reserve(writeFactory->ivSize());
-  generateKeyMaterial(writeIv, d_write.iv_tag, kex_result);
-  bytes writeKey;
-  writeKey.reserve(writeFactory->keySize());
-  generateKeyMaterial(writeKey, d_write.key_tag, kex_result);
-
-  return std::make_unique<PacketCipher>(readFactory->create(readIv, readKey, openssh::CipherMode::Read),
-                                        writeFactory->create(writeIv, writeKey, openssh::CipherMode::Write));
-
-  ENVOY_LOG(error, "unsupported algorithm; read={}, write={}",
-            kex_result->algorithms.r.cipher, kex_result->algorithms.w.cipher);
-  throw EnvoyException("unsupported algorithm"); // shouldn't get here ideally
+  return std::make_unique<PacketCipher>(readFactory->create(read, readAlgs, openssh::CipherMode::Read),
+                                        writeFactory->create(write, writeAlgs, openssh::CipherMode::Write));
 }
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

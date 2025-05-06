@@ -220,6 +220,8 @@ struct sub_message {
     return *this;
   }
 
+  bool operator==(const sub_message& other) const = default;
+
   // Sets or updates the stored sub-message. This also updates the key field in the containing
   // message with the new message's key.
   template <typename T>

@@ -8,6 +8,7 @@
 
 #include "source/extensions/filters/network/ssh/kex_alg_curve25519.h"
 #include "source/extensions/filters/network/ssh/packet_cipher_aead.h"
+#include "source/extensions/filters/network/ssh/packet_cipher_etm.h"
 #include "source/extensions/filters/network/ssh/wire/packet.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/version_exchange.h"
@@ -22,8 +23,8 @@ template <typename T>
   requires std::derived_from<T, ServerCodec>
 struct codec_traits<T> {
   using callbacks_type = ServerCodecCallbacks;
-  static constexpr direction_t direction_read = clientKeys;
-  static constexpr direction_t direction_write = serverKeys;
+  static constexpr DirectionTags direction_read = clientKeys;
+  static constexpr DirectionTags direction_write = serverKeys;
   static constexpr KexMode kex_mode = KexMode::Server;
   static constexpr std::string_view name = "server";
 };
@@ -32,8 +33,8 @@ template <typename T>
   requires std::derived_from<T, ClientCodec>
 struct codec_traits<T> {
   using callbacks_type = ClientCodecCallbacks;
-  static constexpr direction_t direction_read = serverKeys;
-  static constexpr direction_t direction_write = clientKeys;
+  static constexpr DirectionTags direction_read = serverKeys;
+  static constexpr DirectionTags direction_write = clientKeys;
   static constexpr KexMode kex_mode = KexMode::Client;
   static constexpr std::string_view name = "client";
 };
@@ -63,6 +64,9 @@ public:
     cipher_factories_.registerType<Chacha20Poly1305CipherFactory>();
     cipher_factories_.registerType<AESGCM128CipherFactory>();
     cipher_factories_.registerType<AESGCM256CipherFactory>();
+    cipher_factories_.registerType<AES128CTRCipherFactory>();
+    cipher_factories_.registerType<AES192CTRCipherFactory>();
+    cipher_factories_.registerType<AES256CTRCipherFactory>();
   }
   using Callbacks = codec_traits<Codec>::callbacks_type;
 
@@ -131,7 +135,7 @@ public:
         ENVOY_LOG(debug, "ssh [{}]: read rekey threshold was reached, initiating key re-exchange (bytes remaining: {}; packets sent: {})",
                   codec_traits<Codec>::name,
                   cipher_state_.read_bytes_remaining, next_read_seq);
-        auto stat = kex_->initiateRekey();
+        auto stat = kex_->initiateKex();
         if (!stat.ok()) {
           onDecodingFailure(statusf("failed to initiate rekey: {}", stat));
         }
@@ -198,6 +202,7 @@ protected:
 
     cipher_state_.cipher = kex_->makePacketCipher(codec_traits<Codec>::direction_read,
                                                   codec_traits<Codec>::direction_write,
+                                                  codec_traits<Codec>::kex_mode,
                                                   kex_result.get());
     if (config_->has_rekey_threshold()) {
       cipher_state_.read_bytes_remaining = std::max<uint64_t>(256, config_->rekey_threshold());
@@ -311,7 +316,7 @@ private:
         (cipher_state_.write_bytes_remaining == 0 || cipher_state_.seq_write > seqnum_rekey_limit)) {
       ENVOY_LOG(debug, "ssh [{}]: write rekey threshold was reached, initiating key re-exchange (bytes remaining: {}; packets sent: {})",
                 codec_traits<Codec>::name, cipher_state_.write_bytes_remaining, cipher_state_.seq_write);
-      auto r = kex_->initiateRekey();
+      auto r = kex_->initiateKex();
       if (!r.ok()) {
         return r;
       }

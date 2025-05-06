@@ -651,6 +651,10 @@ struct Message final : BaseSshMsg {
 
   SshMessageType msg_type() const override { return *message.key_field(); }
 
+  bool operator==(const Message& other) const {
+    return message == other.message;
+  }
+
   template <typename Self>
   [[nodiscard]] constexpr decltype(auto) visit(this Self&& self, auto... args) {
     if (self.message.oneof.has_value()) {

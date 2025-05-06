@@ -13,8 +13,8 @@
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-static constexpr direction_t clientKeys{'A', 'C', 'E'};
-static constexpr direction_t serverKeys{'B', 'D', 'F'};
+static constexpr DirectionTags clientKeys{'A', 'C', 'E'};
+static constexpr DirectionTags serverKeys{'B', 'D', 'F'};
 
 class PacketCipher;
 

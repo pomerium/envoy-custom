@@ -13,6 +13,10 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 class DirectionalPacketCipher {
 public:
   virtual ~DirectionalPacketCipher() = default;
+  // Decrypts one packet from the input buffer and writes the plaintext to the output buffer.
+  // Drains bytes from the input buffer.
+  // Returns the number of bytes *decrypted*, which will usually be less than the number of
+  // bytes read.
   virtual absl::StatusOr<size_t> decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
                                                Envoy::Buffer::Instance& in) PURE;
   virtual absl::StatusOr<size_t> encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
@@ -23,13 +27,20 @@ public:
 
 using iv_type = bytes;
 using key_type = bytes;
+using mac_type = bytes;
+
+struct DerivedKeys {
+  bytes iv;
+  bytes key;
+  bytes mac;
+};
 
 class DirectionalPacketCipherFactory {
 public:
   virtual ~DirectionalPacketCipherFactory() = default;
   virtual std::vector<std::pair<std::string, priority_t>> names() const PURE;
-  virtual std::unique_ptr<DirectionalPacketCipher> create(const iv_type& iv,
-                                                          const key_type& key,
+  virtual std::unique_ptr<DirectionalPacketCipher> create(const DerivedKeys& keys,
+                                                          const DirectionAlgorithms& algs,
                                                           openssh::CipherMode mode) const PURE;
   virtual size_t ivSize() const PURE;
   virtual size_t keySize() const PURE;
@@ -37,8 +48,8 @@ public:
 
 class DirectionalPacketCipherFactoryRegistry : public PriorityAwareFactoryRegistry<DirectionalPacketCipherFactory,
                                                                                    DirectionalPacketCipher,
-                                                                                   iv_type,
-                                                                                   key_type,
+                                                                                   const DerivedKeys&,
+                                                                                   const DirectionAlgorithms&,
                                                                                    openssh::CipherMode> {};
 using DirectionalPacketCipherFactoryPtr = std::unique_ptr<DirectionalPacketCipherFactory>;
 

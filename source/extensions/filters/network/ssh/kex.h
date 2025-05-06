@@ -48,6 +48,28 @@ enum class KexMode {
   Client = 2,
 };
 
+inline const DirectionAlgorithms& readDirectionAlgsForMode(Algorithms& algorithms, KexMode mode) {
+  switch (mode) {
+  case KexMode::Server:
+    return algorithms.client_to_server;
+  case KexMode::Client:
+    return algorithms.server_to_client;
+  default:
+    PANIC("invalid KexMode");
+  }
+}
+
+inline const DirectionAlgorithms& writeDirectionAlgsForMode(Algorithms& algorithms, KexMode mode) {
+  switch (mode) {
+  case KexMode::Server:
+    return algorithms.server_to_client;
+  case KexMode::Client:
+    return algorithms.client_to_server;
+  default:
+    PANIC("invalid KexMode");
+  }
+}
+
 class Kex final : public VersionExchangeCallbacks,
                   public SshMessageHandler,
                   public Logger::Loggable<Logger::Id::filter> {
@@ -58,7 +80,7 @@ public:
       DirectionalPacketCipherFactoryRegistry& cipher_factories,
       KexMode mode);
 
-  absl::Status initiateRekey();
+  absl::Status initiateKex();
   const openssh::SSHKey* pickHostKey(std::string_view alg) const;
   const openssh::SSHKey* getHostKey(sshkey_types pkalg) const;
 
@@ -71,11 +93,12 @@ public:
 
   void setHostKeys(std::vector<openssh::SSHKeyPtr> host_keys);
 
-  std::unique_ptr<PacketCipher> makePacketCipher(direction_t d_read, direction_t d_write,
+  std::unique_ptr<PacketCipher> makePacketCipher(DirectionTags d_read,
+                                                 DirectionTags d_write,
+                                                 KexMode mode,
                                                  KexResult* kex_result) const;
 
   KexState& getPendingStateForTest() const { return *pending_state_; }
-  KexState& getActiveStateForTest() const { return *active_state_; }
 
 private:
   struct IncorrectGuessMsgHandler final : public SshMessageMiddleware {

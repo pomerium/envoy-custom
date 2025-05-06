@@ -102,6 +102,10 @@ absl::Status statusFromErr(int n) {
   return {statusCodeFromErr(n), ssh_err(n)};
 }
 
+std::string statusMessageFromErr(int n) {
+  return ssh_err(n);
+}
+
 SSHKey::SSHKey(detail::sshkey_ptr key)
     : key_(std::move(key)) {}
 
@@ -292,8 +296,10 @@ absl::StatusOr<std::vector<openssh::SSHKeyPtr>> loadHostKeysFromConfig(
 // SSHCipher
 
 SSHCipher::SSHCipher(const std::string& cipher_name,
-                     bytes iv, bytes key,
-                     CipherMode mode) {
+                     const iv_bytes& iv,
+                     const key_bytes& key,
+                     CipherMode mode,
+                     uint32_t aad_len) {
   auto cipher = cipher_by_name(cipher_name.c_str());
   if (cipher == nullptr) {
     PANIC(fmt::format("unknown cipher: {}", cipher_name));
@@ -301,7 +307,9 @@ SSHCipher::SSHCipher(const std::string& cipher_name,
   block_size_ = cipher_blocksize(cipher);
   auth_len_ = cipher_authlen(cipher);
   iv_len_ = cipher_ivlen(cipher);
-  aad_len_ = (auth_len_ != 0) ? static_cast<uint32_t>(sizeof(seqnum_t)) : 0;
+  aad_len_ = aad_len;
+  ASSERT(iv.size() == iv_len_);
+  ASSERT(key.size() == cipher_keylen(cipher));
 
   auto err = cipher_init(std::out_ptr(ctx_), cipher, key.data(), static_cast<uint32_t>(key.size()),
                          iv.data(), static_cast<uint32_t>(iv.size()), std::to_underlying(mode));
@@ -336,10 +344,8 @@ absl::StatusOr<size_t> SSHCipher::decryptPacket(seqnum_t seqnum,
                                                 Envoy::Buffer::Instance& out,
                                                 Envoy::Buffer::Instance& in,
                                                 uint32_t packet_length) {
-  size_t need = packet_length + aad_len_ + auth_len_;
-  if (in.length() < need) {
-    return 0; // incomplete packet
-  }
+  size_t need = aad_len_ + packet_length + auth_len_;
+  ASSERT(in.length() >= need);
 
   auto in_data = static_cast<uint8_t*>(in.linearize(static_cast<uint32_t>(need)));
   auto out_data = out.reserveSingleSlice(packet_length + aad_len_);
@@ -352,7 +358,7 @@ absl::StatusOr<size_t> SSHCipher::decryptPacket(seqnum_t seqnum,
   if (r != 0) {
     return absl::AbortedError(fmt::format("decrypt failed: {}", ssh_err(r)));
   }
-  in.drain(need);
+  in.drain(static_cast<uint64_t>(need));
   out_data.commit(out_data.length());
   return need;
 }
@@ -386,19 +392,62 @@ absl::StatusOr<uint32_t> SSHCipher::packetLength(seqnum_t seqnum,
   return packlen;
 }
 
-std::vector<std::string_view> SSHKey::algorithmsForKeyType() const {
+std::vector<std::string> SSHKey::signatureAlgorithmsForKeyType() const {
+  // NB: sha1-variant rsa algorithms (i.e. "ssh-rsa") are not included
   switch (keyType()) {
   case KEY_RSA:
     return {"rsa-sha2-256",
-            "rsa-sha2-512",
-            keyTypeName()}; // "ssh-rsa"
+            "rsa-sha2-512"};
   case KEY_RSA_CERT:
     return {"rsa-sha2-256-cert-v01@openssh.com",
-            "rsa-sha2-512-cert-v01@openssh.com",
-            keyTypeName()}; // "ssh-rsa-cert-v01@openssh.com"
+            "rsa-sha2-512-cert-v01@openssh.com"};
   default:
-    return {keyTypeName()};
+    return {std::string(keyTypeName())};
   }
 }
 
+SSHMac::SSHMac(const std::string& mac_name, const key_bytes& key) {
+  auto r = mac_setup(&mac_, const_cast<char*>(mac_name.c_str())); // NOLINT
+  if (r != 0) {
+    PANIC(fmt::format("unknown mac: {}", mac_name));
+  }
+  key_ = key;
+  mac_.key = key_.data();
+  r = mac_init(&mac_);
+  if (r != 0) {
+    PANIC(fmt::format("error initializing mac: {}", statusFromErr(r)));
+  }
+}
+SSHMac::~SSHMac() {
+  mac_clear(&mac_);
+}
+absl::StatusOr<size_t> SSHMac::compute(seqnum_t seqnum,
+                                       Envoy::Buffer::Instance& out,
+                                       const bytes_view& in) {
+  auto res = out.reserveSingleSlice(mac_.mac_len);
+  auto r = mac_compute(&mac_,
+                       seqnum,
+                       in.data(),
+                       static_cast<int>(in.size()), // weird
+                       static_cast<uint8_t*>(res.slice().mem_),
+                       res.slice().len_);
+  if (r != 0) {
+    return statusFromErr(r);
+  }
+  auto len = res.length();
+  res.commit(len);
+  return static_cast<size_t>(len);
+}
+absl::Status SSHMac::verify(seqnum_t seqnum,
+                            const bytes_view& data,
+                            const bytes_view& mac) {
+  if (mac_.mac_len > mac.size()) {
+    return absl::InvalidArgumentError("invalid mac length");
+  }
+  auto r = mac_check(&mac_, seqnum, data.data(), data.size(), mac.data(), mac.size());
+  if (r != 0) {
+    return statusFromErr(r);
+  }
+  return absl::OkStatus();
+}
 } // namespace openssh

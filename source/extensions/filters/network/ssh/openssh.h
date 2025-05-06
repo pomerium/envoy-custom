@@ -16,21 +16,28 @@
 extern "C" {
 #include "openssh/sshkey.h"
 #include "openssh/cipher.h"
+#include "openssh/mac.h"
+#include "openssh/digest.h"
 }
 
 namespace openssh {
 
 namespace detail {
 using sshkey_ptr = Envoy::CSmartPtr<sshkey, sshkey_free>;
+using sshmac_ptr = Envoy::CSmartPtr<sshmac, mac_clear>;
 using sshcipher_ctx_ptr = Envoy::CSmartPtr<sshcipher_ctx, cipher_free>;
+using ssh_digest_ctx_ptr = Envoy::CSmartPtr<ssh_digest_ctx, ssh_digest_free>;
 } // namespace detail
 
 template <typename T = char>
 using CStringPtr = std::unique_ptr<T, decltype([](void* p) { ::free(p); })>;
 using CBytesPtr = CStringPtr<uint8_t>;
+using iv_bytes = bytes;
+using key_bytes = bytes;
 
 absl::StatusCode statusCodeFromErr(int n);
 absl::Status statusFromErr(int n);
+std::string statusMessageFromErr(int n);
 
 static constexpr auto ExtensionNoTouchRequired = "no-touch-required";
 static constexpr auto ExtensionPermitX11Forwarding = "permit-X11-forwarding";
@@ -58,7 +65,7 @@ public:
   absl::StatusOr<std::string> fingerprint(sshkey_fp_rep representation = SSH_FP_DEFAULT) const;
   std::string_view keyTypeName() const;
   sshkey_types keyType() const;
-  std::vector<std::string_view> algorithmsForKeyType() const;
+  std::vector<std::string> signatureAlgorithmsForKeyType() const;
 
   // Returns the cert-less equivalent to a certified key type
   sshkey_types keyTypePlain() const;
@@ -97,8 +104,8 @@ enum class CipherMode : int {
 class SSHCipher {
 public:
   SSHCipher(const std::string& cipher_name,
-            bytes iv, bytes key,
-            CipherMode mode);
+            const iv_bytes& iv, const key_bytes& key,
+            CipherMode mode, uint32_t aad_len);
   absl::StatusOr<size_t> encryptPacket(seqnum_t seqnum,
                                        Envoy::Buffer::Instance& out,
                                        Envoy::Buffer::Instance& in);
@@ -122,6 +129,72 @@ private:
   uint32_t auth_len_;
   uint32_t iv_len_;
   uint32_t aad_len_;
+};
+
+class SSHMac {
+public:
+  SSHMac(const std::string& mac_name, const key_bytes& key);
+  ~SSHMac();
+
+  absl::StatusOr<size_t> compute(seqnum_t seqnum,
+                                 Envoy::Buffer::Instance& out,
+                                 const bytes_view& in);
+  absl::Status verify(seqnum_t seqnum,
+                      const bytes_view& data,
+                      const bytes_view& mac);
+
+  inline size_t length() const { return mac_.mac_len; }
+  inline bool isETM() const { return mac_.etm != 0; }
+
+private:
+  struct sshmac mac_;
+  bytes key_;
+};
+
+class Hash {
+public:
+  Hash(int alg_id) {
+    ASSERT(alg_ != -1);
+    alg_ = alg_id;
+    ctx_ = ssh_digest_start(alg_);
+  }
+  Hash(const std::string& alg_name)
+      : Hash(ssh_digest_alg_by_name(alg_name.c_str())) {}
+
+  Hash(const Hash&) = delete;
+  Hash(Hash&&) = delete;
+  Hash& operator=(const Hash&) = delete;
+  Hash& operator=(Hash&&) = delete;
+
+  size_t size() const {
+    return ssh_digest_bytes(alg_);
+  }
+
+  size_t blockSize() const {
+    return ssh_digest_blocksize(ctx_.get());
+  }
+
+  void write(bytes_view data) {
+    ssh_digest_update(ctx_.get(), data.data(), data.size());
+  }
+
+  void write(uint8_t data) {
+    ssh_digest_update(ctx_.get(), &data, 1);
+  }
+
+  bytes sum() {
+    bytes digest;
+    digest.resize(size());
+    ASSERT(digest.size() > 0 && digest.size() <= SSH_DIGEST_MAX_LENGTH);
+    if (auto r = ssh_digest_final(ctx_.get(), digest.data(), digest.size()); r != 0) {
+      throw Envoy::EnvoyException(fmt::format("ssh_digest_final failed: {}", statusMessageFromErr(r)));
+    }
+    return digest;
+  }
+
+private:
+  detail::ssh_digest_ctx_ptr ctx_;
+  int alg_;
 };
 
 } // namespace openssh

@@ -3,6 +3,39 @@
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
+PacketCipher::PacketCipher(std::unique_ptr<DirectionalPacketCipher> read,
+                           std::unique_ptr<DirectionalPacketCipher> write)
+    : read_(std::move(read)),
+      write_(std::move(write)) {}
+
+absl::StatusOr<size_t> PacketCipher::encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
+                                                   Envoy::Buffer::Instance& in) {
+  return write_->encryptPacket(seqnum, out, in);
+}
+
+absl::StatusOr<size_t> PacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
+                                                   Envoy::Buffer::Instance& in) {
+  return read_->decryptPacket(seqnum, out, in);
+}
+
+size_t PacketCipher::rekeyAfterBytes(openssh::CipherMode mode) {
+  // RFC4344 § 3.2 states:
+  //  Let L be the block length (in bits) of an SSH encryption method's
+  //  block cipher (e.g., 128 for AES).  If L is at least 128, then, after
+  //  rekeying, an SSH implementation SHOULD NOT encrypt more than 2**(L/4)
+  //  blocks before rekeying again.
+
+  auto l = blockSize(mode) * 8;
+  if (l >= 128) {
+    return 1 << (l / 4);
+  }
+
+  // cont.:
+  //  If L is less than 128, [...] rekey at least once for every gigabyte
+  //  of transmitted data.
+  return 1 << 30;
+}
+
 size_t PacketCipher::blockSize(openssh::CipherMode mode) {
   switch (mode) {
   case openssh::CipherMode::Read:

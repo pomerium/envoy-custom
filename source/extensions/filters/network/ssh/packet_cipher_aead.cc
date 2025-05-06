@@ -1,56 +1,18 @@
 #include "source/extensions/filters/network/ssh/packet_cipher_aead.h"
 
 #include <cstdint>
-#include <algorithm>
-#include <iterator>
 
 #include "source/extensions/filters/network/ssh/wire/common.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-PacketCipher::PacketCipher(std::unique_ptr<DirectionalPacketCipher> read,
-                           std::unique_ptr<DirectionalPacketCipher> write)
-    : read_(std::move(read)), write_(std::move(write)) {}
-
-absl::StatusOr<size_t> PacketCipher::encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
-                                                   Envoy::Buffer::Instance& in) {
-  return write_->encryptPacket(seqnum, out, in);
-}
-
-absl::StatusOr<size_t> PacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
-                                                   Envoy::Buffer::Instance& in) {
-  return read_->decryptPacket(seqnum, out, in);
-}
-
-size_t PacketCipher::rekeyAfterBytes(openssh::CipherMode mode) {
-  // RFC4344 § 3.2 states:
-  //  Let L be the block length (in bits) of an SSH encryption method's
-  //  block cipher (e.g., 128 for AES).  If L is at least 128, then, after
-  //  rekeying, an SSH implementation SHOULD NOT encrypt more than 2**(L/4)
-  //  blocks before rekeying again.
-
-  auto l = blockSize(mode) * 8;
-  if (l >= 128) {
-    return 1 << (l / 4);
-  }
-
-  // cont.:
-  //  If L is less than 128, [...] rekey at least once for every gigabyte
-  //  of transmitted data.
-  return 1 << 30;
-}
-
-AEADPacketCipher::AEADPacketCipher(const char* cipher_name, bytes iv, bytes key,
+AEADPacketCipher::AEADPacketCipher(const DerivedKeys& keys,
+                                   const DirectionAlgorithms& algs,
                                    openssh::CipherMode mode)
-    : ctx_(openssh::SSHCipher(cipher_name, iv, key, mode)) {}
+    : ctx_(openssh::SSHCipher(algs.cipher, keys.iv, keys.key, mode, 4)) {}
 
-absl::StatusOr<size_t> AEADPacketCipher::encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
-                                                       Envoy::Buffer::Instance& in) {
-
-  return ctx_.encryptPacket(seqnum, out, in);
-}
-
-absl::StatusOr<size_t> AEADPacketCipher::decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
+absl::StatusOr<size_t> AEADPacketCipher::decryptPacket(uint32_t seqnum,
+                                                       Envoy::Buffer::Instance& out,
                                                        Envoy::Buffer::Instance& in) {
   auto in_length = in.length();
   if (in_length < ctx_.blockSize()) {
@@ -63,6 +25,10 @@ absl::StatusOr<size_t> AEADPacketCipher::decryptPacket(uint32_t seqnum, Envoy::B
   } else {
     packlen = *l;
   }
+  size_t need = ctx_.aadLen() + packlen + ctx_.authLen();
+  if (in.length() < need) {
+    return 0; // incomplete packet
+  }
 
   auto r = ctx_.decryptPacket(seqnum, out, in, packlen);
   if (!r.ok()) {
@@ -72,6 +38,13 @@ absl::StatusOr<size_t> AEADPacketCipher::decryptPacket(uint32_t seqnum, Envoy::B
   return *r;
 }
 
+absl::StatusOr<size_t> AEADPacketCipher::encryptPacket(uint32_t seqnum,
+                                                       Envoy::Buffer::Instance& out,
+                                                       Envoy::Buffer::Instance& in) {
+
+  return ctx_.encryptPacket(seqnum, out, in);
+}
+
 size_t AEADPacketCipher::blockSize() const {
   return ctx_.blockSize();
 };
@@ -79,5 +52,13 @@ size_t AEADPacketCipher::blockSize() const {
 size_t AEADPacketCipher::aadLen() const {
   return ctx_.aadLen();
 };
+
+std::unique_ptr<DirectionalPacketCipher> detail::AEADPacketCipherFactory::create(const DerivedKeys& keys,
+                                                                                 const DirectionAlgorithms& algs,
+                                                                                 openssh::CipherMode mode) const {
+  ASSERT(keys.iv.size() == ivSize());
+  ASSERT(keys.key.size() == keySize());
+  return std::make_unique<AEADPacketCipher>(keys, algs, mode);
+}
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
