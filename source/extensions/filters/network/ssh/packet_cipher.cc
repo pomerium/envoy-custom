@@ -27,13 +27,13 @@ size_t PacketCipher::rekeyAfterBytes(openssh::CipherMode mode) {
 
   auto l = blockSize(mode) * 8;
   if (l >= 128) {
-    return 1 << (l / 4);
+    return 1uz << (l / 4);
   }
 
   // cont.:
   //  If L is less than 128, [...] rekey at least once for every gigabyte
   //  of transmitted data.
-  return 1 << 30;
+  return 1uz << 30;
 }
 
 size_t PacketCipher::blockSize(openssh::CipherMode mode) {
