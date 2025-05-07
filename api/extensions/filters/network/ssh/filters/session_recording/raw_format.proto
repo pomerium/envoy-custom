@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package pomerium.extensions.ssh.filters.session_recording.raw_format;
+
+import "api/extensions/filters/network/ssh/ssh.proto";
+
+option go_package   = "github.com/pomerium/envoy-custom/api/extensions/filters/network/ssh/filters/session_recording";
+option optimize_for = LITE_RUNTIME;
+
+message Header {
+  int64                start_time = 1; // unix milliseconds
+  SSHDownstreamPTYInfo pty_info   = 2;
+  bool                 encrypted  = 3;
+  map<string, string>  metadata   = 4;
+}
+
+enum PacketDirection {
+  NONE                   = 0;
+  UPSTREAM_TO_DOWNSTREAM = 1;
+  DOWNSTREAM_TO_UPSTREAM = 2;
+}
+
+message Packet {
+  int64           time_delta_ms = 1;
+  PacketDirection direction     = 2;
+  oneof payload {
+    // Raw contents of ChannelDataMsg. This is an optimization to avoid encoding the message
+    // type, size, etc., since the majority of packets will be ChannelDataMsg.
+    bytes channel_data = 3;
+    // Any SSH message
+    bytes ssh_message = 4;
+  }
+}

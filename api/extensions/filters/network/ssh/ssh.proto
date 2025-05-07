@@ -1,0 +1,300 @@
+syntax = "proto3";
+
+package pomerium.extensions.ssh;
+
+import "envoy/config/core/v3/base.proto";
+import "envoy/config/core/v3/extension.proto";
+import "envoy/config/core/v3/grpc_service.proto";
+import "google/protobuf/any.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+
+option go_package = "github.com/pomerium/envoy-custom/api/extensions/filters/network/ssh";
+
+message Config {}
+
+message CodecConfig {
+  repeated string host_keys       = 1;
+  string          user_ca_key     = 2;
+  optional uint64 rekey_threshold = 3;
+
+  envoy.config.core.v3.GrpcService grpc_service = 4;
+}
+
+// The StreamManagement service is implemented by the Pomerium Authorize
+// service on the same internal GRPC server as ExtAuthz.
+service StreamManagement {
+  // ManageStream is called by Envoy when a long-lived stream begins.
+  // This RPC stays alive for the lifetime of the stream. If it ends before
+  // the underlying stream does, Envoy will close the connection.
+  rpc ManageStream(stream ClientMessage) returns (stream ServerMessage);
+
+  // ServeChannel is called when Pomerium "hijacks" the stream by setting target=Internal
+  // in an AllowResponse. When this happens, Envoy reroutes traffic such that this stream
+  // temporarily becomes the upstream server, and delays the connection to the real upstream
+  // until this stream is closed. Afterwards, Envoy connects to the real upstream server and
+  // "hands off" the stream internally in a way that is transparent to the downstream.
+  rpc ServeChannel(stream ChannelMessage) returns (stream ChannelMessage);
+}
+
+// ChannelMessages are sent in both directions during a stream established by ServeChannel.
+// Each message contains either raw protocol-specific bytes sent/received on the channel, or
+// a control message containing a meta-request for the peer to take some action.
+message ChannelMessage {
+  oneof message {
+    envoy.config.core.v3.Metadata metadata        = 1;
+    google.protobuf.BytesValue    raw_bytes       = 2;
+    ChannelControl                channel_control = 3;
+  }
+}
+
+// ChannelControl contains a protocol-specific message instructing the peer to take some action
+// on the channel.
+message ChannelControl {
+  string              protocol       = 1;
+  google.protobuf.Any control_action = 2;
+}
+
+// ClientMessages are sent by Envoy to Pomerium to inform it of stream events,
+// to request authentication, or to pass through a downstream reply to a
+// server request.
+message ClientMessage {
+  oneof message {
+    StreamEvent           event         = 1;
+    AuthenticationRequest auth_request  = 2;
+    InfoResponse          info_response = 3;
+  }
+}
+
+// StreamEvent informs the server of notable events that occur on the stream.
+// When the ManageStream RPC is started, a downstream_connected event will be
+// the first message sent on the stream.
+message StreamEvent {
+  oneof event {
+    DownstreamConnectEvent      downstream_connected    = 1;
+    DownstreamDisconnectedEvent downstream_disconnected = 2;
+    UpstreamConnectEvent        upstream_connected      = 3;
+  }
+}
+
+message DownstreamConnectEvent {
+  uint64 stream_id      = 1;
+  string source_address = 2;
+  // [other connection info as needed]
+}
+
+message DownstreamDisconnectedEvent {
+  string reason = 1; // example, could also be an enum
+  // [other disconnect info as needed]
+}
+
+message UpstreamConnectEvent {
+  uint64 stream_id = 1;
+}
+
+// AuthenticationRequest is sent by Envoy to Pomerium when the downstream
+// client needs to be authenticated. The message always includes a username
+// and hostname (of the requested upstream route), and contains a request
+// message specific to the authentication method with additional credentials
+// or other info required for that method.
+message AuthenticationRequest {
+  string              protocol       = 1;
+  string              service        = 2;
+  string              username       = 3;
+  string              hostname       = 4;
+  string              auth_method    = 5;
+  google.protobuf.Any method_request = 6;
+}
+
+// InfoResponse is a method-specific response to a corresponding InfoRequest.
+message InfoResponse {
+  string              method   = 1;
+  google.protobuf.Any response = 2;
+}
+
+// ServerMessages are sent by Pomerium to Envoy to respond to authentication
+// requests, or to instruct Envoy to take some action on the stream.
+message ServerMessage {
+  oneof message {
+    AuthenticationResponse auth_response  = 1;
+    StreamControl          stream_control = 2;
+  }
+}
+
+// AuthenticationResponse is sent by Pomerium to Envoy in response to an
+// AuthenticationRequest message. It indicates whether authentication is allowed
+// or denied for the requested method (and only that method).
+// Alternatively, the server may respond with an InfoRequest to ask the client
+// to provide additional information, before allowing or denying the request.
+// The client is expected to reply with a corresponding InfoResponse containing
+// the requested credentials (method-specific). The server can then choose to
+// allow or deny the request, or to send further informational requests.
+// Eventually, the server must send an allow or deny response.
+message AuthenticationResponse {
+  oneof response {
+    AllowResponse allow        = 1;
+    DenyResponse  deny         = 2;
+    InfoRequest   info_request = 3;
+  }
+}
+
+// AllowResponse contains the username, hostname, and a list of methods that
+// successfully authenticated. Each method contains implementation-specific
+// metadata that can be processed by Envoy.
+message AllowResponse {
+  string username = 1;
+  oneof target {
+    UpstreamTarget      upstream       = 2;
+    InternalTarget      internal       = 3;
+    MirrorSessionTarget mirror_session = 4;
+  }
+}
+
+message UpstreamTarget {
+  string                 hostname                 = 1;
+  bool                   allow_mirror_connections = 2;
+  bool                   direct_tcpip             = 3;
+  repeated AllowedMethod allowed_methods          = 4;
+  repeated envoy.config.core.v3.TypedExtensionConfig extensions = 5;
+}
+
+message InternalTarget {
+  envoy.config.core.v3.Metadata set_metadata = 1;
+}
+
+message MirrorSessionTarget {
+  enum Mode {
+    READ_ONLY  = 0;
+    READ_WRITE = 1;
+  }
+  uint64 source_id = 1;
+  Mode   mode      = 2;
+}
+
+message AllowedMethod {
+  string              method      = 1;
+  google.protobuf.Any method_data = 2;
+}
+
+// DenyResponse indicates the user was not successfully authenticated for
+// the given method(s). If partial=true, the methods fields lists other
+// supported authentication method names that the client can try instead.
+message DenyResponse {
+  bool            partial = 1;
+  repeated string methods = 2;
+}
+
+// InfoRequest is sent by Pomerium to Envoy during an authentication sequence,
+// and is intended to be propagated in some way to the downstream client.
+// The client must then respond with the requested information (e.g. password)
+// which must be forwarded by Envoy to Pomerium in an InfoResponse message.
+message InfoRequest {
+  string              method  = 1;
+  google.protobuf.Any request = 2;
+}
+
+// StreamControl contains a request for the peer to take some action on the stream.
+message StreamControl {
+  message CloseStream {
+    optional string reason = 1;
+  }
+
+  oneof action {
+    CloseStream close_stream = 1;
+  }
+}
+
+message SSHDownstreamChannelInfo {
+  string channel_type                 = 1;
+  uint32 downstream_channel_id        = 2;
+  uint32 internal_upstream_channel_id = 3;
+  uint32 initial_window_size          = 4;
+  uint32 max_packet_size              = 5;
+}
+
+message SSHDownstreamPTYInfo {
+  string term_env      = 1;
+  uint32 width_columns = 2;
+  uint32 height_rows   = 3;
+  uint32 width_px      = 4;
+  uint32 height_px     = 5;
+  bytes  modes         = 6;
+}
+
+message SSHChannelControlAction {
+  message Disconnect {
+    uint32 reason_code = 1;
+    string description = 2;
+  }
+
+  message HandOffUpstream {
+    SSHDownstreamChannelInfo downstream_channel_info = 2;
+    SSHDownstreamPTYInfo     downstream_pty_info     = 3;
+    AllowResponse            upstream_auth           = 4;
+  }
+
+  oneof action {
+    // Disconnect instructs Envoy to close the connection entirely, and disconnect the downstream.
+    Disconnect disconnect = 1;
+    // HandOffUpstream instructs Envoy to end the "hijacked" internal stream, and connect the
+    // downstream client to the real upstream server.
+    HandOffUpstream hand_off = 2;
+  }
+}
+
+message PublicKeyMethodRequest {
+  bytes  public_key     = 1;
+  string public_key_alg = 2;
+}
+
+message PublicKeyAllowResponse {
+  bytes       public_key  = 1;
+  Permissions permissions = 2;
+}
+
+message KeyboardInteractiveMethodRequest {
+  repeated string submethods = 1;
+}
+
+message KeyboardInteractiveAllowResponse {
+  string session_id = 1;
+  string user_id    = 2;
+  map<string, google.protobuf.ListValue> claims   = 3;
+  repeated string                        audience = 4;
+}
+
+message KeyboardInteractiveInfoPrompts {
+  message Prompt {
+    string prompt = 1;
+    bool   echo   = 2;
+  }
+
+  string          name         = 1;
+  string          instruction  = 2;
+  string          language_tag = 3;
+  repeated Prompt prompts      = 4;
+}
+
+message KeyboardInteractiveInfoPromptResponses {
+  repeated string responses = 1;
+}
+
+message Permissions {
+  bool permit_port_forwarding  = 1;
+  bool permit_agent_forwarding = 2;
+  bool permit_x11_forwarding   = 3;
+  bool permit_pty              = 4;
+  bool permit_user_rc          = 5;
+
+  google.protobuf.Timestamp valid_before = 6;
+  google.protobuf.Timestamp valid_after  = 7;
+
+  repeated string permit_open   = 8;
+  repeated string permit_listen = 9;
+
+  optional string     force_command         = 10;
+  map<string, string> force_env             = 11;
+  optional bool       require_user_presence = 12;
+  optional bool       require_verify        = 13;
+}

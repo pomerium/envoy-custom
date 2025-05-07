@@ -2,6 +2,6 @@ syntax = "proto3";
 
 package pomerium.extensions;
 
-option go_package = "github.com/pomerium/envoy-custom/source/extensions/http/early_header_mutation/trace_context";
+option go_package = "github.com/pomerium/envoy-custom/api/extensions/http/early_header_mutation/trace_context";
 
 message TraceContext {}
