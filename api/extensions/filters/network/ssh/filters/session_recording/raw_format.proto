@@ -15,9 +15,9 @@ message Header {
 }
 
 enum PacketDirection {
-  None                 = 0;
-  UpstreamToDownstream = 1;
-  DownstreamToUpstream = 2;
+  NONE                   = 0;
+  UPSTREAM_TO_DOWNSTREAM = 1;
+  DOWNSTREAM_TO_UPSTREAM = 2;
 }
 
 message Packet {

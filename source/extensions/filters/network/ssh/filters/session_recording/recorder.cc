@@ -61,15 +61,15 @@ absl::Status SessionRecorder::onStreamBegin(
   ENVOY_LOG(info, "session recording started (path={})", file_->path());
 
   switch (format) {
-  case Format::AsciicastFormat:
+  case Format::ASCIICAST_FORMAT:
     formatter_ = std::make_unique<AsciicastFormatter<BufferedFileOutput>>(
       std::make_unique<BufferedFileOutput>(*file_, dispatcher), start_time_);
     break;
-  case Format::RawFormat:
+  case Format::RAW_FORMAT:
     formatter_ = std::make_unique<RawFormatter<BufferedFileOutput>>(
       std::make_unique<BufferedFileOutput>(*file_, dispatcher), start_time_, false);
     break;
-  case Format::RawEncryptedFormat:
+  case Format::RAW_ENCRYPTED_FORMAT:
     formatter_ = std::make_unique<RawFormatter<BufferedFileOutput>>(
       std::make_unique<BufferedFileOutput>(*file_, dispatcher), start_time_, true);
     break;

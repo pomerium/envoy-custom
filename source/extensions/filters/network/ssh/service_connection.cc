@@ -132,10 +132,10 @@ absl::Status DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<Cha
           return absl::InternalError("received invalid channel message: missing downstream_channel_info");
         }
         switch (mirror.mode()) {
-        case pomerium::extensions::ssh::MirrorSessionTarget_Mode_ReadOnly:
+        case pomerium::extensions::ssh::MirrorSessionTarget::READ_ONLY:
           newState->multiplexing_info.rw_mode = ReadWriteMode::ReadOnly;
           break;
-        case pomerium::extensions::ssh::MirrorSessionTarget_Mode_ReadWrite:
+        case pomerium::extensions::ssh::MirrorSessionTarget::READ_WRITE:
           newState->multiplexing_info.rw_mode = ReadWriteMode::ReadWrite;
           break;
         default:

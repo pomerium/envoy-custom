@@ -15,7 +15,7 @@ public:
       : OutputBufferFormatter<T>(std::move(output_buffer), start_time),
         streamer_(std::make_unique<Json::StreamerBase<T&>>(this->output())) {}
 
-  constexpr Format format() const override { return Format::AsciicastFormat; }
+  constexpr Format format() const override { return Format::ASCIICAST_FORMAT; }
 
   void writeHeader(const pomerium::extensions::ssh::SSHDownstreamPTYInfo& handoff_info) override {
     {

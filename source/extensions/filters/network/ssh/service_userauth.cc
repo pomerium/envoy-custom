@@ -216,10 +216,10 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
         state->multiplexing_info.multiplex_mode = MultiplexMode::Mirror;
         state->channel_mode = ChannelMode::Mirror;
         switch (mirror.mode()) {
-        case pomerium::extensions::ssh::MirrorSessionTarget_Mode_ReadOnly:
+        case pomerium::extensions::ssh::MirrorSessionTarget::READ_ONLY:
           state->multiplexing_info.rw_mode = ReadWriteMode::ReadOnly;
           break;
-        case pomerium::extensions::ssh::MirrorSessionTarget_Mode_ReadWrite:
+        case pomerium::extensions::ssh::MirrorSessionTarget::READ_WRITE:
           state->multiplexing_info.rw_mode = ReadWriteMode::ReadWrite;
           break;
         default:

@@ -22,7 +22,7 @@ public:
         start_time_(start_time),
         last_packet_time_(start_time) {
   }
-  constexpr Format format() const override { return Format::RawFormat; }
+  constexpr Format format() const override { return Format::RAW_FORMAT; }
 
   void writeHeader(const SSHDownstreamPTYInfo& handoff_info) override {
     Header h;
@@ -49,21 +49,21 @@ public:
 
   void writeResizeEvent(const wire::WindowDimensionChangeChannelRequestMsg& msg) override {
     auto p = newPacket();
-    p.set_direction(PacketDirection::DownstreamToUpstream);
+    p.set_direction(PacketDirection::DOWNSTREAM_TO_UPSTREAM);
     encodeToPacket(p, msg);
     writeProtodelim(p);
   }
 
   void writeOutputEvent(const wire::ChannelDataMsg& msg) override {
     auto p = newPacket();
-    p.set_direction(PacketDirection::UpstreamToDownstream);
+    p.set_direction(PacketDirection::UPSTREAM_TO_DOWNSTREAM);
     *p.mutable_channel_data() = std::string_view{reinterpret_cast<const char*>(msg.data->data()), msg.data->size()};
     writeProtodelim(p);
   }
 
   void writeInputEvent(const wire::ChannelDataMsg& msg) override {
     auto p = newPacket();
-    p.set_direction(PacketDirection::DownstreamToUpstream);
+    p.set_direction(PacketDirection::DOWNSTREAM_TO_UPSTREAM);
     *p.mutable_channel_data() = std::string_view{reinterpret_cast<const char*>(msg.data->data()), msg.data->size()};
     writeProtodelim(p);
   }
@@ -72,7 +72,7 @@ public:
     msg.visit(
       [&](const wire::DisconnectMsg& msg) {
         Packet p;
-        p.set_direction(PacketDirection::UpstreamToDownstream);
+        p.set_direction(PacketDirection::UPSTREAM_TO_DOWNSTREAM);
         p.set_time_delta_ms(absl::ToInt64Milliseconds(end_time - last_packet_time_));
         last_packet_time_ = end_time;
         encodeToPacket(p, msg);

@@ -29,19 +29,19 @@ const (
 type MirrorSessionTarget_Mode int32
 
 const (
-	MirrorSessionTarget_ReadOnly  MirrorSessionTarget_Mode = 0
-	MirrorSessionTarget_ReadWrite MirrorSessionTarget_Mode = 1
+	MirrorSessionTarget_READ_ONLY  MirrorSessionTarget_Mode = 0
+	MirrorSessionTarget_READ_WRITE MirrorSessionTarget_Mode = 1
 )
 
 // Enum value maps for MirrorSessionTarget_Mode.
 var (
 	MirrorSessionTarget_Mode_name = map[int32]string{
-		0: "ReadOnly",
-		1: "ReadWrite",
+		0: "READ_ONLY",
+		1: "READ_WRITE",
 	}
 	MirrorSessionTarget_Mode_value = map[string]int32{
-		"ReadOnly":  0,
-		"ReadWrite": 1,
+		"READ_ONLY":  0,
+		"READ_WRITE": 1,
 	}
 )
 
@@ -1284,7 +1284,7 @@ func (x *MirrorSessionTarget) GetMode() MirrorSessionTarget_Mode {
 	if x != nil {
 		return x.Mode
 	}
-	return MirrorSessionTarget_ReadOnly
+	return MirrorSessionTarget_READ_ONLY
 }
 
 type AllowedMethod struct {
@@ -2511,13 +2511,14 @@ const file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_s
 	"extensions\x18\x05 \x03(\v2*.envoy.config.core.v3.TypedExtensionConfigR\n" +
 	"extensions\"S\n" +
 	"\x0eInternalTarget\x12A\n" +
-	"\fset_metadata\x18\x01 \x01(\v2\x1e.envoy.config.core.v3.MetadataR\vsetMetadata\"\x9e\x01\n" +
+	"\fset_metadata\x18\x01 \x01(\v2\x1e.envoy.config.core.v3.MetadataR\vsetMetadata\"\xa0\x01\n" +
 	"\x13MirrorSessionTarget\x12\x1b\n" +
 	"\tsource_id\x18\x01 \x01(\x04R\bsourceId\x12E\n" +
-	"\x04mode\x18\x02 \x01(\x0e21.pomerium.extensions.ssh.MirrorSessionTarget.ModeR\x04mode\"#\n" +
-	"\x04Mode\x12\f\n" +
-	"\bReadOnly\x10\x00\x12\r\n" +
-	"\tReadWrite\x10\x01\"^\n" +
+	"\x04mode\x18\x02 \x01(\x0e21.pomerium.extensions.ssh.MirrorSessionTarget.ModeR\x04mode\"%\n" +
+	"\x04Mode\x12\r\n" +
+	"\tREAD_ONLY\x10\x00\x12\x0e\n" +
+	"\n" +
+	"READ_WRITE\x10\x01\"^\n" +
 	"\rAllowedMethod\x12\x16\n" +
 	"\x06method\x18\x01 \x01(\tR\x06method\x125\n" +
 	"\vmethod_data\x18\x02 \x01(\v2\x14.google.protobuf.AnyR\n" +

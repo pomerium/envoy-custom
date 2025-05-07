@@ -165,8 +165,8 @@ message InternalTarget {
 
 message MirrorSessionTarget {
   enum Mode {
-    ReadOnly  = 0;
-    ReadWrite = 1;
+    READ_ONLY  = 0;
+    READ_WRITE = 1;
   }
   uint64 source_id = 1;
   Mode   mode      = 2;
