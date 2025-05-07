@@ -83,13 +83,15 @@ using type_or_value_type_t = type_or_value_type<T>::type;
 template <typename T, typename... Ts>
 struct index_of_type {
   static constexpr std::array<bool, sizeof...(Ts)> checks = {std::is_same_v<T, Ts>...};
-  static constexpr size_t value = [] {
-    auto it = std::find(checks.begin(), checks.end(), true);
-    if (it == checks.end()) {
-      static_assert("type not in list");
-    }
-    return std::distance(checks.begin(), it);
-  }();
+  static constexpr size_t value = std::distance(checks.begin(), std::find(checks.begin(), checks.end(), true));
+  static constexpr bool found = (value < sizeof...(Ts));
+};
+
+// specialization of index_of_type for an empty list
+template <typename T>
+struct index_of_type<T> {
+  static constexpr size_t value = 0;
+  static constexpr bool found = false;
 };
 
 // nth_type_t returns the type at index N in the given type list.
@@ -102,6 +104,7 @@ using first_type_t = nth_type_t<0, Ts...>;
 
 // conditional_const_t returns 'const T' if the given condition is true, otherwise 'T'.
 template <bool Condition, typename T>
+  requires (!std::is_const_v<T>)
 using conditional_const_t = std::conditional_t<Condition, const T, T>;
 
 // copy_reference_t copies the reference qualifiers of 'From' and applies them to 'To'.
@@ -145,14 +148,9 @@ constexpr bool all_types_equal_to = (std::is_same_v<First, Rest> && ...);
 template <typename... Rest>
 constexpr bool all_types_equal = all_types_equal_to<Rest...>;
 
-// all_types_unique returns true if there are no duplicate types in the list, otherwise false.
-template <typename First, typename... Rest>
-constexpr bool all_types_unique = sizeof...(Rest) == 0 ||
-                                  ((!std::is_same_v<First, Rest> && ...) && all_types_unique<Rest...>);
-
-// contains_type returns true if type T (decayed) appears in the type list Ts, otherwise false.
+// contains_type returns true if type T appears in the type list Ts, otherwise false.
 template <typename T, typename... Ts>
-constexpr bool contains_type = (std::is_same_v<std::decay_t<T>, Ts> || ...);
+constexpr bool contains_type = index_of_type<T, Ts...>::found;
 
 // is_vector<T> is true if T is a vector of any type, otherwise false.
 template <typename T>

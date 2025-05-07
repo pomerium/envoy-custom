@@ -3,7 +3,7 @@
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/common.h"
 
-#include "test/extensions/filters/network/ssh/test_common.h"
+#include "test/test_common/test_common.h"
 #include "test/extensions/filters/network/ssh/wire/test_mocks.h"
 #include "test/extensions/filters/network/ssh/wire/test_util.h"
 

@@ -54,6 +54,7 @@ TEST(StatusTest, StatusToString) {
     {absl::OkStatus(), "OK"},
     {absl::Status(absl::StatusCode(12345), "foo bar"), "Code(12345): foo bar"},
     {absl::Status(absl::StatusCode(12345), ""), "Code(12345)"},
+    {absl::Status(absl::StatusCode(12345), "test: "), "Code(12345): test: "},
   };
   for (auto code : wellKnownCodes) {
     if (code == absl::StatusCode::kOk) {

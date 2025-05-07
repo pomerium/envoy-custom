@@ -67,6 +67,7 @@ struct OverloadedMessage : Msg<first_type_t<Ts...>::type> {
                 "all overloaded messages must have the same type");
   using Msg<first_type_t<Ts...>::type>::type;
   template <typename T>
+    requires contains_type<T, Ts...>
   using overload_opt_for = OverloadMsg<type, T, 1 + index_of_type<T, Ts...>::value>;
   using message_type = sub_message<overload_opt_for<Ts>...>;
 
@@ -74,6 +75,7 @@ private:
   message_type message_;
 
   template <typename T>
+    requires contains_type<T, Ts...>
   static consteval bool has_overload() {
     return message_type::template has_option<overload_opt_for<T>>();
   }

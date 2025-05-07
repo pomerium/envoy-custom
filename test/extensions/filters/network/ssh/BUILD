@@ -14,7 +14,6 @@ envoy_cc_test_library(
     name = "test_common",
     srcs = ["test_data.cc"],
     hdrs = [
-        "test_common.h",
         "test_config.h",
         "test_data.h",
     ],
@@ -22,6 +21,7 @@ envoy_cc_test_library(
     deps = [
         "//source/extensions/filters/network/ssh:pomerium_ssh",
         "//source/extensions/filters/network/ssh:ssh_cc_proto",
+        "//test/test_common:test_common_lib",
         "@envoy//test/mocks/api:api_mocks",
         "@envoy//test/mocks/filesystem:filesystem_mocks",
         "@envoy//test/test_common:logging_lib",

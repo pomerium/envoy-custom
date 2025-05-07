@@ -5,9 +5,14 @@ load(
 
 envoy_cc_test(
     name = "status_test",
-    srcs = ["status_test.cc"],
+    srcs = [
+        "factory_test.cc",
+        "status_test.cc",
+        "type_traits_test.cc",
+    ],
     repository = "@envoy",
     deps = [
         "//source/common:common_lib",
+        "//test/test_common:test_common_lib",
     ],
 )

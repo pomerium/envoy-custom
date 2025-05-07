@@ -1,6 +1,6 @@
 #pragma once
 
-#include "test/extensions/filters/network/ssh/test_common.h"
+#include "test/test_common/test_common.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
 
 namespace Envoy::Api {

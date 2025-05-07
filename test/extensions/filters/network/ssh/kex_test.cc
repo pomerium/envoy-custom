@@ -2,7 +2,7 @@
 #include "source/extensions/filters/network/ssh/packet_cipher_aead.h"
 #include "source/extensions/filters/network/ssh/packet_cipher_etm.h"
 #include "test/extensions/filters/network/ssh/test_data.h"
-#include "test/extensions/filters/network/ssh/test_common.h"
+#include "test/test_common/test_common.h"
 #include "test/extensions/filters/network/ssh/test_config.h"
 #include "test/extensions/filters/network/ssh/test_mocks.h"
 #include "test/extensions/filters/network/ssh/wire/test_field_reflect.h"

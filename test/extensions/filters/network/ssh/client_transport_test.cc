@@ -3,7 +3,7 @@
 #include "test/extensions/filters/network/ssh/test_data.h"
 #include "test/mocks/server/factory_context.h"
 #include "gtest/gtest.h"
-#include "test/extensions/filters/network/ssh/test_common.h"
+#include "test/test_common/test_common.h"
 #include "source/extensions/filters/network/ssh/client_transport.h"
 #include "source/extensions/filters/network/ssh/service_connection.h" // IWYU pragma: keep
 #include "source/extensions/filters/network/ssh/service_userauth.h"   // IWYU pragma: keep
