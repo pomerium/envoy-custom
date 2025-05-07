@@ -9,6 +9,7 @@
 #include "fmt/std.h" // IWYU pragma: keep
 #pragma clang unsafe_buffer_usage begin
 #include "absl/status/statusor.h" // IWYU pragma: keep
+#include "source/common/common/assert.h"
 #pragma clang unsafe_buffer_usage end
 
 #include "source/common/bytes.h" // IWYU pragma: keep
@@ -32,7 +33,7 @@ constexpr std::span<T> unsafe_forge_span(T* pointer, size_t size) {
 
 template <typename T>
 bytes_view linearizeToSpan(T& buffer, size_t length) {
-  ASSERT(buffer.length() <= length);
+  ASSERT(length <= buffer.length());
   return {static_cast<uint8_t*>(buffer.linearize(static_cast<uint32_t>(length))), length};
 }
 
