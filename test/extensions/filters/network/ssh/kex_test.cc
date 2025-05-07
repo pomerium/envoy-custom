@@ -1,5 +1,6 @@
 #include "source/extensions/filters/network/ssh/kex_alg_curve25519.h"
 #include "source/extensions/filters/network/ssh/packet_cipher_aead.h"
+#include "source/extensions/filters/network/ssh/packet_cipher_etm.h"
 #include "test/extensions/filters/network/ssh/test_data.h"
 #include "test/extensions/filters/network/ssh/test_common.h"
 #include "test/extensions/filters/network/ssh/test_config.h"
@@ -113,9 +114,22 @@ void remove(std::vector<T>& v, const T& value) {
   EXPECT_CALL(*transport_callbacks_, sendMessageDirect(MSG(type, __VA_ARGS__))) \
     .WillOnce(Return(static_cast<size_t>(0)))
 
-#define EXPECT_SERVER_REPLY_VAR(var, type, ...)                                 \
-  EXPECT_CALL(*transport_callbacks_, sendMessageDirect(MSG(type, __VA_ARGS__))) \
-    .WillOnce(DoAll(SaveArg<0>(var), Return(static_cast<size_t>(0))))
+// The <typename = void> parameter below is used to ensure the static_assert expressions reachable
+// from the else block are discarded, which only occurs in a dependent context. We are using macro
+// substitution to insert the typename here, so the condition is otherwise not dependent.
+// See https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2022/p2593r0.html for more details.
+#define EXPECT_SERVER_REPLY_VAR(var, type, ...)                                            \
+  EXPECT_CALL(*transport_callbacks_, sendMessageDirect(MSG(type, __VA_ARGS__)))            \
+    .WillOnce(Invoke([&]<typename = void>(wire::Message&& msg) -> absl::StatusOr<size_t> { \
+      if constexpr (wire::detail::is_overload<type>) {                                     \
+        msg.visit([&](opt_ref<type> m) { var = m.value(); },                               \
+                  [](auto&) { FAIL(); });                                                  \
+      } else {                                                                             \
+        msg.visit([&](type m) { var = m; },                                                \
+                  [](auto&) { FAIL(); });                                                  \
+      }                                                                                    \
+      return 0;                                                                            \
+    }))
 
 static const wire::KexInitMsg normal_client_kex_init_msg = [] {
   wire::KexInitMsg msg;
@@ -133,28 +147,26 @@ static const wire::KexInitMsg normal_client_kex_init_msg = [] {
   return msg;
 }();
 
+static const wire::KexInitMsg normal_server_kex_init_msg = [] {
+  wire::KexInitMsg msg;
+  msg.cookie = {17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32};
+  msg.kex_algorithms = append(all_kex_algorithms, "ext-info-s", "kex-strict-s-v00@openssh.com");
+  msg.server_host_key_algorithms = all_host_key_algorithms;
+  msg.encryption_algorithms_client_to_server = all_ciphers;
+  msg.encryption_algorithms_server_to_client = all_ciphers;
+  msg.mac_algorithms_client_to_server = all_macs;
+  msg.mac_algorithms_server_to_client = all_macs;
+  msg.compression_algorithms_client_to_server = all_compression_algorithms;
+  msg.compression_algorithms_server_to_client = all_compression_algorithms;
+  msg.first_kex_packet_follows = false;
+  msg.reserved = {};
+  return msg;
+}();
+
 class TestMsgDispatcher : public MessageDispatcher<wire::Message> {
 public:
   using MessageDispatcher<wire::Message>::dispatch;
 };
-
-enum SuspensionPoint {
-  Begin,
-  BeforeKexInitSent,
-  AfterKexInitSent,
-  BeforeEcdhInitSent,
-  AfterEcdhInitSent,
-  BeforeNewKeysSent,
-  AfterNewKeysSent,
-  BeforeExtInfoSent,
-  AfterExtInfoSent,
-
-  DoInitiateRekey = 99,
-};
-
-inline SuspensionPoint operator+(SuspensionPoint lhs, SuspensionPoint rhs) {
-  return static_cast<SuspensionPoint>(std::to_underlying(lhs) + std::to_underlying(rhs));
-}
 
 struct KexSequence {
   struct promise_type;
@@ -162,7 +174,7 @@ struct KexSequence {
 
   // NOLINTBEGIN(readability-identifier-naming)
   struct promise_type {
-    SuspensionPoint suspension_point{Begin};
+    int suspension_point{0};
     std::optional<absl::Status> result;
 
     KexSequence get_return_object() {
@@ -179,7 +191,7 @@ struct KexSequence {
     }
     void await_resume() {}
 
-    std::suspend_always yield_value(SuspensionPoint label) {
+    std::suspend_always yield_value(int label) {
       suspension_point = label;
       return {};
     }
@@ -187,7 +199,13 @@ struct KexSequence {
   // NOLINTEND(readability-identifier-naming)
 
   KexSequence(const KexSequence&) = delete;
-  KexSequence(KexSequence&& other) = delete;
+  KexSequence(KexSequence&& other) noexcept {
+    if (coro) {
+      coro.destroy();
+      coro = nullptr;
+    }
+    std::swap(coro, other.coro);
+  }
   KexSequence& operator=(const KexSequence&) = delete;
   KexSequence& operator=(KexSequence&& other) noexcept {
     if (coro) {
@@ -218,7 +236,7 @@ struct KexSequence {
     return !coro.done();
   }
 
-  SuspensionPoint suspensionPoint() {
+  int suspensionPoint() {
     return coro.promise().suspension_point;
   }
 
@@ -231,9 +249,9 @@ struct KexSequence {
 
   handle_type coro;
 
-  wire::Message server_kex_init_;
-  wire::Message server_ecdh_reply_;
+  wire::KexInitMsg server_kex_init_;
   wire::KexInitMsg client_kex_init_;
+  wire::KexEcdhReplyMsg server_ecdh_reply_;
   wire::KexEcdhInitMsg client_ecdh_init_;
 
   std::shared_ptr<KexResult> client_kex_result_;
@@ -258,18 +276,27 @@ private:
   MessageDispatcher<wire::Message>* dispatcher_;
 };
 
-class ServerKexTest : public testing::Test {
+class BaseKexTest : public testing::Test {
 public:
-  ServerKexTest()
-      : sequence(startKexSequence(normal_client_kex_init_msg)) {
+  BaseKexTest(KexSequence&& sequence)
+      : sequence(std::move(sequence)) {
     setupMockFilesystem(api_, file_system_);
     configureKeys(config_);
+
     client_host_keys_.push_back(*openssh::SSHKey::fromPrivateKeyFile(api_.fileSystem(), "client/test_host_ed25519_key"));
     client_host_keys_.push_back(*openssh::SSHKey::fromPrivateKeyFile(api_.fileSystem(), "client/test_host_rsa_key"));
+
     algorithm_factories_.registerType<Curve25519Sha256KexAlgorithmFactory>();
     cipher_factories_.registerType<Chacha20Poly1305CipherFactory>();
     cipher_factories_.registerType<AESGCM128CipherFactory>();
     cipher_factories_.registerType<AESGCM256CipherFactory>();
+    cipher_factories_.registerType<AES128CTRCipherFactory>();
+    cipher_factories_.registerType<AES192CTRCipherFactory>();
+    cipher_factories_.registerType<AES256CTRCipherFactory>();
+
+    peer_reply_ = std::make_unique<TestMsgDispatcher>();
+    transport_callbacks_ = std::make_unique<testing::StrictMock<MockTransportCallbacks>>();
+    kex_callbacks_ = std::make_unique<testing::StrictMock<MockKexCallbacks>>();
   }
 
   auto loadHostKeys() {
@@ -279,8 +306,9 @@ public:
       if (!r.ok()) {
         PANIC(r.status());
       }
-      auto blob = (*r)->toPublicKeyBlob();
-      for (auto alg : (*r)->algorithmsForKeyType()) {
+      const auto blob = (*r)->toPublicKeyBlob();
+      ASSERT(blob.ok());
+      for (auto alg : (*r)->signatureAlgorithmsForKeyType()) {
         host_key_blobs_[alg] = *blob;
       }
       hostKeys.push_back(std::move(*r));
@@ -289,17 +317,7 @@ public:
     return hostKeys;
   }
 
-  void SetUp() override {
-    dispatch_incoming_ = std::make_unique<TestMsgDispatcher>();
-    transport_callbacks_ = std::make_unique<testing::StrictMock<MockTransportCallbacks>>();
-    kex_callbacks_ = std::make_unique<testing::StrictMock<MockKexCallbacks>>();
-    kex_ = std::make_unique<Kex>(*transport_callbacks_, *kex_callbacks_, algorithm_factories_, cipher_factories_, KexMode::Server);
-    kex_->setHostKeys(loadHostKeys());
-    kex_->setVersionStrings("SSH-2.0-Server", "SSH-2.0-Client");
-    kex_->registerMessageHandlers(*dispatch_incoming_);
-  }
-
-  void ContinueUntil(SuspensionPoint label) { // NOLINT
+  void ContinueUntil(int label) { // NOLINT
     while (sequence.resume()) {
       if (sequence.suspensionPoint() == label) {
         return;
@@ -338,20 +356,55 @@ public:
   }
 
 protected:
+  KexSequence sequence;
+
   std::vector<openssh::SSHKeyPtr> client_host_keys_;
   std::optional<bytes> session_id_;
-  std::optional<bool> client_supports_ext_info_;
 
   std::unique_ptr<Kex> kex_;
 
-  std::unique_ptr<TestMsgDispatcher> dispatch_incoming_;
+  std::unique_ptr<TestMsgDispatcher> peer_reply_;
   std::unique_ptr<testing::StrictMock<MockTransportCallbacks>> transport_callbacks_;
   std::unique_ptr<testing::StrictMock<MockKexCallbacks>> kex_callbacks_;
 
   KexAlgorithmFactoryRegistry algorithm_factories_;
   DirectionalPacketCipherFactoryRegistry cipher_factories_;
 
-  KexSequence sequence;
+  NiceMock<Api::MockApi> api_;
+  NiceMock<Filesystem::MockInstance> file_system_;
+  std::unordered_map<std::string, bytes> host_key_blobs_; // alg->blob
+
+  std::shared_ptr<CodecConfig> config_{newConfig()};
+};
+
+class ServerKexTest : public BaseKexTest {
+public:
+  enum SuspensionPoint {
+    Begin,
+    BeforeKexInitSent,
+    AfterKexInitSent,
+    BeforeEcdhInitSent,
+    AfterEcdhInitSent,
+    BeforeNewKeysSent,
+    AfterNewKeysSent,
+    BeforeExtInfoSent,
+    AfterExtInfoSent,
+
+    DoInitiateRekey = 99,
+  };
+
+  ServerKexTest()
+      : BaseKexTest(startKexSequence(normal_client_kex_init_msg)) {}
+  void SetUp() override {
+    kex_ = std::make_unique<Kex>(*transport_callbacks_, *kex_callbacks_, algorithm_factories_, cipher_factories_, KexMode::Server);
+    kex_->setHostKeys(loadHostKeys());
+    kex_->setVersionStrings("SSH-2.0-Server", "SSH-2.0-Client");
+    kex_->registerMessageHandlers(*peer_reply_);
+  }
+
+protected:
+  std::optional<bool> client_supports_ext_info_;
+
   KexSequence startKexSequence(wire::KexInitMsg client_kex_init, bool initial_kex = true, bool server_initiated_rekey = false) {
     if (!initial_kex) {
       verifyAndResetMocks();
@@ -368,16 +421,16 @@ protected:
       auto expectOnKexStarted = [&] { EXPECT_CALL(*kex_callbacks_, onKexStarted(initial_kex)).Times(1); };
       auto expectOnKexInitMsgSent = [&] { EXPECT_CALL(*kex_callbacks_, onKexInitMsgSent()); };
       auto expectServerKexInit = [&] {
-        EXPECT_SERVER_REPLY_VAR(&sequence.server_kex_init_,
+        EXPECT_SERVER_REPLY_VAR(sequence.server_kex_init_,
                                 wire::KexInitMsg,
                                 FIELD_EQ(kex_algorithms,
                                          initial_kex ? append(algorithm_factories_.namesByPriority(), "ext-info-s", "kex-strict-s-v00@openssh.com")
                                                      : algorithm_factories_.namesByPriority()),
-                                FIELD_EQ(server_host_key_algorithms, string_list{"ssh-ed25519", "rsa-sha2-256", "rsa-sha2-512", "ssh-rsa"}),
+                                FIELD_EQ(server_host_key_algorithms, string_list{"ssh-ed25519", "rsa-sha2-256", "rsa-sha2-512"}),
                                 FIELD_EQ(encryption_algorithms_client_to_server, cipher_factories_.namesByPriority()),
                                 FIELD_EQ(encryption_algorithms_server_to_client, cipher_factories_.namesByPriority()),
-                                FIELD_EQ(mac_algorithms_client_to_server, string_list{}),
-                                FIELD_EQ(mac_algorithms_server_to_client, string_list{}),
+                                FIELD_EQ(mac_algorithms_client_to_server, SupportedMACs),
+                                FIELD_EQ(mac_algorithms_server_to_client, SupportedMACs),
                                 FIELD_EQ(compression_algorithms_client_to_server, string_list{"none"}),
                                 FIELD_EQ(compression_algorithms_server_to_client, string_list{"none"}),
                                 FIELD_EQ(first_kex_packet_follows, false));
@@ -396,7 +449,7 @@ protected:
     if (server_initiated_rekey) {
       co_yield DoInitiateRekey;
     }
-    if (auto stat = dispatch_incoming_->dispatch(auto(sequence.client_kex_init_)); !stat.ok()) {
+    if (auto stat = peer_reply_->dispatch(auto(sequence.client_kex_init_)); !stat.ok()) {
       co_return stat;
     }
     co_yield AfterKexInitSent;
@@ -405,7 +458,7 @@ protected:
 
     openssh::SSHKey* client_hostkey{};
     for (const auto& keypair : client_host_keys_) {
-      for (const auto& keyAlg : algorithmsForKeyFormat(keypair->keyTypeName())) {
+      for (const auto& keyAlg : keypair->signatureAlgorithmsForKeyType()) {
         if (pendingState.negotiated_algorithms.host_key == keyAlg) {
           client_hostkey = keypair.get();
           goto loop_done;
@@ -413,6 +466,7 @@ protected:
       }
     }
   loop_done:
+    EXPECT_TRUE(client_hostkey != nullptr);
 
     HandshakeMagics magics{
       .client_version = "SSH-2.0-Client",
@@ -436,19 +490,20 @@ protected:
       });
     co_yield BeforeEcdhInitSent;
     if (!sequence.expecting_error_) {
-      EXPECT_SERVER_REPLY_VAR(&sequence.server_ecdh_reply_,
+      EXPECT_SERVER_REPLY_VAR(sequence.server_ecdh_reply_,
                               wire::KexEcdhReplyMsg,
                               FIELD_EQ(host_key, host_key_blobs_["ssh-ed25519"]));
       EXPECT_SERVER_REPLY(wire::NewKeysMsg, _);
       EXPECT_CALL(*transport_callbacks_, resetWriteSequenceNumber())
         .WillOnce(Return(3)); // KexInitMsg, KexEcdhReplyMsg, NewKeysMsg
     }
-    if (auto stat = dispatch_incoming_->dispatch(auto(sequence.client_ecdh_init_)); !stat.ok()) {
+    if (auto stat = peer_reply_->dispatch(auto(sequence.client_ecdh_init_)); !stat.ok()) {
       co_return stat;
     }
     co_yield AfterEcdhInitSent;
 
-    auto r = alg->handleClientRecv(sequence.server_ecdh_reply_);
+    wire::Message tmp = sequence.server_ecdh_reply_;
+    auto r = alg->handleClientRecv(tmp);
     if (!r.ok()) {
       co_return r.status();
     }
@@ -476,10 +531,10 @@ protected:
         .WillOnce(Return(3)); // KexInitMsg, KexEcdhInitMsg, NewKeysMsg
       EXPECT_CALL(*kex_callbacks_, onKexCompleted(_, initial_kex))
         .WillOnce(DoAll(SaveArg<0>(&sequence.server_kex_result_), [&] {
-          ignoreHandler.registerMessageHandlers(*dispatch_incoming_);
+          ignoreHandler.registerMessageHandlers(*peer_reply_);
         }));
     }
-    if (auto stat = dispatch_incoming_->dispatch(wire::Message{wire::NewKeysMsg{}}); !stat.ok()) {
+    if (auto stat = peer_reply_->dispatch(wire::Message{wire::NewKeysMsg{}}); !stat.ok()) {
       co_return stat;
     }
     co_yield AfterNewKeysSent;
@@ -497,7 +552,7 @@ protected:
           EXPECT_CALL(*transport_callbacks_, updatePeerExtInfo(std::optional{clientExtInfo}))
             .WillOnce(Return());
         }
-        if (auto stat = dispatch_incoming_->dispatch(wire::Message{std::move(clientExtInfo)}); !stat.ok()) {
+        if (auto stat = peer_reply_->dispatch(wire::Message{std::move(clientExtInfo)}); !stat.ok()) {
           co_return stat;
         }
       }
@@ -507,15 +562,9 @@ protected:
     // Done
     EXPECT_EQ(*sequence.client_kex_result_, *sequence.server_kex_result_);
 
-    dispatch_incoming_->unregisterHandler(&ignoreHandler);
+    peer_reply_->unregisterHandler(&ignoreHandler);
     co_return absl::OkStatus();
   }
-
-  NiceMock<Api::MockApi> api_;
-  NiceMock<Filesystem::MockInstance> file_system_;
-  std::unordered_map<std::string_view, bytes> host_key_blobs_; // alg->blob
-
-  std::shared_ptr<CodecConfig> config_{newConfig()};
 };
 
 TEST_F(ServerKexTest, BasicKeyExchange) {
@@ -541,7 +590,7 @@ class StrictModeEnforcementBeforeKexInitTest : public ServerKexTest, public test
 
 TEST_P(StrictModeEnforcementBeforeKexInitTest, BeforeKexInit) {
   ContinueUntil(BeforeKexInitSent);
-  auto r = dispatch_incoming_->dispatch(auto(GetParam()));
+  auto r = peer_reply_->dispatch(auto(GetParam()));
   EXPECT_FALSE(r.ok());
   EXPECT_EQ(r.message(), fmt::format("unexpected message received: {}", GetParam().msg_type()));
 }
@@ -559,7 +608,7 @@ class StrictModeEnforcementBeforeEcdhInitTest : public ServerKexTest, public tes
 
 TEST_P(StrictModeEnforcementBeforeEcdhInitTest, BeforeEcdhInit) {
   ContinueUntil(BeforeEcdhInitSent);
-  auto r = dispatch_incoming_->dispatch(auto(GetParam()));
+  auto r = peer_reply_->dispatch(auto(GetParam()));
   EXPECT_FALSE(r.ok());
   EXPECT_EQ(r.message(), fmt::format("unexpected message received: {}", GetParam().msg_type()));
 }
@@ -577,7 +626,7 @@ INSTANTIATE_TEST_SUITE_P(BeforeEcdhInit, StrictModeEnforcementBeforeEcdhInitTest
 class StrictModeEnforcementBeforeNewKeysTest : public ServerKexTest, public testing::WithParamInterface<wire::Message> {};
 TEST_P(StrictModeEnforcementBeforeNewKeysTest, BeforeNewKeys) {
   ContinueUntil(BeforeNewKeysSent);
-  auto r = dispatch_incoming_->dispatch(auto(GetParam()));
+  auto r = peer_reply_->dispatch(auto(GetParam()));
   EXPECT_FALSE(r.ok());
   EXPECT_EQ(r.message(), fmt::format("key exchange error: expected NewKeys, received {}", GetParam().msg_type()));
 }
@@ -595,13 +644,13 @@ TEST_F(ServerKexTest, StrictModeEnforcement_AfterNewKeys) {
   ContinueUntil(BeforeKexInitSent);
   remove(*sequence.client_kex_init_.kex_algorithms, "ext-info-c"s);
   ContinueUntil(AfterNewKeysSent);
-  EXPECT_OK(dispatch_incoming_->dispatch(wire::Message{wire::IgnoreMsg{}}));
+  EXPECT_OK(peer_reply_->dispatch(wire::Message{wire::IgnoreMsg{}}));
   ContinueUntilEnd();
 }
 
 TEST_F(ServerKexTest, StrictModeEnforcement_AfterExtInfo) {
   ContinueUntil(AfterExtInfoSent);
-  EXPECT_OK(dispatch_incoming_->dispatch(wire::Message{wire::IgnoreMsg{}}));
+  EXPECT_OK(peer_reply_->dispatch(wire::Message{wire::IgnoreMsg{}}));
   ContinueUntilEnd();
 }
 
@@ -639,7 +688,7 @@ TEST_F(AlgorithmNegotiationTest, NoCommonHostKey) {
   ContinueAndExpectSoftError(absl::InvalidArgumentError(
     fmt::format("no common algorithm for host key; client offered: {}; server offered: {}",
                 sequence.client_kex_init_.server_host_key_algorithms,
-                string_list{"ssh-ed25519", "rsa-sha2-256", "rsa-sha2-512", "ssh-rsa"})));
+                string_list{"ssh-ed25519", "rsa-sha2-256", "rsa-sha2-512"})));
 }
 
 TEST_F(AlgorithmNegotiationTest, NoCommonClientToServerCipher) {
@@ -648,7 +697,7 @@ TEST_F(AlgorithmNegotiationTest, NoCommonClientToServerCipher) {
   ContinueAndExpectSoftError(absl::InvalidArgumentError(
     fmt::format("no common algorithm for client to server cipher; client offered: {}; server offered: {}",
                 sequence.client_kex_init_.encryption_algorithms_client_to_server,
-                string_list{"chacha20-poly1305@openssh.com", "aes128-gcm@openssh.com", "aes256-gcm@openssh.com"})));
+                string_list{"chacha20-poly1305@openssh.com", "aes128-gcm@openssh.com", "aes256-gcm@openssh.com", "aes128-ctr", "aes192-ctr", "aes256-ctr"})));
 }
 
 TEST_F(AlgorithmNegotiationTest, NoCommonServerToClientCipher) {
@@ -657,7 +706,27 @@ TEST_F(AlgorithmNegotiationTest, NoCommonServerToClientCipher) {
   ContinueAndExpectSoftError(absl::InvalidArgumentError(
     fmt::format("no common algorithm for server to client cipher; client offered: {}; server offered: {}",
                 sequence.client_kex_init_.encryption_algorithms_server_to_client,
-                string_list{"chacha20-poly1305@openssh.com", "aes128-gcm@openssh.com", "aes256-gcm@openssh.com"})));
+                string_list{"chacha20-poly1305@openssh.com", "aes128-gcm@openssh.com", "aes256-gcm@openssh.com", "aes128-ctr", "aes192-ctr", "aes256-ctr"})));
+}
+
+TEST_F(AlgorithmNegotiationTest, NoCommonClientToServerMac) {
+  ContinueUntil(BeforeKexInitSent);
+  sequence.client_kex_init_.encryption_algorithms_client_to_server = {CipherAES128CTR};
+  sequence.client_kex_init_.mac_algorithms_client_to_server = {"hmac-md5"};
+  ContinueAndExpectSoftError(absl::InvalidArgumentError(
+    fmt::format("no common algorithm for client to server MAC; client offered: {}; server offered: {}",
+                sequence.client_kex_init_.mac_algorithms_client_to_server,
+                SupportedMACs)));
+}
+
+TEST_F(AlgorithmNegotiationTest, NoCommonServerToClientMac) {
+  ContinueUntil(BeforeKexInitSent);
+  sequence.client_kex_init_.encryption_algorithms_server_to_client = {CipherAES128CTR};
+  sequence.client_kex_init_.mac_algorithms_server_to_client = {"hmac-md5"};
+  ContinueAndExpectSoftError(absl::InvalidArgumentError(
+    fmt::format("no common algorithm for server to client MAC; client offered: {}; server offered: {}",
+                sequence.client_kex_init_.mac_algorithms_server_to_client,
+                SupportedMACs)));
 }
 
 TEST_F(AlgorithmNegotiationTest, NoCommonClientToServerMac_AEAD) {
@@ -673,19 +742,6 @@ TEST_F(AlgorithmNegotiationTest, NoCommonServerToClientMac_AEAD) {
   sequence.client_kex_init_.mac_algorithms_server_to_client = {"never-before-seen"};
   ContinueUntilEnd();
 }
-
-class TestCipher : public DirectionalPacketCipherFactory {
-public:
-  std::vector<std::pair<std::string, priority_t>> names() const override {
-    return {{"aes128-ctr", 1}};
-  }
-  size_t ivSize() const override {
-    return 0;
-  }
-  size_t keySize() const override {
-    return 16;
-  }
-};
 
 TEST_F(AlgorithmNegotiationTest, NoCommonClientToServerCompression) {
   ContinueUntil(BeforeKexInitSent);
@@ -723,18 +779,18 @@ TEST_F(ServerKexTest, IncorrectClientGuess_KexAlg) {
   ContinueUntil(BeforeEcdhInitSent);
   wire::KexEcdhInitMsg ecdhInit;
   ecdhInit.client_pub_key = wire::test::random_value<bytes>();
-  EXPECT_OK(dispatch_incoming_->dispatch(wire::Message{ecdhInit}));
+  EXPECT_OK(peer_reply_->dispatch(wire::Message{ecdhInit}));
   ContinueUntilEnd();
 }
 
 TEST_F(ServerKexTest, IncorrectClientGuess_HostKeyAlg) {
   ContinueUntil(BeforeKexInitSent);
   sequence.client_kex_init_.first_kex_packet_follows = true;
-  sequence.client_kex_init_.server_host_key_algorithms = {"bad-first-guess", "ssh-ed25519", "rsa-sha2-512", "ssh-rsa"};
+  sequence.client_kex_init_.server_host_key_algorithms = {"bad-first-guess", "ssh-ed25519", "rsa-sha2-512"};
   ContinueUntil(BeforeEcdhInitSent);
   wire::KexEcdhInitMsg ecdhInit;
   ecdhInit.client_pub_key = wire::test::random_value<bytes>();
-  EXPECT_OK(dispatch_incoming_->dispatch(wire::Message{ecdhInit}));
+  EXPECT_OK(peer_reply_->dispatch(wire::Message{ecdhInit}));
   ContinueUntilEnd();
 }
 
@@ -742,7 +798,7 @@ TEST_F(ServerKexTest, IncorrectClientGuess_WrongMessageType) {
   ContinueUntil(BeforeKexInitSent);
   sequence.client_kex_init_.first_kex_packet_follows = true;
   ContinueUntil(BeforeEcdhInitSent);
-  auto r = dispatch_incoming_->dispatch(wire::Message{wire::IgnoreMsg{}});
+  auto r = peer_reply_->dispatch(wire::Message{wire::IgnoreMsg{}});
   EXPECT_FALSE(r.ok());
   EXPECT_EQ(r, absl::InvalidArgumentError("unexpected message received: Ignore (2)"));
 }
@@ -757,6 +813,26 @@ TEST_F(ServerKexTest, ClientInitiatedRekey) {
   }
 }
 
+TEST_F(ServerKexTest, DifferentDirectionAlgorithms) {
+  ContinueUntil(BeforeKexInitSent);
+  sequence.client_kex_init_.encryption_algorithms_client_to_server = {CipherChacha20Poly1305};
+  sequence.client_kex_init_.encryption_algorithms_server_to_client = {CipherAES256CTR};
+  sequence.client_kex_init_.mac_algorithms_client_to_server->clear();
+  sequence.client_kex_init_.mac_algorithms_server_to_client = {"hmac-sha2-512-etm@openssh.com"};
+  ContinueUntilEnd();
+  EXPECT_EQ(CipherChacha20Poly1305, sequence.server_kex_result_->algorithms.client_to_server.cipher);
+  EXPECT_EQ(CipherChacha20Poly1305, sequence.client_kex_result_->algorithms.client_to_server.cipher);
+
+  EXPECT_EQ(CipherAES256CTR, sequence.server_kex_result_->algorithms.server_to_client.cipher);
+  EXPECT_EQ(CipherAES256CTR, sequence.client_kex_result_->algorithms.server_to_client.cipher);
+
+  EXPECT_EQ("", sequence.server_kex_result_->algorithms.client_to_server.mac);
+  EXPECT_EQ("", sequence.client_kex_result_->algorithms.client_to_server.mac);
+
+  EXPECT_EQ("hmac-sha2-512-etm@openssh.com", sequence.server_kex_result_->algorithms.server_to_client.mac);
+  EXPECT_EQ("hmac-sha2-512-etm@openssh.com", sequence.client_kex_result_->algorithms.server_to_client.mac);
+}
+
 TEST_F(ServerKexTest, ClientInitiatedRekey_NewAlgorithms) {
   ContinueUntilEnd();
   auto rekeyInit = normal_client_kex_init_msg;
@@ -764,8 +840,8 @@ TEST_F(ServerKexTest, ClientInitiatedRekey_NewAlgorithms) {
   rekeyInit.encryption_algorithms_server_to_client = {"aes256-gcm@openssh.com"};
   sequence = startKexSequence(rekeyInit, false);
   ContinueUntilEnd();
-  kex_->getActiveStateForTest().kex_result->algorithms.r.cipher = "aes256-gcm@openssh.com";
-  kex_->getActiveStateForTest().kex_result->algorithms.w.cipher = "aes256-gcm@openssh.com";
+  EXPECT_EQ("aes256-gcm@openssh.com", sequence.server_kex_result_->algorithms.client_to_server.cipher);
+  EXPECT_EQ("aes256-gcm@openssh.com", sequence.server_kex_result_->algorithms.server_to_client.cipher);
 }
 
 TEST_F(ServerKexTest, ServerInitiatedRekey) {
@@ -775,9 +851,22 @@ TEST_F(ServerKexTest, ServerInitiatedRekey) {
     rekeyInit.kex_algorithms = all_kex_algorithms;
     sequence = startKexSequence(rekeyInit, false, true);
     ContinueUntil(DoInitiateRekey);
-    ASSERT_OK(kex_->initiateRekey());
+    ASSERT_OK(kex_->initiateKex());
     ContinueUntilEnd();
   }
+}
+
+TEST_F(ServerKexTest, ServerInitiatedRekey_InvalidUsage1) {
+  ContinueUntilEnd();
+  sequence = startKexSequence(normal_client_kex_init_msg, false, true);
+  ContinueUntil(DoInitiateRekey);
+  ASSERT_OK(kex_->initiateKex());
+  ContinueUntil(BeforeEcdhInitSent); // need to wait for peer's KexInit to be received
+  EXPECT_ENVOY_BUG(kex_->initiateKex().IgnoreError(), "bug: initiateKex called during key exchange");
+}
+
+TEST_F(ServerKexTest, ServerInitiatedRekey_InvalidUsage2) {
+  EXPECT_ENVOY_BUG(kex_->initiateKex().IgnoreError(), "bug: server cannot start initial key exchange");
 }
 
 TEST_F(ServerKexTest, EcdhFailure_KeySize) {
@@ -825,7 +914,7 @@ TEST_F(ServerKexTest, SendNewKeysFail) {
 
 TEST_F(ServerKexTest, UnexpectedKexInit) {
   ContinueUntil(AfterKexInitSent);
-  auto r = dispatch_incoming_->dispatch(wire::Message{wire::KexInitMsg{}});
+  auto r = peer_reply_->dispatch(wire::Message{wire::KexInitMsg{}});
   EXPECT_FALSE(r.ok());
   EXPECT_EQ(r.message(), "unexpected message received: KexInit (20)");
 }
@@ -880,7 +969,7 @@ TEST_F(ServerKexTest, MultiStepAlgorithm) {
   ContinueUntil(BeforeKexInitSent);
   sequence.client_kex_init_.kex_algorithms = {"test-multi-step", "kex-strict-c-v00@openssh.com"};
   ContinueUntil(BeforeEcdhInitSent);
-  EXPECT_OK(dispatch_incoming_->dispatch(wire::Message{wire::DebugMsg{}}));
+  EXPECT_OK(peer_reply_->dispatch(wire::Message{wire::DebugMsg{}}));
   ContinueUntilEnd();
 }
 
@@ -890,7 +979,7 @@ TEST_F(ServerKexTest, PickHostKey) {
   EXPECT_EQ(*kex_->pickHostKey("ssh-ed25519"), *ed25519Key);
   EXPECT_EQ(*kex_->pickHostKey("rsa-sha2-512"), *rsaKey);
   EXPECT_EQ(*kex_->pickHostKey("rsa-sha2-256"), *rsaKey);
-  EXPECT_EQ(*kex_->pickHostKey("ssh-rsa"), *rsaKey);
+  EXPECT_EQ(kex_->pickHostKey("ssh-rsa"), nullptr); // sha1 (deprecated)
   EXPECT_EQ(kex_->pickHostKey("nonexistent"), nullptr);
   EXPECT_EQ(kex_->pickHostKey("rsa-sha2-256-cert-v01@openssh.com"), nullptr);
   EXPECT_EQ(kex_->pickHostKey("ssh-ed25519-cert-v01@openssh.com"), nullptr);
@@ -902,6 +991,274 @@ TEST_F(ServerKexTest, GetHostKey) {
   EXPECT_EQ(*kex_->getHostKey(ed25519Key->keyType()), *ed25519Key);
   EXPECT_EQ(*kex_->getHostKey(rsaKey->keyType()), *rsaKey);
   EXPECT_EQ(kex_->getHostKey(static_cast<sshkey_types>(99)), nullptr);
+}
+
+class MakePacketCipherTest : public ServerKexTest, public testing::WithParamInterface<std::function<wire::KexInitMsg()>> {};
+
+TEST_P(MakePacketCipherTest, MakePacketCipher) {
+  ContinueUntil(BeforeKexInitSent);
+  sequence.client_kex_init_ = GetParam()();
+  ContinueUntilEnd();
+
+  auto serverCipher = kex_->makePacketCipher(clientKeys, serverKeys, KexMode::Server, sequence.server_kex_result_.get());
+  auto clientCipher = kex_->makePacketCipher(serverKeys, clientKeys, KexMode::Client, sequence.client_kex_result_.get());
+
+  seqnum_t seqnum = 0;
+  for (auto [send, recv] : {std::pair{serverCipher.get(), clientCipher.get()},
+                            std::pair{clientCipher.get(), serverCipher.get()}}) {
+    wire::Message msg;
+    wire::DebugMsg debugMsg;
+    debugMsg.message = "hello world";
+    msg.message = std::move(debugMsg);
+
+    Buffer::OwnedImpl plaintext;
+    Buffer::OwnedImpl ciphertext;
+    ASSERT_OK(wire::encodePacket(plaintext,
+                                 msg,
+                                 send->blockSize(openssh::CipherMode::Write),
+                                 send->aadSize(openssh::CipherMode::Write))
+                .status());
+    ASSERT_OK(send->encryptPacket(seqnum, ciphertext, plaintext).status());
+
+    Buffer::OwnedImpl decrypted;
+    ASSERT_OK(recv->decryptPacket(seqnum, decrypted, ciphertext).status());
+    seqnum++;
+    wire::Message msg2;
+    ASSERT_OK(wire::decodePacket(decrypted, msg2).status());
+    EXPECT_EQ(msg, msg2);
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+  MakePacketCipherTestSuite, MakePacketCipherTest,
+  testing::ValuesIn(std::vector<std::function<wire::KexInitMsg()>>{
+    [] {
+      auto kexInit = normal_client_kex_init_msg;
+      kexInit.encryption_algorithms_client_to_server = {CipherChacha20Poly1305};
+      kexInit.encryption_algorithms_server_to_client = {CipherChacha20Poly1305};
+      kexInit.mac_algorithms_client_to_server->clear();
+      kexInit.mac_algorithms_server_to_client->clear();
+      return kexInit;
+    },
+    [] {
+      auto kexInit = normal_client_kex_init_msg;
+      kexInit.encryption_algorithms_client_to_server = {CipherChacha20Poly1305};
+      kexInit.encryption_algorithms_server_to_client = {CipherChacha20Poly1305};
+      kexInit.mac_algorithms_client_to_server = SupportedMACs;
+      kexInit.mac_algorithms_server_to_client = SupportedMACs;
+      return kexInit;
+    },
+    [] {
+      auto kexInit = normal_client_kex_init_msg;
+      kexInit.encryption_algorithms_client_to_server = {CipherAES256CTR, CipherAES192CTR};
+      kexInit.encryption_algorithms_server_to_client = {CipherAES256CTR, CipherAES192CTR};
+      kexInit.mac_algorithms_client_to_server = SupportedMACs;
+      kexInit.mac_algorithms_server_to_client = SupportedMACs;
+      return kexInit;
+    },
+    [] {
+      auto kexInit = normal_client_kex_init_msg;
+      kexInit.encryption_algorithms_client_to_server = {CipherChacha20Poly1305};
+      kexInit.encryption_algorithms_server_to_client = {CipherAES256CTR};
+      kexInit.mac_algorithms_client_to_server->clear();
+      kexInit.mac_algorithms_server_to_client = {"hmac-sha2-512-etm@openssh.com"};
+      return kexInit;
+    },
+    [] {
+      auto kexInit = normal_client_kex_init_msg;
+      kexInit.encryption_algorithms_client_to_server = {CipherAES256CTR};
+      kexInit.encryption_algorithms_server_to_client = {CipherChacha20Poly1305};
+      kexInit.mac_algorithms_client_to_server = {"hmac-sha2-512-etm@openssh.com"};
+      kexInit.mac_algorithms_server_to_client->clear();
+      return kexInit;
+    },
+    [] {
+      auto kexInit = normal_client_kex_init_msg;
+      kexInit.encryption_algorithms_client_to_server = {CipherAES256CTR, CipherAES192CTR};
+      kexInit.encryption_algorithms_server_to_client = {CipherAES192CTR, CipherAES256CTR};
+      kexInit.mac_algorithms_client_to_server = SupportedMACs;
+      kexInit.mac_algorithms_server_to_client = SupportedMACs | std::views::reverse | std::ranges::to<std::vector>();
+      return kexInit;
+    },
+    [] {
+      auto kexInit = normal_client_kex_init_msg;
+      kexInit.encryption_algorithms_client_to_server = {CipherChacha20Poly1305};
+      kexInit.encryption_algorithms_server_to_client = {CipherAES256GCM};
+      kexInit.mac_algorithms_client_to_server = SupportedMACs;
+      kexInit.mac_algorithms_server_to_client = SupportedMACs;
+      return kexInit;
+    },
+    [] {
+      auto kexInit = normal_client_kex_init_msg;
+      kexInit.encryption_algorithms_client_to_server = {CipherAES256GCM, CipherAES256CTR, CipherAES192CTR};
+      kexInit.encryption_algorithms_server_to_client = {CipherAES192CTR, CipherAES256CTR};
+      kexInit.mac_algorithms_client_to_server->clear();
+      kexInit.mac_algorithms_server_to_client = SupportedMACs;
+      return kexInit;
+    },
+  }),
+  [](auto& info) {
+    return (std::array{
+              "SameAeadEmptyMac",
+              "SameAeadMacUnused",
+              "SameEtmAndMac",
+              "AeadClientToServerAndEtmServerToClient",
+              "EtmClientToServerAndAeadServerToClient",
+              "DifferentEtmAndMac",
+              "DifferentAeadMacUnused",
+              "AeadClientToServerAndEtmServerToClientWithMultipleSupportedAlgs",
+            })
+      .at(info.index);
+  });
+
+class ClientKexTest : public BaseKexTest {
+public:
+  enum SuspensionPoint {
+    Begin,
+    BeforeClientKexInitSent,
+    AfterClientKexInitSent,
+    BeforeServerKexInitSent,
+    AfterServerKexInitSent,
+    BeforeServerEcdhReplySent,
+    AfterServerEcdhReplySent,
+    BeforeServerNewKeysSent,
+    AfterServerNewKeysSent,
+
+    DoInitiateRekey = 99,
+  };
+
+  ClientKexTest()
+      : BaseKexTest(startKexSequence(normal_server_kex_init_msg)) {
+  }
+
+  void SetUp() override {
+    kex_ = std::make_unique<Kex>(*transport_callbacks_, *kex_callbacks_, algorithm_factories_, cipher_factories_, KexMode::Client);
+    kex_->setHostKeys(loadHostKeys());
+    kex_->setVersionStrings("SSH-2.0-Client", "SSH-2.0-Server");
+    kex_->registerMessageHandlers(*peer_reply_);
+  }
+
+protected:
+  std::optional<bool> server_supports_ext_info_;
+
+  KexSequence startKexSequence(wire::KexInitMsg server_kex_init, bool initial_kex = true) {
+    // ensure all expected calls are ordered
+    IN_SEQUENCE;
+
+    // KexInit
+    co_yield BeforeClientKexInitSent;
+    if (!sequence.expecting_error_) {
+      EXPECT_CALL(*kex_callbacks_, onKexInitMsgSent());
+      EXPECT_CALL(*transport_callbacks_, sendMessageDirect(MSG(wire::KexInitMsg, _)))
+        .WillOnce(Invoke([&](wire::Message&& msg) -> absl::StatusOr<size_t> {
+          EXPECT_EQ(wire::KexInitMsg::type, msg.msg_type());
+          sequence.client_kex_init_ = msg.message.get<wire::KexInitMsg>();
+          return 0;
+        }));
+      EXPECT_CALL(*kex_callbacks_, onKexStarted(initial_kex));
+    }
+    if (auto stat = kex_->initiateKex(); !stat.ok()) {
+      co_return stat;
+    }
+    co_yield AfterClientKexInitSent;
+
+    sequence.server_kex_init_ = server_kex_init;
+    co_yield BeforeServerKexInitSent;
+    if (!sequence.expecting_error_) {
+      EXPECT_CALL(*transport_callbacks_, sendMessageDirect(MSG(wire::KexEcdhInitMsg, _)))
+        .WillOnce(Invoke([&](wire::Message&& msg) -> absl::StatusOr<size_t> {
+          EXPECT_EQ(wire::KexEcdhInitMsg::type, msg.msg_type());
+          msg.visit(
+            [&](opt_ref<wire::KexEcdhInitMsg> msg) {
+              sequence.client_ecdh_init_ = msg.value();
+            },
+            [](auto&) {
+              FAIL();
+            });
+          return 0;
+        }));
+    }
+    if (auto stat = peer_reply_->dispatch(sequence.server_kex_init_); !stat.ok()) {
+      co_return stat;
+    }
+    co_yield AfterServerKexInitSent;
+
+    HandshakeMagics magics{
+      .client_version = "SSH-2.0-Client",
+      .server_version = "SSH-2.0-Server",
+      .client_kex_init = *encodeTo<bytes>(sequence.client_kex_init_),
+      .server_kex_init = *encodeTo<bytes>(sequence.server_kex_init_),
+    };
+    auto& pendingState = kex_->getPendingStateForTest();
+
+    auto alg = algorithm_factories_
+                 .factoryForName(pendingState.negotiated_algorithms.kex)
+                 ->create(&magics, &pendingState.negotiated_algorithms,
+                          kex_->pickHostKey(pendingState.negotiated_algorithms.host_key));
+
+    wire::Message tmp = sequence.client_ecdh_init_;
+    auto result = alg->handleServerRecv(tmp);
+    if (!result.ok()) {
+      co_return result.status();
+    }
+    sequence.server_kex_result_ = **result;
+    // some fields aren't filled by handleClientRecv, so set them to the expected values
+    if (initial_kex) {
+      sequence.server_kex_result_->session_id = sequence.server_kex_result_->exchange_hash;
+      session_id_ = sequence.server_kex_result_->session_id;
+    } else {
+      sequence.server_kex_result_->session_id = session_id_.value();
+    }
+    sequence.server_kex_result_->client_supports_ext_info = true;
+    if (initial_kex) {
+      sequence.server_kex_result_->server_supports_ext_info = absl::c_contains(*sequence.server_kex_init_.kex_algorithms, "ext-info-s");
+      server_supports_ext_info_ = sequence.server_kex_result_->server_supports_ext_info;
+    } else {
+      sequence.server_kex_result_->server_supports_ext_info = server_supports_ext_info_.value();
+    }
+
+    co_yield BeforeServerEcdhReplySent;
+    if (!sequence.expecting_error_) {
+      EXPECT_CALL(*transport_callbacks_, sendMessageDirect(MSG(wire::NewKeysMsg, _)))
+        .WillOnce(Invoke([&](wire::Message&& msg) -> absl::StatusOr<size_t> {
+          EXPECT_EQ(wire::NewKeysMsg::type, msg.msg_type());
+          return 0;
+        }));
+      EXPECT_CALL(*transport_callbacks_, resetWriteSequenceNumber())
+        .WillOnce(Return(3)); // KexInitMsg, KexEcdhReplyMsg, NewKeysMsg
+    }
+
+    if (auto stat = peer_reply_->dispatch(alg->buildServerReply(*sequence.server_kex_result_)); !stat.ok()) {
+      co_return stat;
+    }
+    co_yield AfterServerEcdhReplySent;
+
+    // NewKeys
+    co_yield BeforeServerNewKeysSent;
+    DiscardHandler<wire::IgnoreMsg> ignoreHandler;
+    if (!sequence.expecting_error_) {
+      EXPECT_CALL(*transport_callbacks_, resetReadSequenceNumber())
+        .WillOnce(Return(3)); // KexInitMsg, KexEcdhInitMsg, NewKeysMsg
+      EXPECT_CALL(*kex_callbacks_, onKexCompleted(_, initial_kex))
+        .WillOnce(DoAll(SaveArg<0>(&sequence.client_kex_result_), [&] {
+          ignoreHandler.registerMessageHandlers(*peer_reply_);
+        }));
+    }
+    if (auto stat = peer_reply_->dispatch(wire::Message{wire::NewKeysMsg{}}); !stat.ok()) {
+      co_return stat;
+    }
+    co_yield AfterServerNewKeysSent;
+
+    // Done
+    EXPECT_EQ(*sequence.client_kex_result_, *sequence.server_kex_result_);
+
+    peer_reply_->unregisterHandler(&ignoreHandler);
+    co_return absl::OkStatus();
+  }
+};
+
+TEST_F(ClientKexTest, BasicKeyExchange) {
+  ContinueUntilEnd();
 }
 
 } // namespace test
