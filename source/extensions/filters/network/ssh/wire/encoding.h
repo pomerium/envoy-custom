@@ -1,5 +1,7 @@
 #pragma once
 
+#include "source/common/span.h"
+#include "source/common/types.h"
 #include "source/common/concepts.h"
 #include "source/common/math.h"
 #include "source/common/type_traits.h"
@@ -18,7 +20,6 @@
 
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/validation.h"
-#include "source/extensions/filters/network/ssh/common.h"
 
 namespace wire {
 
@@ -309,7 +310,7 @@ size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NO
   }
   if constexpr (Opt & CommaDelimited) {
     size_t accum = 0;
-    auto view = linearizeToSpan(buffer, limit);
+    auto view = linearizeToSpan(buffer).first(limit);
     for (size_t i = 0; i < limit; i++) {
       if (view[accum] != ',') {
         ++accum;

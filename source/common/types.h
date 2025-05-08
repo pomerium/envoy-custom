@@ -19,6 +19,8 @@ static_assert(fixed_bytes_view<1>{{}}.size() ==
 
 using bytes_list = std::vector<bytes>;
 
+using string_list = std::vector<std::string>;
+
 constexpr bytes to_bytes(const auto& view) {
   return {view.begin(), view.end()};
 }

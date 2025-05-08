@@ -1,6 +1,7 @@
 #include "source/extensions/filters/network/ssh/openssh.h"
 
 #include "absl/time/time.h"
+#include "source/common/span.h"
 #include "source/extensions/filters/network/ssh/common.h"
 #include "source/common/common/assert.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"

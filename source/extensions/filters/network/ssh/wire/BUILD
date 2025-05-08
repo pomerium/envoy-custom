@@ -32,7 +32,6 @@ envoy_cc_library(
     deps = [
         ":wire_lib_common",
         "//source/common:common_lib",
-        "//source/extensions/filters/network/ssh:ssh_common_lib",
         "@envoy//envoy/buffer:buffer_interface",
         "@envoy//source/common/buffer:buffer_lib",
         "@envoy//source/common/common:fmt_lib",

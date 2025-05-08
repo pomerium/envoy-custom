@@ -5,7 +5,6 @@
 
 #include "source/common/common/random_generator.h"
 
-#include "source/extensions/filters/network/ssh/common.h"
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
 
 namespace wire {
@@ -109,7 +108,7 @@ absl::StatusOr<size_t> encodePacket(Envoy::Buffer::Instance& out, const T& msg,
       padding[i] = Envoy::Random::RandomUtility::random();
     }
   }
-  out.add(std::string_view(unsafe_forge_span(reinterpret_cast<char*>(padding.data()), padding_length)));
+  out.add(padding.data(), padding_length);
   n += padding_length;
 
   return n;

@@ -2,17 +2,15 @@
 
 #include <vector>
 #include <string>
-#include <span>
 #include <unordered_set>
 #include <unordered_map>
 
 #include "fmt/std.h" // IWYU pragma: keep
 #pragma clang unsafe_buffer_usage begin
 #include "absl/status/statusor.h" // IWYU pragma: keep
-#include "source/common/common/assert.h"
 #pragma clang unsafe_buffer_usage end
 
-#include "source/common/bytes.h" // IWYU pragma: keep
+#include "source/common/types.h" // IWYU pragma: keep
 
 // envoy internal stream id
 using stream_id_t = uint64_t;
@@ -23,26 +21,6 @@ using seqnum_t = uint32_t;
 using namespace std::literals;
 
 using string_list = std::vector<std::string>;
-
-#pragma clang unsafe_buffer_usage begin
-// https://clang.llvm.org/docs/SafeBuffers.html
-template <typename T>
-constexpr std::span<T> unsafe_forge_span(T* pointer, size_t size) {
-  return {pointer, size};
-}
-
-template <typename T>
-bytes_view linearizeToSpan(T& buffer, size_t length) {
-  ASSERT(length <= buffer.length());
-  return {static_cast<uint8_t*>(buffer.linearize(static_cast<uint32_t>(length))), length};
-}
-
-template <typename T>
-bytes_view linearizeToSpan(T& buffer) {
-  auto length = buffer.length();
-  return {static_cast<uint8_t*>(buffer.linearize(static_cast<uint32_t>(length))), length};
-}
-#pragma clang unsafe_buffer_usage end
 
 static constexpr auto CipherAES128GCM = "aes128-gcm@openssh.com";
 static constexpr auto CipherAES256GCM = "aes256-gcm@openssh.com";
