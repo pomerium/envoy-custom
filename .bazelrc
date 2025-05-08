@@ -21,9 +21,8 @@ build --workspace_status_command=bazel/bazel_get_workspace_status
 build:remote --remote_timeout=7200
 build --remote_download_all
 build:coverage --remote_download_all
-
 build --enable_platform_specific_config
 build:linux --config=libc++20
 build:linux --copt="-Wno-error=thread-safety-reference-return"
 build:linux --copt="-Wno-error=missing-field-initializers"
-build --copt="-Wno-error=missing-template-arg-list-after-template-kw"
+build --cxxopt=-std=c++23 --host_cxxopt=-std=c++23
