@@ -727,8 +727,10 @@ TEST(SubMessageTest, Visit) {
 TEST(FormatTest, FormatFields) {
   field<uint32_t> int_field = 5;
   field<std::string> str_field = "test"s;
+  field<bytes> bytes_field = bytes{0xDE, 0xAD, 0xBE, 0xEF};
   EXPECT_EQ(fmt::format("{}", 5), fmt::format("{}", int_field));
   EXPECT_EQ(fmt::format("{}", "test"s), fmt::format("{}", str_field));
+  EXPECT_EQ("deadbeef", fmt::format("{}", bytes_field));
 }
 
 } // namespace wire::test

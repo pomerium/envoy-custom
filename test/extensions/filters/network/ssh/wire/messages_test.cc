@@ -118,7 +118,7 @@ TEST(MessagesTest, Message_Visit) {
   EXPECT_EQ(SshMessageType::UserAuthPubKeyOk, visitor());
 
   msg.reset();
-  EXPECT_FALSE(msg.message.oneof.has_value());
+  EXPECT_FALSE(msg.has_value());
   EXPECT_EQ(SshMessageType(0), visitor());
 };
 
@@ -189,6 +189,7 @@ TEST(MessagesTest, Message_RoundTrip) {
   EXPECT_EQ(*n, *n2);
 
   EXPECT_TRUE(decoded.message.holds_alternative<ExtInfoMsg>());
+  EXPECT_EQ(msg, decoded);
 
   EXPECT_EQ(extInfo.extensions->size(), decoded.message.get<ExtInfoMsg>().extensions->size());
   EXPECT_EQ(extInfo.extensions[0].extension_name(), decoded.message.get<ExtInfoMsg>().extensions[0].extension_name());
@@ -204,24 +205,26 @@ TEST(MessagesTest, Message_CopyMove) {
   data.data->resize(100);
   auto data_ptr = data.data->data();
   m1.message.reset(std::move(data));
+  EXPECT_TRUE(m1.has_value());
   // move
   wire::Message m2{std::move(m1)};
   // a moved-from optional with a value will still have a value, and the variant will still contain
   // a ChannelDataMsg, but non-trivially-movable fields (such as the data byte array) will become
   // empty in the moved-from message.
-  EXPECT_TRUE(m1.message.oneof.has_value());                               // trivial move (copy)
+  EXPECT_TRUE(m1.has_value());                                             // trivial move (copy)
   EXPECT_EQ(m1.msg_type(), wire::SshMessageType::ChannelData);             // trivial move (copy)
   EXPECT_EQ(1, *m1.message.get<wire::ChannelDataMsg>().recipient_channel); // trivial move (copy)
   EXPECT_TRUE(m1.message.get<wire::ChannelDataMsg>().data->empty());       // move
 
-  EXPECT_TRUE(m2.message.oneof.has_value());                                // trivial move (copy)
+  EXPECT_TRUE(m2.has_value());                                              // trivial move (copy)
   EXPECT_EQ(m2.msg_type(), wire::SshMessageType::ChannelData);              // trivial move (copy)
   EXPECT_EQ(1, *m2.message.get<wire::ChannelDataMsg>().recipient_channel);  // trivial move (copy)
   EXPECT_EQ(m2.message.get<wire::ChannelDataMsg>().data->data(), data_ptr); // move
 
   // copy
   wire::Message m3{m2};
-  EXPECT_TRUE(m3.message.oneof.has_value());
+  EXPECT_EQ(m2, m3);
+  EXPECT_TRUE(m3.has_value());
   EXPECT_EQ(m3.msg_type(), wire::SshMessageType::ChannelData);
   EXPECT_EQ(1, *m3.message.get<wire::ChannelDataMsg>().recipient_channel);
   EXPECT_NE(m3.message.get<wire::ChannelDataMsg>().data->data(), data_ptr);
@@ -320,6 +323,17 @@ TEST(NonstandardMessagesTest, PubKeyUserAuthRequestMsg_DecodeErrors) {
     write(buffer, true);
     write_opt<LengthPrefixed>(buffer, to_bytes("foo"sv));
     write_opt<LengthPrefixed>(buffer, to_bytes("bar"sv));
+    write(buffer, static_cast<uint8_t>(1));
+    write(buffer, static_cast<uint8_t>(1));
+    PubKeyUserAuthRequestMsg msg;
+    auto r = msg.decode(buffer, buffer.length());
+    EXPECT_FALSE(r.ok());
+    EXPECT_EQ("buffer underflow", r.status().message());
+  }
+  {
+    Buffer::OwnedImpl buffer;
+    write(buffer, false);
+    write_opt<LengthPrefixed>(buffer, to_bytes("foo"sv));
     write(buffer, static_cast<uint8_t>(1));
     write(buffer, static_cast<uint8_t>(1));
     PubKeyUserAuthRequestMsg msg;
