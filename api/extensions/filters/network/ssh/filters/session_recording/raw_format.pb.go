@@ -25,22 +25,19 @@ const (
 type PacketDirection int32
 
 const (
-	PacketDirection_NONE                   PacketDirection = 0
-	PacketDirection_UPSTREAM_TO_DOWNSTREAM PacketDirection = 1
-	PacketDirection_DOWNSTREAM_TO_UPSTREAM PacketDirection = 2
+	PacketDirection_UPSTREAM_TO_DOWNSTREAM PacketDirection = 0
+	PacketDirection_DOWNSTREAM_TO_UPSTREAM PacketDirection = 1
 )
 
 // Enum value maps for PacketDirection.
 var (
 	PacketDirection_name = map[int32]string{
-		0: "NONE",
-		1: "UPSTREAM_TO_DOWNSTREAM",
-		2: "DOWNSTREAM_TO_UPSTREAM",
+		0: "UPSTREAM_TO_DOWNSTREAM",
+		1: "DOWNSTREAM_TO_UPSTREAM",
 	}
 	PacketDirection_value = map[string]int32{
-		"NONE":                   0,
-		"UPSTREAM_TO_DOWNSTREAM": 1,
-		"DOWNSTREAM_TO_UPSTREAM": 2,
+		"UPSTREAM_TO_DOWNSTREAM": 0,
+		"DOWNSTREAM_TO_UPSTREAM": 1,
 	}
 )
 
@@ -140,9 +137,11 @@ func (x *Header) GetMetadata() map[string]string {
 }
 
 type Packet struct {
-	state       protoimpl.MessageState `protogen:"open.v1"`
-	TimeDeltaMs int64                  `protobuf:"varint,1,opt,name=time_delta_ms,json=timeDeltaMs,proto3" json:"time_delta_ms,omitempty"`
-	Direction   PacketDirection        `protobuf:"varint,2,opt,name=direction,proto3,enum=pomerium.extensions.ssh.filters.session_recording.raw_format.PacketDirection" json:"direction,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Time delta relative to the previous packet, or 0 for the first packet.
+	// Encoding timestamps this way will compress better compared to full unix timestamps.
+	TimeDeltaMs int64           `protobuf:"varint,1,opt,name=time_delta_ms,json=timeDeltaMs,proto3" json:"time_delta_ms,omitempty"`
+	Direction   PacketDirection `protobuf:"varint,2,opt,name=direction,proto3,enum=pomerium.extensions.ssh.filters.session_recording.raw_format.PacketDirection" json:"direction,omitempty"`
 	// Types that are valid to be assigned to Payload:
 	//
 	//	*Packet_ChannelData
@@ -193,7 +192,7 @@ func (x *Packet) GetDirection() PacketDirection {
 	if x != nil {
 		return x.Direction
 	}
-	return PacketDirection_NONE
+	return PacketDirection_UPSTREAM_TO_DOWNSTREAM
 }
 
 func (x *Packet) GetPayload() isPacket_Payload {
@@ -260,11 +259,10 @@ const file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_f
 	"\fchannel_data\x18\x03 \x01(\fH\x00R\vchannelData\x12!\n" +
 	"\vssh_message\x18\x04 \x01(\fH\x00R\n" +
 	"sshMessageB\t\n" +
-	"\apayload*S\n" +
-	"\x0fPacketDirection\x12\b\n" +
-	"\x04NONE\x10\x00\x12\x1a\n" +
-	"\x16UPSTREAM_TO_DOWNSTREAM\x10\x01\x12\x1a\n" +
-	"\x16DOWNSTREAM_TO_UPSTREAM\x10\x02BaH\x03Z]github.com/pomerium/envoy-custom/api/extensions/filters/network/ssh/filters/session_recordingb\x06proto3"
+	"\apayload*I\n" +
+	"\x0fPacketDirection\x12\x1a\n" +
+	"\x16UPSTREAM_TO_DOWNSTREAM\x10\x00\x12\x1a\n" +
+	"\x16DOWNSTREAM_TO_UPSTREAM\x10\x01B_Z]github.com/pomerium/envoy-custom/api/extensions/filters/network/ssh/filters/session_recordingb\x06proto3"
 
 var (
 	file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_filters_session_recording_raw_format_proto_rawDescOnce sync.Once

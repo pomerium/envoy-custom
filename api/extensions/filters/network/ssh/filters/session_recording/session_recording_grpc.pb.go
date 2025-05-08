@@ -27,6 +27,11 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RecordingServiceClient interface {
+	// Called when a recording is complete. The following will be written to the stream, in order:
+	//   - 1 metadata message
+	//   - zero or more chunks, each containing part of the raw recording
+	//   - 1 checksum message, computed over all chunks in order (the raw data, not the serialized
+	//     RecordingData message)
 	RecordingFinalized(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[RecordingData, emptypb.Empty], error)
 }
 
@@ -55,6 +60,11 @@ type RecordingService_RecordingFinalizedClient = grpc.ClientStreamingClient[Reco
 // All implementations should embed UnimplementedRecordingServiceServer
 // for forward compatibility.
 type RecordingServiceServer interface {
+	// Called when a recording is complete. The following will be written to the stream, in order:
+	//   - 1 metadata message
+	//   - zero or more chunks, each containing part of the raw recording
+	//   - 1 checksum message, computed over all chunks in order (the raw data, not the serialized
+	//     RecordingData message)
 	RecordingFinalized(grpc.ClientStreamingServer[RecordingData, emptypb.Empty]) error
 }
 

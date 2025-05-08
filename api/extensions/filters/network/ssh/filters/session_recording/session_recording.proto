@@ -11,6 +11,11 @@ import "google/protobuf/timestamp.proto";
 option go_package = "github.com/pomerium/envoy-custom/api/extensions/filters/network/ssh/filters/session_recording";
 
 service RecordingService {
+  // Called when a recording is complete. The following will be written to the stream, in order:
+  // - 1 metadata message
+  // - zero or more chunks, each containing part of the raw recording
+  // - 1 checksum message, computed over all chunks in order (the raw data, not the serialized
+  //   RecordingData message)
   rpc RecordingFinalized(stream RecordingData) returns (google.protobuf.Empty);
 }
 
@@ -55,6 +60,6 @@ message RecordingData {
   oneof data {
     RecordingMetadata metadata = 1;
     bytes             chunk    = 2;
-    bytes             checksum = 7;
+    bytes             checksum = 3;
   }
 }
