@@ -1,7 +1,6 @@
 #pragma once
 
 #include "source/extensions/filters/network/ssh/wire/common.h"
-#include "source/extensions/filters/network/ssh/common.h"
 #include "gtest/gtest.h" // IWYU pragma: keep
 
 #pragma clang unsafe_buffer_usage begin
