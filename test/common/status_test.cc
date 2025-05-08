@@ -5,6 +5,8 @@
 #include "absl/strings/str_split.h"
 #include "absl/strings/str_join.h"
 
+namespace test {
+
 static std::vector<absl::StatusCode> wellKnownCodes = {
   absl::StatusCode::kOk,
   absl::StatusCode::kCancelled,
@@ -73,3 +75,5 @@ TEST(StatusTest, Statusf) {
   auto stat2 = statusf("additional context: {}", stat);
   EXPECT_EQ(absl::InvalidArgumentError("additional context: error message"), stat2);
 }
+
+} // namespace test

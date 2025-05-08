@@ -1,5 +1,6 @@
 #include "source/common/factory.h"
 #include "gtest/gtest.h"
+#include "test/test_common/test_common.h"
 
 using string_list = std::vector<std::string>;
 
@@ -129,6 +130,33 @@ TEST(FactoryTest, FactoryForName) {
     auto obj = f->create(0, "");
     EXPECT_EQ(number, obj->number());
   }
+}
+
+TEST(FactoryTest, DuplicateRegistration) {
+  TestObjectFactoryRegistry r;
+  r.registerType<SpecificTestObjectFactory1>();
+  EXPECT_THROW_WITH_MESSAGE(r.registerType<SpecificTestObjectFactory1>(),
+                            EnvoyException,
+                            "name already registered: specific1");
+  r.registerType<SpecificTestObjectFactory2>();
+  EXPECT_THROW_WITH_MESSAGE(r.registerType<SpecificTestObjectFactory2>(),
+                            EnvoyException,
+                            "name already registered: specific2");
+  r.registerType<SpecificTestObjectFactory3>();
+  // despite specific3@openssh.com being sorted after specific3 in terms of priority, it is first
+  // in the list of names and therefore triggers the exception first
+  EXPECT_THROW_WITH_MESSAGE(r.registerType<SpecificTestObjectFactory3>(),
+                            EnvoyException,
+                            "name already registered: specific3@openssh.com");
+}
+
+TEST(FactoryTest, NoFactoryForName) {
+  TestObjectFactoryRegistry r;
+  r.registerType<SpecificTestObjectFactory1>();
+  r.registerType<SpecificTestObjectFactory2>();
+  EXPECT_THROW_WITH_MESSAGE(r.factoryForName("specific3"),
+                            EnvoyException,
+                            "no factory for name: specific3");
 }
 
 } // namespace test

@@ -8,7 +8,7 @@
 #include "fmt/format.h"
 
 #pragma clang unsafe_buffer_usage begin
-#include "source/common/common/assert.h"
+#include "envoy/common/exception.h"
 #pragma clang unsafe_buffer_usage end
 
 // algorithm priority index (0 is highest priority)
@@ -29,14 +29,18 @@ public:
   void registerType() {
     Derived factory;
     for (const auto& [name, priority] : factory.names()) {
-      RELEASE_ASSERT(!factories_.contains(name), fmt::format("name already registered: {}", name));
+      if (factories_.contains(name)) {
+        throw Envoy::EnvoyException(fmt::format("name already registered: {}", name));
+      }
       factories_[name] = [] { return std::make_unique<Derived>(); };
       priorities_.emplace(priority, name);
     }
   }
 
   std::unique_ptr<F> factoryForName(const std::string& name) {
-    RELEASE_ASSERT(factories_.contains(name), fmt::format("no factory for name: {}", name));
+    if (!factories_.contains(name)) {
+      throw Envoy::EnvoyException(fmt::format("no factory for name: {}", name));
+    }
     return factories_[name]();
   }
 

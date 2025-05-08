@@ -264,6 +264,10 @@ protected:
     scheduled_callbacks_[id] = std::make_unique<scheduled_callback>(std::move(cb));
   }
 
+  const CipherState& getCipherStateForTest() const {
+    return cipher_state_;
+  }
+
 protected:
   Callbacks* callbacks_;
 

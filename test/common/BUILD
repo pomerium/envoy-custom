@@ -7,8 +7,10 @@ envoy_cc_test(
     name = "status_test",
     srcs = [
         "factory_test.cc",
+        "fixed_string_test.cc",
         "status_test.cc",
         "type_traits_test.cc",
+        "visit_test.cc",
     ],
     repository = "@envoy",
     deps = [

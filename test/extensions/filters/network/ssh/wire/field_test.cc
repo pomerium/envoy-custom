@@ -676,23 +676,6 @@ TEST(SubMessageTest, Visit) {
   auto defaultAutoRef = [](auto&) { return CalledDefaultAutoRef; };
   auto defaultConstAutoRef = [](const auto&) { return CalledDefaultConstAutoRef; };
   auto defaultAutoUniversalRef = [](auto&&) { return CalledDefaultAutoUniversalRef; };
-  auto defaultAutoPlain = [](auto) { return CalledDefaultAutoPlain; };
-
-  EXPECT_STATIC_ASSERT(generic_lambda_info<decltype(defaultConstAutoRef), TestSubMsg1>::is_const_ref);
-  EXPECT_STATIC_ASSERT(!generic_lambda_info<decltype(defaultConstAutoRef), TestSubMsg1>::is_mutable_ref);
-  EXPECT_STATIC_ASSERT(!generic_lambda_info<decltype(defaultConstAutoRef), TestSubMsg1>::is_universal_ref);
-
-  EXPECT_STATIC_ASSERT(!generic_lambda_info<decltype(defaultAutoRef), TestSubMsg1>::is_const_ref);
-  EXPECT_STATIC_ASSERT(generic_lambda_info<decltype(defaultAutoRef), TestSubMsg1>::is_mutable_ref);
-  EXPECT_STATIC_ASSERT(!generic_lambda_info<decltype(defaultAutoRef), TestSubMsg1>::is_universal_ref);
-
-  EXPECT_STATIC_ASSERT(!generic_lambda_info<decltype(defaultAutoUniversalRef), TestSubMsg1>::is_const_ref);
-  EXPECT_STATIC_ASSERT(!generic_lambda_info<decltype(defaultAutoUniversalRef), TestSubMsg1>::is_mutable_ref);
-  EXPECT_STATIC_ASSERT(generic_lambda_info<decltype(defaultAutoUniversalRef), TestSubMsg1>::is_universal_ref);
-
-  EXPECT_STATIC_ASSERT(!generic_lambda_info<decltype(defaultAutoPlain), TestSubMsg1>::is_const_ref);
-  EXPECT_STATIC_ASSERT(!generic_lambda_info<decltype(defaultAutoPlain), TestSubMsg1>::is_mutable_ref);
-  EXPECT_STATIC_ASSERT(!generic_lambda_info<decltype(defaultAutoPlain), TestSubMsg1>::is_universal_ref);
 
   using SubMsgType = sub_message<TestSubMsg1, TestSubMsg2>;
   constexpr SubMsgType submsg1{TestSubMsg1{1, "test"}};
@@ -739,32 +722,6 @@ TEST(SubMessageTest, Visit) {
   EXPECT_STATIC_ASSERT(empty.visit([](const TestSubMsg1&) { static_assert("fail"); },
                                    [](const auto&) { static_assert("fail"); }),
                        true);
-
-  // the commented-out lines below would each trigger compile-time errors; corresponding validators follow
-
-  // static_assert(as_nonconst(submsg1).visit(visitMsg1Const, defaultAutoRef) == CalledVisitMsg1Const);
-  EXPECT_STATIC_ASSERT(!overload_validator<basic_visitor, TestSubMsg1&>::validate<decltype(visitMsg1Const), decltype(defaultAutoRef)>());
-  // static_assert(as_nonconst(submsg1).visit(visitMsg1Const, visitMsg2Const, defaultAutoRef) == CalledVisitMsg1Const);
-  EXPECT_STATIC_ASSERT(!overload_validator<basic_visitor, TestSubMsg1&>::validate<decltype(visitMsg1Const), decltype(visitMsg2Const), decltype(defaultAutoRef)>());
-  // static_assert(as_nonconst(submsg1).visit(visitMsg1Const, visitMsg2Const, defaultAutoUniversalRef) == CalledVisitMsg1Const);
-  EXPECT_STATIC_ASSERT(!overload_validator<basic_visitor, TestSubMsg1&>::validate<decltype(visitMsg1Const), decltype(visitMsg2Const), decltype(defaultAutoUniversalRef)>());
-
-  // static_assert(as_nonconst(submsg1).visit(visitMsg1RvalueRef, defaultAutoRef) == CalledVisitMsg1RvalueRef);
-  EXPECT_STATIC_ASSERT(!overload_validator<basic_visitor, TestSubMsg1&>::validate<decltype(visitMsg1RvalueRef), decltype(defaultAutoRef)>());
-  // static_assert(as_nonconst(submsg1).visit(visitMsg1RvalueRef, defaultConstAutoRef) == CalledVisitMsg1RvalueRef);
-  EXPECT_STATIC_ASSERT(!overload_validator<basic_visitor, TestSubMsg1&>::validate<decltype(visitMsg1RvalueRef), decltype(defaultConstAutoRef)>());
-  // static_assert(as_nonconst(submsg1).visit(visitMsg1RvalueRef, defaultUniversalRef) == CalledVisitMsg1RvalueRef);
-  EXPECT_STATIC_ASSERT(!overload_validator<basic_visitor, TestSubMsg1&>::validate<decltype(visitMsg1RvalueRef), decltype(defaultAutoUniversalRef)>());
-  // static_assert(as_nonconst(submsg1).visit(visitMsg1RvalueRef, defaultAutoPlain) == CalledVisitMsg1RvalueRef);
-  EXPECT_STATIC_ASSERT(!overload_validator<basic_visitor, TestSubMsg1&>::validate<decltype(visitMsg1RvalueRef), decltype(defaultAutoPlain)>());
-
-  // static_assert(std::move(as_nonconst(submsg1)).visit(visitMsg1RvalueRef, defaultAutoUniversalRef) == CalledVisitMsg1RvalueRef);
-  EXPECT_STATIC_ASSERT(!overload_validator<basic_visitor, TestSubMsg1&>::validate<decltype(visitMsg1RvalueRef), decltype(defaultAutoUniversalRef)>());
-  // static_assert(std::move(as_nonconst(submsg1)).visit(visitMsg1RvalueRef, defaultAutoPlain) == CalledVisitMsg1RvalueRef);
-  EXPECT_STATIC_ASSERT(!overload_validator<basic_visitor, TestSubMsg1&>::validate<decltype(visitMsg1RvalueRef), decltype(defaultAutoPlain)>());
-
-  // static_assert(submsg1.visit(visitMsg1NonConst, defaultAutoUniversalRef) == CalledVisitMsg1NonConst);
-  EXPECT_STATIC_ASSERT(!const_validator<true, decltype(visitMsg1NonConst)>::validate());
 }
 
 TEST(FormatTest, FormatFields) {

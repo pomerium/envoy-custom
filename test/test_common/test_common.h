@@ -14,6 +14,8 @@
 #include "gtest/gtest.h"
 #include "gmock/gmock.h" // IWYU pragma: keep
 
+using namespace std::literals;
+
 #define EXPECT_SHORT_READ(expr) EXPECT_THROW_WITH_MESSAGE(expr, EnvoyException, "short read")
 #define EXPECT_BUFFER_UNDERFLOW(expr) EXPECT_THROW_WITH_MESSAGE(expr, EnvoyException, "buffer underflow")
 
