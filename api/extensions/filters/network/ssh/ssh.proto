@@ -12,8 +12,6 @@ import "google/protobuf/wrappers.proto";
 
 option go_package = "github.com/pomerium/envoy-custom/api/extensions/filters/network/ssh";
 
-message Config {}
-
 message CodecConfig {
   repeated string host_keys       = 1;
   string          user_ca_key     = 2;

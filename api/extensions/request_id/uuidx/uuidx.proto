@@ -2,7 +2,7 @@ syntax = "proto3";
 
 import "google/protobuf/wrappers.proto";
 
-option go_package = "github.com/pomerium/envoy-custom/api/extensions/request_id/uuidx";
+option go_package = "github.com/pomerium/envoy-custom/source/extensions/request_id/uuidx";
 
 package pomerium.extensions;
 

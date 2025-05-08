@@ -406,7 +406,7 @@ type RecordingData_Chunk struct {
 }
 
 type RecordingData_Checksum struct {
-	Checksum []byte `protobuf:"bytes,7,opt,name=checksum,proto3,oneof"`
+	Checksum []byte `protobuf:"bytes,3,opt,name=checksum,proto3,oneof"`
 }
 
 func (*RecordingData_Metadata) isRecordingData_Data() {}
@@ -448,7 +448,7 @@ const file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_f
 	"\rRecordingData\x12b\n" +
 	"\bmetadata\x18\x01 \x01(\v2D.pomerium.extensions.ssh.filters.session_recording.RecordingMetadataH\x00R\bmetadata\x12\x16\n" +
 	"\x05chunk\x18\x02 \x01(\fH\x00R\x05chunk\x12\x1c\n" +
-	"\bchecksum\x18\a \x01(\fH\x00R\bchecksumB\x06\n" +
+	"\bchecksum\x18\x03 \x01(\fH\x00R\bchecksumB\x06\n" +
 	"\x04data*\\\n" +
 	"\x06Format\x12\x12\n" +
 	"\x0eUNKNOWN_FORMAT\x10\x00\x12\x0e\n" +

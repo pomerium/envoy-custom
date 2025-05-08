@@ -4,8 +4,7 @@ package pomerium.extensions.ssh.filters.session_recording.raw_format;
 
 import "api/extensions/filters/network/ssh/ssh.proto";
 
-option go_package   = "github.com/pomerium/envoy-custom/api/extensions/filters/network/ssh/filters/session_recording";
-option optimize_for = LITE_RUNTIME;
+option go_package = "github.com/pomerium/envoy-custom/api/extensions/filters/network/ssh/filters/session_recording";
 
 message Header {
   int64                start_time = 1; // unix milliseconds
@@ -15,12 +14,13 @@ message Header {
 }
 
 enum PacketDirection {
-  NONE                   = 0;
-  UPSTREAM_TO_DOWNSTREAM = 1;
-  DOWNSTREAM_TO_UPSTREAM = 2;
+  UPSTREAM_TO_DOWNSTREAM = 0;
+  DOWNSTREAM_TO_UPSTREAM = 1;
 }
 
 message Packet {
+  // Time delta relative to the previous packet, or 0 for the first packet.
+  // Encoding timestamps this way will compress better compared to full unix timestamps.
   int64           time_delta_ms = 1;
   PacketDirection direction     = 2;
   oneof payload {
