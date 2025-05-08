@@ -1,0 +1,112 @@
+Checks: >
+  clang-analyzer-core.*,
+  abseil-duration-*,
+  abseil-faster-strsplit-delimiter,
+  abseil-no-namespace,
+  abseil-redundant-strcat-calls,
+  abseil-str-cat-append,
+  abseil-string-find-startswith,
+  abseil-upgrade-duration-conversions,
+  bugprone-*,
+  -bugprone-switch-missing-default-case,
+  -bugprone-branch-clone,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-lambda-function-name,
+  clang-analyzer-core.DivideZero,
+  misc-unused-using-decls,
+  modernize-*
+  performance-*
+  readability-braces-around-statements,
+  readability-container-size-empty,
+  readability-identifier-naming,
+  readability-redundant-control-flow,
+  readability-redundant-member-init,
+  readability-redundant-smartptr-get,
+  readability-redundant-string-cstr,
+  readability-implicit-bool-conversion,
+  cppcoreguidelines-missing-std-forward,
+  cppcoreguidelines-init-variables,
+  cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  cppcoreguidelines-pro-type-const-cast,
+  misc-const-correctness,
+  misc-header-include-cycle,
+  misc-uniqueptr-reset-release
+
+CheckOptions:
+  - key: cppcoreguidelines-unused-variable.IgnorePattern
+    value: "^_$"
+  - key: bugprone-assert-side-effect.AssertMacros
+    value: "ASSERT"
+  - key: bugprone-dangling-handle.HandleClasses
+    value: "std::basic_string_view;std::experimental::basic_string_view;absl::string_view"
+  - key: modernize-use-auto.MinTypeNameLength
+    value: "10"
+  - key: readability-identifier-naming.ClassCase
+    value: "CamelCase"
+  - key: readability-identifier-naming.EnumCase
+    value: "CamelCase"
+  - key: readability-identifier-naming.EnumConstantCase
+    value: "CamelCase"
+  # Ignore GoogleTest function macros.
+  - key: readability-identifier-naming.FunctionIgnoredRegexp
+    # To have the regex chomped correctly fence all items with `|` (other than first/last)
+    value: >-
+      (^AbslHashValue$|
+      |^called_count$|
+      |^case_sensitive$|
+      |^Create$|
+      |^envoy_resolve_dns$|
+      |^evconnlistener_free$|
+      |^event_base_free$|
+      |^(get|set)EVP_PKEY$|
+      |^has_value$|
+      |^value_or$|
+      |^Ip6(ntohl|htonl)$|
+      |^get_$|
+      |^HeaderHasValue(Ref)?$|
+      |^HeaderValueOf$|
+      |^Is(Superset|Subset)OfHeaders$|
+      |^LLVMFuzzerInitialize$|
+      |^LLVMFuzzerTestOneInput$|
+      |^Locality$|
+      |^MOCK_METHOD$|
+      |^PrepareCall$|
+      |^PrintTo$|
+      |^resolve_dns$|
+      |^result_type$|
+      |Returns(Default)?WorkerId$|
+      |^sched_getaffinity$|
+      |^shutdownThread_$|
+      |^envoy_dynamic_module(.*)$|
+      |TEST|
+      |^use_count$)
+  - key: readability-identifier-naming.ParameterCase
+    value: "lower_case"
+  - key: readability-identifier-naming.ParameterIgnoredRegexp
+    value: (^cname_ttl_$)
+  - key: readability-identifier-naming.PrivateMemberCase
+    value: "lower_case"
+  - key: readability-identifier-naming.PrivateMemberSuffix
+    value: "_"
+  - key: readability-identifier-naming.StructCase
+    value: "aNy_CasE"
+  - key: readability-identifier-naming.TypeAliasCase
+    value: "aNy_CasE"
+  - key: readability-identifier-naming.UnionCase
+    value: "CamelCase"
+  - key: readability-identifier-naming.FunctionCase
+    value: "camelBack"
+  - key: readability-identifier-naming.ConstexprFunctionCase
+    value: "lower_case"
+
+HeaderFilterRegex: "^./source/.*"
+ExcludeHeaderFilterRegex: "^.*external/.*"
+
+UseColor: true
+SystemHeaders: false
+WarningsAsErrors: "*"
+## The version here is arbitrary since any change to this file will
+## trigger a full run of clang-tidy against all files.
+## It can be useful as it seems some header changes may not trigger the
+## expected rerun.
+# v0

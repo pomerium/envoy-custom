@@ -1,0 +1,68 @@
+From bf8275ea0b463c448b2a9e39a119e52be9320b36 Mon Sep 17 00:00:00 2001
+From: David Benjamin <davidben@google.com>
+Date: Tue, 4 Mar 2025 19:36:36 -0500
+Subject: [PATCH] deps: drop BoringSSL linkstatic patch (#38621)
+
+It looks like this patch was added for some Windows
+configuration. With Envoy ending Windows support, it may not be needed
+anymore.
+Additional Description:
+Risk Level: Low; should only impact building tests, at least if I
+understand Bazel correctly
+Testing: Seeing if CI passes
+
+Signed-off-by: David Benjamin <davidben@google.com>
+---
+ bazel/boringssl_static.patch | 20 ++++++++++++++++++++
+ bazel/repositories.bzl       |  8 +++++++-
+ 2 files changed, 27 insertions(+), 1 deletion(-)
+ create mode 100644 bazel/boringssl_static.patch
+
+diff --git b/bazel/boringssl_static.patch a/bazel/boringssl_static.patch
+new file mode 100644
+index 0000000000..ce1a1b5010
+--- /dev/null
++++ a/bazel/boringssl_static.patch
+@@ -0,0 +1,20 @@
++diff --git a/BUILD.bazel b/BUILD.bazel
++index d3b66ee5f..b0791b0df 100644
++--- a/BUILD.bazel
+++++ b/BUILD.bazel
++@@ -63,6 +63,7 @@ bssl_cc_library(
++         ],
++         "//conditions:default": ["-pthread"],
++     }),
+++    linkstatic = True,
++     visibility = ["//visibility:public"],
++ )
++ 
++@@ -72,6 +73,7 @@ bssl_cc_library(
++     hdrs = ssl_headers,
++     copts = ["-DBORINGSSL_IMPLEMENTATION"],
++     internal_hdrs = ssl_internal_headers,
+++    linkstatic = True,
++     visibility = ["//visibility:public"],
++     deps = [":crypto_internal"],
++ )
+diff --git b/bazel/repositories.bzl a/bazel/repositories.bzl
+index 3e5a2366dd..c5b9d45959 100644
+--- b/bazel/repositories.bzl
++++ a/bazel/repositories.bzl
+@@ -255,7 +255,13 @@ def envoy_dependencies(skip_targets = []):
+     )
+ 
+ def _boringssl():
+-    external_http_archive(name = "boringssl")
++    external_http_archive(
++        name = "boringssl",
++        patch_args = ["-p1"],
++        patches = [
++            "@envoy//bazel:boringssl_static.patch",
++        ],
++    )
+ 
+ def _boringssl_fips():
+     external_http_archive(
+-- 
+2.43.0
+
