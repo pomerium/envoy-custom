@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <concepts>
 
+#include "source/common/concepts.h"
 #include "source/common/type_traits.h"
 
 namespace tags {
@@ -22,11 +23,14 @@ struct const_validator {
   }
 };
 
+// Used in the definition of a 'visitor' object; instead of inheriting directly from lambda types,
+// each type inherited from can be 'enriched' by wrapping it in basic_visitor<>. See [overloads]
+// for usage.
 template <bool IsConst, typename F>
   requires std::same_as<std::decay_t<F>, F>
 struct basic_visitor : F {
   static constexpr bool is_catchall_visitor = true;
-  template <typename T>
+  template <DecayedType T>
   using arg_type_transform = T;
 
   static consteval void validate() {}
@@ -37,7 +41,7 @@ template <bool IsConst, typename F>
   requires std::same_as<std::decay_t<F>, F> && requires { typename callable_info_t<F>; }
 struct basic_visitor<IsConst, F> : F {
   static constexpr bool is_catchall_visitor = false;
-  template <typename T>
+  template <DecayedType T>
   using arg_type_transform = T;
 
   static consteval void validate() {
@@ -128,13 +132,15 @@ private:
     // test that f will always be selected over the catchall
     using f_info = callable_info_t<F>;
     using f_visitor_type = visitor_type<is_const, std::decay_t<F>>;
-    // 1. remove references from the original arg type
+    // 1. remove const and references from the original arg type
     // 2. apply arg_type_transform from the visitor
-    // 3. add back the original reference qualifiers
-    using f_arg_type = copy_reference_t<
-      typename f_info::raw_arg_type,
-      typename f_visitor_type::template arg_type_transform<
-        typename f_info::arg_type_with_cv>>;
+    // 3. add back the original const qualifier if any
+    // 4. add back the original reference qualifiers
+    using f_arg_type = copy_reference_t<typename f_info::raw_arg_type,
+                                        copy_const_t<
+                                          typename f_info::arg_type_with_cv,
+                                          typename f_visitor_type::template arg_type_transform<
+                                            typename f_info::arg_type>>>;
 
     using catchall_info = generic_lambda_info<Catchall, std::decay_t<f_arg_type>>;
     conditional_const_t<is_const, std::decay_t<f_arg_type>> arg;

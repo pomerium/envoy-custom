@@ -32,3 +32,6 @@ concept explicit_size_t = explicit_t<size_t, T>;
 // any_of can be used to constrain the type of T to one of a given set of types.
 template <typename T, typename... U>
 concept any_of = (std::same_as<T, std::decay_t<U>> || ...);
+
+template <typename T>
+concept DecayedType = std::same_as<T, std::decay_t<T>>;
