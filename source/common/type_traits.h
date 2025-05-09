@@ -28,6 +28,8 @@ using callable_arg_type_t = callable_info_t<F>::arg_type;
 template <typename T>
 struct function_info;
 
+// function_info can be used to obtain information about the return type and argument type(s) of
+// a class member function.
 template <typename R, typename T, typename... Args>
 struct function_info<R (T::*)(Args...)> {
   using return_type = R;
@@ -123,6 +125,19 @@ using copy_reference_t = std::conditional_t<
     std::add_lvalue_reference_t<std::remove_reference_t<To>>,
     std::remove_reference_t<To>>>;
 
+// copy_const_t copies the const qualifier (or lack of) from 'From' and applies it to 'To'.
+// For example:
+//  copy_const_t<const Foo, Bar> -> const Bar
+//  copy_const_t<Foo, Bar> -> Bar
+//  copy_const_t<Foo, const Bar> -> const Bar
+//  copy_const_t<const Foo, Bar&> -> const Bar&
+//  copy_const_t<Foo, const Bar&> -> Bar&
+template <typename From, typename To>
+using copy_const_t = copy_reference_t<To,
+                                      conditional_const_t<
+                                        std::is_const_v<std::remove_reference_t<From>>,
+                                        std::remove_const_t<std::remove_reference_t<To>>>>;
+
 // all_values_equal is true if every value in Actual is equal to Expected, otherwise false.
 template <auto Expected, auto... Actual>
 constexpr bool all_values_equal = ((Expected == Actual) && ...);
@@ -162,13 +177,14 @@ struct is_vector<std::vector<T, Allocator>> : std::true_type {};
 template <typename T>
 static constexpr bool is_vector_v = is_vector<T>::value;
 
+// Returns the string name of a type T. Used for debug logs and human-readable message formatting.
 template <typename T>
 constexpr std::string_view type_name() {
   std::string_view fn = std::source_location::current().function_name();
-#if (defined(__GNUC__) && !defined(__clang__))
+#if (defined(__GNUC__) && !defined(__clang__)) // GCC
   fn.remove_prefix(std::char_traits<char>::length("constexpr std::string_view type_name() [with T = "));
   fn.remove_suffix(std::char_traits<char>::length("; std::string_view = std::basic_string_view<char>]"));
-#elif (defined(__GNUC__) && defined(__clang__))
+#elif (defined(__GNUC__) && defined(__clang__)) // Clang
   fn.remove_prefix(std::char_traits<char>::length("std::string_view type_name() [T = "));
   fn.remove_suffix(std::char_traits<char>::length("]"));
 #else

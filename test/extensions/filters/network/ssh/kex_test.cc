@@ -121,7 +121,7 @@ void remove(std::vector<T>& v, const T& value) {
 #define EXPECT_SERVER_REPLY_VAR(var, type, ...)                                            \
   EXPECT_CALL(*transport_callbacks_, sendMessageDirect(MSG(type, __VA_ARGS__)))            \
     .WillOnce(Invoke([&]<typename = void>(wire::Message&& msg) -> absl::StatusOr<size_t> { \
-      if constexpr (wire::detail::is_overload<type>) {                                     \
+      if constexpr (wire::detail::is_overloaded_message<std::decay_t<type>>) {             \
         msg.visit([&](opt_ref<type> m) { var = m.value(); },                               \
                   [](auto&) { FAIL(); });                                                  \
       } else {                                                                             \
@@ -897,7 +897,7 @@ TEST_F(ServerKexTest, EcdhFailure_X25519) {
 
 TEST_F(ServerKexTest, SendReplyFail) {
   ContinueUntil(BeforeEcdhInitSent);
-  EXPECT_CALL(*transport_callbacks_, sendMessageDirect(VariantWith<wire::detail::overload_for_t<wire::KexEcdhReplyMsg>>(_)))
+  EXPECT_CALL(*transport_callbacks_, sendMessageDirect(VariantWith<wire::detail::overload_set_for_t<wire::KexEcdhReplyMsg>>(_)))
     .WillOnce(Return(absl::InternalError("test error")));
   ContinueAndExpectError(absl::InternalError("test error"));
 }
@@ -905,7 +905,7 @@ TEST_F(ServerKexTest, SendReplyFail) {
 TEST_F(ServerKexTest, SendNewKeysFail) {
   ContinueUntil(BeforeEcdhInitSent);
   IN_SEQUENCE;
-  EXPECT_CALL(*transport_callbacks_, sendMessageDirect(VariantWith<wire::detail::overload_for_t<wire::KexEcdhReplyMsg>>(_)))
+  EXPECT_CALL(*transport_callbacks_, sendMessageDirect(VariantWith<wire::detail::overload_set_for_t<wire::KexEcdhReplyMsg>>(_)))
     .WillOnce(Return(static_cast<size_t>(0)));
   EXPECT_CALL(*transport_callbacks_, sendMessageDirect(VariantWith<wire::NewKeysMsg>(_)))
     .WillOnce(Return(absl::InternalError("test error")));

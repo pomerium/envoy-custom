@@ -119,6 +119,70 @@ TEST(TypeTraitsTest, CopyReference) {
   EXPECT_STATIC_ASSERT(std::is_same_v<copy_reference_t<int, int&&>, int>);
   EXPECT_STATIC_ASSERT(std::is_same_v<copy_reference_t<int&, int&&>, int&>);
   EXPECT_STATIC_ASSERT(std::is_same_v<copy_reference_t<int&&, int&&>, int&&>);
+
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_reference_t<const int, int>, int>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_reference_t<const int&, int>, int&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_reference_t<const int&&, int>, int&&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_reference_t<const int, int&>, int>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_reference_t<const int&, int&>, int&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_reference_t<const int&&, int&>, int&&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_reference_t<const int, int&&>, int>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_reference_t<const int&, int&&>, int&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_reference_t<const int&&, int&&>, int&&>);
+
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_reference_t<int, const int>, const int>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_reference_t<int&, const int>, const int&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_reference_t<int&&, const int>, const int&&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_reference_t<int, const int&>, const int>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_reference_t<int&, const int&>, const int&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_reference_t<int&&, const int&>, const int&&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_reference_t<int, const int&&>, const int>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_reference_t<int&, const int&&>, const int&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_reference_t<int&&, const int&&>, const int&&>);
+}
+
+TEST(TypeTraitsTest, CopyConst) {
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<int, int>, int>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<int, int&>, int&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<int, int&&>, int&&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<int, const int>, int>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<int, const int&>, int&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<int, const int&&>, int&&>);
+
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<const int, int>, const int>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<const int, int&>, const int&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<const int, int&&>, const int&&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<const int, const int>, const int>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<const int, const int&>, const int&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<const int, const int&&>, const int&&>);
+
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<int&, int>, int>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<int&, int&>, int&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<int&, int&&>, int&&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<int&, const int>, int>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<int&, const int&>, int&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<int&, const int&&>, int&&>);
+
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<const int&, int>, const int>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<const int&, int&>, const int&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<const int&, int&&>, const int&&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<const int&, const int>, const int>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<const int&, const int&>, const int&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<const int&, const int&&>, const int&&>);
+
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<int&&, int>, int>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<int&&, int&>, int&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<int&&, int&&>, int&&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<int&&, const int>, int>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<int&&, const int&>, int&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<int&&, const int&&>, int&&>);
+
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<const int&&, int>, const int>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<const int&&, int&>, const int&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<const int&&, int&&>, const int&&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<const int&&, const int>, const int>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<const int&&, const int&>, const int&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<copy_const_t<const int&&, const int&&>, const int&&>);
 }
 
 TEST(TypeTraitsTest, AllValuesEqual) {

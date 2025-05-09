@@ -98,12 +98,12 @@ concept FieldReflectable = requires(T t) {
   static_assert(FieldReflectable<wire::msg>);
 
 template <typename... Overloads>
-struct wire::test_field_reflect<wire::OverloadedMessage<Overloads...>> {
-  static constexpr void visit_fields(OverloadedMessage<Overloads...>& m, auto visitor) {
+struct wire::test_field_reflect<wire::OverloadSet<Overloads...>> {
+  static constexpr void visit_fields(OverloadSet<Overloads...>& m, auto visitor) {
     auto random_index = absl::Uniform<size_t>(test::detail::rng, 0, sizeof...(Overloads));
     // choose one of the overloads at random
     using visitor_type = decltype(visitor);
-    auto resolvers = {+[](OverloadedMessage<Overloads...>& m, visitor_type visitor) {
+    auto resolvers = {+[](OverloadSet<Overloads...>& m, visitor_type visitor) {
       Overloads o;
       visitor("", o);
       m.reset(std::move(o));
@@ -143,8 +143,8 @@ struct fmt::formatter<wire::sub_message<Options...>> : formatter<string_view> {
 };
 
 template <typename... Args>
-struct fmt::formatter<wire::OverloadedMessage<Args...>> : formatter<string_view> {
-  auto format(const wire::OverloadedMessage<Args...>&, format_context& ctx) const
+struct fmt::formatter<wire::OverloadSet<Args...>> : formatter<string_view> {
+  auto format(const wire::OverloadSet<Args...>&, format_context& ctx) const
     -> format_context::iterator {
     return formatter<string_view>::format(
       fmt::format("[overloaded message: {}]", std::vector<string_view>{type_name<Args>()...}), ctx);

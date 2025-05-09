@@ -10,15 +10,15 @@ namespace wire::detail {
 template <SshMessageType MT>
 struct OverloadGroup {};
 
-// specializations of overload_for are defined in messages.h
-template <typename T>
-struct overload_for : std::type_identity<T> {};
+// specializations of overload_set_for are defined in messages.h
+template <DecayedType T>
+struct overload_set_for : std::type_identity<T> {};
 
-template <typename T>
-using overload_for_t = typename overload_for<std::remove_cv_t<T>>::type;
+template <DecayedType T>
+using overload_set_for_t = typename overload_set_for<T>::type;
 
-template <typename T>
-constexpr bool is_overload = !std::is_same_v<std::remove_cv_t<T>, overload_for_t<T>>;
+template <DecayedType T>
+constexpr bool is_overloaded_message = !std::is_same_v<T, overload_set_for_t<T>>;
 
 template <bool IsConst, typename F>
 struct opt_ref_validator {
@@ -30,11 +30,11 @@ struct opt_ref_validator {
 };
 
 // specializations of is_overloaded_message are defined in messages.h
-template <typename T>
-struct is_overloaded_message : std::false_type {};
+template <DecayedType T>
+struct is_overload_set : std::false_type {};
 
-template <typename T>
-constexpr bool is_overloaded_message_v = is_overloaded_message<T>::value;
+template <DecayedType T>
+constexpr bool is_overload_set_v = is_overload_set<T>::value;
 
 // sub-messages
 template <SshMessageType MT>
@@ -44,10 +44,10 @@ struct SubMsgGroup {};
 enum class TopLevelMessageGroup {};
 
 // specializations of is_top_level_message are defined in messages.h
-template <typename T>
+template <DecayedType T>
 struct is_top_level_message : std::false_type {};
 
-template <typename T>
+template <DecayedType T>
 constexpr bool is_top_level_message_v = is_top_level_message<T>::value;
 
 template <typename T>
@@ -83,13 +83,13 @@ struct top_level_visitor<IsConst, F> : F {
 };
 
 template <bool IsConst, typename F>
-  requires TopLevelMessage<callable_arg_type_t<F>> && is_overload<callable_arg_type_t<F>>
+  requires TopLevelMessage<callable_arg_type_t<F>> && is_overloaded_message<callable_arg_type_t<F>>
 struct top_level_visitor<IsConst, F> : private F {
   constexpr top_level_visitor(F f)
       : F(f) {}
   static constexpr bool is_catchall_visitor = false;
   template <typename T>
-  using arg_type_transform = overload_for_t<T>;
+  using arg_type_transform = overload_set_for_t<T>;
 
   static consteval void validate() {
     if constexpr (!const_validator<IsConst, F>::validate()) {

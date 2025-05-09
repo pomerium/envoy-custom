@@ -61,7 +61,7 @@ concept ChannelMsg = requires(T t) {
 };
 
 template <typename... Ts>
-struct OverloadedMessage : Msg<first_type_t<Ts...>::type> {
+struct OverloadSet : Msg<first_type_t<Ts...>::type> {
   static_assert(all_values_equal<Ts::type...>,
                 "all overloaded messages must have the same type");
   using Msg<first_type_t<Ts...>::type>::type;
@@ -80,11 +80,11 @@ private:
   }
 
 public:
-  OverloadedMessage() = default;
+  OverloadSet() = default;
 
   template <typename T>
     requires (has_overload<std::decay_t<T>>())
-  explicit OverloadedMessage(T&& msg) {
+  explicit OverloadSet(T&& msg) {
     reset(std::forward<T>(msg));
   }
 
@@ -561,58 +561,64 @@ struct PongMsg final : Msg<SshMessageType::Pong> {
 
 namespace detail {
 
-using top_level_message = sub_message<
-  DisconnectMsg,                                                  // 1
-  IgnoreMsg,                                                      // 2
-  UnimplementedMsg,                                               // 3
-  DebugMsg,                                                       // 4
-  ServiceRequestMsg,                                              // 5
-  ServiceAcceptMsg,                                               // 6
-  ExtInfoMsg,                                                     // 7
-  KexInitMsg,                                                     // 20
-  NewKeysMsg,                                                     // 21
-  OverloadedMessage<KexEcdhInitMsg>,                              // 30 (2 overloads, 1 supported)
-  OverloadedMessage<KexEcdhReplyMsg>,                             // 31 (3 overloads, 1 supported)
-  UserAuthRequestMsg,                                             // 50
-  UserAuthFailureMsg,                                             // 51
-  UserAuthSuccessMsg,                                             // 52
-  UserAuthBannerMsg,                                              // 53
-  OverloadedMessage<UserAuthPubKeyOkMsg, UserAuthInfoRequestMsg>, // 60 (4 overloads, 2 supported)
-  OverloadedMessage<UserAuthInfoResponseMsg>,                     // 61 (2 overloads, 1 supported)
-  GlobalRequestMsg,                                               // 80
-  GlobalRequestSuccessMsg,                                        // 81
-  GlobalRequestFailureMsg,                                        // 82
-  ChannelOpenMsg,                                                 // 90
-  ChannelOpenConfirmationMsg,                                     // 91
-  ChannelOpenFailureMsg,                                          // 92
-  ChannelWindowAdjustMsg,                                         // 93
-  ChannelDataMsg,                                                 // 94
-  ChannelExtendedDataMsg,                                         // 95
-  ChannelEOFMsg,                                                  // 96
-  ChannelCloseMsg,                                                // 97
-  ChannelRequestMsg,                                              // 98
-  ChannelSuccessMsg,                                              // 99
-  ChannelFailureMsg,                                              // 100
-  PingMsg,                                                        // 192
-  PongMsg>;                                                       // 193
+using top_level_message = sub_message<                      // Message ID
+  DisconnectMsg,                                            // 1
+  IgnoreMsg,                                                // 2
+  UnimplementedMsg,                                         // 3
+  DebugMsg,                                                 // 4
+  ServiceRequestMsg,                                        // 5
+  ServiceAcceptMsg,                                         // 6
+  ExtInfoMsg,                                               // 7
+  KexInitMsg,                                               // 20
+  NewKeysMsg,                                               // 21
+  OverloadSet<KexEcdhInitMsg>,                              // 30 (2 overloads, 1 supported)
+  OverloadSet<KexEcdhReplyMsg>,                             // 31 (3 overloads, 1 supported)
+  UserAuthRequestMsg,                                       // 50
+  UserAuthFailureMsg,                                       // 51
+  UserAuthSuccessMsg,                                       // 52
+  UserAuthBannerMsg,                                        // 53
+  OverloadSet<UserAuthPubKeyOkMsg, UserAuthInfoRequestMsg>, // 60 (4 overloads, 2 supported)
+  OverloadSet<UserAuthInfoResponseMsg>,                     // 61 (2 overloads, 1 supported)
+  GlobalRequestMsg,                                         // 80
+  GlobalRequestSuccessMsg,                                  // 81
+  GlobalRequestFailureMsg,                                  // 82
+  ChannelOpenMsg,                                           // 90
+  ChannelOpenConfirmationMsg,                               // 91
+  ChannelOpenFailureMsg,                                    // 92
+  ChannelWindowAdjustMsg,                                   // 93
+  ChannelDataMsg,                                           // 94
+  ChannelExtendedDataMsg,                                   // 95
+  ChannelEOFMsg,                                            // 96
+  ChannelCloseMsg,                                          // 97
+  ChannelRequestMsg,                                        // 98
+  ChannelSuccessMsg,                                        // 99
+  ChannelFailureMsg,                                        // 100
+  PingMsg,                                                  // 192
+  PongMsg>;                                                 // 193
 
 static_assert(std::is_copy_constructible_v<top_level_message>);
 static_assert(std::is_copy_assignable_v<top_level_message>);
 static_assert(std::is_move_constructible_v<top_level_message>);
 static_assert(std::is_move_assignable_v<top_level_message>);
 
-template <> struct overload_for<KexEcdhInitMsg> : std::type_identity<OverloadedMessage<KexEcdhInitMsg>> {};
-template <> struct overload_for<KexEcdhReplyMsg> : std::type_identity<OverloadedMessage<KexEcdhReplyMsg>> {};
-template <> struct overload_for<UserAuthPubKeyOkMsg> : std::type_identity<OverloadedMessage<UserAuthPubKeyOkMsg, UserAuthInfoRequestMsg>> {};
-template <> struct overload_for<UserAuthInfoRequestMsg> : std::type_identity<OverloadedMessage<UserAuthPubKeyOkMsg, UserAuthInfoRequestMsg>> {};
-template <> struct overload_for<UserAuthInfoResponseMsg> : std::type_identity<OverloadedMessage<UserAuthInfoResponseMsg>> {};
+// These definitions allow us to look up the matching overload set a particular message is part of.
+// For any of the supported messages that are overloaded, overload_set_for<T> will return the
+// OverloadSet<...> containing T (and possibly other overloads) present in top_level_message.
+//
+// If the types in top_level_message are updated, make sure these definitions are also kept in sync
+// (they could be pulled automatically from top_level_message but it's not worth the complexity).
+template <> struct overload_set_for<KexEcdhInitMsg> : std::type_identity<OverloadSet<KexEcdhInitMsg>> {};
+template <> struct overload_set_for<KexEcdhReplyMsg> : std::type_identity<OverloadSet<KexEcdhReplyMsg>> {};
+template <> struct overload_set_for<UserAuthPubKeyOkMsg> : std::type_identity<OverloadSet<UserAuthPubKeyOkMsg, UserAuthInfoRequestMsg>> {};
+template <> struct overload_set_for<UserAuthInfoRequestMsg> : std::type_identity<OverloadSet<UserAuthPubKeyOkMsg, UserAuthInfoRequestMsg>> {};
+template <> struct overload_set_for<UserAuthInfoResponseMsg> : std::type_identity<OverloadSet<UserAuthInfoResponseMsg>> {};
 
-template <typename T>
-  requires (top_level_message::template has_option<overload_for_t<T>>())
+template <DecayedType T>
+  requires (top_level_message::template has_option<overload_set_for_t<T>>())
 struct is_top_level_message<T> : std::true_type {};
 
-template <typename... Args>
-struct is_overloaded_message<OverloadedMessage<Args...>> : std::true_type {};
+template <DecayedType... Args>
+struct is_overload_set<OverloadSet<Args...>> : std::true_type {};
 
 } // namespace detail
 
@@ -635,8 +641,8 @@ struct Message final : BaseSshMsg {
 
   template <typename T>
   void reset(T&& msg) {
-    if constexpr (!std::is_same_v<std::decay_t<T>, detail::overload_for_t<std::decay_t<T>>>) {
-      message.reset(detail::overload_for_t<std::decay_t<T>>{std::forward<T>(msg)});
+    if constexpr (!std::is_same_v<std::decay_t<T>, detail::overload_set_for_t<std::decay_t<T>>>) {
+      message.reset(detail::overload_set_for_t<std::decay_t<T>>{std::forward<T>(msg)});
     } else {
       message.reset(std::forward<T>(msg));
     }

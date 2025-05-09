@@ -71,14 +71,14 @@ WhenResolvedAs(const testing::Matcher<T>& inner_matcher) {
   return testing::MakePolymorphicMatcher(WhenResolvedAsMatcher<T>{inner_matcher});
 }
 
-#define MSG(msg_type, ...)                                                                                      \
-  [&] {                                                                                                         \
-    using MsgType_ = msg_type;                                                                                  \
-    if constexpr (wire::detail::is_overload<MsgType_>) {                                                        \
-      return VariantWith<wire::detail::overload_for_t<MsgType_>>(WhenResolvedAs<MsgType_>(AllOf(__VA_ARGS__))); \
-    } else {                                                                                                    \
-      return VariantWith<MsgType_>(AllOf(__VA_ARGS__));                                                         \
-    }                                                                                                           \
+#define MSG(msg_type, ...)                                                                                                               \
+  [&] {                                                                                                                                  \
+    using MsgType_ = msg_type;                                                                                                           \
+    if constexpr (wire::detail::is_overloaded_message<std::decay_t<MsgType_>>) {                                                         \
+      return VariantWith<wire::detail::overload_set_for_t<std::remove_const_t<MsgType_>>>(WhenResolvedAs<MsgType_>(AllOf(__VA_ARGS__))); \
+    } else {                                                                                                                             \
+      return VariantWith<MsgType_>(AllOf(__VA_ARGS__));                                                                                  \
+    }                                                                                                                                    \
   }()
 // NOLINTEND(readability-identifier-naming)
 

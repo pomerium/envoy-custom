@@ -31,15 +31,15 @@ TEST(MessagesTest, Message_Visit) {
 
   EXPECT_STATIC_ASSERT(std::is_same_v<callable_arg_type_t<decltype(overload)>,
                                       KexEcdhInitMsg>);
-  EXPECT_STATIC_ASSERT(wire::detail::is_overload<callable_arg_type_t<decltype(overload)>>);
-  EXPECT_STATIC_ASSERT(std::is_same_v<wire::detail::overload_for_t<callable_arg_type_t<decltype(overload)>>,
-                                      OverloadedMessage<KexEcdhInitMsg>>);
+  EXPECT_STATIC_ASSERT(wire::detail::is_overloaded_message<callable_arg_type_t<decltype(overload)>>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<wire::detail::overload_set_for_t<callable_arg_type_t<decltype(overload)>>,
+                                      OverloadSet<KexEcdhInitMsg>>);
   EXPECT_STATIC_ASSERT(!wire::detail::top_level_visitor<false, decltype(overload)>::is_catchall_visitor);
 
   EXPECT_STATIC_ASSERT(std::is_same_v<callable_arg_type_t<decltype(non_overload)>,
                                       DisconnectMsg>);
-  EXPECT_STATIC_ASSERT(!wire::detail::is_overload<callable_arg_type_t<decltype(non_overload)>>);
-  EXPECT_STATIC_ASSERT(std::is_same_v<wire::detail::overload_for_t<callable_arg_type_t<decltype(non_overload)>>,
+  EXPECT_STATIC_ASSERT(!wire::detail::is_overloaded_message<callable_arg_type_t<decltype(non_overload)>>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<wire::detail::overload_set_for_t<callable_arg_type_t<decltype(non_overload)>>,
                                       DisconnectMsg>);
   EXPECT_STATIC_ASSERT(!wire::detail::top_level_visitor<false, decltype(non_overload)>::is_catchall_visitor);
 
@@ -254,7 +254,7 @@ TYPED_TEST(TopLevelMessagesTestSuite, RoundTrip) {
 
     size_t overload_index{};
     std::string global_request_success_key{};
-    if constexpr (wire::detail::is_overloaded_message_v<TypeParam>) {
+    if constexpr (wire::detail::is_overload_set_v<TypeParam>) {
       overload_index = msg.messageForTest().key_field();
     }
     if constexpr (std::is_same_v<TypeParam, wire::GlobalRequestSuccessMsg>) {
@@ -269,7 +269,7 @@ TYPED_TEST(TopLevelMessagesTestSuite, RoundTrip) {
     EXPECT_TRUE(r.ok()) << r.status().ToString();
     EXPECT_EQ(decoded, msg);
 
-    if constexpr (wire::detail::is_overloaded_message_v<TypeParam>) {
+    if constexpr (wire::detail::is_overload_set_v<TypeParam>) {
       decoded.messageForTest().key_field() = overload_index;
       auto r = decoded.messageForTest().decodeUnknown();
       EXPECT_TRUE(r.ok()) << r.status().ToString();
@@ -430,7 +430,7 @@ TEST(OverloadedMessageTest, Resolve) {
   auto r = overload.encode(buffer);
   EXPECT_TRUE(r.ok());
 
-  OverloadedMessage<UserAuthPubKeyOkMsg, UserAuthInfoRequestMsg> msg;
+  OverloadSet<UserAuthPubKeyOkMsg, UserAuthInfoRequestMsg> msg;
   r = msg.decode(buffer, buffer.length());
   EXPECT_TRUE(r.ok());
 
@@ -445,7 +445,7 @@ TEST(OverloadedMessageTest, Resolve_WrongType) {
   auto r = overload.encode(buffer);
   EXPECT_TRUE(r.ok());
 
-  OverloadedMessage<UserAuthPubKeyOkMsg, UserAuthInfoRequestMsg> msg;
+  OverloadSet<UserAuthPubKeyOkMsg, UserAuthInfoRequestMsg> msg;
   r = msg.decode(buffer, buffer.length());
   EXPECT_TRUE(r.ok());
 
