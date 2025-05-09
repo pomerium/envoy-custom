@@ -1,0 +1,42 @@
+name: Test (Linux)
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ['x64', 'arm64']
+    runs-on:
+      - ubuntu-latest-4-cores-${{ matrix.arch }}
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: disable man-db auto update
+        if: ${{ runner.environment == 'github-hosted' }}
+        run: sudo rm -f /var/lib/man-db/auto-update
+
+        # github actions ubuntu 24.04 comes with clang-18 but NOT libc++
+      - name: install dependencies
+        run: sudo apt-get install -y autoconf curl libtool patch python3-pip unzip virtualenv libc++-18-dev
+
+      - name: setup bazel
+        uses: bazel-contrib/setup-bazel@e8776f58fb6a6e9055cbaf1b38c52ccc5247e9c4
+        with:
+          bazelisk-version: 1.25.0
+          bazelisk-cache: true
+          disk-cache: bazel-linux-${{ matrix.arch }}
+          repository-cache: true
+
+      - name: test
+        run: bazel test //...
