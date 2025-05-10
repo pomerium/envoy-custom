@@ -39,4 +39,6 @@ jobs:
           repository-cache: true
 
       - name: test
-        run: bazel test //...
+        run: |
+          clang --version
+          bazel test --sandbox_debug //...
