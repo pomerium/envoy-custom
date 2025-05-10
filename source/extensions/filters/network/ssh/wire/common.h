@@ -12,6 +12,7 @@
 
 namespace wire {
 
+// Top level SSH message types (RFC4250)
 enum class SshMessageType : uint8_t {
   Invalid = 0,
   // Transport layer protocol
@@ -66,6 +67,8 @@ enum class SshMessageType : uint8_t {
   ChannelFailure = 100,
 
   // Extensions
+
+  // OpenSSH ping extension
   Ping = 192,
   Pong = 193,
 };
@@ -73,6 +76,8 @@ enum class SshMessageType : uint8_t {
 constexpr inline SshMessageType operator~(SshMessageType t) {
   return static_cast<SshMessageType>(~std::to_underlying(t));
 }
+
+// This is required to use SshMessageType with Envoy buffer operations
 constexpr inline SshMessageType operator|(SshMessageType l, SshMessageType r) {
   return static_cast<SshMessageType>(std::to_underlying(l) | std::to_underlying(r));
 }
@@ -81,6 +86,8 @@ constexpr uint32_t MaxPacketSize = 256 * 1024;
 constexpr uint32_t MinPacketSize = 4 + 1;
 
 // List of allowed integer types that can be used in SSH messages.
+// See RFC4251 § 5
+//
 // This is effectively:
 //  interface SshIntegerType {
 //    ~uint8 | ~uint32 | ~uint64_t
@@ -110,6 +117,7 @@ struct enum_range<wire::SshMessageType> {
 } // namespace magic_enum::customize
 
 namespace wire {
+// specialization of format_as for SshMessageType, used for fmt::format
 inline constexpr auto format_as(SshMessageType mt) {
   if (magic_enum::enum_contains(mt)) {
     return fmt::format("{} ({})", magic_enum::enum_name(mt), std::to_underlying(mt));

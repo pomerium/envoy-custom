@@ -12,8 +12,8 @@ namespace wire {
 // Returns the padding length according to RFC4253 § 6 for the given payload length, cipher block
 // size, and aad length.
 inline uint8_t paddingLength(uint32_t payload_length, uint32_t cipher_block_size) noexcept {
-  SECURITY_ASSERT((cipher_block_size & (cipher_block_size - 1)) == 0,
-                  fmt::format("bug: invalid cipher block size of {}", cipher_block_size));
+  ASSERT((cipher_block_size & (cipher_block_size - 1)) == 0 && cipher_block_size < 256,
+         fmt::format("bug: invalid cipher block size of {}", cipher_block_size));
   if (cipher_block_size < 8) [[unlikely]] {
     cipher_block_size = 8;
   }

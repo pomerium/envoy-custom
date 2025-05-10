@@ -39,26 +39,23 @@ concept Decoder = requires(T t) {
 size_t writeBignum(Envoy::Buffer::Instance& buffer, std::span<const uint8_t> in);
 
 template <SshStringType T>
-[[nodiscard]] T flushTo(Envoy::Buffer::Instance& buf, size_t n) {
+void flushTo(Envoy::Buffer::Instance& buf, T& out, size_t n) {
   ASSERT(n <= buf.length());
-  T out;
   out.resize(n);
   buf.copyOut(0, n, out.data());
   buf.drain(n);
+}
+
+template <SshStringType T>
+[[nodiscard]] T flushTo(Envoy::Buffer::Instance& buf, size_t n) {
+  T out;
+  flushTo(buf, out, n);
   return out;
 }
 
 template <SshStringType T>
 [[nodiscard]] T flushTo(Envoy::Buffer::Instance& buf) {
   return flushTo<T>(buf, buf.length());
-}
-
-template <SshStringType T>
-void flushTo(Envoy::Buffer::Instance& buf, T& out, size_t n) {
-  ASSERT(n <= buf.length());
-  out.resize(n);
-  buf.copyOut(0, n, out.data());
-  buf.drain(n);
 }
 
 template <SshStringType T>
@@ -83,7 +80,7 @@ absl::StatusOr<size_t> encodeTo(Encoder auto& encoder, T& out) {
   if (!r.ok()) {
     return r.status();
   }
-  flushTo<T>(tmp, out);
+  flushTo(tmp, out);
   return *r;
 }
 

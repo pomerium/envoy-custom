@@ -288,6 +288,14 @@ INSTANTIATE_TEST_SUITE_P(PaddingLengthTestSuite, PaddingLengthTest,
                            std::tuple{64 - 5, 64, 64},      // same as above, for block size=64
                            std::tuple{128 - 5, 128, 128})); // same as above, for block size=128
 
+TEST(PaddingLengthDeathTest, InvalidCipherBlockSize1) {
+  EXPECT_DEBUG_DEATH(paddingLength(0, 7), "bug: invalid cipher block size of 7");
+}
+
+TEST(PaddingLengthDeathTest, InvalidCipherBlockSize2) {
+  EXPECT_DEBUG_DEATH(paddingLength(0, 256), "bug: invalid cipher block size of 256");
+}
+
 class PayloadLengthTest
     : public testing::TestWithParam<std::tuple<uint32_t /*packet_length*/,
                                                uint32_t /*padding_length*/,

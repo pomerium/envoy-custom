@@ -7,6 +7,9 @@ size_t writeBignum(Envoy::Buffer::Instance& buffer, std::span<const uint8_t> in)
   in = in.subspan(std::distance(in.begin(), std::find_if(in.begin(), in.end(),
                                                          [](const uint8_t& b) { return b != 0; })));
   size_t in_size = in.size();
+  if (in_size > (16384 / 8)) { // this limit is SSHBUF_MAX_BIGNUM from sshbuf.h
+    throw Envoy::EnvoyException("input too large");
+  }
   // prepend a zero byte if the most significant bit is set
   auto prepend = (in_size > 0 && (in[0] & 0x80) != 0);
   buffer.writeBEInt(static_cast<uint32_t>(prepend ? (in_size + 1) : in_size));

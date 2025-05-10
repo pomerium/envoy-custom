@@ -20,6 +20,7 @@ TEST(WriteBignumTest, EmptyBuf) {
   Buffer::OwnedImpl buffer;
   EXPECT_EQ(4, writeBignum(buffer, {}));
   EXPECT_EQ(4, buffer.length());
+  EXPECT_EQ(0, buffer.peekBEInt<uint32_t>());
 }
 
 TEST(WriteBignumTest, AllZeros) {
@@ -50,6 +51,15 @@ TEST(WriteBignumTest, NegativeAndLeadingZero) {
   Buffer::OwnedImpl buffer;
   EXPECT_EQ(bn_exp3.size(), writeBignum(buffer, bn3));
   EXPECT_EQ(bn_exp3, flushTo<bytes>(buffer));
+}
+
+TEST(WriteBignumTest, InputTooLarge) {
+  Buffer::OwnedImpl buffer;
+  bytes b(2049, 1);
+  EXPECT_THROW_WITH_MESSAGE(
+    writeBignum(buffer, b),
+    Envoy::EnvoyException,
+    "input too large");
 }
 
 TEST(FlushToTest, String) {
