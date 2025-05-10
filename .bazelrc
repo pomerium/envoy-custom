@@ -27,3 +27,6 @@ build:linux --config=libc++20
 build:linux --copt="-Wno-error=thread-safety-reference-return"
 build:linux --copt="-Wno-error=missing-field-initializers"
 build --copt="-Wno-error=missing-template-arg-list-after-template-kw"
+
+# The missing-template-arg-list-after-template-kw diagnostic was added in clang 19.
+build --copt="-Wno-error=unknown-warning-option"
