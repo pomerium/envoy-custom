@@ -264,7 +264,7 @@ absl::StatusOr<size_t> ChannelFailureMsg::encode(Envoy::Buffer::Instance& buffer
 }
 
 // HostKeysProveRequestMsg
-absl::StatusOr<size_t> HostKeysProveRequestMsg::decode(Envoy::Buffer::Instance& buffer, size_t len) {
+absl::StatusOr<size_t> HostKeysProveRequestMsg::decode(Envoy::Buffer::Instance& buffer, size_t len) noexcept {
   return decodeSequence(buffer, len, hostkeys);
 }
 absl::StatusOr<size_t> HostKeysProveRequestMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
@@ -272,7 +272,7 @@ absl::StatusOr<size_t> HostKeysProveRequestMsg::encode(Envoy::Buffer::Instance& 
 }
 
 // HostKeysMsg
-absl::StatusOr<size_t> HostKeysMsg::decode(Envoy::Buffer::Instance& buffer, size_t len) {
+absl::StatusOr<size_t> HostKeysMsg::decode(Envoy::Buffer::Instance& buffer, size_t len) noexcept {
   return decodeSequence(buffer, len, hostkeys);
 }
 absl::StatusOr<size_t> HostKeysMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
@@ -294,7 +294,7 @@ absl::StatusOr<size_t> GlobalRequestMsg::encode(Envoy::Buffer::Instance& buffer)
 }
 
 // HostKeysProveResponseMsg
-absl::StatusOr<size_t> HostKeysProveResponseMsg::decode(Envoy::Buffer::Instance& buffer, size_t len) {
+absl::StatusOr<size_t> HostKeysProveResponseMsg::decode(Envoy::Buffer::Instance& buffer, size_t len) noexcept {
   return decodeSequence(buffer, len, signatures);
 }
 absl::StatusOr<size_t> HostKeysProveResponseMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {

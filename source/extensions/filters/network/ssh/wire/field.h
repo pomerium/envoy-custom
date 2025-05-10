@@ -150,13 +150,7 @@ struct canonical_key_type<std::string_view> : std::type_identity<std::string> {}
 template <typename T>
 using canonical_key_type_t = canonical_key_type<T>::type;
 
-template <typename... Options>
-struct sub_message;
-
 namespace detail {
-template <typename... Options>
-struct is_sub_message<sub_message<Options...>> : std::true_type {};
-
 // Wrapper around sub_message::key_field to mangle the type of the sub_message into the type of
 // the key. Only used for compile-time checks.
 template <typename KeyField, typename SubMessage>
@@ -174,20 +168,26 @@ struct key_field_t : KeyField {
 // accessing the stored message in a "type-switch" style manner using std::visit with lambdas.
 template <typename... Options>
 struct sub_message {
-  // This validates that all options have the same message type. This helps avoid accidentally
-  // adding messages for the wrong type into a sub-message list. (the "type" here is an opaque ID)
+  // Validate that all options belong to the same logical group. 'submsg_group' here is an opaque
+  // type that identifies members of the group. The type can be anything, but must be unique for
+  // each group (think Go Context key types).
+  // For example:
+  // - Top-level messages have a group of [detail::TopLevelMessageGroup].
+  // - Sub-messages within a top-level message have a group of [detail::SubMsgGroup<MT>] where MT
+  //   is the [SshMessageType] of the top-level message.
   static_assert(all_types_equal<typename Options::submsg_group...>,
                 "all sub-message options must belong to the same group");
-  static_assert(all_values_equal<Options::submsg_key_encoding...>,
-                "all sub-message keys must have the same encoding");
+  // Validate that all options have a submsg_key field with the same type. This is the value type
+  // of the actual field used to identify which sub-message to decode or encode. The key is part of
+  // the wire encoding of the message, and must be a compile-time constant.
   static_assert(all_types_equal<std::decay_t<decltype(Options::submsg_key)>...>,
                 "all sub-message keys must have the same type");
+  // Validate the all options have the same encoding for their sub-message key.
+  static_assert(all_values_equal<Options::submsg_key_encoding...>,
+                "all sub-message keys must have the same encoding");
+  // Validate that all options have unique sub-message keys (e.g. message IDs or string names)
   static_assert(all_values_unique({Options::submsg_key...}),
                 "all sub-message keys must be unique");
-  static_assert((std::is_copy_constructible_v<Options> && ...),
-                "all options must be copy constructible");
-  static_assert((std::is_move_constructible_v<Options> && ...),
-                "all options must be move constructible");
 
   using key_type = first_type_t<canonical_key_type_t<std::decay_t<decltype(Options::submsg_key)>>...>;
   static constexpr EncodingOptions key_encoding = std::get<0>(std::tuple{Options::submsg_key_encoding...});
@@ -355,6 +355,11 @@ private:
       return std::get<Options>(oneof).encode(buffer);
     }...};
 };
+
+namespace detail {
+template <typename... Options>
+struct is_sub_message<sub_message<Options...>> : std::true_type {};
+} // namespace detail
 } // namespace wire
 
 // fmt::formatter specialization for field types - formats the value contained in the field.
