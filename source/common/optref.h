@@ -5,6 +5,9 @@
 
 #include "envoy/common/optref.h"
 
+// opt_ref is used in places where Envoy::OptRef cannot be used due to missing constexpr qualifiers
+// on its constructors/methods. It is functionally equivalent, but not as ergonomic, so only use it
+// if necessary.
 template <typename T>
 using opt_ref = std::optional<std::reference_wrapper<T>>;
 
