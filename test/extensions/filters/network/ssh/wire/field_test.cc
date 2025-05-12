@@ -178,7 +178,7 @@ TYPED_TEST(DecodeMsgTest, Decode_DecodeError) {
       return absl::InternalError("test decode error");
     }));
 
-  auto r = decodeMsg(this->buffer, this->expected_type, this->buffer.length(), enc);
+  auto r = decodeMsg(this->buffer, this->expected_type, static_cast<size_t>(this->buffer.length()), enc);
   EXPECT_FALSE(r.ok());
   EXPECT_EQ(absl::StatusCode::kInternal, r.status().code());
   EXPECT_EQ("test decode error", r.status().message());
@@ -399,7 +399,7 @@ TEST(SubMessageTest, Decode) {
   auto msg1 = TestSubMsg1::random();
   EXPECT_TRUE(msg1.encode(buffer).ok());
 
-  auto len = buffer.length();
+  auto len = static_cast<size_t>(buffer.length());
 
   TestMessage msg;
   auto r = msg.decode(buffer, buffer.length());
@@ -418,7 +418,7 @@ TEST(SubMessageTest, Decode) {
   auto msg2 = TestSubMsg2::random();
   EXPECT_TRUE(msg2.encode(buffer).ok());
 
-  len = buffer.length();
+  len = static_cast<size_t>(buffer.length());
   r = msg.decode(buffer, buffer.length());
   EXPECT_TRUE(r.ok()) << r.status().ToString();
   EXPECT_EQ(len, *r);
@@ -437,7 +437,7 @@ TEST(SubMessageTest, Decode_Unknown) {
   write_opt<TestSubMsg2::submsg_key_encoding>(buffer, TestSubMsg2::submsg_key + 10); // unknown key
   write_opt<LengthPrefixed>(buffer, "hello world"s);                                 // unknown message field
 
-  auto len = buffer.length();
+  auto len = static_cast<size_t>(buffer.length());
   TestMessage msg;
   auto r = msg.decode(buffer, buffer.length());
   EXPECT_TRUE(r.ok()) << r.status().ToString();
@@ -462,7 +462,7 @@ TEST(SubMessageTest, Decode_Unknown_Repeated) {
   write_opt<TestSubMsg2::submsg_key_encoding>(buffer, TestSubMsg2::submsg_key + 10); // unknown key
   write_opt<LengthPrefixed>(buffer, "hello world"s);                                 // unknown message field
 
-  auto len = buffer.length();
+  auto len = static_cast<size_t>(buffer.length());
   auto r = msg.decode(buffer, buffer.length());
   EXPECT_TRUE(r.ok()) << r.status().ToString();
   EXPECT_EQ(len, *r);
@@ -473,7 +473,7 @@ TEST(SubMessageTest, Decode_Unknown_Repeated) {
   write_opt<LengthPrefixed>(buffer, "test"s);
   write_opt<TestSubMsg2::submsg_key_encoding>(buffer, TestSubMsg2::submsg_key + 11); // unknown key
   write_opt<LengthPrefixed>(buffer, "foo bar"s);                                     // unknown message field
-  len = buffer.length();
+  len = static_cast<size_t>(buffer.length());
 
   r = msg.decode(buffer, buffer.length());
   EXPECT_TRUE(r.ok()) << r.status().ToString();
@@ -497,7 +497,7 @@ TEST(SubMessageTest, Decode_Unknown_Known) {
   write_opt<TestSubMsg2::submsg_key_encoding>(buffer, TestSubMsg2::submsg_key + 10); // unknown key
   write_opt<LengthPrefixed>(buffer, "hello world"s);
 
-  auto len = buffer.length();
+  auto len = static_cast<size_t>(buffer.length());
   auto r = msg.decode(buffer, buffer.length());
   EXPECT_TRUE(r.ok()) << r.status().ToString();
   EXPECT_EQ(len, *r);
@@ -511,7 +511,7 @@ TEST(SubMessageTest, Decode_Unknown_Known) {
   auto msg2 = TestSubMsg2::random();
   EXPECT_TRUE(msg2.encode(buffer).ok());
 
-  len = buffer.length();
+  len = static_cast<size_t>(buffer.length());
 
   r = msg.decode(buffer, buffer.length());
   EXPECT_TRUE(r.ok()) << r.status().ToString();
@@ -662,7 +662,7 @@ TEST(SubMessageTest, DecodeUnknown_WrongType_TooManyBytes) {
   m1.Str4 = random_value<std::string>();
   EXPECT_TRUE(m1.encode(buffer).ok());
 
-  auto expectedLen = buffer.length();
+  auto expectedLen = static_cast<size_t>(buffer.length());
   ASSERT_OK(submsg.decode(buffer, buffer.length()).status());
 
   auto actualLen = [&] {
@@ -724,7 +724,7 @@ TEST(SubMessageTest, Encode_Unknown) {
 
   auto expected = buffer.toString();
 
-  auto len = buffer.length();
+  auto len = static_cast<size_t>(buffer.length());
   auto r = msg.decode(buffer, buffer.length());
   EXPECT_TRUE(r.ok()) << r.status().ToString();
   EXPECT_EQ(len, *r);

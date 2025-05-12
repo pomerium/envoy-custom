@@ -252,7 +252,7 @@ TYPED_TEST(TopLevelMessagesTestSuite, RoundTrip) {
     TypeParam msg;
     populateFields(msg);
 
-    size_t overload_index{};
+    uint64_t overload_index{};
     std::string global_request_success_key{};
     if constexpr (wire::detail::is_overload_set_v<TypeParam>) {
       overload_index = msg.messageForTest().key_field();

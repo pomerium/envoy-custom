@@ -455,7 +455,7 @@ TYPED_TEST(ReadWriteStringsTest, ReadOpt_LengthPrefixed) {
   TypeParam out{};
   // read length prefixed string
   EXPECT_NO_THROW({
-    auto n = read_opt<LengthPrefixed>(this->buffer_, out, this->buffer_.length());
+    auto n = read_opt<LengthPrefixed>(this->buffer_, out, static_cast<size_t>(this->buffer_.length()));
     EXPECT_EQ(this->input_size + 4, n);
     EXPECT_EQ(this->input_size, out.size());
   });
@@ -482,7 +482,7 @@ TYPED_TEST(ReadWriteStringsTest, ReadOpt_None) {
   TypeParam out{};
   // read non-length prefixed string
   EXPECT_NO_THROW({
-    auto n = read_opt<None>(this->buffer_, out, this->buffer_.length());
+    auto n = read_opt<None>(this->buffer_, out, static_cast<size_t>(this->buffer_.length()));
     EXPECT_EQ(this->input_size, n);
     EXPECT_EQ(this->input_size, out.size());
   });
@@ -501,7 +501,7 @@ TYPED_TEST(ReadWriteStringsTest, ReadOpt_LengthPrefixed_LengthLargerThanBuffer) 
   this->writeInputToBuffer();
   TypeParam out{};
   // attempt to read an entry of length [input_size+1], with only [input_size] bytes in the buffer
-  EXPECT_SHORT_READ(read_opt<LengthPrefixed>(this->buffer_, out, this->buffer_.length()));
+  EXPECT_SHORT_READ(read_opt<LengthPrefixed>(this->buffer_, out, static_cast<size_t>(this->buffer_.length())));
 }
 
 TYPED_TEST(ReadWriteStringsTest, ReadOpt_LengthPrefixed_ZeroLength) {
@@ -509,7 +509,7 @@ TYPED_TEST(ReadWriteStringsTest, ReadOpt_LengthPrefixed_ZeroLength) {
   this->writeInputToBuffer();
   TypeParam out{};
   EXPECT_NO_THROW({
-    auto n = read_opt<LengthPrefixed>(this->buffer_, out, this->buffer_.length());
+    auto n = read_opt<LengthPrefixed>(this->buffer_, out, static_cast<size_t>(this->buffer_.length()));
     EXPECT_EQ(4, n);
   });
   EXPECT_EQ(this->input_size, this->buffer_.length());
@@ -599,7 +599,7 @@ TEST(ReadOptTest, OptNone) {
   buffer.writeBEInt<uint32_t>(12345);
   uint32_t out{};
   EXPECT_NO_THROW({
-    auto n = read_opt<None>(buffer, out, static_cast<size_t>(4));
+    auto n = read_opt<None>(buffer, out, 4uz);
     EXPECT_EQ(4, n);
   });
   EXPECT_EQ(0, buffer.length());
@@ -627,7 +627,7 @@ TEST(ReadOptTest, OptLengthPrefixed) {
   buffer.writeBEInt<uint32_t>(12345);
   uint32_t out{};
   EXPECT_NO_THROW({
-    auto n = read_opt<LengthPrefixed>(buffer, out, static_cast<size_t>(8));
+    auto n = read_opt<LengthPrefixed>(buffer, out, 8uz);
     EXPECT_EQ(8, n);
   });
   EXPECT_EQ(0, buffer.length());
@@ -639,7 +639,7 @@ TEST(ReadOptTest, OptLengthPrefixed_ShortLimit) {
   buffer.writeBEInt<uint32_t>(4);
   buffer.writeBEInt<uint32_t>(12345);
   uint32_t out{};
-  EXPECT_SHORT_READ(read_opt<LengthPrefixed>(buffer, out, static_cast<size_t>(4)));
+  EXPECT_SHORT_READ(read_opt<LengthPrefixed>(buffer, out, 4uz));
   EXPECT_EQ(4, buffer.length());
   EXPECT_EQ(0, out);
 }
@@ -647,7 +647,7 @@ TEST(ReadOptTest, OptLengthPrefixed_ShortLimit) {
 TEST(ReadOptTest, OptLengthPrefixed_ShortRead) {
   Buffer::OwnedImpl buffer;
   uint32_t out{};
-  EXPECT_SHORT_READ(read_opt<LengthPrefixed>(buffer, out, static_cast<size_t>(4)));
+  EXPECT_SHORT_READ(read_opt<LengthPrefixed>(buffer, out, 4uz));
 }
 
 TEST(ReadOptTest, OptLengthPrefixed_ZeroLimit) {
