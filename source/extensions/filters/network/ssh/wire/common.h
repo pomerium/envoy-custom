@@ -12,7 +12,7 @@
 
 namespace wire {
 
-// Top level SSH message types (RFC4250)
+// Top level SSH message types (defined in RFC4250 unless otherwise noted)
 enum class SshMessageType : uint8_t {
   Invalid = 0,
   // Transport layer protocol
@@ -27,12 +27,8 @@ enum class SshMessageType : uint8_t {
   NewKeys = 21,
   KexDHInit = 30,
   KexDHReply = 31,
-  KexECDHInit = 30,
-  KexECDHReply = 31,
-  KexDHGexGroup = 31,
-  KexDHGexInit = 32,
-  KexDHGexReply = 33,
-  KexDHGexRequest = 34,
+  KexECDHInit = 30,  // RFC5656 § 4
+  KexECDHReply = 31, // RFC5656 § 4
 
   // User authentication protocol
   UserAuthRequest = 50,
@@ -41,14 +37,8 @@ enum class SshMessageType : uint8_t {
   UserAuthBanner = 53,
   UserAuthPubKeyOk = 60,
   UserAuthPasswdChangeReq = 60,
-  UserAuthInfoRequest = 60,
-  UserAuthGSSAPIResponse = 60,
-  UserAuthInfoResponse = 61,
-  UserAuthGSSAPIToken = 61,
-  UserAuthGSSAPIExchangeComplete = 63,
-  UserAuthGSSAPIError = 64,
-  UserAuthGSSAPIErrTok = 65,
-  UserAuthGSSAPIMIC = 66,
+  UserAuthInfoRequest = 60,  // RFC4256 § 3.2
+  UserAuthInfoResponse = 61, // RFC4256 § 3.2
 
   // Connection protocol
   GlobalRequest = 80,

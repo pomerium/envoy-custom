@@ -136,6 +136,7 @@ struct KexInitMsg final : Msg<SshMessageType::KexInit> {
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// RFC5656 § 4
 struct KexEcdhInitMsg : Msg<SshMessageType::KexECDHInit> {
   field<bytes, LengthPrefixed> client_pub_key;
 
@@ -143,6 +144,7 @@ struct KexEcdhInitMsg : Msg<SshMessageType::KexECDHInit> {
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// RFC5656 § 4
 struct KexEcdhReplyMsg : Msg<SshMessageType::KexECDHReply> {
   field<bytes, LengthPrefixed> host_key;
   field<bytes, LengthPrefixed> ephemeral_pub_key;
@@ -426,6 +428,7 @@ struct UserAuthInfoPrompt {
   friend size_t write(Envoy::Buffer::Instance& buffer, const UserAuthInfoPrompt& prompt);
 };
 
+// RFC4256 § 3.2
 struct UserAuthInfoRequestMsg : Msg<SshMessageType::UserAuthInfoRequest> {
   field<std::string, LengthPrefixed> name;
   field<std::string, LengthPrefixed> instruction;
@@ -436,6 +439,7 @@ struct UserAuthInfoRequestMsg : Msg<SshMessageType::UserAuthInfoRequest> {
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// RFC4256 § 3.2
 struct UserAuthInfoResponseMsg : Msg<SshMessageType::UserAuthInfoResponse> {
   field<string_list, LengthPrefixed | ListSizePrefixed> responses;
 
