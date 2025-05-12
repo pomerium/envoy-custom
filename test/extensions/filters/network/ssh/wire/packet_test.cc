@@ -112,19 +112,41 @@ TEST(DecodePacketTest, DecodeError) {
   });
 }
 
-TEST(DecodePacketTest, PacketPayloadSizeError) {
+TEST(DecodePacketTest, PacketPayloadSize_ReadTooManyBytes) {
   Envoy::Buffer::OwnedImpl buffer;
   buffer.writeBEInt<uint32_t>(0x44);
   buffer.writeBEInt<uint8_t>(0x5);
-  MockEncoder m;
+  std::string tmp;
+  tmp.resize(0x44);
+  buffer.add(tmp);
 
+  MockEncoder m;
   EXPECT_CALL(m, decode(_, _))
     .Times(1)
-    .WillOnce(Return(999)); // wrong size
+    .WillOnce(Return((0x44 - 0x5 - 1) + 1)); // decoded more bytes than in the buffer
 
   EXPECT_NO_THROW({
     auto r = decodePacket(buffer, m);
-    EXPECT_FALSE(r.ok());
+    EXPECT_EQ(absl::InvalidArgumentError("invalid packet payload size: expected 62 bytes, got 63"), r.status());
+  });
+}
+
+TEST(DecodePacketTest, PacketPayloadSize_ReadTooFewBytes) {
+  Envoy::Buffer::OwnedImpl buffer;
+  buffer.writeBEInt<uint32_t>(0x44);
+  buffer.writeBEInt<uint8_t>(0x5);
+  std::string tmp;
+  tmp.resize(0x44);
+  buffer.add(tmp);
+
+  MockEncoder m;
+  EXPECT_CALL(m, decode(_, _))
+    .Times(1)
+    .WillOnce(Return((0x44 - 0x5 - 1) - 1)); // decoded fewer bytes than in the buffer
+
+  EXPECT_NO_THROW({
+    auto r = decodePacket(buffer, m);
+    EXPECT_EQ(absl::InvalidArgumentError("invalid packet payload size: expected 62 bytes, got 61"), r.status());
   });
 }
 

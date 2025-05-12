@@ -58,8 +58,8 @@ absl::StatusOr<size_t> decodePacket(Envoy::Buffer::Instance& buffer, T& payload)
   }
   if (*actualPayloadLen != *expectedPayloadLen) {
     return absl::InvalidArgumentError(fmt::format(
-      "invalid packet payload size: expected {} bytes, got {})",
-      *expectedPayloadLen, n));
+      "invalid packet payload size: expected {} bytes, got {}",
+      *expectedPayloadLen, *actualPayloadLen));
   }
   n += *actualPayloadLen;
   if (buffer.length() < padding_length) {
