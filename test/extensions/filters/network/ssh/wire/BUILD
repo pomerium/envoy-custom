@@ -92,6 +92,18 @@ envoy_cc_test(
     ],
 )
 
+envoy_cc_test(
+    name = "util_test",
+    srcs = ["util_test.cc"],
+    repository = "@envoy",
+    deps = [
+        ":wire_test_util",
+        "//source/extensions/filters/network/ssh/wire:wire_lib",
+        "@com_google_absl//absl/random",
+        "@envoy//source/common/common:random_generator_lib",
+    ],
+)
+
 envoy_cc_test_library(
     name = "wire_test_util",
     srcs = [],
@@ -101,6 +113,7 @@ envoy_cc_test_library(
     ],
     repository = "@envoy",
     deps = [
+        "//source/common:common_lib",
         "//source/extensions/filters/network/ssh/wire:wire_lib_common",
         "//test/extensions/filters/network/ssh:test_common",
         "@com_google_absl//absl/random",

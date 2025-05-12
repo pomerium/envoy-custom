@@ -288,9 +288,17 @@ struct sub_message {
       return absl::InternalError("decodeUnknown() called with known value");
     }
     bytes unknown_bytes = *std::exchange(unknown_, std::optional<bytes>{});
-    return with_buffer_view(unknown_bytes, [this](Envoy::Buffer::Instance& buffer) {
+    auto n = with_buffer_view(unknown_bytes, [this](Envoy::Buffer::Instance& buffer) {
       return this->decode(buffer, buffer.length());
     });
+    if (!n.ok()) {
+      return n;
+    }
+    if (*n != unknown_bytes.size()) {
+      oneof.reset();
+      return absl::InvalidArgumentError(fmt::format("wrong number of bytes decoded (expected {}, got {})", unknown_bytes.size(), *n));
+    }
+    return n;
   }
 
   // Wrapper around std::visit. To use this function, pass one or more lambda functions of the form

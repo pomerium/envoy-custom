@@ -216,8 +216,8 @@ struct TestSubMsg1 {
   static constexpr auto submsg_key_encoding = None;
 
   constexpr TestSubMsg1() = default;
-  constexpr TestSubMsg1(uint32_t u, const std::string& s)
-      : Uint32(u), String(s) {}
+  constexpr TestSubMsg1(uint32_t u32, uint64_t u64, const std::string& s)
+      : Uint32(u32), Uint64(u64), String(s) {}
 
   static TestSubMsg1 random() {
     TestSubMsg1 msg;
@@ -227,6 +227,7 @@ struct TestSubMsg1 {
   }
 
   field<uint32_t> Uint32;
+  field<uint64_t> Uint64;
   field<std::string, LengthPrefixed> String;
 
   bool operator==(const TestSubMsg1&) const = default;
@@ -234,11 +235,13 @@ struct TestSubMsg1 {
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
     return decodeSequence(buffer, payload_size,
                           Uint32,
+                          Uint64,
                           String);
   }
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept {
     return encodeSequence(buffer,
                           Uint32,
+                          Uint64,
                           String);
   }
 };
@@ -250,29 +253,29 @@ struct TestSubMsg2 {
 
   constexpr TestSubMsg2() = default;
   constexpr TestSubMsg2(uint32_t u, const bytes& b)
-      : Uint8(u), Bytes(b) {}
+      : Bytes(b), Uint8(u) {}
 
   static TestSubMsg2 random() {
     TestSubMsg2 msg;
-    msg.Uint8 = random_value<uint32_t>();
     msg.Bytes = random_value<bytes>();
+    msg.Uint8 = random_value<uint32_t>();
     return msg;
   }
 
-  field<uint8_t> Uint8;
   field<bytes, LengthPrefixed> Bytes;
+  field<uint8_t> Uint8;
 
   bool operator==(const TestSubMsg2&) const = default;
 
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
     return decodeSequence(buffer, payload_size,
-                          Uint8,
-                          Bytes);
+                          Bytes,
+                          Uint8);
   }
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept {
     return encodeSequence(buffer,
-                          Uint8,
-                          Bytes);
+                          Bytes,
+                          Uint8);
   }
 };
 
@@ -527,9 +530,11 @@ TEST(SubMessageTest, DecodeUnknown) {
   TestSubMsg1 m1;
   m1.String = "hello world";
   m1.Uint32 = 0xDEADBEEF;
-  bytes expected = to_bytes("\xDE\xAD\xBE\xEF" // submsg.Uint32
-                            "\x00\x00\x00\x0B" // len(submsg.String)
-                            "hello world"s);   // submsg.String
+  m1.Uint64 = 0x1234567812345678;
+  bytes expected = to_bytes("\xDE\xAD\xBE\xEF"                 // submsg.Uint32
+                            "\x12\x34\x56\x78\x12\x34\x56\x78" // submsg.Uint64
+                            "\x00\x00\x00\x0B"                 // len(submsg.String)
+                            "hello world"s);                   // submsg.String
 
   EXPECT_TRUE(m1.encode(buffer).ok());
 
@@ -578,22 +583,120 @@ TEST(SubMessageTest, DecodeUnknown_KnownValue) {
   EXPECT_ENVOY_BUG(msg.request.decodeUnknown().IgnoreError(), "decodeUnknown() called with known value");
 }
 
+struct SubMsg2Strings {
+  using submsg_group = void;
+  static constexpr uint32_t submsg_key = 1;
+  static constexpr auto submsg_key_encoding = None;
+
+  constexpr SubMsg2Strings() = default;
+
+  field<std::string, LengthPrefixed> Str1;
+  field<std::string, LengthPrefixed> Str2;
+
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
+    return decodeSequence(buffer, payload_size,
+                          Str1,
+                          Str2);
+  }
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept {
+    return encodeSequence(buffer,
+                          Str1,
+                          Str2);
+  }
+};
+
+struct SubMsg4Strings {
+  using submsg_group = void;
+  static constexpr uint32_t submsg_key = 2;
+  static constexpr auto submsg_key_encoding = None;
+
+  constexpr SubMsg4Strings() = default;
+
+  field<std::string, LengthPrefixed> Str1;
+  field<std::string, LengthPrefixed> Str2;
+  field<std::string, LengthPrefixed> Str3;
+  field<std::string, LengthPrefixed> Str4;
+
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
+    return decodeSequence(buffer, payload_size,
+                          Str1,
+                          Str2,
+                          Str3,
+                          Str4);
+  }
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept {
+    return encodeSequence(buffer,
+                          Str1,
+                          Str2,
+                          Str3,
+                          Str4);
+  }
+};
+
+TEST(SubMessageTest, DecodeUnknown_WrongType_NotEnoughBytes) {
+  sub_message<SubMsg2Strings, SubMsg4Strings> submsg;
+
+  Buffer::OwnedImpl buffer;
+  SubMsg2Strings m1;
+  m1.Str1 = random_value<std::string>();
+  m1.Str2 = random_value<std::string>();
+  EXPECT_TRUE(m1.encode(buffer).ok());
+
+  ASSERT_OK(submsg.decode(buffer, buffer.length()).status());
+
+  submsg.key_field() = SubMsg4Strings::submsg_key;
+  // decode with the wrong message type, expecting to decode more fields
+  auto s = submsg.decodeUnknown();
+  ASSERT_FALSE(s.ok());
+  EXPECT_EQ(absl::InvalidArgumentError("short read"), s.status());
+}
+
+TEST(SubMessageTest, DecodeUnknown_WrongType_TooManyBytes) {
+  sub_message<SubMsg2Strings, SubMsg4Strings> submsg;
+
+  Buffer::OwnedImpl buffer;
+  SubMsg4Strings m1;
+  m1.Str1 = random_value<std::string>();
+  m1.Str2 = random_value<std::string>();
+  m1.Str3 = random_value<std::string>();
+  m1.Str4 = random_value<std::string>();
+  EXPECT_TRUE(m1.encode(buffer).ok());
+
+  auto expectedLen = buffer.length();
+  ASSERT_OK(submsg.decode(buffer, buffer.length()).status());
+
+  auto actualLen = [&] {
+    SubMsg2Strings tmp;
+    tmp.Str1 = m1.Str1;
+    tmp.Str2 = m1.Str2;
+    return encodeTo<bytes>(tmp)->size();
+  }();
+
+  submsg.key_field() = SubMsg2Strings::submsg_key;
+  // decode with the wrong message type, expecting to decode fewer fields
+  auto s = submsg.decodeUnknown();
+  ASSERT_FALSE(s.ok());
+  EXPECT_EQ(absl::InvalidArgumentError(fmt::format("wrong number of bytes decoded (expected {}, got {})", expectedLen, actualLen)), s.status());
+}
+
 TEST(SubMessageTest, Encode) {
   TestMessage msg;
   msg.foo = "test";
   TestSubMsg1 submsg;
   submsg.String = "hello world";
   submsg.Uint32 = 0xDEADBEEF;
+  submsg.Uint64 = 0x0123456789ABCDEF;
   msg.request = submsg;
   auto encoded = encodeTo<std::string>(msg);
   EXPECT_TRUE(encoded.ok()) << encoded.status().ToString();
-  EXPECT_EQ("\xC8"             // 200
-            "\x00\x00\x00\x04" // len(msg.foo)
-            "test"             // msg.foo
-            "\x00\x00\x00\x01" // key field
-            "\xDE\xAD\xBE\xEF" // submsg.Uint32
-            "\x00\x00\x00\x0B" // len(submsg.String)
-            "hello world"s,    // submsg.String
+  EXPECT_EQ("\xC8"                             // 200
+            "\x00\x00\x00\x04"                 // len(msg.foo)
+            "test"                             // msg.foo
+            "\x00\x00\x00\x01"                 // key field
+            "\xDE\xAD\xBE\xEF"                 // submsg.Uint32
+            "\x01\x23\x45\x67\x89\xAB\xCD\xEF" // submsg.Uint64
+            "\x00\x00\x00\x0B"                 // len(submsg.String)
+            "hello world"s,                    // submsg.String
             *encoded);
 }
 
@@ -677,7 +780,7 @@ TEST(SubMessageTest, Visit) {
   auto defaultAutoUniversalRef = [](auto&&) { return CalledDefaultAutoUniversalRef; };
 
   using SubMsgType = sub_message<TestSubMsg1, TestSubMsg2>;
-  constexpr SubMsgType submsg1{TestSubMsg1{1, "test"}};
+  constexpr SubMsgType submsg1{TestSubMsg1{1, 2, "test"}};
   EXPECT_STATIC_ASSERT(as_nonconst(submsg1).visit(visitMsg1NonConst, visitMsg2NonConst) == CalledVisitMsg1NonConst);
   EXPECT_STATIC_ASSERT(as_nonconst(submsg1).visit(visitMsg1Const, visitMsg2NonConst) == CalledVisitMsg1Const);
   EXPECT_STATIC_ASSERT(as_nonconst(submsg1).visit(visitMsg1Const, defaultConstAutoRef) == CalledVisitMsg1Const);

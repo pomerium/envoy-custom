@@ -262,6 +262,7 @@ template <EncodingOptions Opt, typename T>
 size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NOLINT(readability-identifier-naming)
   detail::check_supported_options<(CommaDelimited | LengthPrefixed | ListSizePrefixed | ListLengthPrefixed), Opt>();
   detail::check_incompatible_options<(CommaDelimited | LengthPrefixed), Opt>();
+  detail::check_incompatible_options<(CommaDelimited | ListSizePrefixed), Opt>();
   detail::check_incompatible_options<(ListSizePrefixed | ListLengthPrefixed), Opt>();
 
   if (limit == 0) {
@@ -314,7 +315,9 @@ size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NO
         continue;
       }
 
-      // RFC4251 § 5
+      // RFC4251 § 5, 'name-list' format:
+      //  Terminating null characters MUST NOT be used, neither
+      //  for the individual names, nor for the list as a whole.
       if (accum == 0 || i == limit - 1) {
         throw Envoy::EnvoyException("invalid empty string in comma-separated list");
       } else if (view[accum - 1] == 0) {
@@ -326,15 +329,8 @@ size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NO
       SECURITY_ASSERT(nread == accum, "buffer concurrent modification detected");
       value.push_back(std::move(t));
       accum = 0;
-      n += nread;
-      if constexpr (Opt & ListSizePrefixed) {
-        if (value.size() == list_size) {
-          // read exactly the number of elements needed, don't read anything else
-          return n;
-        }
-      }
       buffer.drain(1); // skip the ',' byte (index i)
-      n += 1;
+      n += nread + 1;
       view = view.subspan(nread + 1);
     }
     ASSERT(accum > 0);

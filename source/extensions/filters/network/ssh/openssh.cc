@@ -311,6 +311,7 @@ SSHCipher::SSHCipher(const std::string& cipher_name,
   aad_len_ = aad_len;
   ASSERT(iv.size() == iv_len_);
   ASSERT(key.size() == cipher_keylen(cipher));
+  ASSERT(aad_len_ == 4);
 
   auto err = cipher_init(std::out_ptr(ctx_), cipher, key.data(), static_cast<uint32_t>(key.size()),
                          iv.data(), static_cast<uint32_t>(iv.size()), std::to_underlying(mode));
@@ -325,6 +326,7 @@ absl::StatusOr<size_t> SSHCipher::encryptPacket(seqnum_t seqnum,
   auto in_length = in.length();
   auto in_data = in.linearize(static_cast<uint32_t>(in_length));
   uint32_t packlen = static_cast<uint32_t>(in_length);
+  ASSERT(packlen >= wire::MinPacketSize && packlen <= wire::MaxPacketSize);
   auto out_data = out.reserveSingleSlice(packlen + auth_len_);
   auto r = cipher_crypt(ctx_.get(), seqnum,
                         static_cast<uint8_t*>(out_data.slice().mem_),

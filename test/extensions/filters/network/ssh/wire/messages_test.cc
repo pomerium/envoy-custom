@@ -455,6 +455,20 @@ TEST(OverloadedMessageTest, Resolve_WrongType) {
   EXPECT_FALSE(ref.has_value());
 }
 
+TEST(OverloadedMessageTest, Resolve_WrongType2) {
+  Buffer::OwnedImpl buffer;
+  UserAuthInfoRequestMsg overload;
+  auto r = overload.encode(buffer);
+  EXPECT_TRUE(r.ok());
+
+  OverloadSet<UserAuthPubKeyOkMsg, UserAuthInfoRequestMsg> msg;
+  r = msg.decode(buffer, buffer.length());
+  EXPECT_TRUE(r.ok());
+
+  auto ref = msg.resolve<UserAuthPubKeyOkMsg>();
+  EXPECT_FALSE(ref.has_value());
+}
+
 TEST(KeyFieldAccessorsTest, KeyFields) {
   {
     UserAuthRequestMsg msg;

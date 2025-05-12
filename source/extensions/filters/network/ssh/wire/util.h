@@ -14,7 +14,8 @@ public:
       : data_(data), size_(size) {}
 
   ~BytesViewBufferFragment() override {
-    SECURITY_ASSERT(done_, "bug: with_buffer_view() callback must drain the temporary buffer");
+    SECURITY_ASSERT(done_, "bug: buffer fragment was not released before it was destroyed "
+                           "(was the temporary buffer from with_buffer_view moved?)");
   }
   const void* data() const override { return data_; }
   size_t size() const override { return size_; }
@@ -49,8 +50,17 @@ concept byteArrayLike = requires(T t) {
 //    return something_that_reads_from_the_buffer(buffer);
 //  })
 //
-// IMPORTANT: the callback must drain all bytes from the temporary buffer before it returns,
-// otherwise this will panic.
+// IMPORTANT: the callback must not extend the lifetime of the buffer passed to the callback (e.g.
+// via Buffer::move()), as it holds a temporary fragment which is destroyed immediately after the
+// callback returns. If this occurs, it will result in a panic.
+// For example, the following is invalid:
+//
+//  Envoy::Buffer::OwnedImpl other_buffer;
+//  bytes some_data;
+//  with_buffer_view(some_data, [](Envoy::Buffer::Instance& tmp_buffer) {
+//    other_buffer.move(tmp_buffer); // BAD! - This will panic
+//  });
+//
 template <byteArrayLike T, typename F>
   requires std::invocable<F, Envoy::Buffer::Instance&>
 decltype(auto) with_buffer_view(const T& b, F func) { // NOLINT(readability-identifier-naming)
