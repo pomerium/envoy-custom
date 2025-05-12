@@ -419,13 +419,12 @@ struct UserAuthRequestMsg final : Msg<SshMessageType::UserAuthRequest> {
 struct UserAuthInfoPrompt {
   field<std::string, LengthPrefixed> prompt;
   field<bool> echo;
+
+  // implements Reader
+  friend size_t read(Envoy::Buffer::Instance& buffer, UserAuthInfoPrompt& prompt, size_t payload_size);
+  // implements Writer
+  friend size_t write(Envoy::Buffer::Instance& buffer, const UserAuthInfoPrompt& prompt);
 };
-
-// implements Reader
-size_t read(Envoy::Buffer::Instance& buffer, UserAuthInfoPrompt& prompt, size_t payload_size);
-
-// implements Writer
-size_t write(Envoy::Buffer::Instance& buffer, const UserAuthInfoPrompt& prompt);
 
 struct UserAuthInfoRequestMsg : Msg<SshMessageType::UserAuthInfoRequest> {
   field<std::string, LengthPrefixed> name;
@@ -494,6 +493,9 @@ struct PingExtension final : SubMsg<SshMessageType::ExtInfo, "ping@openssh.com">
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// The Extension struct itself is a Reader/Writer, since it is used as the value type of a field.
+// Sub-messages can't appear more than once, as they do not encode their own size information.
+// Extension is implemented in terms of a sub_message, but that is only an implementation detail.
 struct Extension {
   constexpr std::string& extension_name() { return *extension.key_field(); }
   sub_message<ServerSigAlgsExtension,
@@ -506,13 +508,12 @@ struct Extension {
   explicit Extension(T&& ext) {
     extension.reset(std::forward<T>(ext));
   }
+
+  // implements Reader
+  friend size_t read(Envoy::Buffer::Instance& buffer, Extension& ext, size_t payload_size);
+  // implements Writer
+  friend size_t write(Envoy::Buffer::Instance& buffer, const Extension& ext);
 };
-
-// implements Reader
-size_t read(Envoy::Buffer::Instance& buffer, Extension& ext, size_t payload_size);
-
-// implements Writer
-size_t write(Envoy::Buffer::Instance& buffer, const Extension& ext);
 
 struct ExtInfoMsg final : Msg<SshMessageType::ExtInfo> {
   field<std::vector<Extension>, ListSizePrefixed> extensions;
