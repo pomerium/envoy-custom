@@ -222,6 +222,9 @@ size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, explicit_size_t auto 
   }
   if constexpr (Opt & LengthPrefixed) {
     uint32_t entry_len = buffer.drainBEInt<uint32_t>();
+    if (sub_sat(limit, sizeof(uint32_t)) < entry_len) [[unlikely]] {
+      throw Envoy::EnvoyException("short read");
+    }
     // Invariant: read<SshStringType>(buffer, value, N) always returns N (or throws an exception)
     return sizeof(uint32_t) + read(buffer, value, entry_len);
   } else {
