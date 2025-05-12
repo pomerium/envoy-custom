@@ -3,6 +3,8 @@
 namespace wire {
 
 size_t writeBignum(Envoy::Buffer::Instance& buffer, std::span<const uint8_t> in) {
+  // RFC4251 § 5 - 'mpint'
+
   // skip leading zeros
   in = in.subspan(std::distance(in.begin(), std::find_if(in.begin(), in.end(),
                                                          [](const uint8_t& b) { return b != 0; })));

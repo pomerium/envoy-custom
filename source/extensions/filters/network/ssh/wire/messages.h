@@ -117,6 +117,7 @@ struct SubMsg {
   static constexpr EncodingOptions submsg_key_encoding = LengthPrefixed;
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4253#section-7.1
 struct KexInitMsg final : Msg<SshMessageType::KexInit> {
   field<fixed_bytes<16>> cookie;
   field<string_list, NameListFormat> kex_algorithms;
@@ -136,7 +137,7 @@ struct KexInitMsg final : Msg<SshMessageType::KexInit> {
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
-// RFC5656 § 4
+// https://datatracker.ietf.org/doc/html/rfc5656#section-4
 struct KexEcdhInitMsg : Msg<SshMessageType::KexECDHInit> {
   field<bytes, LengthPrefixed> client_pub_key;
 
@@ -144,7 +145,7 @@ struct KexEcdhInitMsg : Msg<SshMessageType::KexECDHInit> {
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
-// RFC5656 § 4
+// https://datatracker.ietf.org/doc/html/rfc5656#section-4
 struct KexEcdhReplyMsg : Msg<SshMessageType::KexECDHReply> {
   field<bytes, LengthPrefixed> host_key;
   field<bytes, LengthPrefixed> ephemeral_pub_key;
@@ -154,6 +155,7 @@ struct KexEcdhReplyMsg : Msg<SshMessageType::KexECDHReply> {
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4253#section-10
 struct ServiceRequestMsg final : Msg<SshMessageType::ServiceRequest> {
   field<std::string, LengthPrefixed> service_name;
 
@@ -161,6 +163,7 @@ struct ServiceRequestMsg final : Msg<SshMessageType::ServiceRequest> {
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4253#section-10
 struct ServiceAcceptMsg final : Msg<SshMessageType::ServiceAccept> {
   field<std::string, LengthPrefixed> service_name;
 
@@ -181,6 +184,7 @@ struct EmptyMsg : Msg<T> {
   }
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4254#section-5.1
 struct ChannelOpenMsg final : Msg<SshMessageType::ChannelOpen> {
   field<std::string, LengthPrefixed> channel_type;
   field<uint32_t> sender_channel;
@@ -192,6 +196,7 @@ struct ChannelOpenMsg final : Msg<SshMessageType::ChannelOpen> {
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4254#section-6.2
 struct PtyReqChannelRequestMsg final : SubMsg<SshMessageType::ChannelRequest, "pty-req"> {
   field<std::string, LengthPrefixed> term_env;
   field<uint32_t> width_columns;
@@ -204,6 +209,7 @@ struct PtyReqChannelRequestMsg final : SubMsg<SshMessageType::ChannelRequest, "p
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4254#section-6.5
 struct ShellChannelRequestMsg final : SubMsg<SshMessageType::ChannelRequest, "shell"> {
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
     (void)buffer;
@@ -216,6 +222,7 @@ struct ShellChannelRequestMsg final : SubMsg<SshMessageType::ChannelRequest, "sh
   }
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4254#section-6.7
 struct WindowDimensionChangeChannelRequestMsg final : SubMsg<SshMessageType::ChannelRequest, "window-change"> {
   field<uint32_t> width_columns;
   field<uint32_t> height_rows;
@@ -226,6 +233,7 @@ struct WindowDimensionChangeChannelRequestMsg final : SubMsg<SshMessageType::Cha
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4254
 struct ChannelRequestMsg final : Msg<SshMessageType::ChannelRequest> {
   mutable field<uint32_t> recipient_channel;
   constexpr std::string& request_type() { return *request.key_field(); }
@@ -239,6 +247,7 @@ struct ChannelRequestMsg final : Msg<SshMessageType::ChannelRequest> {
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4254#section-5.1
 struct ChannelOpenConfirmationMsg final : Msg<SshMessageType::ChannelOpenConfirmation> {
   mutable field<uint32_t> recipient_channel;
   field<uint32_t> sender_channel;
@@ -250,6 +259,7 @@ struct ChannelOpenConfirmationMsg final : Msg<SshMessageType::ChannelOpenConfirm
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4254#section-5.1
 struct ChannelOpenFailureMsg final : Msg<SshMessageType::ChannelOpenFailure> {
   mutable field<uint32_t> recipient_channel;
   field<uint32_t> reason_code;
@@ -260,6 +270,7 @@ struct ChannelOpenFailureMsg final : Msg<SshMessageType::ChannelOpenFailure> {
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4254#section-5.2
 struct ChannelWindowAdjustMsg final : Msg<SshMessageType::ChannelWindowAdjust> {
   mutable field<uint32_t> recipient_channel;
   field<uint32_t> bytes_to_add;
@@ -268,6 +279,7 @@ struct ChannelWindowAdjustMsg final : Msg<SshMessageType::ChannelWindowAdjust> {
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4254#section-5.2
 struct ChannelDataMsg final : Msg<SshMessageType::ChannelData> {
   mutable field<uint32_t> recipient_channel;
   field<bytes, LengthPrefixed> data;
@@ -276,6 +288,7 @@ struct ChannelDataMsg final : Msg<SshMessageType::ChannelData> {
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4254#section-5.2
 struct ChannelExtendedDataMsg final : Msg<SshMessageType::ChannelExtendedData> {
   mutable field<uint32_t> recipient_channel;
   field<uint32_t> data_type_code;
@@ -285,6 +298,7 @@ struct ChannelExtendedDataMsg final : Msg<SshMessageType::ChannelExtendedData> {
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4254#section-5.3
 struct ChannelEOFMsg final : Msg<SshMessageType::ChannelEOF> {
   mutable field<uint32_t> recipient_channel;
 
@@ -292,6 +306,7 @@ struct ChannelEOFMsg final : Msg<SshMessageType::ChannelEOF> {
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4254#section-5.3
 struct ChannelCloseMsg final : Msg<SshMessageType::ChannelClose> {
   mutable field<uint32_t> recipient_channel;
 
@@ -299,6 +314,7 @@ struct ChannelCloseMsg final : Msg<SshMessageType::ChannelClose> {
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4254#section-5.4
 struct ChannelSuccessMsg final : Msg<SshMessageType::ChannelSuccess> {
   mutable field<uint32_t> recipient_channel;
 
@@ -306,6 +322,7 @@ struct ChannelSuccessMsg final : Msg<SshMessageType::ChannelSuccess> {
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4254#section-5.4
 struct ChannelFailureMsg final : Msg<SshMessageType::ChannelFailure> {
   mutable field<uint32_t> recipient_channel;
 
@@ -327,6 +344,7 @@ struct HostKeysMsg final : SubMsg<SshMessageType::GlobalRequest, "hostkeys-00@op
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4254#section-4
 struct GlobalRequestMsg final : Msg<SshMessageType::GlobalRequest> {
   constexpr std::string& request_name() { return *request.key_field(); }
   field<bool> want_reply;
@@ -345,6 +363,7 @@ struct HostKeysProveResponseMsg final : SubMsg<SshMessageType::RequestSuccess, "
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// // https://datatracker.ietf.org/doc/html/rfc4254#section-4
 struct GlobalRequestSuccessMsg final : Msg<SshMessageType::RequestSuccess> {
   sub_message<HostKeysProveResponseMsg> response;
 
@@ -352,8 +371,10 @@ struct GlobalRequestSuccessMsg final : Msg<SshMessageType::RequestSuccess> {
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// // https://datatracker.ietf.org/doc/html/rfc4254#section-4
 struct GlobalRequestFailureMsg final : EmptyMsg<SshMessageType::RequestFailure> {};
 
+// https://datatracker.ietf.org/doc/html/rfc4253#section-11.2
 struct IgnoreMsg final : Msg<SshMessageType::Ignore> {
   field<bytes, LengthPrefixed> data;
 
@@ -361,6 +382,7 @@ struct IgnoreMsg final : Msg<SshMessageType::Ignore> {
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4253#section-11.3
 struct DebugMsg final : Msg<SshMessageType::Debug> {
   field<bool> always_display;
   field<std::string, LengthPrefixed> message;
@@ -370,6 +392,7 @@ struct DebugMsg final : Msg<SshMessageType::Debug> {
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4253#section-11.4
 struct UnimplementedMsg final : Msg<SshMessageType::Unimplemented> {
   // FIXME: the sequence numbers in this message are likely going to be wrong, need to adjust them
   field<uint32_t> sequence_number;
@@ -378,6 +401,7 @@ struct UnimplementedMsg final : Msg<SshMessageType::Unimplemented> {
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4252#section-7
 struct PubKeyUserAuthRequestMsg final : SubMsg<SshMessageType::UserAuthRequest, "publickey"> {
   field<bool> has_signature;
   field<std::string, LengthPrefixed> public_key_alg;
@@ -388,6 +412,7 @@ struct PubKeyUserAuthRequestMsg final : SubMsg<SshMessageType::UserAuthRequest, 
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4256#section-3.1
 struct KeyboardInteractiveUserAuthRequestMsg final : SubMsg<SshMessageType::UserAuthRequest, "keyboard-interactive"> {
   field<std::string, LengthPrefixed> language_tag;
   field<string_list, NameListFormat> submethods;
@@ -396,6 +421,7 @@ struct KeyboardInteractiveUserAuthRequestMsg final : SubMsg<SshMessageType::User
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4252#section-5.2
 struct NoneAuthRequestMsg final : SubMsg<SshMessageType::UserAuthRequest, "none"> {
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance&, size_t) noexcept {
     return 0;
@@ -405,6 +431,7 @@ struct NoneAuthRequestMsg final : SubMsg<SshMessageType::UserAuthRequest, "none"
   }
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4252#section-5
 struct UserAuthRequestMsg final : Msg<SshMessageType::UserAuthRequest> {
   field<std::string, LengthPrefixed> username;
   field<std::string, LengthPrefixed> service_name;
@@ -428,7 +455,7 @@ struct UserAuthInfoPrompt {
   friend size_t write(Envoy::Buffer::Instance& buffer, const UserAuthInfoPrompt& prompt);
 };
 
-// RFC4256 § 3.2
+// https://datatracker.ietf.org/doc/html/rfc4256#section-3.2
 struct UserAuthInfoRequestMsg : Msg<SshMessageType::UserAuthInfoRequest> {
   field<std::string, LengthPrefixed> name;
   field<std::string, LengthPrefixed> instruction;
@@ -439,7 +466,7 @@ struct UserAuthInfoRequestMsg : Msg<SshMessageType::UserAuthInfoRequest> {
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
-// RFC4256 § 3.2
+// https://datatracker.ietf.org/doc/html/rfc4256#section-3.2
 struct UserAuthInfoResponseMsg : Msg<SshMessageType::UserAuthInfoResponse> {
   field<string_list, LengthPrefixed | ListSizePrefixed> responses;
 
@@ -447,6 +474,7 @@ struct UserAuthInfoResponseMsg : Msg<SshMessageType::UserAuthInfoResponse> {
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4252#section-5.4
 struct UserAuthBannerMsg final : Msg<SshMessageType::UserAuthBanner> {
   field<std::string, LengthPrefixed> message;
   field<std::string, LengthPrefixed> language_tag;
@@ -455,6 +483,7 @@ struct UserAuthBannerMsg final : Msg<SshMessageType::UserAuthBanner> {
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4252#section-5.1
 struct UserAuthFailureMsg final : Msg<SshMessageType::UserAuthFailure> {
   field<string_list, NameListFormat> methods;
   field<bool> partial;
@@ -463,6 +492,7 @@ struct UserAuthFailureMsg final : Msg<SshMessageType::UserAuthFailure> {
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4253#section-11.1
 struct DisconnectMsg final : Msg<SshMessageType::Disconnect> {
   field<uint32_t> reason_code;
   field<std::string, LengthPrefixed> description;
@@ -472,9 +502,13 @@ struct DisconnectMsg final : Msg<SshMessageType::Disconnect> {
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4252#section-5.1
 struct UserAuthSuccessMsg final : EmptyMsg<SshMessageType::UserAuthSuccess> {};
+
+// // https://datatracker.ietf.org/doc/html/rfc4253#section-7.3
 struct NewKeysMsg final : EmptyMsg<SshMessageType::NewKeys> {};
 
+// https://datatracker.ietf.org/doc/html/rfc4252#section-7
 struct UserAuthPubKeyOkMsg : Msg<SshMessageType::UserAuthPubKeyOk> {
   field<std::string, LengthPrefixed> public_key_alg;
   field<bytes, LengthPrefixed> public_key;
@@ -483,6 +517,7 @@ struct UserAuthPubKeyOkMsg : Msg<SshMessageType::UserAuthPubKeyOk> {
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// https://datatracker.ietf.org/doc/html/rfc8308#section-3.1
 struct ServerSigAlgsExtension final : SubMsg<SshMessageType::ExtInfo, "server-sig-algs"> {
   field<string_list, NameListFormat> public_key_algorithms_accepted;
 

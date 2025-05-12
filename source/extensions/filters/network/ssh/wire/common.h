@@ -12,51 +12,51 @@
 
 namespace wire {
 
-// Top level SSH message types (defined in RFC4250 unless otherwise noted)
+// Top level SSH message types
 enum class SshMessageType : uint8_t {
   Invalid = 0,
   // Transport layer protocol
-  Disconnect = 1,
-  Ignore = 2,
-  Unimplemented = 3,
-  Debug = 4,
-  ServiceRequest = 5,
-  ServiceAccept = 6,
-  ExtInfo = 7,
-  KexInit = 20,
-  NewKeys = 21,
-  KexDHInit = 30,
-  KexDHReply = 31,
-  KexECDHInit = 30,  // RFC5656 § 4
-  KexECDHReply = 31, // RFC5656 § 4
+  Disconnect = 1,     // https://datatracker.ietf.org/doc/html/rfc4253#section-11.1
+  Ignore = 2,         // https://datatracker.ietf.org/doc/html/rfc4253#section-11.2
+  Unimplemented = 3,  // https://datatracker.ietf.org/doc/html/rfc4253#section-11.4
+  Debug = 4,          // https://datatracker.ietf.org/doc/html/rfc4253#section-11.3
+  ServiceRequest = 5, // https://datatracker.ietf.org/doc/html/rfc4253#section-10
+  ServiceAccept = 6,  // https://datatracker.ietf.org/doc/html/rfc4253#section-10
+  ExtInfo = 7,        // https://datatracker.ietf.org/doc/html/rfc8308#section-2.3
+  KexInit = 20,       // https://datatracker.ietf.org/doc/html/rfc4253#section-7.1
+  NewKeys = 21,       // https://datatracker.ietf.org/doc/html/rfc4253#section-7.3
+  KexDHInit = 30,     // https://datatracker.ietf.org/doc/html/rfc4253#section-8
+  KexDHReply = 31,    // https://datatracker.ietf.org/doc/html/rfc4253#section-8
+  KexECDHInit = 30,   // https://datatracker.ietf.org/doc/html/rfc5656#section-4
+  KexECDHReply = 31,  // https://datatracker.ietf.org/doc/html/rfc5656#section-4
 
   // User authentication protocol
-  UserAuthRequest = 50,
-  UserAuthFailure = 51,
-  UserAuthSuccess = 52,
-  UserAuthBanner = 53,
-  UserAuthPubKeyOk = 60,
-  UserAuthPasswdChangeReq = 60,
-  UserAuthInfoRequest = 60,  // RFC4256 § 3.2
-  UserAuthInfoResponse = 61, // RFC4256 § 3.2
+  UserAuthRequest = 50,      // https://datatracker.ietf.org/doc/html/rfc4252#section-5
+  UserAuthFailure = 51,      // https://datatracker.ietf.org/doc/html/rfc4252#section-5.1
+  UserAuthSuccess = 52,      // https://datatracker.ietf.org/doc/html/rfc4252#section-5.1
+  UserAuthBanner = 53,       // https://datatracker.ietf.org/doc/html/rfc4252#section-5.4
+  UserAuthPubKeyOk = 60,     // https://datatracker.ietf.org/doc/html/rfc4252#section-7
+  UserAuthInfoRequest = 60,  // https://datatracker.ietf.org/doc/html/rfc4256#section-3.2
+  UserAuthInfoResponse = 61, // https://datatracker.ietf.org/doc/html/rfc4256#section-3.2
 
   // Connection protocol
-  GlobalRequest = 80,
-  RequestSuccess = 81,
-  RequestFailure = 82,
-  ChannelOpen = 90,
-  ChannelOpenConfirmation = 91,
-  ChannelOpenFailure = 92,
-  ChannelWindowAdjust = 93,
-  ChannelData = 94,
-  ChannelExtendedData = 95,
-  ChannelEOF = 96,
-  ChannelClose = 97,
-  ChannelRequest = 98,
-  ChannelSuccess = 99,
-  ChannelFailure = 100,
+  GlobalRequest = 80,           // https://datatracker.ietf.org/doc/html/rfc4254#section-4
+  RequestSuccess = 81,          // https://datatracker.ietf.org/doc/html/rfc4254#section-4
+  RequestFailure = 82,          // https://datatracker.ietf.org/doc/html/rfc4254#section-4
+  ChannelOpen = 90,             // https://datatracker.ietf.org/doc/html/rfc4254#section-5.1
+  ChannelOpenConfirmation = 91, // https://datatracker.ietf.org/doc/html/rfc4254#section-5.1
+  ChannelOpenFailure = 92,      // https://datatracker.ietf.org/doc/html/rfc4254#section-5.1
+  ChannelWindowAdjust = 93,     // https://datatracker.ietf.org/doc/html/rfc4254#section-5.2
+  ChannelData = 94,             // https://datatracker.ietf.org/doc/html/rfc4254#section-5.2
+  ChannelExtendedData = 95,     // https://datatracker.ietf.org/doc/html/rfc4254#section-5.2
+  ChannelEOF = 96,              // https://datatracker.ietf.org/doc/html/rfc4254#section-5.3
+  ChannelClose = 97,            // https://datatracker.ietf.org/doc/html/rfc4254#section-5.3
+  ChannelRequest = 98,          // https://datatracker.ietf.org/doc/html/rfc4254#section-5.4
+  ChannelSuccess = 99,          // https://datatracker.ietf.org/doc/html/rfc4254#section-5.4
+  ChannelFailure = 100,         // https://datatracker.ietf.org/doc/html/rfc4254#section-5.4
 
   // Extensions
+  // https://github.com/openssh/openssh-portable/blob/master/PROTOCOL
 
   // OpenSSH ping extension
   Ping = 192,
