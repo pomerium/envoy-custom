@@ -26,3 +26,5 @@ build:linux --config=libc++20
 build:linux --copt="-Wno-error=thread-safety-reference-return"
 build:linux --copt="-Wno-error=missing-field-initializers"
 build --cxxopt=-std=c++23 --host_cxxopt=-std=c++23
+# The io_bazel_rules_go stdlib target passes a --no-gc-sections linker argument.
+build:linux --copt="-Wno-error=unused-command-line-argument"
