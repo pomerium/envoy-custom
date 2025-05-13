@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: ['x64', 'arm64']
+        arch: ["x64", "arm64"]
     runs-on:
       - ubuntu-latest-16-cores${{ matrix.arch == 'arm64' && '-arm64' || '' }}
 
@@ -39,4 +39,10 @@ jobs:
           repository-cache: true
 
       - name: test
-        run: bazel test //...
+        run: bazel coverage //test/...
+
+      - name: upload to coveralls
+        uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path-to-lcov: bazel-out/_coverage/_coverage_report.dat
