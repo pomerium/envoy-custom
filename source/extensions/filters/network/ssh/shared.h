@@ -2,8 +2,13 @@
 
 #include <memory>
 
+#pragma clang unsafe_buffer_usage begin
+#include "source/common/common/thread.h"
+#include "envoy/thread_local/thread_local_object.h"
+#pragma clang unsafe_buffer_usage end
+
+#include "source/extensions/filters/network/ssh/common.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
-#include "source/extensions/filters/network/ssh/transport.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 

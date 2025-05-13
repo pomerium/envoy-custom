@@ -1,4 +1,5 @@
 #include "source/extensions/filters/network/ssh/shared.h"
+#include "source/common/common/lock_guard.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 

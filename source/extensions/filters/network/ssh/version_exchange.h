@@ -5,6 +5,8 @@
 #include "envoy/buffer/buffer.h"
 #pragma clang unsafe_buffer_usage end
 
+#include "source/extensions/filters/network/ssh/transport.h"
+
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 class VersionExchangeCallbacks {
@@ -12,8 +14,6 @@ public:
   virtual ~VersionExchangeCallbacks() = default;
   virtual void setVersionStrings(const std::string& ours, const std::string& peer) PURE;
 };
-
-class TransportCallbacks;
 
 class VersionExchanger final {
 public:

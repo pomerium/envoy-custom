@@ -6,6 +6,7 @@
 #include "source/common/status.h"
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
 
+#include "source/extensions/filters/network/ssh/kex.h"
 #include "source/extensions/filters/network/ssh/kex_alg_curve25519.h"
 #include "source/extensions/filters/network/ssh/packet_cipher_aead.h"
 #include "source/extensions/filters/network/ssh/packet_cipher_etm.h"

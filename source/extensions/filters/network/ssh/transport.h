@@ -5,9 +5,7 @@
 #pragma clang unsafe_buffer_usage end
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "source/extensions/filters/network/ssh/frame.h"
-#include "source/extensions/filters/network/ssh/kex.h"
 #include "source/extensions/filters/network/ssh/packet_cipher.h"
-#include "source/extensions/filters/network/ssh/version_exchange.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/common.h"
 
