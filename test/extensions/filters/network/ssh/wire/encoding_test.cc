@@ -786,19 +786,7 @@ TEST(ReadOptTest, List_OptListSizePrefixed_Limit) {
   });
 }
 
-TEST(ReadOptTest, List_OptListSizePrefixed_BufferTooSmall) {
-  Buffer::OwnedImpl buffer;
-  buffer.writeBEInt<uint32_t>(3);
-  buffer.writeBEInt<uint32_t>(1);
-  buffer.writeBEInt<uint32_t>(2);
-
-  std::vector<uint32_t> out;
-  EXPECT_THROW_WITH_MESSAGE(read_opt<ListSizePrefixed>(buffer, out, buffer.length()),
-                            EnvoyException,
-                            "decoded list size 2 does not match expected size 3");
-}
-
-TEST(ReadOptTest, List_OptListSizePrefixed_LengthTooLarge) {
+TEST(ReadOptTest, List_OptListSizePrefixed_DecodedWrongListSize) {
   Buffer::OwnedImpl buffer;
   buffer.writeBEInt<uint32_t>(4);
   buffer.writeBEInt<uint32_t>(1);
@@ -1059,7 +1047,7 @@ TEST(ReadOptTest, List_OptListSizePrefixedAndElemLengthPrefixed_Limit) {
   });
 }
 
-TEST(ReadOptTest, List_OptListSizePrefixedAndElemLengthPrefixed_BufferTooSmall) {
+TEST(ReadOptTest, List_OptListSizePrefixedAndElemLengthPrefixed_DecodedWrongListSize) {
   Buffer::OwnedImpl buffer;
   buffer.writeBEInt<uint32_t>(2);
   buffer.writeBEInt<uint32_t>(12);
