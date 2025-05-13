@@ -26,5 +26,3 @@ build:linux --config=libc++20
 build:linux --copt="-Wno-error=thread-safety-reference-return"
 build:linux --copt="-Wno-error=missing-field-initializers"
 build --cxxopt=-std=c++23 --host_cxxopt=-std=c++23
-
-# build --@envoy//bazel:uhv_enabled=True

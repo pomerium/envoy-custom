@@ -8,13 +8,13 @@
 #include "test/mocks/tracing/mocks.h"
 #include "test/mocks/upstream/cluster_manager.h"
 #include "test/test_common/utility.h"
-#include "tracer_impl.h"
+#include "source/extensions/tracers/pomerium_otel/tracer_impl.h"
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
 constexpr std::string_view example_traceid =
-    "00-11111111111111111111111111111111-2222222222222222-01";
+  "00-11111111111111111111111111111111-2222222222222222-01";
 
 namespace Envoy::Extensions::Tracers::OpenTelemetry {
 
@@ -51,10 +51,10 @@ PomeriumOtelTest::PomeriumOtelTest() {
   TestUtility::loadFromYaml(yaml_string, opentelemetry_config);
 
   trace_context = {
-      {":method", "GET"},
-      {":protocol", "https://"},
-      {":authority", "foo.example.com"},
-      {":path", "/bar"},
+    {":method", "GET"},
+    {":protocol", "https://"},
+    {":authority", "foo.example.com"},
+    {":path", "/bar"},
   };
   driver = std::make_unique<PomeriumDriver>(opentelemetry_config, context);
 }
@@ -62,7 +62,7 @@ PomeriumOtelTest::PomeriumOtelTest() {
 TEST_F(PomeriumOtelTest, VariableNameSpan) {
   const std::string operation_name = "overwritten";
   Tracing::SpanPtr tracing_span = driver->startSpan(
-      config, trace_context, stream_info, operation_name, {Tracing::Reason::Sampling, true});
+    config, trace_context, stream_info, operation_name, {Tracing::Reason::Sampling, true});
 
   EXPECT_EQ(dynamic_cast<VariableNameSpan*>(tracing_span.get())->name(), operation_name);
 
@@ -74,7 +74,7 @@ TEST_F(PomeriumOtelTest, VariableNameSpan) {
 
 TEST_F(PomeriumOtelTest, StartSpanWithNoTraceparent) {
   NiceMock<Random::MockRandomGenerator>& mock_random_generator_ =
-      context.server_factory_context_.api_.random_;
+    context.server_factory_context_.api_.random_;
   ON_CALL(mock_random_generator_, random()).WillByDefault(Return(0xDEADBEEFDEADBEEF));
 
   Tracing::SpanPtr tracing_span = driver->startSpan(config, trace_context, stream_info, "test",
@@ -86,7 +86,7 @@ TEST_F(PomeriumOtelTest, StartSpanWithNoTraceparent) {
 
 TEST_F(PomeriumOtelTest, StartSpanWithTraceparent) {
   NiceMock<Random::MockRandomGenerator>& mock_random_generator_ =
-      context.server_factory_context_.api_.random_;
+    context.server_factory_context_.api_.random_;
   ON_CALL(mock_random_generator_, random()).WillByDefault(Return(0xDEADBEEFDEADBEEF));
 
   trace_context.set("x-pomerium-traceparent", example_traceid);
@@ -97,7 +97,7 @@ TEST_F(PomeriumOtelTest, StartSpanWithTraceparent) {
 
 TEST_F(PomeriumOtelTest, StartSpanWithTraceID) {
   NiceMock<Random::MockRandomGenerator>& mock_random_generator_ =
-      context.server_factory_context_.api_.random_;
+    context.server_factory_context_.api_.random_;
   ON_CALL(mock_random_generator_, random()).WillByDefault(Return(0xDEADBEEFDEADBEEF));
 
   trace_context.set("x-pomerium-traceid", example_traceid.substr(3, 32));

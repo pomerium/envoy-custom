@@ -55,6 +55,7 @@ To run tests with code coverage, create a `bazel` task in `.vscode/tasks.json` a
       ]
     }
   ]
+  ]
 }
 ```
 
