@@ -25,16 +25,27 @@ using callable_info_t = callable_info<decltype(&std::decay_t<F>::operator())>;
 template <typename F>
 using callable_arg_type_t = callable_info_t<F>::arg_type;
 
-template <typename T>
-struct function_info;
-
-// function_info can be used to obtain information about the return type and argument type(s) of
+// method_info can be used to obtain information about the return type and argument type(s) of
 // a class member function.
+template <typename F>
+struct method_info;
+
+// non-const methods
 template <typename R, typename T, typename... Args>
-struct function_info<R (T::*)(Args...)> {
+struct method_info<R (T::*)(Args...)> {
   using return_type = R;
   using object_type = T;
   using args_type = std::tuple<Args...>;
+  static constexpr bool is_const = false;
+};
+
+// const methods
+template <typename R, typename T, typename... Args>
+struct method_info<R (T::*)(Args...) const> {
+  using return_type = R;
+  using object_type = T;
+  using args_type = std::tuple<Args...>;
+  static constexpr bool is_const = true;
 };
 
 // generic_lambda_info can be used to detect whether a lambda function was defined with an argument

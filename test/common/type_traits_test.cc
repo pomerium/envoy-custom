@@ -30,11 +30,30 @@ TEST(TypeTraitsTest, CallableInfo) {
 TEST(TypeTraitsTest, FunctionInfo) {
   class Test {
   public:
-    int foo(std::string, const int&);
+    int nonConstMethod(std::string, const int&);
+    int constMethod(std::vector<uint32_t>) const;
+    void nonConstNoArgs();
+    void constNoArgs() const;
   };
-  EXPECT_STATIC_ASSERT(std::is_same_v<function_info<decltype(&Test::foo)>::return_type, int>);
-  EXPECT_STATIC_ASSERT(std::is_same_v<function_info<decltype(&Test::foo)>::object_type, Test>);
-  EXPECT_STATIC_ASSERT(std::is_same_v<function_info<decltype(&Test::foo)>::args_type, std::tuple<std::string, const int&>>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<method_info<decltype(&Test::nonConstMethod)>::return_type, int>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<method_info<decltype(&Test::nonConstMethod)>::object_type, Test>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<method_info<decltype(&Test::nonConstMethod)>::args_type, std::tuple<std::string, const int&>>);
+  EXPECT_STATIC_ASSERT(method_info<decltype(&Test::nonConstMethod)>::is_const == false);
+
+  EXPECT_STATIC_ASSERT(std::is_same_v<method_info<decltype(&Test::constMethod)>::return_type, int>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<method_info<decltype(&Test::constMethod)>::object_type, Test>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<method_info<decltype(&Test::constMethod)>::args_type, std::tuple<std::vector<uint32_t>>>);
+  EXPECT_STATIC_ASSERT(method_info<decltype(&Test::constMethod)>::is_const == true);
+
+  EXPECT_STATIC_ASSERT(std::is_same_v<method_info<decltype(&Test::nonConstNoArgs)>::return_type, void>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<method_info<decltype(&Test::nonConstNoArgs)>::object_type, Test>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<method_info<decltype(&Test::nonConstNoArgs)>::args_type, std::tuple<>>);
+  EXPECT_STATIC_ASSERT(method_info<decltype(&Test::nonConstNoArgs)>::is_const == false);
+
+  EXPECT_STATIC_ASSERT(std::is_same_v<method_info<decltype(&Test::constNoArgs)>::return_type, void>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<method_info<decltype(&Test::constNoArgs)>::object_type, Test>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<method_info<decltype(&Test::constNoArgs)>::args_type, std::tuple<>>);
+  EXPECT_STATIC_ASSERT(method_info<decltype(&Test::constNoArgs)>::is_const == true);
 }
 
 TEST(TypeTraitsTest, GenericLambdaInfo) {
