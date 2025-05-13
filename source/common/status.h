@@ -7,7 +7,7 @@
 
 // Wraps an absl::Status with additional message context, but keeps the status code. Similar to
 // fmt.Errorf.
-constexpr inline absl::Status statusf(std::format_string<std::string_view> str, absl::Status underlying) {
+inline absl::Status statusf(std::format_string<std::string_view> str, absl::Status underlying) {
   std::string_view msg = underlying.message();
   return absl::Status(static_cast<absl::StatusCode>(underlying.raw_code()),
                       fmt::vformat(str.get(), fmt::make_format_args(msg)));
