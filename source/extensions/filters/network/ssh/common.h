@@ -1,6 +1,5 @@
 #pragma once
 
-#include <vector>
 #include <string>
 #include <unordered_set>
 #include <unordered_map>
@@ -19,8 +18,6 @@ using stream_id_t = uint64_t;
 using seqnum_t = uint32_t;
 
 using namespace std::literals;
-
-using string_list = std::vector<std::string>;
 
 static constexpr auto CipherAES128GCM = "aes128-gcm@openssh.com";
 static constexpr auto CipherAES256GCM = "aes256-gcm@openssh.com";

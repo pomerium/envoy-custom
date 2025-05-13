@@ -7,11 +7,12 @@
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/common.h"
+#include "source/common/type_traits.h"
 #include <utility>
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-using frame_tags_type = decltype(std::declval<GenericProxy::FrameFlags>().frameTags());
+using frame_tags_type = method_info<decltype(&GenericProxy::FrameFlags::frameTags)>::return_type;
 
 enum FrameTags : frame_tags_type {
   ResponseCommon = 0b00,
