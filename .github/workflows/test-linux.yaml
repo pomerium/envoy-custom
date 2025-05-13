@@ -43,6 +43,7 @@ jobs:
 
       - name: upload to coveralls
         uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b
+        if: matrix.arch == 'x64'
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path-to-lcov: bazel-out/_coverage/_coverage_report.dat
