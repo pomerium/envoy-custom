@@ -1,10 +1,13 @@
 #pragma once
 
-#include <numeric> // IWYU pragma: keep
+#include <concepts>
 
-// alias for std::sub_sat, which is available in clang under a different name but not technically
-// part of the standard until C++26.
-template <typename T>
+// https://en.cppreference.com/w/cpp/numeric/sub_sat
+// std::sub_sat is only available in C++26
+template <std::unsigned_integral T>
 constexpr T sub_sat(T x, T y) noexcept {
-  return std::__sub_sat(x, y);
+  if (T result; !__builtin_sub_overflow(x, y, &result)) {
+    return result;
+  }
+  return 0;
 }
