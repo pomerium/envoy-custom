@@ -3,6 +3,7 @@
 #include "source/extensions/filters/network/ssh/filters/session_recording/admin_api.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "envoy/compression/compressor/config.h"
+#include "source/common/status.h"
 
 #pragma clang unsafe_buffer_usage begin
 #pragma clang diagnostic push
