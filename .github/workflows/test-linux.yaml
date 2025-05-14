@@ -26,12 +26,10 @@ jobs:
         if: ${{ runner.environment == 'github-hosted' }}
         run: sudo rm -f /var/lib/man-db/auto-update
 
-        # github actions ubuntu 24.04 comes with clang-18 but NOT libc++
-      - name: install dependencies
+      - name: setup clang
         run: |
-          sudo apt-get install -y autoconf curl libtool patch python3-pip unzip virtualenv libc++-18-dev lcov
-          sudo update-alternatives --install /usr/bin/llvm-cov llvm-cov /usr/bin/llvm-cov-18 100
-          sudo update-alternatives --install /usr/bin/llvm-profdata llvm-profdata /usr/bin/llvm-profdata-18 100
+          sudo apt -y install virtualenv lcov llvm-19 llvm-19-linker-tools llvm-19-runtime llvm-19-tools libllvm19 clang-19 clang-tidy-19 clang-tools-19 libclang1-19 libclang-cpp19 libc++-19-dev libc++abi1-19 lld-19
+          tools/setup_clang.sh /usr/lib/llvm-19
 
       - name: setup bazel
         uses: bazel-contrib/setup-bazel@e8776f58fb6a6e9055cbaf1b38c52ccc5247e9c4
@@ -42,12 +40,11 @@ jobs:
           repository-cache: true
 
       - name: test
-        run: VALIDATE_COVERAGE=false tools/run_envoy_bazel_coverage.sh
+        run: bazel coverage //test/...
 
       - name: upload to coveralls
         uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b
-        if: matrix.arch == 'x64'
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          file: generated/coverage/coverage.dat
+          file: bazel-out/_coverage/_coverage_report.dat
           format: lcov
