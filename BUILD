@@ -2,6 +2,7 @@ load(
     "@envoy//bazel:envoy_build_system.bzl",
     "envoy_cc_binary",
 )
+load("@hedron_compile_commands//:refresh_compile_commands.bzl", "refresh_compile_commands")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -19,4 +20,13 @@ envoy_cc_binary(
         "//source/extensions/tracers/pomerium_otel",
         "@envoy//source/exe:envoy_main_entry_lib",
     ],
+)
+
+refresh_compile_commands(
+    name = "refresh_compile_commands",
+    exclude_headers = "external",
+    targets = {
+        "//:envoy": "",
+        "//test/...": "",
+    },
 )
