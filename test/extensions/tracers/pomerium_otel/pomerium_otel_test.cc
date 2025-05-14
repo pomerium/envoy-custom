@@ -9,6 +9,7 @@
 #include "test/mocks/upstream/cluster_manager.h"
 #include "test/test_common/utility.h"
 #include "source/extensions/tracers/pomerium_otel/tracer_impl.h"
+#include "test/mocks/server/tracer_factory_context.h"
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -70,6 +71,31 @@ TEST_F(PomeriumOtelTest, VariableNameSpan) {
   tracing_span->setOperation(new_operation_name);
   EXPECT_EQ(dynamic_cast<VariableNameSpan*>(tracing_span.get())->name(),
             "GET https://foo.example.com/bar");
+
+  tracing_span->setTag("foo", "bar");
+  auto attr = dynamic_cast<OpenTelemetry::VariableNameSpan*>(tracing_span.get())->spanForTest().spanForTest().attributes().at(0);
+  EXPECT_EQ("foo", attr.key());
+  EXPECT_EQ("bar", attr.value().string_value());
+  Event::SimulatedTimeSystem time_system;
+
+  tracing_span->log(time_system.systemTime(), ""); // envoy doesn't implement this
+
+  Tracing::TestTraceContextImpl request_headers{};
+
+  tracing_span->injectContext(request_headers, Tracing::UpstreamContext());
+
+  EXPECT_FALSE(request_headers.get("traceparent")->empty());
+
+  EXPECT_NE(nullptr, tracing_span->spawnChild(config, "asdf", time_system.systemTime()));
+
+  tracing_span->setBaggage("key", "val");
+  EXPECT_EQ("", tracing_span->getBaggage("key")); // envoy doesn't implement this
+
+  EXPECT_FALSE(tracing_span->getSpanId().empty());
+
+  EXPECT_EQ(static_cast<uint64_t>(0), dynamic_cast<OpenTelemetry::VariableNameSpan*>(tracing_span.get())->spanForTest().spanForTest().end_time_unix_nano());
+  tracing_span->finishSpan();
+  EXPECT_NE(static_cast<uint64_t>(0), dynamic_cast<OpenTelemetry::VariableNameSpan*>(tracing_span.get())->spanForTest().spanForTest().end_time_unix_nano());
 }
 
 TEST_F(PomeriumOtelTest, StartSpanWithNoTraceparent) {
@@ -118,6 +144,61 @@ TEST_F(PomeriumOtelTest, StartSpanWithSamplingDecisionOn) {
   Tracing::SpanPtr tracing_span = driver->startSpan(config, trace_context, stream_info, "test",
                                                     {Tracing::Reason::NotTraceable, false});
   EXPECT_TRUE(dynamic_cast<VariableNameSpan*>(tracing_span.get())->sampled());
+}
+
+TEST_F(PomeriumOtelTest, ToBaseConfig) {
+  pomerium::extensions::OpenTelemetryConfig ours;
+  envoy::config::trace::v3::OpenTelemetryConfig upstream;
+  auto yaml_grpc = R"(
+service_name: "test"
+resource_detectors: []
+grpc_service:
+  envoy_grpc:
+    cluster_name: fake-cluster
+  timeout: 0.250s
+service_name: my-service
+sampler:
+  name: envoy.tracers.opentelemetry.samplers.testsampler
+  typed_config:
+    "@type": type.googleapis.com/google.protobuf.Value
+)";
+  TestUtility::loadFromYamlAndValidate(yaml_grpc, ours);
+  TestUtility::loadFromYamlAndValidate(yaml_grpc, upstream);
+  EXPECT_EQ(ours.SerializeAsString(), upstream.SerializeAsString());
+
+  auto yaml_http = R"(
+service_name: "test"
+resource_detectors: []
+http_service:
+  http_uri:
+    uri: "https://some-o11y.com//otlp/v1/traces"
+    cluster: "my_o11y_backend"
+    timeout: 0.250s
+service_name: my-service
+sampler:
+  name: envoy.tracers.opentelemetry.samplers.testsampler
+  typed_config:
+    "@type": type.googleapis.com/google.protobuf.Value
+)";
+  ours.Clear();
+  upstream.Clear();
+  TestUtility::loadFromYamlAndValidate(yaml_http, ours);
+  TestUtility::loadFromYamlAndValidate(yaml_http, upstream);
+  EXPECT_EQ(ours.SerializeAsString(), upstream.SerializeAsString());
+}
+
+TEST(FactoryTest, FactoryTest) {
+  testing::NiceMock<Server::Configuration::MockTracerFactoryContext> context;
+
+  auto* factory = Registry::FactoryRegistry<Server::Configuration::TracerFactory>::getFactory(
+    "envoy.tracers.pomerium_otel");
+  ASSERT_NE(factory, nullptr);
+
+  pomerium::extensions::OpenTelemetryConfig cfg{};
+
+  ASSERT_EQ("pomerium.extensions.OpenTelemetryConfig", factory->createEmptyConfigProto()->GetTypeName());
+
+  EXPECT_NE(nullptr, factory->createTracerDriver(cfg, context));
 }
 
 } // namespace Envoy::Extensions::Tracers::OpenTelemetry
