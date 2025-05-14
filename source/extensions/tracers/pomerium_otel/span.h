@@ -32,6 +32,8 @@ public:
   std::string getTraceId() const override;
   std::string getSpanId() const override;
 
+  BaseOtelSpan& spanForTest() const;
+
 private:
   BaseOtelSpanPtr span_;
   StrSubstitutions substitutions_;
