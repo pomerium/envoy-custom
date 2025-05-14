@@ -64,5 +64,16 @@ public:
   MOCK_METHOD(void, onKexInitMsgSent, ());
 };
 
+class MockDirectionalPacketCipher : public DirectionalPacketCipher {
+public:
+  MockDirectionalPacketCipher();
+  virtual ~MockDirectionalPacketCipher();
+
+  MOCK_METHOD(absl::StatusOr<size_t>, decryptPacket, (uint32_t, Envoy::Buffer::Instance&, Envoy::Buffer::Instance&));
+  MOCK_METHOD(absl::StatusOr<size_t>, encryptPacket, (uint32_t, Envoy::Buffer::Instance&, Envoy::Buffer::Instance&));
+  MOCK_METHOD(size_t, blockSize, (), (const));
+  MOCK_METHOD(size_t, aadLen, (), (const));
+};
+
 } // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

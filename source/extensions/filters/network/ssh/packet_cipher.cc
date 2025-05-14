@@ -24,16 +24,18 @@ size_t PacketCipher::rekeyAfterBytes(openssh::CipherMode mode) {
   //  block cipher (e.g., 128 for AES).  If L is at least 128, then, after
   //  rekeying, an SSH implementation SHOULD NOT encrypt more than 2**(L/4)
   //  blocks before rekeying again.
-
-  auto l = blockSize(mode) * 8;
-  if (l >= 128) {
-    return 1uz << (l / 4);
+  switch (auto sz = blockSize(mode); sz) {
+  case 8:
+    // cont.:
+    //  If L is less than 128, [...] rekey at least once for every gigabyte
+    //  of transmitted data.
+    return (1uz << 30);
+  case 16:
+    return 16uz * (1uz << 32);
+  default:
+    // 8 and 16 are the only valid block sizes for the algorithms supported by openssh
+    throw EnvoyException(fmt::format("invalid block size: {}", sz));
   }
-
-  // cont.:
-  //  If L is less than 128, [...] rekey at least once for every gigabyte
-  //  of transmitted data.
-  return 1uz << 30;
 }
 
 size_t PacketCipher::blockSize(openssh::CipherMode mode) {
@@ -60,7 +62,7 @@ absl::StatusOr<size_t> NoCipher::decryptPacket(uint32_t /*seqnum*/, Envoy::Buffe
                                                Envoy::Buffer::Instance& in) {
   uint32_t packlen = in.peekBEInt<uint32_t>();
   if (packlen < wire::MinPacketSize || packlen > wire::MaxPacketSize) {
-    return absl::AbortedError("invalid packet size");
+    return absl::InvalidArgumentError("invalid packet size");
   }
   uint32_t need = packlen + 4;
   if (in.length() < need) {

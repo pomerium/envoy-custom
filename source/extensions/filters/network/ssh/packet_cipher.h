@@ -64,8 +64,6 @@ public:
                                        Envoy::Buffer::Instance& in);
   size_t blockSize(openssh::CipherMode mode);
   size_t aadSize(openssh::CipherMode mode);
-  size_t keySize(openssh::CipherMode mode);
-  size_t ivSize(openssh::CipherMode mode);
   size_t rekeyAfterBytes(openssh::CipherMode mode);
 
 private:
