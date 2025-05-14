@@ -55,6 +55,7 @@ To run tests with code coverage, create a `bazel` task in `.vscode/tasks.json` a
       ]
     }
   ]
+  ]
 }
 ```
 
@@ -85,3 +86,15 @@ The following clangd extension settings are recommended:
     "xx" // <- set this to (number of cores / 2)
 ],
 ```
+
+### Compilation database
+
+First, run `bazel run :refresh_compile_commands` to generate the compile_commands.json in the
+workspace root directory. Then, restart the clangd language server.
+This will trigger it to rebuild the index, which is stored in `.cache` in the workspace root.
+Note that this process may take a while the first time it is run.
+
+Important: When building in different modes such as '-c dbg' (debug) or '-c opt' (optimized), the
+same flags must also be passed to refresh_compile_commands to ensure the paths in compile_commands.json
+point to the matching bazel output directory for that mode. The flags must be passed after the
+command name, preceded by '--'. For example: `bazel run :refresh_compile_commands -- -c dbg`
