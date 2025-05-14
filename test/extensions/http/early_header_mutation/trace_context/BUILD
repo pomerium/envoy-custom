@@ -9,7 +9,10 @@ licenses(["notice"])
 
 envoy_cc_test(
     name = "trace_context_test",
-    srcs = ["trace_context_test.cc"],
+    srcs = [
+        "config_test.cc",
+        "trace_context_test.cc",
+    ],
     repository = "@envoy",
     deps = [
         "//source/extensions/http/early_header_mutation/trace_context:pomerium_trace_context",
@@ -17,6 +20,7 @@ envoy_cc_test(
         "@com_google_absl//absl/random",
         "@envoy//source/common/common:random_generator_lib",
         "@envoy//test/mocks/runtime:runtime_mocks",
+        "@envoy//test/mocks/server:factory_context_mocks",
         "@envoy//test/mocks/stream_info:stream_info_mocks",
         "@envoy//test/test_common:logging_lib",
     ],

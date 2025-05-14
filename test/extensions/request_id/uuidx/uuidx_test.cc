@@ -2,6 +2,7 @@
 
 #include "source/common/common/random_generator.h"
 #include "test/test_common/utility.h"
+#include "test/mocks/server/factory_context.h"
 
 #include "gtest/gtest.h"
 
@@ -65,6 +66,22 @@ TEST(UUIDxRequestIDExtensionTest, SamplingDecisionHeader) {
     EXPECT_EQ('b', request_headers.getRequestIdValue()[14]);
     EXPECT_EQ(Tracing::Reason::ClientForced, ext.getTraceReason(request_headers));
   }
+}
+
+TEST(FactoryTest, FactoryTest) {
+  testing::NiceMock<Server::Configuration::MockFactoryContext> context;
+
+  auto* factory = Registry::FactoryRegistry<Server::Configuration::RequestIDExtensionFactory>::getFactory(
+    "envoy.request_id.uuidx");
+  ASSERT_NE(factory, nullptr);
+
+  pomerium::extensions::UuidxRequestIdConfig cfg{};
+  cfg.mutable_pack_trace_reason()->set_value(true);
+  cfg.mutable_use_request_id_for_trace_sampling()->set_value(true);
+
+  ASSERT_EQ("pomerium.extensions.UuidxRequestIdConfig", factory->createEmptyConfigProto()->GetTypeName());
+
+  EXPECT_NE(nullptr, factory->createExtensionInstance(cfg, context));
 }
 
 } // namespace Envoy::Extensions::RequestId

@@ -32,7 +32,7 @@ private:
     }
     if (config.has_use_request_id_for_trace_sampling()) {
       *base_config.mutable_use_request_id_for_trace_sampling() =
-          config.use_request_id_for_trace_sampling();
+        config.use_request_id_for_trace_sampling();
     }
     return base_config;
   }

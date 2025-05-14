@@ -52,4 +52,6 @@ std::string VariableNameSpan::getTraceId() const { return span_->getTraceId(); }
 
 std::string VariableNameSpan::getSpanId() const { return span_->getSpanId(); }
 
+BaseOtelSpan& VariableNameSpan::spanForTest() const { return *span_; }
+
 } // namespace Envoy::Extensions::Tracers::OpenTelemetry

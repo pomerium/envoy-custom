@@ -16,6 +16,7 @@ envoy_cc_test(
         "//source/extensions/request_id/uuidx:uuidx_cc_proto",
         "@envoy//source/common/common:random_generator_lib",
         "@envoy//test/mocks/runtime:runtime_mocks",
+        "@envoy//test/mocks/server:factory_context_mocks",
         "@envoy//test/test_common:logging_lib",
     ],
 )
