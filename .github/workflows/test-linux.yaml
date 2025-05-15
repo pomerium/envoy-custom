@@ -48,3 +48,15 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           file: bazel-out/_coverage/_coverage_report.dat
           format: lcov
+          parallel: true
+
+  upload-coverage:
+    needs: test
+    runs-on:
+      - ubuntu-latest-16-cores${{ matrix.arch == 'arm64' && '-arm64' || '' }}
+    steps:
+      - name: finish parallel build
+        uses: coverallsapp/github-action@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          parallel-finished: true
