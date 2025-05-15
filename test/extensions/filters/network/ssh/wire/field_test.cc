@@ -821,6 +821,8 @@ TEST(SubMessageTest, Visit) {
   // no message set
   constexpr SubMsgType empty{};
   EXPECT_STATIC_ASSERT(empty.visit(visitMsg1Const, defaultAutoRef) == 0);
+  // the test below is '((<visit expression>), true)' which evaluates to true if neither of the
+  // visitors are hit, and doesn't compile otherwise.
   EXPECT_STATIC_ASSERT(empty.visit([](const TestSubMsg1&) { static_assert("fail"); },
                                    [](const auto&) { static_assert("fail"); }),
                        true);
