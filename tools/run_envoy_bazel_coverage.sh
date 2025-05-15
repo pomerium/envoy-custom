@@ -16,7 +16,7 @@
 
 set -e -o pipefail
 
-LLVM_VERSION=${LLVM_VERSION:-"Ubuntu18.1.3"}
+LLVM_VERSION=${LLVM_VERSION:-"Ubuntu19.1.1"}
 CLANG_VERSION=$(clang --version | grep version | sed -e 's/\ *clang version \([0-9.]*\).*/\1/')
 LLVM_COV_VERSION=$(llvm-cov --version | grep version | sed -e 's/\ *LLVM version \([0-9.]*\).*/\1/')
 LLVM_PROFDATA_VERSION=$(llvm-profdata show --version | grep version | sed -e 's/\ *LLVM version \(.*\)/\1/')
