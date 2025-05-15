@@ -1,0 +1,27 @@
+diff --git a/configure.ac b/configure.ac
+index e5da93365..0a79a2eba 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -2838,8 +2838,8 @@ AC_ARG_WITH([ssl-engine],
+
+ nocrypto_saved_LIBS="$LIBS"
+ if test "x$openssl" = "xyes" ; then
+-	LIBS="-lcrypto $LIBS"
+-	CHANNELLIBS="-lcrypto $CHANNELLIBS"
++	LIBS="-lcrypto_internal $LIBS"
++	CHANNELLIBS="-lcrypto_internal $CHANNELLIBS"
+ 	AC_TRY_LINK_FUNC([RAND_add], ,
+ 	    [AC_MSG_ERROR([*** working libcrypto not found, check config.log])])
+ 	AC_CHECK_HEADER([openssl/opensslv.h], ,
+diff --git a/sshd.c b/sshd.c
+index 9cf519cf7..d4bebde0a 100644
+--- a/sshd.c
++++ b/sshd.c
+@@ -57,6 +57,7 @@
+ #include <string.h>
+ #include <unistd.h>
+ #include <limits.h>
++#include <time.h>
+
+ #ifdef WITH_OPENSSL
+ #include <openssl/evp.h>

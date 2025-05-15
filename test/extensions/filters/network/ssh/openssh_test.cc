@@ -1,0 +1,960 @@
+#include "source/common/span.h"
+#include "source/extensions/filters/network/ssh/openssh.h"
+#include "gtest/gtest.h"
+#include "source/extensions/filters/network/ssh/wire/common.h"
+#include "source/extensions/filters/network/ssh/wire/encoding.h"
+#include "source/extensions/filters/network/ssh/wire/messages.h"
+#include "source/extensions/filters/network/ssh/wire/packet.h"
+#include "test/test_common/test_common.h"
+#include "test/test_common/environment.h"
+#include "test/test_common/file_system_for_test.h"
+#include "test/extensions/filters/network/ssh/wire/test_field_reflect.h"
+
+#pragma clang unsafe_buffer_usage begin
+#include "absl/random/random.h"
+#include "absl/strings/str_split.h"
+#pragma clang unsafe_buffer_usage end
+
+extern "C" {
+#include "openssh/ssh2.h"
+#include "openssh/authfile.h"
+#include "openssh/digest.h"
+#include "openssh/ssherr.h"
+#include "openssh/hmac.h"
+}
+
+namespace openssh::test {
+
+std::string copyTestdataToWritableTmp(const std::string& path, mode_t mode) {
+  const std::string runfilePath = Envoy::TestEnvironment::runfilesPath(path, "openssh_portable");
+  auto data = Envoy::TestEnvironment::readFileToStringForTest(runfilePath);
+  auto outPath = Envoy::TestEnvironment::temporaryPath(path);
+  auto outPathSplit = Envoy::Filesystem::fileSystemForTest().splitPathFromFilename(outPath);
+  EXPECT_OK(outPathSplit.status());
+  Envoy::TestEnvironment::createPath(std::string(outPathSplit->directory_));
+  Envoy::TestEnvironment::writeStringToFileForTest(outPath, data, true, true);
+  EXPECT_EQ(0, chmod(outPath.c_str(), mode));
+  return outPath;
+}
+
+TEST(OpensshTest, StatusFromErr) {
+  EXPECT_EQ(absl::OkStatus(), statusFromErr(0));
+  for (int i = -1; i >= -60; i--) {
+    auto stat = statusFromErr(i);
+    // testing each individual status code is not very helpful, but we can make sure that the
+    // status codes are within the expected values
+    EXPECT_THAT(stat.code(), AnyOf(Eq(absl::StatusCode::kInternal),
+                                   Eq(absl::StatusCode::kResourceExhausted),
+                                   Eq(absl::StatusCode::kInvalidArgument),
+                                   Eq(absl::StatusCode::kPermissionDenied),
+                                   Eq(absl::StatusCode::kUnavailable),
+                                   Eq(absl::StatusCode::kCancelled),
+                                   Eq(absl::StatusCode::kFailedPrecondition),
+                                   Eq(absl::StatusCode::kAborted),
+                                   Eq(absl::StatusCode::kNotFound),
+                                   Eq(absl::StatusCode::kDeadlineExceeded),
+                                   Eq(absl::StatusCode::kUnimplemented)));
+    EXPECT_EQ(stat.message(), std::string_view(ssh_err(i)));
+  }
+  EXPECT_EQ(absl::UnknownError("unknown error"), statusFromErr(-61));
+}
+
+TEST(SSHKeyTest, FromPrivateKeyFilePath) {
+  for (auto keyName : {"rsa_1", "ecdsa_1", "ed25519_1"}) {
+    auto privKeyPath = copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600);
+    auto r = SSHKey::fromPrivateKeyFile(privKeyPath);
+    ASSERT_OK(r.status());
+  }
+}
+
+TEST(SSHKeyTest, FromPrivateKeyFilePath_BadPermissions) {
+  for (auto keyName : {"rsa_1", "ecdsa_1", "ed25519_1"}) {
+    for (auto mode : {0640, 0644, 0666}) {
+      auto privKeyPath = copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), mode);
+      auto r = SSHKey::fromPrivateKeyFile(privKeyPath);
+      ASSERT_EQ(absl::InvalidArgumentError("bad permissions"), r.status());
+    }
+  }
+}
+
+TEST(SSHKeyTest, FromToPublicKeyBlob) {
+  for (auto keyName : {"rsa_1", "ecdsa_1", "ed25519_1"}) {
+    copyTestdataToWritableTmp(fmt::format("regress/unittests/sshkey/testdata/{}.pub", keyName), 0644);
+    auto privKeyPath = copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600);
+    auto priv = *SSHKey::fromPrivateKeyFile(privKeyPath);
+    auto our_blob = *priv->toPublicKeyBlob();
+
+    const auto rsa1Pub = privKeyPath + ".pub";
+    detail::sshkey_ptr openssh_pubkey;
+    ASSERT_EQ(0, sshkey_load_public(rsa1Pub.c_str(), std::out_ptr(openssh_pubkey), nullptr));
+    CBytesPtr blob_ptr{};
+    size_t blob_len{};
+    ASSERT_EQ(0, sshkey_to_blob(openssh_pubkey.get(), std::out_ptr(blob_ptr), &blob_len));
+    ASSERT_EQ(to_bytes(unsafe_forge_span(blob_ptr.get(), blob_len)), our_blob);
+
+    auto our_pubkey = *SSHKey::fromPublicKeyBlob(our_blob);
+    ASSERT_EQ(1, sshkey_equal(our_pubkey->sshkeyForTest(), openssh_pubkey.get()));
+  }
+}
+
+TEST(SSHKeyTest, FromPublicKeyBlob_Invalid) {
+  auto r = SSHKey::fromPublicKeyBlob(bytes{'i', 'n', 'v', 'a', 'l', 'i', 'd'});
+  EXPECT_EQ(absl::InvalidArgumentError("invalid format"), r.status());
+}
+
+TEST(SSHKeyTest, ToPrivateKeyPem) {
+  for (auto [keyName, format] : {
+         std::tuple{"rsa_1"s, SSHKEY_PRIVATE_PEM},
+         std::tuple{"ecdsa_1"s, SSHKEY_PRIVATE_PEM},
+         std::tuple{"ed25519_1"s, SSHKEY_PRIVATE_OPENSSH}}) {
+    auto relPath = absl::StrCat("regress/unittests/sshkey/testdata/", keyName);
+    auto privKeyPath = copyTestdataToWritableTmp(relPath, 0600);
+    auto priv = *SSHKey::fromPrivateKeyFile(privKeyPath);
+    auto ours = *priv->formatPrivateKey(format);
+    auto newPath = privKeyPath + "_2";
+
+    if (format == SSHKEY_PRIVATE_OPENSSH) {
+      // the openssh key format contains random bytes, so we can't check that the serialized form
+      // of the key is identical to the original, but we can read it again and compare the actual
+      // keys, which will not change.
+      //
+      // for reference (see sshkey_private_to_fileblob):
+      // SSHKEY_PRIVATE_OPENSSH uses sshkey_private_to_blob2
+      // SSHKEY_PRIVATE_PEM/PKCS8 uses sshkey_private_to_blob_pem_pkcs8
+      ASSERT_NE(ours, *priv->formatPrivateKey(format)); // sanity check
+    } else {
+      ASSERT_EQ(ours, *priv->formatPrivateKey(format)); // sanity check
+    }
+
+    Envoy::TestEnvironment::writeStringToFileForTest(newPath, ours, true);
+    chmod(newPath.c_str(), 0600);
+    auto priv2 = *SSHKey::fromPrivateKeyFile(newPath);
+    ASSERT_EQ(*priv, *priv2);
+  }
+}
+
+TEST(SSHKeyTest, ToPublicKeyPem) {
+  for (auto keyName : {"rsa_1", "ecdsa_1", "ed25519_1"}) {
+    auto relPath = absl::StrCat("regress/unittests/sshkey/testdata/", keyName);
+    auto privKeyPath = copyTestdataToWritableTmp(relPath, 0600);
+    auto priv = *SSHKey::fromPrivateKeyFile(privKeyPath);
+    auto ours = *priv->formatPublicKey();
+
+    const std::string runfilePath = Envoy::TestEnvironment::runfilesPath(absl::StrCat(relPath, ".pub"), "openssh_portable");
+    auto golden = Envoy::TestEnvironment::readFileToStringForTest(runfilePath);
+
+    std::vector<std::string> parts = absl::StrSplit(golden, ' ');
+    EXPECT_EQ(fmt::format("{} {}", parts[0], parts[1]), ours); // don't include comment
+  }
+}
+
+TEST(SSHKeyTest, Generate) {
+  auto r = SSHKey::generate(KEY_RSA, 2048);
+  EXPECT_OK(r.status());
+  EXPECT_EQ(KEY_RSA, (*r)->keyType());
+
+  r = SSHKey::generate(KEY_ECDSA, 521);
+  EXPECT_OK(r.status());
+  EXPECT_EQ(KEY_ECDSA, (*r)->keyType());
+
+  r = SSHKey::generate(KEY_ED25519, 256);
+  EXPECT_OK(r.status());
+  EXPECT_EQ(KEY_ED25519, (*r)->keyType());
+
+  r = SSHKey::generate(KEY_RSA, 256);
+  EXPECT_EQ(absl::InvalidArgumentError("Invalid key length"), r.status());
+}
+
+class SSHKeyTestSuite : public testing::TestWithParam<std::tuple<sshkey_types, uint32_t>> {
+public:
+  SSHKeyPtr generate() const {
+    return *std::apply(&SSHKey::generate, GetParam());
+  }
+  // generates a key with some algorithm that isn't the current one
+  SSHKeyPtr generateWithDifferentAlgorithm() const {
+    switch (auto [alg, _] = GetParam(); alg) {
+    case KEY_RSA:
+      return *SSHKey::generate(KEY_ECDSA, 256);
+    case KEY_ECDSA:
+      return *SSHKey::generate(KEY_ED25519, 256);
+    case KEY_ED25519:
+      return *SSHKey::generate(KEY_RSA, 2048);
+    default:
+      PANIC("invalid test case");
+    }
+  }
+};
+
+TEST_P(SSHKeyTestSuite, Compare) {
+  auto key1 = generate();
+  auto key2 = generate();
+  EXPECT_EQ(*key1, *key1);
+  EXPECT_EQ(*key2, *key2);
+  EXPECT_NE(*key1, *key2);
+  EXPECT_EQ(**key1->toPublicKey(), *key1);
+  EXPECT_NE(**key2->toPublicKey(), *key1);
+  EXPECT_EQ(**key1->toPublicKey(), **key1->toPublicKey());
+  EXPECT_NE(**key2->toPublicKey(), **key1->toPublicKey());
+}
+
+TEST_P(SSHKeyTestSuite, SignVerify) {
+  auto key1 = generate();
+  auto key2 = generate();
+
+  auto key1_pub = *key1->toPublicKey();
+  auto key2_pub = *key2->toPublicKey();
+
+  bytes payload{'f', 'o', 'o', 'b', 'a', 'r', 'b', 'a', 'z'};
+  {
+    auto sig = *key1->sign(payload);
+    ASSERT_OK(key1->verify(sig, payload));
+    ASSERT_OK(key1_pub->verify(sig, payload));
+    ASSERT_EQ(absl::PermissionDeniedError("incorrect signature"), key2->verify(sig, payload));
+    ASSERT_EQ(absl::PermissionDeniedError("incorrect signature"), key2_pub->verify(sig, payload));
+  }
+
+  {
+    auto sig = *key2->sign(payload);
+    ASSERT_OK(key2->verify(sig, payload));
+    ASSERT_OK(key2_pub->verify(sig, payload));
+    ASSERT_EQ(absl::PermissionDeniedError("incorrect signature"), key1->verify(sig, payload));
+    ASSERT_EQ(absl::PermissionDeniedError("incorrect signature"), key1_pub->verify(sig, payload));
+  }
+
+  // the exact error we get from openssh depends on the key algorithm; it will be one of these two
+  ASSERT_THAT(key1_pub->sign(payload).status(), AnyOf(Eq(absl::InvalidArgumentError("invalid argument")),
+                                                      Eq(absl::InternalError("error in libcrypto"))));
+  ASSERT_THAT(key2_pub->sign(payload).status(), AnyOf(Eq(absl::InvalidArgumentError("invalid argument")),
+                                                      Eq(absl::InternalError("error in libcrypto"))));
+}
+
+INSTANTIATE_TEST_SUITE_P(SSHKeyTest, SSHKeyTestSuite,
+                         testing::ValuesIn(std::vector<std::tuple<sshkey_types, uint32_t>>{
+                           {KEY_RSA, 2048},
+                           {KEY_ECDSA, 256},
+                           {KEY_ECDSA, 384},
+                           {KEY_ECDSA, 521},
+                           {KEY_ED25519, 256},
+                         }));
+
+class SSHKeyCertTestSuite : public SSHKeyTestSuite {
+public:
+  void SetUp() override {
+    key_ = generate();
+    signer_ = generate();
+  }
+  SSHKeyPtr key_;
+  SSHKeyPtr signer_;
+};
+
+TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate) {
+  auto [keyType, _] = GetParam();
+  auto sigAlgs = absl::StrJoin(key_->signatureAlgorithmsForKeyType(), ",");
+  auto stat = key_->convertToSignedUserCertificate(1, {"principal1", "principal2"}, {"extension1", "extension2"}, absl::Hours(24), *signer_);
+  ASSERT_OK(stat);
+  EXPECT_EQ(keyType + 4, key_->keyType()); // for the algorithms we use here, this is fine.
+                                           // the openssh type converter function isn't public
+  const auto* key = key_->sshkeyForTest();
+  EXPECT_TRUE(sshkey_is_cert(key));
+  EXPECT_TRUE(sshkey_check_cert_sigtype(key, sigAlgs.c_str()) == 0);
+
+  EXPECT_EQ("user", sshkey_cert_type(key));
+
+  bytes payload = {'f', 'o', 'o', 'b', 'a', 'r', 'b', 'a', 'z'};
+  auto sig = key_->sign(payload);
+  ASSERT_OK(sig.status());
+
+  auto pubKey = *key_->toPublicKey();
+  ASSERT_OK(pubKey->verify(*sig, payload));
+}
+
+TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate_DifferentSignerAlgorithm) {
+  // openssh PROTOCOL.certkeys states:
+  //  Note that it is possible for a RSA certificate key to be signed by a
+  //  Ed25519 or ECDSA CA key and vice-versa.
+  auto stat = key_->convertToSignedUserCertificate(1, {}, {}, absl::Hours(24),
+                                                   *generateWithDifferentAlgorithm());
+  ASSERT_OK(stat);
+}
+
+TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate_SignerIsCert) {
+  // openssh PROTOCOL.certkeys states:
+  //  "Chained" certificates, where the signature key type is a certificate type itself are
+  //  NOT supported.
+
+  auto stat = key_->convertToSignedUserCertificate(1, {}, {}, absl::Hours(24), *signer_);
+  ASSERT_OK(stat);
+
+  auto key2 = generate();
+  auto stat2 = key2->convertToSignedUserCertificate(2, {}, {}, absl::Hours(24), *key_);
+  ASSERT_EQ(absl::InvalidArgumentError("invalid certificate signing key"), stat2);
+}
+
+TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate_AlreadyCert) {
+  auto stat = key_->convertToSignedUserCertificate(1, {}, {}, absl::Hours(24), *signer_);
+  ASSERT_OK(stat);
+  stat = key_->convertToSignedUserCertificate(1, {}, {}, absl::Hours(24), *signer_);
+  // the exact error we get from openssh depends on the key algorithm; it will be one of these two
+  ASSERT_THAT(stat, AnyOf(Eq(absl::InvalidArgumentError("invalid argument")),
+                          Eq(absl::InternalError("error in libcrypto"))));
+}
+
+TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate_KeyIsPublicKey) {
+  auto key = generate();
+  auto pub = *key->toPublicKey();
+  auto stat = pub->convertToSignedUserCertificate(1, {}, {}, absl::Hours(24), *signer_);
+  // this is fine, the cert just won't be able to sign etc.
+  ASSERT_OK(stat);
+  ASSERT_THAT(pub->sign(bytes{'f', 'o', 'o'}).status(), AnyOf(Eq(absl::InvalidArgumentError("invalid argument")),
+                                                              Eq(absl::InternalError("error in libcrypto"))));
+  ASSERT_EQ(absl::InvalidArgumentError("unknown or unsupported key type"), pub->formatPrivateKey().status());
+}
+
+TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate_SignerIsPublicKey) {
+  auto key = generate();
+  auto pub = *key->toPublicKey();
+  auto stat = key_->convertToSignedUserCertificate(1, {}, {}, absl::Hours(24), *pub);
+  ASSERT_THAT(stat, AnyOf(Eq(absl::InvalidArgumentError("invalid argument")),
+                          Eq(absl::InternalError("error in libcrypto"))));
+}
+
+TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate_TooManyPrincipals) {
+  std::vector<std::string> principals(SSHKEY_CERT_MAX_PRINCIPALS + 1, "asdf");
+  auto stat = key_->convertToSignedUserCertificate(1, principals, {}, absl::Hours(24), *signer_);
+  ASSERT_EQ(absl::InvalidArgumentError("number of principals (257) is more than the maximum allowed (256)"), stat);
+}
+
+TEST_P(SSHKeyCertTestSuite, Compare) {
+  auto stat = key_->convertToSignedUserCertificate(1, {"principal1", "principal2"}, {"extension1", "extension2"}, absl::Hours(24), *signer_);
+  EXPECT_EQ(*key_, *key_);
+  EXPECT_EQ(*key_, **key_->toPublicKey());
+}
+
+INSTANTIATE_TEST_SUITE_P(SSHKeyCertTest, SSHKeyCertTestSuite,
+                         testing::ValuesIn(std::vector<std::tuple<sshkey_types, uint32_t>>{
+                           {KEY_RSA, 2048},
+                           {KEY_ECDSA, 256},
+                           {KEY_ECDSA, 384},
+                           {KEY_ECDSA, 521},
+                           {KEY_ED25519, 256},
+                         }));
+
+class SSHKeyPropertiesTestSuite : public SSHKeyTestSuite {
+public:
+  void SetUp() override {
+    auto [keyType, bits] = GetParam();
+    auto r = SSHKey::generate(SSHKey::keyTypePlain(keyType), bits);
+    ASSERT_OK(r.status());
+    if (SSHKey::keyTypeIsCert(keyType)) {
+      signer_ = *SSHKey::generate(SSHKey::keyTypePlain(keyType), bits);
+      ASSERT_OK((*r)->convertToSignedUserCertificate(1, {}, {}, absl::Hours(24), *signer_));
+    }
+    key_ = std::move(r).value();
+  }
+
+  SSHKeyPtr key_;
+  SSHKeyPtr signer_; // non-null if key is a cert type
+};
+
+TEST_P(SSHKeyPropertiesTestSuite, Fingerprint) {
+  const auto* raw_key = key_->sshkeyForTest();
+  auto expected = sshkey_fingerprint(raw_key, SSH_DIGEST_SHA256, SSH_FP_DEFAULT);
+  ASSERT_NE(nullptr, expected);
+  auto r = key_->fingerprint(SSH_FP_DEFAULT);
+  EXPECT_OK(r.status());
+  EXPECT_EQ(std::string_view(expected), std::string_view(*r));
+}
+
+TEST_P(SSHKeyPropertiesTestSuite, Fingerprint_InvalidFormat) {
+  const auto* raw_key = key_->sshkeyForTest();
+  auto expected = sshkey_fingerprint(raw_key, SSH_DIGEST_SHA256, sshkey_fp_rep(100));
+  ASSERT_EQ(nullptr, expected); // sanity check
+  auto r = key_->fingerprint(sshkey_fp_rep(100));
+  EXPECT_EQ(absl::InvalidArgumentError("sshkey_fingerprint failed"), r.status());
+}
+
+TEST_P(SSHKeyPropertiesTestSuite, KeyTypeName) {
+  auto [keyType, bits] = GetParam();
+  const std::string_view expected = sshkey_ssh_name(key_->sshkeyForTest());
+  const std::string_view actual = key_->keyTypeName();
+  ASSERT_NE(nullptr, actual.data());
+
+  switch (keyType) {
+  case KEY_RSA:
+    ASSERT_EQ("ssh-rsa", expected);
+    break;
+  case KEY_RSA_CERT:
+    ASSERT_EQ("ssh-rsa-cert-v01@openssh.com", expected);
+    break;
+  case KEY_ECDSA:
+    switch (bits) {
+    case 256:
+      ASSERT_EQ("ecdsa-sha2-nistp256", expected);
+      break;
+    case 384:
+      ASSERT_EQ("ecdsa-sha2-nistp384", expected);
+      break;
+    case 521:
+      ASSERT_EQ("ecdsa-sha2-nistp521", expected);
+      break;
+    default:
+      FAIL() << "invalid test case";
+    }
+    break;
+  case KEY_ECDSA_CERT:
+    switch (bits) {
+    case 256:
+      ASSERT_EQ("ecdsa-sha2-nistp256-cert-v01@openssh.com", expected);
+      break;
+    case 384:
+      ASSERT_EQ("ecdsa-sha2-nistp384-cert-v01@openssh.com", expected);
+      break;
+    case 521:
+      ASSERT_EQ("ecdsa-sha2-nistp521-cert-v01@openssh.com", expected);
+      break;
+    default:
+      FAIL() << "invalid test case";
+    }
+    break;
+  case KEY_ED25519:
+    ASSERT_EQ("ssh-ed25519", expected);
+    break;
+  case KEY_ED25519_CERT:
+    ASSERT_EQ("ssh-ed25519-cert-v01@openssh.com", expected);
+    break;
+  default:
+    FAIL() << "invalid test case";
+  }
+  ASSERT_EQ(reinterpret_cast<uintptr_t>(expected.data()),
+            reinterpret_cast<uintptr_t>(actual.data()));            // pointers should match
+  ASSERT_EQ(SSHKey::keyTypeFromName(std::string(actual)), keyType); // sanity check
+}
+
+TEST_P(SSHKeyPropertiesTestSuite, KeyType) {
+  auto [keyType, _] = GetParam();
+  EXPECT_EQ(keyType, key_->keyType());
+}
+
+TEST_P(SSHKeyPropertiesTestSuite, SignatureAlgorithmsForKeyType) {
+  auto [keyType, bits] = GetParam();
+  switch (keyType) {
+  case KEY_RSA: {
+    auto expected = std::vector<std::string>{"rsa-sha2-256", "rsa-sha2-512"};
+    EXPECT_EQ(expected, key_->signatureAlgorithmsForKeyType());
+  } break;
+  case KEY_RSA_CERT: {
+    auto expected = std::vector<std::string>{"rsa-sha2-256-cert-v01@openssh.com", "rsa-sha2-512-cert-v01@openssh.com"};
+    EXPECT_EQ(expected, key_->signatureAlgorithmsForKeyType());
+  } break;
+  case KEY_ECDSA:
+    switch (bits) {
+    case 256: {
+      auto expected = std::vector<std::string>{"ecdsa-sha2-nistp256"};
+    } break;
+    case 384: {
+      auto expected = std::vector<std::string>{"ecdsa-sha2-nistp384"};
+      EXPECT_EQ(expected, key_->signatureAlgorithmsForKeyType());
+    } break;
+    case 521: {
+      auto expected = std::vector<std::string>{"ecdsa-sha2-nistp521"};
+      EXPECT_EQ(expected, key_->signatureAlgorithmsForKeyType());
+    } break;
+    default:
+      FAIL() << "invalid test case";
+    }
+    break;
+  case KEY_ECDSA_CERT:
+    switch (bits) {
+    case 256: {
+      auto expected = std::vector<std::string>{"ecdsa-sha2-nistp256-cert-v01@openssh.com"};
+      EXPECT_EQ(expected, key_->signatureAlgorithmsForKeyType());
+    } break;
+    case 384: {
+      auto expected = std::vector<std::string>{"ecdsa-sha2-nistp384-cert-v01@openssh.com"};
+      EXPECT_EQ(expected, key_->signatureAlgorithmsForKeyType());
+    } break;
+    case 521: {
+      auto expected = std::vector<std::string>{"ecdsa-sha2-nistp521-cert-v01@openssh.com"};
+      EXPECT_EQ(expected, key_->signatureAlgorithmsForKeyType());
+    } break;
+    default:
+      FAIL() << "invalid test case";
+    }
+    break;
+  case KEY_ED25519: {
+    auto expected = std::vector<std::string>{"ssh-ed25519"};
+    EXPECT_EQ(expected, key_->signatureAlgorithmsForKeyType());
+  } break;
+  case KEY_ED25519_CERT: {
+    auto expected = std::vector<std::string>{"ssh-ed25519-cert-v01@openssh.com"};
+    EXPECT_EQ(expected, key_->signatureAlgorithmsForKeyType());
+  } break;
+  default:
+    FAIL() << "invalid test case";
+  }
+}
+
+TEST_P(SSHKeyPropertiesTestSuite, KeyTypePlain) {
+  auto [keyType, _] = GetParam();
+  sshkey_types expected{};
+  switch (keyType) {
+  case KEY_RSA:
+    expected = KEY_RSA;
+    break;
+  case KEY_RSA_CERT:
+    expected = KEY_RSA;
+    break;
+  case KEY_ECDSA:
+    expected = KEY_ECDSA;
+    break;
+  case KEY_ECDSA_CERT:
+    expected = KEY_ECDSA;
+    break;
+  case KEY_ED25519:
+    expected = KEY_ED25519;
+    break;
+  case KEY_ED25519_CERT:
+    expected = KEY_ED25519;
+    break;
+  default:
+    FAIL() << "invalid test case";
+  }
+  EXPECT_EQ(expected, key_->keyTypePlain());
+}
+
+INSTANTIATE_TEST_SUITE_P(SSHKeyPropertiesTest, SSHKeyPropertiesTestSuite,
+                         testing::ValuesIn(std::vector<std::tuple<sshkey_types, uint32_t>>{
+                           {KEY_RSA, 2048},
+                           {KEY_RSA_CERT, 2048},
+                           {KEY_ECDSA, 256},
+                           {KEY_ECDSA_CERT, 256},
+                           {KEY_ECDSA, 384},
+                           {KEY_ECDSA_CERT, 384},
+                           {KEY_ECDSA, 521},
+                           {KEY_ECDSA_CERT, 521},
+                           {KEY_ED25519, 256},
+                           {KEY_ED25519_CERT, 256},
+                         }));
+
+TEST(OpensshTest, LoadHostKeys) {
+  std::vector<std::string> filenames;
+  for (auto keyName : {"rsa_1", "ecdsa_1", "ed25519_1"}) {
+    filenames.push_back(copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600));
+  }
+  auto r = loadHostKeys(filenames);
+  ASSERT_OK(r.status());
+  ASSERT_EQ(3, r->size());
+}
+
+TEST(OpensshTest, LoadHostKeys_DuplicateAlgorithm) {
+  std::vector<std::string> filenames;
+  for (auto keyName : {"rsa_1", "ecdsa_1", "ed25519_1", "rsa_2"}) {
+    filenames.push_back(copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600));
+  }
+  auto stat = loadHostKeys(filenames);
+  ASSERT_EQ(absl::InvalidArgumentError("host keys must have unique algorithms"), stat.status());
+}
+
+TEST(OpensshTest, LoadHostKeys_InvalidMode) {
+  std::vector<std::string> filenames;
+  for (auto keyName : {"rsa_1", "ecdsa_1", "ed25519_1", "rsa_2"}) {
+    // set invalid permissions on only one of the keys
+    filenames.push_back(copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName),
+                                                  std::string_view(keyName) == "ecdsa_1" ? 0644 : 0600));
+  }
+  auto stat = loadHostKeys(filenames);
+  ASSERT_EQ(absl::InvalidArgumentError("bad permissions"), stat.status());
+}
+
+static const auto cipherInfo = std::unordered_map<std::string, std::tuple<uint32_t, uint32_t, uint32_t, uint32_t>>{
+  //             block_size, key_len, iv_len, auth_len
+  {"aes128-ctr", {16, 16, 16, 0}},
+  {"aes192-ctr", {16, 24, 16, 0}},
+  {"aes256-ctr", {16, 32, 16, 0}},
+  {"aes128-gcm@openssh.com", {16, 16, 12, 16}},
+  {"aes256-gcm@openssh.com", {16, 32, 12, 16}},
+  {"chacha20-poly1305@openssh.com", {8, 64, 0, 16}},
+};
+
+class SSHCipherTestSuite : public testing::TestWithParam<std::tuple<std::string, bytes, bytes>> {};
+
+static absl::BitGen rng;
+
+inline bytes randomBytes(size_t size) {
+  bytes b;
+  b.resize(size);
+  for (size_t i = 0; i < b.size(); i++) {
+    b[i] = absl::Uniform<uint8_t>(rng);
+  }
+  return b;
+}
+
+TEST_P(SSHCipherTestSuite, Init) {
+  for (auto mode : {CipherMode::Read, CipherMode::Write}) {
+    auto cipher = std::make_from_tuple<SSHCipher>(std::tuple_cat(GetParam(), std::tuple{mode, 4}));
+    auto [block_size, key_len, iv_len, auth_len] = cipherInfo.at(cipher.name());
+    EXPECT_EQ(block_size, cipher.blockSize());
+    EXPECT_EQ(key_len, cipher.keyLen());
+    EXPECT_EQ(iv_len, cipher.ivLen());
+    EXPECT_EQ(auth_len, cipher.authLen());
+    EXPECT_EQ(4, cipher.aadLen());
+  }
+}
+
+static const auto randomKexInitMsgs = [] {
+  std::vector<wire::KexInitMsg> msgs(1000);
+  for (int i = 0; i < 1000; i++) {
+    wire::test::populateFields(msgs[i]);
+  }
+  return msgs;
+}();
+
+TEST_P(SSHCipherTestSuite, PacketLength) {
+  auto cipher = std::make_from_tuple<SSHCipher>(std::tuple_cat(GetParam(), std::tuple{CipherMode::Write, 4}));
+  for (int i = 0; i < 1000; i++) {
+    const wire::KexInitMsg& msg = randomKexInitMsgs[i];
+    Envoy::Buffer::OwnedImpl plaintext;
+    ASSERT_OK(wire::encodePacket(plaintext, msg, cipher.blockSize(), cipher.aadLen()).status());
+    bytes packet;
+    packet.resize(plaintext.length());
+    plaintext.copyOut(0, packet.size(), packet.data());
+
+    Envoy::Buffer::OwnedImpl ciphertext;
+    ASSERT_OK(cipher.encryptPacket(i, ciphertext, plaintext));
+    auto packetLen = cipher.packetLength(i, std::as_const(ciphertext));
+    ASSERT_OK(packetLen.status());
+    ASSERT_EQ(packet.size() - 4, *packetLen);
+  }
+}
+
+TEST_P(SSHCipherTestSuite, PacketLength_PacketTooSmall) {
+  auto reader = std::make_from_tuple<SSHCipher>(std::tuple_cat(GetParam(), std::tuple{CipherMode::Read, 4}));
+  Envoy::Buffer::OwnedImpl input;
+  input.writeByte(0);
+  input.writeByte(0);
+  input.writeByte(0);
+  EXPECT_EQ(absl::InvalidArgumentError("packet too small"), reader.packetLength(0, input).status());
+}
+
+TEST_P(SSHCipherTestSuite, RoundTrip) {
+  auto reader = std::make_from_tuple<SSHCipher>(std::tuple_cat(GetParam(), std::tuple{CipherMode::Read, 4}));
+  auto writer = std::make_from_tuple<SSHCipher>(std::tuple_cat(GetParam(), std::tuple{CipherMode::Write, 4}));
+
+  for (int i = 0; i < 1000; i++) {
+    const wire::KexInitMsg& msg = randomKexInitMsgs[i];
+    Envoy::Buffer::OwnedImpl plaintext;
+    ASSERT_OK(wire::encodePacket(plaintext, msg, writer.blockSize(), writer.aadLen()).status());
+    auto packet_length = plaintext.peekBEInt<uint32_t>();
+    bytes packet;
+    packet.resize(plaintext.length());
+    plaintext.copyOut(0, packet.size(), packet.data());
+
+    Envoy::Buffer::OwnedImpl ciphertext;
+    ASSERT_OK(writer.encryptPacket(i, ciphertext, plaintext));
+
+    Envoy::Buffer::OwnedImpl decrypted;
+    ASSERT_OK(reader.decryptPacket(i, decrypted, ciphertext, packet_length));
+    wire::KexInitMsg msg2;
+    ASSERT_OK(wire::decodePacket(decrypted, msg2).status());
+    ASSERT_EQ(msg, msg2);
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(SSHCipherTest, SSHCipherTestSuite,
+                         testing::ValuesIn(std::vector<std::tuple<std::string, bytes, bytes>>{
+                           {"aes128-ctr", iv_bytes{}, randomBytes(16)},
+                           {"aes192-ctr", iv_bytes{}, randomBytes(24)},
+                           {"aes256-ctr", iv_bytes{}, randomBytes(32)},
+                           {"aes128-gcm@openssh.com", randomBytes(12), randomBytes(16)},
+                           {"aes256-gcm@openssh.com", randomBytes(12), randomBytes(32)},
+                           {"chacha20-poly1305@openssh.com", iv_bytes{}, randomBytes(64)},
+                         }));
+
+TEST(SSHCipherTest, DecryptPacket_Poly1305TagVerify) {
+  auto key = randomBytes(64);
+  // chacha20-poly1305 will error on cipher_crypt instead of writing garbage, since part of the
+  // cipher_crypt routine for this algorithm is verifying the poly1305 tag
+  SSHCipher reader("chacha20-poly1305@openssh.com", iv_bytes{}, key, CipherMode::Read, 4);
+  SSHCipher writer("chacha20-poly1305@openssh.com", iv_bytes{}, key, CipherMode::Write, 4);
+
+  auto seqnr = 1234;
+  wire::KexInitMsg msg;
+  wire::test::populateFields(msg);
+  Envoy::Buffer::OwnedImpl plaintext;
+  ASSERT_OK(wire::encodePacket(plaintext, msg, writer.blockSize(), writer.aadLen()).status());
+
+  Envoy::Buffer::OwnedImpl ciphertext;
+  ASSERT_OK(writer.encryptPacket(seqnr, ciphertext, plaintext));
+
+  auto packetLen = *reader.packetLength(seqnr, ciphertext);
+
+  Envoy::Buffer::OwnedImpl decrypted;
+  auto ciphertextLen = ciphertext.length();
+  auto r = reader.decryptPacket(seqnr - 1, decrypted, ciphertext, packetLen);
+  EXPECT_EQ(absl::InvalidArgumentError("decrypt failed: message authentication code incorrect"), r);
+  ASSERT_EQ(ciphertextLen, ciphertext.length()); // buffer not drained
+  r = reader.decryptPacket(seqnr + 1, decrypted, ciphertext, packetLen);
+  EXPECT_EQ(absl::InvalidArgumentError("decrypt failed: message authentication code incorrect"), r);
+  ASSERT_EQ(ciphertextLen, ciphertext.length()); // buffer not drained
+  r = reader.decryptPacket(seqnr, decrypted, ciphertext, packetLen);
+  ASSERT_OK(r);
+  ASSERT_EQ(0, ciphertext.length());
+}
+
+class SSHCipherPacketLengthErrorsTestSuite : public testing::TestWithParam<
+                                               std::tuple<
+                                                 std::tuple<std::string, bytes, bytes>, // cipher
+                                                 bytes                                  // input
+                                                 >> {};
+
+TEST_P(SSHCipherPacketLengthErrorsTestSuite, PacketLength_DecodedLengthTooSmall) {
+  auto [cipher, input] = GetParam();
+  auto reader = std::make_from_tuple<SSHCipher>(std::tuple_cat(cipher, std::tuple{CipherMode::Read, 4}));
+  Envoy::Buffer::OwnedImpl in;
+  wire::write(in, input);
+  ASSERT_EQ(absl::InvalidArgumentError(fmt::format("invalid decoded packet length: {} (seqnr 0)",
+                                                   in.peekBEInt<uint32_t>())),
+            reader.packetLength(0, in).status());
+}
+
+INSTANTIATE_TEST_SUITE_P(SSHCipherPacketLengthErrorsTest, SSHCipherPacketLengthErrorsTestSuite,
+                         testing::Combine(
+                           testing::ValuesIn(std::vector<std::tuple<std::string, bytes, bytes>>{
+                             {"aes128-ctr", iv_bytes{}, randomBytes(16)},
+                             {"aes192-ctr", iv_bytes{}, randomBytes(24)},
+                             {"aes256-ctr", iv_bytes{}, randomBytes(32)},
+                             {"aes128-gcm@openssh.com", randomBytes(12), randomBytes(16)},
+                             {"aes256-gcm@openssh.com", randomBytes(12), randomBytes(32)},
+                           }),
+                           testing::ValuesIn(std::vector<bytes>{
+                             {0x00, 0x00, 0x00, 0x00, 0}, // 4 bytes length + 1 byte message id
+                             {0x00, 0x00, 0x00, 0x00, 1},
+                             {0x00, 0x00, 0x00, 0x03, 1},
+                             {0x00, 0x00, 0x00, 0x04, 1}, // MinPacketSize-1
+                             {0x00, 0x04, 0x00, 0x01, 1}, // MaxPacketSize+1
+                             {0xFF, 0xFF, 0xFF, 0xFF, 1},
+                           })));
+
+class SSHCipherPaddingLengthErrorsTestSuite : public SSHCipherTestSuite {};
+
+TEST_P(SSHCipherPaddingLengthErrorsTestSuite, PacketLength_PaddingError) {
+  auto reader = std::make_from_tuple<SSHCipher>(std::tuple_cat(GetParam(), std::tuple{CipherMode::Read, 4}));
+  Envoy::Buffer::OwnedImpl input;
+  auto blockSize = reader.blockSize();
+  input.writeBEInt<uint32_t>(blockSize + 1); // packet length
+  input.writeByte(0);                        // message id
+  EXPECT_EQ(absl::InvalidArgumentError(fmt::format(
+              "padding error: decoded packet length ({}) is not a multiple of the cipher block size ({})",
+              blockSize + 1,
+              blockSize)),
+            reader.packetLength(0, input).status());
+}
+
+TEST_P(SSHCipherPaddingLengthErrorsTestSuite, EncryptPacket_InputTooSmall) {
+  // encryptPacket doesn't fail under normal usage, but we can deliberately pass it invalid input.
+  // for example, some ciphers (not chacha20) will fail if the input is smaller than one block.
+  auto writer = std::make_from_tuple<SSHCipher>(std::tuple_cat(GetParam(), std::tuple{CipherMode::Write, 4}));
+  Buffer::OwnedImpl in;
+  in.writeBEInt<uint32_t>(writer.blockSize() - 1);
+  bytes b;
+  b.resize(writer.blockSize() - 1 - 4);
+  wire::write(in, b);
+  Buffer::OwnedImpl out;
+  EXPECT_EQ(absl::InvalidArgumentError("encrypt failed: invalid argument"), writer.encryptPacket(0, out, in));
+}
+
+INSTANTIATE_TEST_SUITE_P(SSHCipherPaddingLengthErrorsTest, SSHCipherPaddingLengthErrorsTestSuite,
+                         testing::ValuesIn(std::vector<std::tuple<std::string, bytes, bytes>>{
+                           {"aes128-ctr", iv_bytes{}, randomBytes(16)},
+                           {"aes192-ctr", iv_bytes{}, randomBytes(24)},
+                           {"aes256-ctr", iv_bytes{}, randomBytes(32)},
+                           {"aes128-gcm@openssh.com", randomBytes(12), randomBytes(16)},
+                           {"aes256-gcm@openssh.com", randomBytes(12), randomBytes(32)},
+                         }));
+
+TEST(SSHCipherTest, Init_UnknownCipher) {
+  EXPECT_THROW_WITH_MESSAGE(SSHCipher("invalid", {}, {}, {}, {}),
+                            Envoy::EnvoyException,
+                            "unknown cipher: invalid");
+}
+
+TEST(SSHCipherTest, Init_CipherInitFail_WrongIVLen) {
+  EXPECT_THROW_WITH_MESSAGE(SSHCipher("aes128-gcm@openssh.com", bytes(11, 0), bytes(16, 0), CipherMode::Read, 4),
+                            Envoy::EnvoyException,
+                            "failed to initialize cipher: invalid argument");
+}
+
+TEST(SSHCipherTest, Init_CipherInitFail_WrongKeyLen) {
+  EXPECT_THROW_WITH_MESSAGE(SSHCipher("aes128-gcm@openssh.com", bytes(12, 0), bytes(15, 0), CipherMode::Read, 4),
+                            Envoy::EnvoyException,
+                            "failed to initialize cipher: invalid argument");
+}
+
+class SSHMacTestSuite : public testing::TestWithParam<std::tuple<std::string, int, int, bytes>> {};
+
+TEST_P(SSHMacTestSuite, Setup) {
+  auto [mac_alg, mac_type, digest_alg, key] = GetParam();
+  ASSERT_EQ(MACKeySizes.at(mac_alg), key.size()); // sanity check
+  SSHMac mac(mac_alg, key);
+  ASSERT_TRUE(mac.isETM());
+  ASSERT_EQ(mac.sshmacForTest()->mac_len, mac.length());
+  if (mac_type == 1) {
+    ASSERT_EQ(ssh_digest_bytes(digest_alg), mac.length());
+  } else if (mac_type == 3) {
+    ASSERT_EQ(16, mac.length()); // umac-128
+  } else {
+    PANIC("invalid test case");
+  }
+}
+
+TEST_P(SSHMacTestSuite, Compute) {
+  auto [mac_alg, mac_type, digest_alg, key] = GetParam();
+  SSHMac mac(mac_alg, key);
+
+  Buffer::OwnedImpl out;
+  auto in = randomBytes(100);
+  auto seqnr = 1;
+
+  mac.compute(seqnr, out, in);
+
+  bytes expected;
+  expected.resize(mac.sshmacForTest()->mac_len);
+  ASSERT_LE(expected.size(), SSH_DIGEST_MAX_LENGTH); // sanity check
+  ASSERT_EQ(expected.size(), mac.length());
+  ASSERT_TRUE(mac_compute(mac.sshmacForTest(),
+                          seqnr,
+                          in.data(), in.size(),
+                          expected.data(), expected.size()) == 0);
+}
+
+TEST_P(SSHMacTestSuite, Verify) {
+  auto [mac_alg, mac_type, digest_alg, key] = GetParam();
+
+  for (int i = 0; i < 1000; i++) {
+    SSHMac mac(mac_alg, key);
+
+    auto input = randomBytes(absl::Uniform(rng, 0, 256));
+
+    Buffer::OwnedImpl out;
+    mac.compute(i, out, input);
+    auto macBytes = wire::flushTo<bytes>(out);
+
+    ASSERT_OK(mac.verify(i, input, macBytes));
+
+    // check with a mac of wrong length
+    ASSERT_EQ(absl::InvalidArgumentError("invalid argument"),
+              mac.verify(i, input, bytes_view(macBytes).first(macBytes.size() - 1)));
+  }
+}
+
+TEST(SSHMacTest, InvalidMacAlgorithm) {
+  EXPECT_THROW_WITH_MESSAGE(SSHMac("never-before-seen", {}),
+                            Envoy::EnvoyException,
+                            "unknown mac: never-before-seen");
+}
+
+// from mac.c:
+// 1 = SSH_DIGEST
+// 2 = SSH_UMAC
+// 3 = SSH_UMAC128
+INSTANTIATE_TEST_SUITE_P(SSHMacTest, SSHMacTestSuite,
+                         testing::ValuesIn(std::vector<std::tuple<std::string, int, int, bytes>>{
+                           {"hmac-sha2-256-etm@openssh.com", 1, SSH_DIGEST_SHA256, randomBytes(32)},
+                           {"hmac-sha2-512-etm@openssh.com", 1, SSH_DIGEST_SHA512, randomBytes(64)},
+                           {"umac-128-etm@openssh.com", 3, -1, randomBytes(16)},
+                         }));
+
+class HashTestSuite : public testing::TestWithParam<std::tuple<int, std::string>> {};
+
+TEST_P(HashTestSuite, Hash) {
+  auto [alg, algName] = GetParam();
+  for (int i = 0; i < 1000; i++) {
+    auto input = randomBytes(absl::Uniform(rng, 0, 1024));
+
+    bytes digest(ssh_digest_bytes(alg), 0);
+    ASSERT_TRUE(ssh_digest_memory(alg, input.data(), input.size(), digest.data(), digest.size()) == 0);
+
+    {
+      Hash ours(alg);
+      ours.write(input);
+      ASSERT_EQ(digest, ours.sum());
+    }
+
+    {
+      Hash ours(algName);
+      ours.write(input);
+      ASSERT_EQ(digest, ours.sum());
+    }
+  }
+}
+
+TEST_P(HashTestSuite, BlockSize) {
+  auto [alg, algName] = GetParam();
+  detail::ssh_digest_ctx_ptr digest_ctx = ssh_digest_start(alg);
+  auto expected = ssh_digest_blocksize(digest_ctx.get());
+
+  {
+    Hash h(alg);
+    auto actual = h.blockSize();
+    EXPECT_EQ(expected, actual);
+  }
+
+  {
+    Hash h(algName);
+    auto actual = h.blockSize();
+    EXPECT_EQ(expected, actual);
+  }
+}
+
+TEST_P(HashTestSuite, WriteSingleBytes) {
+  auto [alg, algName] = GetParam();
+  auto input = randomBytes(absl::Uniform(rng, 0, 1024));
+
+  {
+    Hash h1(alg);
+    h1.write(input);
+    auto sum1 = h1.sum();
+
+    Hash h2(alg);
+    for (uint8_t byte : input) {
+      h2.write(byte);
+    }
+    auto sum2 = h2.sum();
+    EXPECT_EQ(sum1, sum2);
+  }
+
+  {
+    Hash h1(algName);
+    h1.write(input);
+    auto sum1 = h1.sum();
+
+    Hash h2(algName);
+    for (uint8_t byte : input) {
+      h2.write(byte);
+    }
+    auto sum2 = h2.sum();
+    EXPECT_EQ(sum1, sum2);
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(HashTest, HashTestSuite,
+                         testing::ValuesIn(std::vector<std::tuple<int, std::string>>{
+                           {SSH_DIGEST_SHA1, "SHA1"},
+                           {SSH_DIGEST_SHA256, "SHA256"},
+                           {SSH_DIGEST_SHA384, "SHA384"},
+                           {SSH_DIGEST_SHA512, "SHA512"},
+                         }));
+
+TEST(HashTest, InvalidAlgorithmID) {
+  EXPECT_THROW_WITH_MESSAGE(Hash(SSH_DIGEST_MAX),
+                            Envoy::EnvoyException,
+                            "invalid hash algorithm id: 5");
+}
+
+TEST(HashTest, InvalidAlgorithmName) {
+  EXPECT_THROW_WITH_MESSAGE(Hash("never-before-seen"),
+                            Envoy::EnvoyException,
+                            "invalid hash algorithm: never-before-seen");
+}
+
+} // namespace openssh::test
