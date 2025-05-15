@@ -50,7 +50,7 @@ jobs:
           format: lcov
           parallel: true
 
-  finish:
+  upload-coverage:
     needs: test
     runs-on:
       - ubuntu-latest-16-cores${{ matrix.arch == 'arm64' && '-arm64' || '' }}
