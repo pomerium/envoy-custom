@@ -8,8 +8,8 @@ PacketCipher::PacketCipher(std::unique_ptr<DirectionalPacketCipher> read,
     : read_(std::move(read)),
       write_(std::move(write)) {}
 
-absl::StatusOr<size_t> PacketCipher::encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
-                                                   Envoy::Buffer::Instance& in) {
+absl::Status PacketCipher::encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
+                                         Envoy::Buffer::Instance& in) {
   return write_->encryptPacket(seqnum, out, in);
 }
 
@@ -72,11 +72,10 @@ absl::StatusOr<size_t> NoCipher::decryptPacket(uint32_t /*seqnum*/, Envoy::Buffe
   return need;
 }
 
-absl::StatusOr<size_t> NoCipher::encryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
-                                               Envoy::Buffer::Instance& in) {
-  size_t in_len = in.length();
-  out.move(in, in_len);
-  return in_len;
+absl::Status NoCipher::encryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
+                                     Envoy::Buffer::Instance& in) {
+  out.move(in);
+  return absl::OkStatus();
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

@@ -40,29 +40,27 @@ absl::StatusOr<size_t> ETMPacketCipher::decryptPacket(uint32_t seqnum,
   if (!status.ok()) {
     return status;
   }
-  auto r = ctx_.decryptPacket(seqnum, out, in, packet_length);
-  if (!r.ok()) {
-    return r.status();
+  auto stat = ctx_.decryptPacket(seqnum, out, in, packet_length);
+  if (!stat.ok()) {
+    return stat;
   }
-  ASSERT(*r == need - mac_len);
   in.drain(mac_len);
   return packet_length;
 }
 
-absl::StatusOr<size_t> ETMPacketCipher::encryptPacket(uint32_t seqnum,
-                                                      Envoy::Buffer::Instance& out,
-                                                      Envoy::Buffer::Instance& in) {
+absl::Status ETMPacketCipher::encryptPacket(uint32_t seqnum,
+                                            Envoy::Buffer::Instance& out,
+                                            Envoy::Buffer::Instance& in) {
   Envoy::Buffer::OwnedImpl tmp;
-  auto enc_len = ctx_.encryptPacket(seqnum, tmp, in);
-  if (!enc_len.ok()) {
-    return enc_len.status();
+  auto stat = ctx_.encryptPacket(seqnum, tmp, in);
+  if (!stat.ok()) {
+    return stat;
   }
-  ASSERT(*enc_len == tmp.length());
   if (auto r = mac_.compute(seqnum, tmp, linearizeToSpan(tmp)); !r.ok()) {
     return r.status();
   }
   out.move(tmp);
-  return *enc_len;
+  return absl::OkStatus();
 }
 
 size_t ETMPacketCipher::blockSize() const {

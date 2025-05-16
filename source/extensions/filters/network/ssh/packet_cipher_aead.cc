@@ -30,17 +30,17 @@ absl::StatusOr<size_t> AEADPacketCipher::decryptPacket(uint32_t seqnum,
     return 0; // incomplete packet
   }
 
-  auto r = ctx_.decryptPacket(seqnum, out, in, packlen);
-  if (!r.ok()) {
-    return r.status();
+  auto stat = ctx_.decryptPacket(seqnum, out, in, packlen);
+  if (!stat.ok()) {
+    return stat;
   }
 
-  return *r;
+  return packlen;
 }
 
-absl::StatusOr<size_t> AEADPacketCipher::encryptPacket(uint32_t seqnum,
-                                                       Envoy::Buffer::Instance& out,
-                                                       Envoy::Buffer::Instance& in) {
+absl::Status AEADPacketCipher::encryptPacket(uint32_t seqnum,
+                                             Envoy::Buffer::Instance& out,
+                                             Envoy::Buffer::Instance& in) {
 
   return ctx_.encryptPacket(seqnum, out, in);
 }

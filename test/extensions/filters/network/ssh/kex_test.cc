@@ -1018,7 +1018,7 @@ TEST_P(MakePacketCipherTest, MakePacketCipher) {
                                  send->blockSize(openssh::CipherMode::Write),
                                  send->aadSize(openssh::CipherMode::Write))
                 .status());
-    ASSERT_OK(send->encryptPacket(seqnum, ciphertext, plaintext).status());
+    ASSERT_OK(send->encryptPacket(seqnum, ciphertext, plaintext));
 
     Buffer::OwnedImpl decrypted;
     ASSERT_OK(recv->decryptPacket(seqnum, decrypted, ciphertext).status());

@@ -300,23 +300,24 @@ private:
 
   absl::StatusOr<size_t> sendMessageDirect(wire::Message&& msg) final {
     Envoy::Buffer::OwnedImpl dec;
-    auto stat = wire::encodePacket(dec,
-                                   msg,
-                                   cipher_state_.cipher->blockSize(openssh::CipherMode::Write),
-                                   cipher_state_.cipher->aadSize(openssh::CipherMode::Write));
-    if (!stat.ok()) {
-      return statusf("error encoding packet: {}", stat.status());
+    auto packet_len = wire::encodePacket(dec,
+                                         msg,
+                                         cipher_state_.cipher->blockSize(openssh::CipherMode::Write),
+                                         cipher_state_.cipher->aadSize(openssh::CipherMode::Write));
+    if (!packet_len.ok()) {
+      return statusf("error encoding packet: {}", packet_len.status());
     }
     Envoy::Buffer::OwnedImpl enc;
-    auto bytes_written = cipher_state_.cipher->encryptPacket(cipher_state_.seq_write++, enc, dec);
-    if (!bytes_written.ok()) {
-      return statusf("error encrypting packet: {}", bytes_written.status());
+
+    auto stat = cipher_state_.cipher->encryptPacket(cipher_state_.seq_write++, enc, dec);
+    if (!stat.ok()) {
+      return statusf("error encrypting packet: {}", stat);
     }
     size_t n = enc.length();
     writeToConnection(enc);
 
     cipher_state_.write_bytes_remaining = sub_sat(cipher_state_.write_bytes_remaining,
-                                                  static_cast<uint64_t>(*bytes_written));
+                                                  static_cast<uint64_t>(*packet_len));
     if (!cipher_state_.pending_key_exchange &&
         (cipher_state_.write_bytes_remaining == 0 || cipher_state_.seq_write > seqnum_rekey_limit)) {
       ENVOY_LOG(debug, "ssh [{}]: write rekey threshold was reached, initiating key re-exchange (bytes remaining: {}; packets sent: {})",

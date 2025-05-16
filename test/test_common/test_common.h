@@ -22,16 +22,16 @@ using namespace std::literals;
 #undef EXPECT_THROW
 #define EXPECT_THROW #warning "use EXPECT_THROW_WITH_MESSAGE instead of EXPECT_THROW"
 
-#define EXPECT_OK(expr)                                                                  \
-  do {                                                                                   \
-    absl::Status s = (expr);                                                             \
-    EXPECT_TRUE(s.ok()) << "status code: " << s.code() << "; message: " << s.ToString(); \
+#define EXPECT_OK(expr)                                                                                                               \
+  do {                                                                                                                                \
+    absl::Status expect_ok_status = (expr);                                                                                           \
+    EXPECT_TRUE(expect_ok_status.ok()) << "status code: " << expect_ok_status.code() << "; message: " << expect_ok_status.ToString(); \
   } while (false)
 
-#define ASSERT_OK(expr)                                                                  \
-  do {                                                                                   \
-    absl::Status s = (expr);                                                             \
-    ASSERT_TRUE(s.ok()) << "status code: " << s.code() << "; message: " << s.ToString(); \
+#define ASSERT_OK(expr)                                                                                                               \
+  do {                                                                                                                                \
+    absl::Status assert_ok_status = (expr);                                                                                           \
+    ASSERT_TRUE(assert_ok_status.ok()) << "status code: " << assert_ok_status.code() << "; message: " << assert_ok_status.ToString(); \
   } while (false)
 
 // NOLINTBEGIN(readability-identifier-naming)

@@ -1,10 +1,19 @@
 #include "source/common/span.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
 #include "gtest/gtest.h"
+#include "source/extensions/filters/network/ssh/wire/common.h"
+#include "source/extensions/filters/network/ssh/wire/encoding.h"
+#include "source/extensions/filters/network/ssh/wire/messages.h"
+#include "source/extensions/filters/network/ssh/wire/packet.h"
 #include "test/extensions/filters/network/ssh/test_data.h"
 #include "test/mocks/api/mocks.h"
 #include "test/test_common/environment.h"
 #include "test/test_common/file_system_for_test.h"
+#include "test/extensions/filters/network/ssh/wire/test_field_reflect.h"
+
+#pragma clang unsafe_buffer_usage begin
+#include "absl/random/random.h"
+#pragma clang unsafe_buffer_usage end
 
 extern "C" {
 #include "openssh/ssh2.h"
@@ -500,6 +509,113 @@ TEST(OpensshTest, LoadHostKeys_DuplicateAlgorithm) {
   }
   auto stat = loadHostKeys(filenames);
   ASSERT_EQ(absl::InvalidArgumentError("host keys must have unique algorithms"), stat.status());
+}
+
+static const auto cipherInfo = std::unordered_map<std::string, std::tuple<uint32_t, uint32_t, uint32_t, uint32_t>>{
+  //             block_size, key_len, iv_len, auth_len
+  {"aes128-ctr", {16, 16, 16, 0}},
+  {"aes192-ctr", {16, 24, 16, 0}},
+  {"aes256-ctr", {16, 32, 16, 0}},
+  {"aes128-gcm@openssh.com", {16, 16, 12, 16}},
+  {"aes256-gcm@openssh.com", {16, 32, 12, 16}},
+  {"chacha20-poly1305@openssh.com", {8, 64, 0, 16}},
+};
+
+class SSHCipherTestSuite : public testing::TestWithParam<std::tuple<std::string, bytes, bytes>> {};
+
+static absl::BitGen rng;
+
+inline bytes randomBytes(size_t size) {
+  bytes b;
+  b.resize(size);
+  for (size_t i = 0; i < b.size(); i++) {
+    b[i] = absl::Uniform<uint8_t>(rng);
+  }
+  return b;
+}
+
+TEST_P(SSHCipherTestSuite, Init) {
+  for (auto mode : {CipherMode::Read, CipherMode::Write}) {
+    auto cipher = std::make_from_tuple<SSHCipher>(std::tuple_cat(GetParam(), std::tuple{mode, 4}));
+    auto [block_size, key_len, iv_len, auth_len] = cipherInfo.at(cipher.name());
+    EXPECT_EQ(block_size, cipher.blockSize());
+    EXPECT_EQ(key_len, cipher.keyLen());
+    EXPECT_EQ(iv_len, cipher.ivLen());
+    EXPECT_EQ(auth_len, cipher.authLen());
+    EXPECT_EQ(4, cipher.aadLen());
+  }
+}
+
+static const auto randomKexInitMsgs = [] {
+  std::vector<wire::KexInitMsg> msgs(1000);
+  for (int i = 0; i < 1000; i++) {
+    wire::test::populateFields(msgs[i]);
+  }
+  return msgs;
+}();
+
+TEST_P(SSHCipherTestSuite, PacketLength) {
+  auto cipher = std::make_from_tuple<SSHCipher>(std::tuple_cat(GetParam(), std::tuple{CipherMode::Write, 4}));
+  for (int i = 0; i < 1000; i++) {
+    const wire::KexInitMsg& msg = randomKexInitMsgs[i];
+    Envoy::Buffer::OwnedImpl plaintext;
+    ASSERT_OK(wire::encodePacket(plaintext, msg, cipher.blockSize(), cipher.aadLen()).status());
+    bytes packet;
+    packet.resize(plaintext.length());
+    plaintext.copyOut(0, packet.size(), packet.data());
+
+    Envoy::Buffer::OwnedImpl ciphertext;
+    ASSERT_OK(cipher.encryptPacket(i, ciphertext, plaintext));
+    auto packetLen = cipher.packetLength(i, std::as_const(ciphertext));
+    ASSERT_OK(packetLen.status());
+    ASSERT_EQ(packet.size() - 4, *packetLen);
+  }
+}
+
+TEST_P(SSHCipherTestSuite, RoundTrip) {
+  auto reader = std::make_from_tuple<SSHCipher>(std::tuple_cat(GetParam(), std::tuple{CipherMode::Read, 4}));
+  auto writer = std::make_from_tuple<SSHCipher>(std::tuple_cat(GetParam(), std::tuple{CipherMode::Write, 4}));
+
+  for (int i = 0; i < 1000; i++) {
+    const wire::KexInitMsg& msg = randomKexInitMsgs[i];
+    Envoy::Buffer::OwnedImpl plaintext;
+    ASSERT_OK(wire::encodePacket(plaintext, msg, writer.blockSize(), writer.aadLen()).status());
+    auto packet_length = plaintext.peekBEInt<uint32_t>();
+    bytes packet;
+    packet.resize(plaintext.length());
+    plaintext.copyOut(0, packet.size(), packet.data());
+
+    Envoy::Buffer::OwnedImpl ciphertext;
+    ASSERT_OK(writer.encryptPacket(i, ciphertext, plaintext));
+
+    Envoy::Buffer::OwnedImpl decrypted;
+    ASSERT_OK(reader.decryptPacket(i, decrypted, ciphertext, packet_length));
+    wire::KexInitMsg msg2;
+    ASSERT_OK(wire::decodePacket(decrypted, msg2).status());
+    ASSERT_EQ(msg, msg2);
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(SSHCipherTest, SSHCipherTestSuite,
+                         testing::ValuesIn(std::vector<std::tuple<std::string, bytes, bytes>>{
+                           {"aes128-ctr", iv_bytes{}, randomBytes(16)},
+                           {"aes192-ctr", iv_bytes{}, randomBytes(24)},
+                           {"aes256-ctr", iv_bytes{}, randomBytes(32)},
+                           {"aes128-gcm@openssh.com", randomBytes(12), randomBytes(16)},
+                           {"aes256-gcm@openssh.com", randomBytes(12), randomBytes(32)},
+                           {"chacha20-poly1305@openssh.com", iv_bytes{}, randomBytes(64)},
+                         }));
+
+TEST(SSHCipherTest, InitDeath_UnknownCipher) {
+  EXPECT_DEATH(SSHCipher("invalid", {}, {}, {}, {}), "unknown cipher: invalid");
+}
+
+TEST(SSHCipherTest, InitDeath_CipherInitFail_WrongIVLen) {
+  EXPECT_DEATH(SSHCipher("aes128-gcm@openssh.com", bytes(11, 0), bytes(16, 0), CipherMode::Read, 4), "failed to initialize cipher: invalid argument");
+}
+
+TEST(SSHCipherTest, InitDeath_CipherInitFail_WrongKeyLen) {
+  EXPECT_DEATH(SSHCipher("aes128-gcm@openssh.com", bytes(12, 0), bytes(15, 0), CipherMode::Read, 4), "failed to initialize cipher: invalid argument");
 }
 
 } // namespace openssh::test

@@ -128,29 +128,34 @@ public:
   SSHCipher(const std::string& cipher_name,
             const iv_bytes& iv, const key_bytes& key,
             CipherMode mode, uint32_t aad_len);
-  absl::StatusOr<size_t> encryptPacket(seqnum_t seqnum,
-                                       Envoy::Buffer::Instance& out,
-                                       Envoy::Buffer::Instance& in);
+  // Encrypts a packet (encoded by wire::encodePacket) contained in 'in' into 'out', draining the
+  // bytes from 'in'.
+  absl::Status encryptPacket(seqnum_t seqnum,
+                             Envoy::Buffer::Instance& out,
+                             Envoy::Buffer::Instance& in);
 
-  absl::StatusOr<size_t> decryptPacket(seqnum_t seqnum,
-                                       Envoy::Buffer::Instance& out,
-                                       Envoy::Buffer::Instance& in,
-                                       uint32_t packet_length);
+  absl::Status decryptPacket(seqnum_t seqnum,
+                             Envoy::Buffer::Instance& out,
+                             Envoy::Buffer::Instance& in,
+                             uint32_t packet_length);
 
-  absl::StatusOr<uint32_t> packetLength(seqnum_t seqnum,
-                                        const Envoy::Buffer::Instance& in);
+  absl::StatusOr<uint32_t> packetLength(seqnum_t seqnum, const Envoy::Buffer::Instance& in);
 
   inline size_t blockSize() const { return block_size_; }
   inline size_t authLen() const { return auth_len_; }
   inline size_t ivLen() const { return iv_len_; }
+  inline size_t keyLen() const { return key_len_; }
   inline size_t aadLen() const { return aad_len_; }
+  inline const std::string& name() const { return name_; }
 
 private:
   detail::sshcipher_ctx_ptr ctx_;
   uint32_t block_size_;
   uint32_t auth_len_;
   uint32_t iv_len_;
+  uint32_t key_len_;
   uint32_t aad_len_;
+  std::string name_;
 };
 
 class SSHMac {

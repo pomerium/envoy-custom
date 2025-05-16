@@ -23,12 +23,11 @@ protected:
 };
 
 TEST_F(PacketCipherTest, EncryptPacket) {
-  EXPECT_CALL(*write_, encryptPacket(0, _, _))
-    .WillOnce(Return(0));
+  EXPECT_CALL(*write_, encryptPacket(0, _, _));
 
   PacketCipher cipher(std::move(read_), std::move(write_));
   Buffer::OwnedImpl buf;
-  EXPECT_OK(cipher.encryptPacket(0, buf, buf).status());
+  EXPECT_OK(cipher.encryptPacket(0, buf, buf));
 }
 
 TEST_F(PacketCipherTest, DecryptPacket) {
@@ -135,12 +134,10 @@ TEST(NoCipherTest, EncryptDecryptPacket) {
   auto packetData = buffer.toString();
 
   Buffer::OwnedImpl encrypted; // not really encrypted
-  auto r = no_cipher.encryptPacket(0, encrypted, buffer);
-  ASSERT_OK(r.status());
-  ASSERT_EQ(packetData.size(), *r);
+  ASSERT_OK(no_cipher.encryptPacket(0, encrypted, buffer));
 
   Buffer::OwnedImpl decrypted;
-  r = no_cipher.decryptPacket(0, decrypted, encrypted);
+  auto r = no_cipher.decryptPacket(0, decrypted, encrypted);
   ASSERT_OK(r.status());
   ASSERT_EQ(packetData.size(), *r);
 }

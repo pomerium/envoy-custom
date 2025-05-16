@@ -23,8 +23,8 @@ public:
 
   absl::StatusOr<size_t> decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
                                        Envoy::Buffer::Instance& in) override;
-  absl::StatusOr<size_t> encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
-                                       Envoy::Buffer::Instance& in) override;
+  absl::Status encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
+                             Envoy::Buffer::Instance& in) override;
   size_t blockSize() const override;
   size_t aadLen() const override;
 

@@ -312,13 +312,35 @@ const char* SSHKey::namePtr() const {
   return sshkey_ssh_name(key_.get());
 }
 
+std::vector<std::string> SSHKey::signatureAlgorithmsForKeyType() const {
+  // Regarding the rsa signature algorithms, openssh protocol extension doc states:
+  //  These RSA/SHA-2 types should not appear in keys at rest or transmitted
+  //  on the wire, but do appear in a SSH_MSG_KEXINIT's host-key algorithms
+  //  field or in the "public key algorithm name" field of a "publickey"
+  //  SSH_USERAUTH_REQUEST to indicate that the signature will use the
+  //  specified algorithm.
+  //
+  // NB: sha1-variant rsa algorithms ("ssh-rsa"/"ssh-rsa-cert-v01@openssh.com") are not included.
+  switch (keyType()) {
+  case KEY_RSA:
+    return {"rsa-sha2-256",
+            "rsa-sha2-512"};
+  case KEY_RSA_CERT:
+    return {"rsa-sha2-256-cert-v01@openssh.com",
+            "rsa-sha2-512-cert-v01@openssh.com"};
+  default:
+    return {std::string(keyTypeName())};
+  }
+}
+
 // SSHCipher
 
 SSHCipher::SSHCipher(const std::string& cipher_name,
                      const iv_bytes& iv,
                      const key_bytes& key,
                      CipherMode mode,
-                     uint32_t aad_len) {
+                     uint32_t aad_len)
+    : name_(cipher_name) {
   auto cipher = cipher_by_name(cipher_name.c_str());
   if (cipher == nullptr) {
     PANIC(fmt::format("unknown cipher: {}", cipher_name));
@@ -326,21 +348,20 @@ SSHCipher::SSHCipher(const std::string& cipher_name,
   block_size_ = cipher_blocksize(cipher);
   auth_len_ = cipher_authlen(cipher);
   iv_len_ = cipher_ivlen(cipher);
+  key_len_ = cipher_keylen(cipher);
   aad_len_ = aad_len;
-  ASSERT(iv.size() == iv_len_);
-  ASSERT(key.size() == cipher_keylen(cipher));
   ASSERT(aad_len_ == 4);
 
   auto err = cipher_init(std::out_ptr(ctx_), cipher, key.data(), static_cast<uint32_t>(key.size()),
                          iv.data(), static_cast<uint32_t>(iv.size()), std::to_underlying(mode));
   if (err != 0) {
-    PANIC(fmt::format("cipher_init failed: {}", ssh_err(err)));
+    PANIC(fmt::format("failed to initialize cipher: {}", ssh_err(err)));
   }
 }
 
-absl::StatusOr<size_t> SSHCipher::encryptPacket(seqnum_t seqnum,
-                                                Envoy::Buffer::Instance& out,
-                                                Envoy::Buffer::Instance& in) {
+absl::Status SSHCipher::encryptPacket(seqnum_t seqnum,
+                                      Envoy::Buffer::Instance& out,
+                                      Envoy::Buffer::Instance& in) {
   auto in_length = in.length();
   auto in_data = in.linearize(static_cast<uint32_t>(in_length));
   uint32_t packlen = static_cast<uint32_t>(in_length);
@@ -358,13 +379,13 @@ absl::StatusOr<size_t> SSHCipher::encryptPacket(seqnum_t seqnum,
   in.drain(in_length);
   auto out_len = out_data.length();
   out_data.commit(out_len);
-  return out_len;
+  return absl::OkStatus();
 }
 
-absl::StatusOr<size_t> SSHCipher::decryptPacket(seqnum_t seqnum,
-                                                Envoy::Buffer::Instance& out,
-                                                Envoy::Buffer::Instance& in,
-                                                uint32_t packet_length) {
+absl::Status SSHCipher::decryptPacket(seqnum_t seqnum,
+                                      Envoy::Buffer::Instance& out,
+                                      Envoy::Buffer::Instance& in,
+                                      uint32_t packet_length) {
   size_t need = aad_len_ + packet_length + auth_len_;
   ASSERT(in.length() >= need);
 
@@ -381,7 +402,7 @@ absl::StatusOr<size_t> SSHCipher::decryptPacket(seqnum_t seqnum,
   }
   in.drain(static_cast<uint64_t>(need));
   out_data.commit(out_data.length());
-  return need;
+  return absl::OkStatus();
 }
 
 absl::StatusOr<uint32_t> SSHCipher::packetLength(seqnum_t seqnum,
@@ -411,27 +432,6 @@ absl::StatusOr<uint32_t> SSHCipher::packetLength(seqnum_t seqnum,
                                           block_size_, packlen % block_size_));
   }
   return packlen;
-}
-
-std::vector<std::string> SSHKey::signatureAlgorithmsForKeyType() const {
-  // Regarding the rsa signature algorithms, openssh protocol extension doc states:
-  //  These RSA/SHA-2 types should not appear in keys at rest or transmitted
-  //  on the wire, but do appear in a SSH_MSG_KEXINIT's host-key algorithms
-  //  field or in the "public key algorithm name" field of a "publickey"
-  //  SSH_USERAUTH_REQUEST to indicate that the signature will use the
-  //  specified algorithm.
-  //
-  // NB: sha1-variant rsa algorithms ("ssh-rsa"/"ssh-rsa-cert-v01@openssh.com") are not included.
-  switch (keyType()) {
-  case KEY_RSA:
-    return {"rsa-sha2-256",
-            "rsa-sha2-512"};
-  case KEY_RSA_CERT:
-    return {"rsa-sha2-256-cert-v01@openssh.com",
-            "rsa-sha2-512-cert-v01@openssh.com"};
-  default:
-    return {std::string(keyTypeName())};
-  }
 }
 
 SSHMac::SSHMac(const std::string& mac_name, const key_bytes& key) {

@@ -19,8 +19,8 @@ public:
   // bytes read.
   virtual absl::StatusOr<size_t> decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
                                                Envoy::Buffer::Instance& in) PURE;
-  virtual absl::StatusOr<size_t> encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
-                                               Envoy::Buffer::Instance& in) PURE;
+  virtual absl::Status encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
+                                     Envoy::Buffer::Instance& in) PURE;
   virtual size_t blockSize() const PURE;
   virtual size_t aadLen() const PURE;
 };
@@ -58,8 +58,8 @@ public:
   PacketCipher(std::unique_ptr<DirectionalPacketCipher> read,
                std::unique_ptr<DirectionalPacketCipher> write);
 
-  absl::StatusOr<size_t> encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
-                                       Envoy::Buffer::Instance& in);
+  absl::Status encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
+                             Envoy::Buffer::Instance& in);
   absl::StatusOr<size_t> decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
                                        Envoy::Buffer::Instance& in);
   size_t blockSize(openssh::CipherMode mode);
@@ -76,8 +76,8 @@ public:
   NoCipher() = default;
   absl::StatusOr<size_t> decryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
                                        Envoy::Buffer::Instance& in) override;
-  absl::StatusOr<size_t> encryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
-                                       Envoy::Buffer::Instance& in) override;
+  absl::Status encryptPacket(uint32_t /*seqnum*/, Envoy::Buffer::Instance& out,
+                             Envoy::Buffer::Instance& in) override;
   size_t blockSize() const override {
     // Minimum block size is 8 according to RFC4253 § 6
     return 8;
