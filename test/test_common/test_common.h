@@ -106,6 +106,8 @@ WhenResolvedAs(const testing::Matcher<T>& inner_matcher) {
 using testing::_; // NOLINT(bugprone-reserved-identifier)
 using testing::AllOf;
 using testing::AllOfArray;
+using testing::AnyOf;
+using testing::AnyOfArray;
 using testing::DoAll;
 using testing::Eq;
 using testing::Field;

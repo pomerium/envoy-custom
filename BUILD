@@ -29,6 +29,7 @@ envoy_cc_binary(
 
 configure_make(
     name = "openssh",
+    args = ["-j4"],
     autoreconf = True,
     configure_in_place = True,
     configure_options = [

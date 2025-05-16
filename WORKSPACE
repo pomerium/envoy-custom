@@ -80,7 +80,19 @@ load("@envoy_api//bazel:envoy_http_archive.bzl", "envoy_http_archive")
 
 envoy_http_archive(
     name = "openssh_portable",
-    build_file_content = """filegroup(name = "all", srcs = glob(["**"]), visibility = ["//visibility:public"])""",
+    build_file_content = """
+filegroup(
+    name = "all",
+    srcs = glob(["**"]),
+    visibility = ["//visibility:public"],
+)
+filegroup(
+    name = "testdata_sshkey",
+    srcs = glob(["regress/unittests/sshkey/testdata/*"]),
+    visibility = ["//visibility:public"],
+    testonly = True,
+)
+    """,
     locations = dict(
         openssh_portable = dict(
             license = "BSD",

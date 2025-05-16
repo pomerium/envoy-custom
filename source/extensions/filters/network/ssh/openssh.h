@@ -61,14 +61,15 @@ public:
   static absl::StatusOr<std::unique_ptr<SSHKey>> generate(sshkey_types type, uint32_t bits);
 
   static sshkey_types keyTypeFromName(const std::string& name);
+  static bool keyTypeIsCert(sshkey_types type);
+  // Returns the cert-less equivalent to a certified key type
+  static sshkey_types keyTypePlain(sshkey_types type);
 
   absl::StatusOr<std::string> fingerprint(sshkey_fp_rep representation = SSH_FP_DEFAULT) const;
   std::string_view keyTypeName() const;
   sshkey_types keyType() const;
-  std::vector<std::string> signatureAlgorithmsForKeyType() const;
-
-  // Returns the cert-less equivalent to a certified key type
   sshkey_types keyTypePlain() const;
+  std::vector<std::string> signatureAlgorithmsForKeyType() const;
 
   absl::Status convertToSignedUserCertificate(
     uint64_t serial,
@@ -78,10 +79,13 @@ public:
     const SSHKey& signer);
 
   absl::StatusOr<bytes> toPublicKeyBlob() const;
+  absl::StatusOr<std::unique_ptr<SSHKey>> toPublicKey() const;
   absl::StatusOr<std::string> toPrivateKeyPem() const;
   absl::StatusOr<std::string> toPublicKeyPem() const;
   absl::StatusOr<bytes> sign(bytes_view payload) const;
   absl::Status verify(bytes_view signature, bytes_view payload);
+
+  const struct sshkey* sshKeyForTest() const { return key_.get(); };
 
 private:
   explicit SSHKey(detail::sshkey_ptr key);

@@ -85,3 +85,22 @@ envoy_cc_test(
         "@envoy//test/mocks/api:api_mocks",
     ],
 )
+
+envoy_cc_test(
+    name = "openssh_test",
+    srcs = [
+        "openssh_test.cc",
+    ],
+    data = [
+        "@openssh_portable//:testdata_sshkey",
+    ],
+    repository = "@envoy",
+    deps = [
+        ":test_common",
+        ":test_mocks",
+        "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "//test/extensions/filters/network/ssh/wire:wire_test_util",
+        "@envoy//test/mocks/api:api_mocks",
+        "@envoy//test/test_common:environment_lib",
+    ],
+)

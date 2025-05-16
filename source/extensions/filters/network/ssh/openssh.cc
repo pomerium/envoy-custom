@@ -99,12 +99,12 @@ absl::StatusCode statusCodeFromErr(int n) {
   return absl::StatusCode::kUnknown;
 }
 
-absl::Status statusFromErr(int n) {
-  return {statusCodeFromErr(n), ssh_err(n)};
-}
-
 std::string statusMessageFromErr(int n) {
   return ssh_err(n);
+}
+
+absl::Status statusFromErr(int n) {
+  return {statusCodeFromErr(n), statusMessageFromErr(n)};
 }
 
 SSHKey::SSHKey(detail::sshkey_ptr key)
@@ -149,6 +149,18 @@ absl::StatusOr<SSHKeyPtr> SSHKey::generate(sshkey_types type, uint32_t bits) {
   return std::unique_ptr<SSHKey>(new SSHKey(std::move(key)));
 }
 
+sshkey_types SSHKey::keyTypeFromName(const std::string& name) {
+  return static_cast<sshkey_types>(sshkey_type_from_name(name.c_str()));
+}
+
+bool SSHKey::keyTypeIsCert(sshkey_types type) {
+  return static_cast<bool>(sshkey_type_is_cert(type));
+}
+
+sshkey_types SSHKey::keyTypePlain(sshkey_types type) {
+  return static_cast<sshkey_types>(sshkey_type_plain(type));
+}
+
 bool SSHKey::operator==(const SSHKey& other) const {
   return sshkey_equal(key_.get(), other.key_.get()) == 1;
 }
@@ -161,7 +173,7 @@ absl::StatusOr<std::string> SSHKey::fingerprint(sshkey_fp_rep representation) co
   // TODO: make the hash algorithm configurable?
   CStringPtr fp{sshkey_fingerprint(key_.get(), SSH_DIGEST_SHA256, representation)};
   if (fp == nullptr) {
-    return absl::InvalidArgumentError("sshkey_fingerprint_raw failed");
+    return absl::InvalidArgumentError("sshkey_fingerprint failed");
   }
   return std::string{fp.get()};
 }
@@ -201,13 +213,23 @@ absl::Status SSHKey::convertToSignedUserCertificate(
   key_->cert->valid_after = absl::ToUnixSeconds(absl::Now());
   key_->cert->valid_before = absl::ToUnixSeconds(absl::Now() + valid_duration);
 
+  // despite the name of this function, the input can be a public key
   if (auto err = sshkey_from_private(signer.key_.get(),
                                      &key_->cert->signature_key);
       err != 0) {
     return statusFromErr(err);
   }
+
+  const char* sig_alg = nullptr;
+  if (signer.keyTypePlain() == KEY_RSA) {
+    sig_alg = "rsa-sha2-512"; // force a stronger algorithm for rsa
+  } else {
+    sig_alg = signer.namePtr();
+  }
+  // NB: the signature algorithm argument to sshkey_certify only does anything for rsa keys, and
+  // both the plain and cert names are accepted.
   if (auto err = sshkey_certify(key_.get(), signer.key_.get(),
-                                signer.namePtr(), nullptr, nullptr);
+                                sig_alg, nullptr, nullptr);
       err != 0) {
     return statusFromErr(err);
   }
@@ -221,6 +243,14 @@ absl::StatusOr<bytes> SSHKey::toPublicKeyBlob() const {
     return statusFromErr(err);
   }
   return to_bytes(unsafe_forge_span(buf.get(), len));
+}
+
+absl::StatusOr<std::unique_ptr<SSHKey>> SSHKey::toPublicKey() const {
+  detail::sshkey_ptr key;
+  if (auto err = sshkey_from_private(key_.get(), std::out_ptr(key)); err != 0) {
+    return statusFromErr(err);
+  }
+  return std::unique_ptr<SSHKey>(new SSHKey(std::move(key)));
 }
 
 absl::StatusOr<std::string> SSHKey::toPrivateKeyPem() const {
@@ -274,10 +304,6 @@ absl::Status SSHKey::verify(bytes_view signature, bytes_view payload) {
 
 const char* SSHKey::namePtr() const {
   return sshkey_ssh_name(key_.get());
-}
-
-sshkey_types SSHKey::keyTypeFromName(const std::string& name) {
-  return static_cast<sshkey_types>(sshkey_type_from_name(name.c_str()));
 }
 
 absl::StatusOr<std::vector<openssh::SSHKeyPtr>> loadHostKeysFromConfig(
@@ -396,7 +422,14 @@ absl::StatusOr<uint32_t> SSHCipher::packetLength(seqnum_t seqnum,
 }
 
 std::vector<std::string> SSHKey::signatureAlgorithmsForKeyType() const {
-  // NB: sha1-variant rsa algorithms (i.e. "ssh-rsa") are not included
+  // Regarding the rsa signature algorithms, openssh protocol extension doc states:
+  //  These RSA/SHA-2 types should not appear in keys at rest or transmitted
+  //  on the wire, but do appear in a SSH_MSG_KEXINIT's host-key algorithms
+  //  field or in the "public key algorithm name" field of a "publickey"
+  //  SSH_USERAUTH_REQUEST to indicate that the signature will use the
+  //  specified algorithm.
+  //
+  // NB: sha1-variant rsa algorithms ("ssh-rsa"/"ssh-rsa-cert-v01@openssh.com") are not included.
   switch (keyType()) {
   case KEY_RSA:
     return {"rsa-sha2-256",
@@ -453,4 +486,5 @@ absl::Status SSHMac::verify(seqnum_t seqnum,
   }
   return absl::OkStatus();
 }
+
 } // namespace openssh
