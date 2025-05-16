@@ -1,3 +1,4 @@
+#include "source/common/span.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
 #include "gtest/gtest.h"
 #include "test/extensions/filters/network/ssh/test_data.h"
@@ -72,18 +73,63 @@ public:
 };
 
 TEST_P(SSHKeyTestSuite, FromPrivateKeyFilePath) {
-  auto rsa1Path = copyTestdataToWritableTmp("regress/unittests/sshkey/testdata/rsa_1", 0600);
-  auto r = SSHKey::fromPrivateKeyFile(rsa1Path);
-  ASSERT_OK(r.status());
+  for (auto keyName : {"rsa_1", "ecdsa_1", "ed25519_1"}) {
+    auto privKeyPath = copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600);
+    auto r = SSHKey::fromPrivateKeyFile(privKeyPath);
+    ASSERT_OK(r.status());
+  }
 }
 
-TEST_P(SSHKeyTestSuite, FromPrivateKeyFileFilesystem) {
+TEST_P(SSHKeyTestSuite, FromPrivateKeyFilePath_BadPermissions) {
+  for (auto keyName : {"rsa_1", "ecdsa_1", "ed25519_1"}) {
+    for (auto mode : {0640, 0644, 0666}) {
+      auto privKeyPath = copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), mode);
+      auto r = SSHKey::fromPrivateKeyFile(privKeyPath);
+      ASSERT_EQ(absl::PermissionDeniedError("bad permissions"), r.status());
+    }
+  }
 }
 
-TEST_P(SSHKeyTestSuite, FromPublicKeyBlob) {
+TEST_P(SSHKeyTestSuite, FromToPublicKeyBlob) {
+  for (auto keyName : {"rsa_1", "ecdsa_1", "ed25519_1"}) {
+    copyTestdataToWritableTmp(fmt::format("regress/unittests/sshkey/testdata/{}.pub", keyName), 0644);
+    auto privKeyPath = copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600);
+    auto priv = *SSHKey::fromPrivateKeyFile(privKeyPath);
+    auto our_blob = *priv->toPublicKeyBlob();
+
+    const auto rsa1Pub = privKeyPath + ".pub";
+    detail::sshkey_ptr openssh_pubkey;
+    ASSERT_EQ(0, sshkey_load_public(rsa1Pub.c_str(), std::out_ptr(openssh_pubkey), nullptr));
+    CBytesPtr blob_ptr{};
+    size_t blob_len{};
+    ASSERT_EQ(0, sshkey_to_blob(openssh_pubkey.get(), std::out_ptr(blob_ptr), &blob_len));
+    ASSERT_EQ(to_bytes(unsafe_forge_span(blob_ptr.get(), blob_len)), our_blob);
+
+    auto our_pubkey = *SSHKey::fromPublicKeyBlob(our_blob);
+    ASSERT_EQ(1, sshkey_equal(our_pubkey->sshKeyForTest(), openssh_pubkey.get()));
+  }
+}
+
+TEST_P(SSHKeyTestSuite, FromPublicKeyBlob_Invalid) {
+  auto r = SSHKey::fromPublicKeyBlob(bytes{'i', 'n', 'v', 'a', 'l', 'i', 'd'});
+  EXPECT_EQ(absl::InvalidArgumentError("invalid format"), r.status());
 }
 
 TEST_P(SSHKeyTestSuite, Generate) {
+  auto r = SSHKey::generate(KEY_RSA, 2048);
+  EXPECT_OK(r.status());
+  EXPECT_EQ(KEY_RSA, (*r)->keyType());
+
+  r = SSHKey::generate(KEY_ECDSA, 521);
+  EXPECT_OK(r.status());
+  EXPECT_EQ(KEY_ECDSA, (*r)->keyType());
+
+  r = SSHKey::generate(KEY_ED25519, 256);
+  EXPECT_OK(r.status());
+  EXPECT_EQ(KEY_ED25519, (*r)->keyType());
+
+  r = SSHKey::generate(KEY_RSA, 256);
+  EXPECT_EQ(absl::InvalidArgumentError("Invalid key length"), r.status());
 }
 
 TEST_P(SSHKeyTestSuite, Compare) {
@@ -96,6 +142,37 @@ TEST_P(SSHKeyTestSuite, Compare) {
   EXPECT_NE(**key2->toPublicKey(), *key1);
   EXPECT_EQ(**key1->toPublicKey(), **key1->toPublicKey());
   EXPECT_NE(**key2->toPublicKey(), **key1->toPublicKey());
+}
+
+TEST_P(SSHKeyTestSuite, SignVerify) {
+  auto key1 = generate();
+  auto key2 = generate();
+
+  auto key1_pub = *key1->toPublicKey();
+  auto key2_pub = *key2->toPublicKey();
+
+  bytes payload{'f', 'o', 'o', 'b', 'a', 'r', 'b', 'a', 'z'};
+  {
+    auto sig = *key1->sign(payload);
+    ASSERT_OK(key1->verify(sig, payload));
+    ASSERT_OK(key1_pub->verify(sig, payload));
+    ASSERT_EQ(absl::PermissionDeniedError("incorrect signature"), key2->verify(sig, payload));
+    ASSERT_EQ(absl::PermissionDeniedError("incorrect signature"), key2_pub->verify(sig, payload));
+  }
+
+  {
+    auto sig = *key2->sign(payload);
+    ASSERT_OK(key2->verify(sig, payload));
+    ASSERT_OK(key2_pub->verify(sig, payload));
+    ASSERT_EQ(absl::PermissionDeniedError("incorrect signature"), key1->verify(sig, payload));
+    ASSERT_EQ(absl::PermissionDeniedError("incorrect signature"), key1_pub->verify(sig, payload));
+  }
+
+  // the exact error we get from openssh depends on the key algorithm; it will be one of these two
+  ASSERT_THAT(key1_pub->sign(payload).status(), AnyOf(Eq(absl::InvalidArgumentError("invalid argument")),
+                                                      Eq(absl::InternalError("error in libcrypto"))));
+  ASSERT_THAT(key2_pub->sign(payload).status(), AnyOf(Eq(absl::InvalidArgumentError("invalid argument")),
+                                                      Eq(absl::InternalError("error in libcrypto"))));
 }
 
 INSTANTIATE_TEST_SUITE_P(SSHKeyTest, SSHKeyTestSuite,
@@ -188,18 +265,10 @@ TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate_SignerIsPublicKey) {
                           Eq(absl::InternalError("error in libcrypto"))));
 }
 
-TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate_CertInvalid) {
-  // this is the only practical way to make sshkey_from_private fail:
-  // first, sign key_ with 257 principals (1 over the max)
-  std::vector<std::string> principals(257, "asdf");
+TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate_TooManyPrincipals) {
+  std::vector<std::string> principals(SSHKEY_CERT_MAX_PRINCIPALS + 1, "asdf");
   auto stat = key_->convertToSignedUserCertificate(1, principals, {}, absl::Hours(24), *signer_);
-  ASSERT_OK(stat);
-  // at this point, key_ is technically invalid, and attempting to use it to sign another cert will
-  // cause an error while copying it
-  // (note that you can't sign with a cert key anyway, but this fails in a different place)
-  auto key2 = generate();
-  stat = key2->convertToSignedUserCertificate(1, {}, {}, absl::Hours(24), *key_);
-  ASSERT_EQ(absl::InvalidArgumentError("invalid argument"), stat);
+  ASSERT_EQ(absl::InvalidArgumentError("number of principals (257) is more than the maximum allowed (256)"), stat);
 }
 
 TEST_P(SSHKeyCertTestSuite, Compare) {
@@ -413,5 +482,24 @@ INSTANTIATE_TEST_SUITE_P(SSHKeyPropertiesTest, SSHKeyPropertiesTestSuite,
                            {KEY_ED25519, 256},
                            {KEY_ED25519_CERT, 256},
                          }));
+
+TEST(OpensshTest, LoadHostKeys) {
+  std::vector<std::string> filenames;
+  for (auto keyName : {"rsa_1", "ecdsa_1", "ed25519_1"}) {
+    filenames.push_back(copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600));
+  }
+  auto r = loadHostKeys(filenames);
+  ASSERT_OK(r.status());
+  ASSERT_EQ(3, r->size());
+}
+
+TEST(OpensshTest, LoadHostKeys_DuplicateAlgorithm) {
+  std::vector<std::string> filenames;
+  for (auto keyName : {"rsa_1", "ecdsa_1", "ed25519_1", "rsa_2"}) {
+    filenames.push_back(copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600));
+  }
+  auto stat = loadHostKeys(filenames);
+  ASSERT_EQ(absl::InvalidArgumentError("host keys must have unique algorithms"), stat.status());
+}
 
 } // namespace openssh::test

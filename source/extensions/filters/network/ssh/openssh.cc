@@ -199,6 +199,11 @@ absl::Status SSHKey::convertToSignedUserCertificate(
   if (auto err = sshkey_to_certified(key_.get()); err != 0) {
     return statusFromErr(err);
   }
+  if (principals.size() > SSHKEY_CERT_MAX_PRINCIPALS) {
+    return absl::InvalidArgumentError(fmt::format(
+      "number of principals ({}) is more than the maximum allowed ({})",
+      principals.size(), SSHKEY_CERT_MAX_PRINCIPALS));
+  }
   key_->cert->type = SSH2_CERT_TYPE_USER;
   key_->cert->serial = serial;
   key_->cert->nprincipals = static_cast<uint32_t>(principals.size());
@@ -213,12 +218,13 @@ absl::Status SSHKey::convertToSignedUserCertificate(
   key_->cert->valid_after = absl::ToUnixSeconds(absl::Now());
   key_->cert->valid_before = absl::ToUnixSeconds(absl::Now() + valid_duration);
 
-  // despite the name of this function, the input can be a public key
-  if (auto err = sshkey_from_private(signer.key_.get(),
-                                     &key_->cert->signature_key);
-      err != 0) {
-    return statusFromErr(err);
-  }
+  // Despite the name of this function, the input can be a public key.
+  //
+  // This only fails on OOM or if we created an invalid cert that causes an error when it is copied;
+  // the only practical way to do so would be creating a cert that has >256 principals, but we have
+  // already checked for that case so it should not be possible.
+  auto r = sshkey_from_private(signer.key_.get(), &key_->cert->signature_key);
+  RELEASE_ASSERT(r == 0, "sshkey_from_private failed");
 
   const char* sig_alg = nullptr;
   if (signer.keyTypePlain() == KEY_RSA) {
@@ -239,17 +245,17 @@ absl::Status SSHKey::convertToSignedUserCertificate(
 absl::StatusOr<bytes> SSHKey::toPublicKeyBlob() const {
   CBytesPtr buf;
   size_t len = 0;
-  if (auto err = sshkey_to_blob(key_.get(), std::out_ptr(buf), &len); err != 0) {
-    return statusFromErr(err);
-  }
+  // only fails on OOM or if the key is in an invalid state
+  auto r = sshkey_to_blob(key_.get(), std::out_ptr(buf), &len);
+  RELEASE_ASSERT(r == 0, "sshkey_to_blob failed");
   return to_bytes(unsafe_forge_span(buf.get(), len));
 }
 
 absl::StatusOr<std::unique_ptr<SSHKey>> SSHKey::toPublicKey() const {
   detail::sshkey_ptr key;
-  if (auto err = sshkey_from_private(key_.get(), std::out_ptr(key)); err != 0) {
-    return statusFromErr(err);
-  }
+  // only fails on OOM or if the key is in an invalid state
+  auto r = sshkey_from_private(key_.get(), std::out_ptr(key));
+  RELEASE_ASSERT(r == 0, "sshkey_from_private failed");
   return std::unique_ptr<SSHKey>(new SSHKey(std::move(key)));
 }
 
@@ -268,12 +274,12 @@ absl::StatusOr<std::string> SSHKey::toPublicKeyPem() const {
   detail::sshbuf_ptr buf(sshbuf_new());
   detail::sshkey_ptr pub;
 
-  if (auto err = sshkey_from_private(key_.get(), std::out_ptr(pub)); err != 0) {
-    return statusFromErr(err);
-  }
-  if (auto err = sshkey_format_text(pub.get(), buf.get()); err != 0) {
-    return statusFromErr(err);
-  }
+  // only fails on OOM or if the key is in an invalid state
+  auto r = sshkey_from_private(key_.get(), std::out_ptr(pub));
+  RELEASE_ASSERT(r == 0, "sshkey_from_private failed");
+  // only fails on OOM
+  r = sshkey_format_text(pub.get(), buf.get());
+  RELEASE_ASSERT(r == 0, "sshkey_format_text failed");
   auto view = unsafe_forge_span(sshbuf_ptr(buf.get()), sshbuf_len(buf.get()));
   return std::string(view.begin(), view.end());
 }
@@ -304,20 +310,6 @@ absl::Status SSHKey::verify(bytes_view signature, bytes_view payload) {
 
 const char* SSHKey::namePtr() const {
   return sshkey_ssh_name(key_.get());
-}
-
-absl::StatusOr<std::vector<openssh::SSHKeyPtr>> loadHostKeysFromConfig(
-  const pomerium::extensions::ssh::CodecConfig& config) {
-  auto hostKeys = config.host_keys();
-  std::vector<openssh::SSHKeyPtr> out;
-  for (const auto& hostKey : hostKeys) {
-    auto key = openssh::SSHKey::fromPrivateKeyFile(hostKey);
-    if (!key.ok()) {
-      return key.status();
-    }
-    out.push_back(std::move(*key));
-  }
-  return out;
 }
 
 // SSHCipher

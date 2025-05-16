@@ -8,7 +8,6 @@
 #include "source/extensions/filters/network/ssh/common.h"
 
 #pragma clang unsafe_buffer_usage begin
-#include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "envoy/buffer/buffer.h"
 #include "envoy/filesystem/filesystem.h"
 #pragma clang unsafe_buffer_usage end
@@ -56,6 +55,8 @@ public:
   bool operator!=(const SSHKey& other) const;
 
   static absl::StatusOr<std::unique_ptr<SSHKey>> fromPrivateKeyFile(const std::string& filepath);
+
+  // TOOD: remove this
   static absl::StatusOr<std::unique_ptr<SSHKey>> fromPrivateKeyFile(Envoy::Filesystem::Instance& fs, const std::string& filepath);
   static absl::StatusOr<std::unique_ptr<SSHKey>> fromPublicKeyBlob(const bytes& public_key);
   static absl::StatusOr<std::unique_ptr<SSHKey>> generate(sshkey_types type, uint32_t bits);
@@ -97,8 +98,25 @@ private:
 
 using SSHKeyPtr = std::unique_ptr<SSHKey>;
 
-absl::StatusOr<std::vector<openssh::SSHKeyPtr>> loadHostKeysFromConfig(
-  const pomerium::extensions::ssh::CodecConfig& config);
+absl::StatusOr<std::vector<openssh::SSHKeyPtr>> loadHostKeys(std::ranges::range auto const& filenames) {
+  std::vector<openssh::SSHKeyPtr> out;
+  std::unordered_map<sshkey_types, std::string> keyTypes;
+  for (const auto& hostKey : filenames) {
+    auto key = openssh::SSHKey::fromPrivateKeyFile(hostKey);
+    if (!key.ok()) {
+      return key.status();
+    }
+    if (auto keyType = (*key)->keyTypePlain(); keyTypes.contains(keyType)) {
+      ENVOY_LOG_MISC(error, "note: keys with algorithm {}: {}, {}", (*key)->keyTypeName(),
+                     keyTypes.at(keyType), hostKey);
+      return absl::InvalidArgumentError("host keys must have unique algorithms");
+    } else {
+      keyTypes[keyType] = hostKey;
+    }
+    out.push_back(std::move(*key));
+  }
+  return out;
+}
 
 enum class CipherMode : int {
   Read = CIPHER_DECRYPT,

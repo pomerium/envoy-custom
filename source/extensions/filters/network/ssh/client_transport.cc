@@ -30,7 +30,7 @@ SshClientTransport::SshClientTransport(
 
 void SshClientTransport::setCodecCallbacks(GenericProxy::ClientCodecCallbacks& callbacks) {
   TransportBase::setCodecCallbacks(callbacks);
-  if (auto keys = openssh::loadHostKeysFromConfig(codecConfig()); !keys.ok()) {
+  if (auto keys = openssh::loadHostKeys(codecConfig().host_keys()); !keys.ok()) {
     throw Envoy::EnvoyException(statusToString(keys.status()));
   } else {
     kex_->setHostKeys(std::move(*keys));
