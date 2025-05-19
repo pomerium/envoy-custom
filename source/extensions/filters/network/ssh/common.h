@@ -26,6 +26,11 @@ static constexpr auto CipherAES128CTR = "aes128-ctr";
 static constexpr auto CipherAES192CTR = "aes192-ctr";
 static constexpr auto CipherAES256CTR = "aes256-ctr";
 
+// From https://datatracker.ietf.org/doc/html/rfc8308#section-2.2:
+//  If "ext-info-c" or "ext-info-s" ends up being negotiated as a key exchange method,
+//  the parties MUST disconnect.
+//
+// This also applies to the openssh strict mode extension names, which work similarly.
 static const std::unordered_set<std::string> InvalidKeyExchangeMethods = {
   "ext-info-c",
   "ext-info-s",
