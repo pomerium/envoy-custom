@@ -1,14 +1,10 @@
 #include "source/extensions/filters/network/ssh/kex_alg_curve25519.h"
 #include "source/extensions/filters/network/ssh/packet_cipher_aead.h"
 #include "source/extensions/filters/network/ssh/packet_cipher_etm.h"
-#include "test/extensions/filters/network/ssh/test_data.h"
 #include "test/test_common/test_common.h"
-#include "test/extensions/filters/network/ssh/test_config.h"
 #include "test/extensions/filters/network/ssh/test_mocks.h"
-#include "test/extensions/filters/network/ssh/wire/test_field_reflect.h"
 #include "test/extensions/filters/network/ssh/wire/test_util.h"
 #include "source/extensions/filters/network/ssh/kex.h"
-#include "test/mocks/api/mocks.h"
 #include "gtest/gtest.h"
 #include <coroutine>
 
@@ -280,11 +276,12 @@ class BaseKexTest : public testing::Test {
 public:
   BaseKexTest(KexSequence&& sequence)
       : sequence(std::move(sequence)) {
-    setupMockFilesystem(api_, file_system_);
-    configureKeys(config_);
 
-    client_host_keys_.push_back(*openssh::SSHKey::fromPrivateKeyFile(api_.fileSystem(), "client/test_host_ed25519_key"));
-    client_host_keys_.push_back(*openssh::SSHKey::fromPrivateKeyFile(api_.fileSystem(), "client/test_host_rsa_key"));
+    client_host_keys_.push_back(*openssh::SSHKey::generate(KEY_ED25519, 256));
+    client_host_keys_.push_back(*openssh::SSHKey::generate(KEY_ECDSA, 256));
+    client_host_keys_.push_back(*openssh::SSHKey::generate(KEY_ECDSA, 384));
+    client_host_keys_.push_back(*openssh::SSHKey::generate(KEY_ECDSA, 521));
+    client_host_keys_.push_back(*openssh::SSHKey::generate(KEY_RSA, 2048));
 
     algorithm_factories_.registerType<Curve25519Sha256KexAlgorithmFactory>();
     cipher_factories_.registerType<Chacha20Poly1305CipherFactory>();
@@ -299,22 +296,23 @@ public:
     kex_callbacks_ = std::make_unique<testing::StrictMock<MockKexCallbacks>>();
   }
 
-  auto loadHostKeys() {
+  auto newServerHostKeys() {
     std::vector<openssh::SSHKeyPtr> hostKeys;
-    for (const auto& key : config_->host_keys()) {
-      auto r = openssh::SSHKey::fromPrivateKeyFile(api_.fileSystem(), key);
-      if (!r.ok()) {
-        PANIC(r.status());
-      }
-      const auto blob = (*r)->toPublicKeyBlob();
+    hostKeys.push_back(*openssh::SSHKey::generate(KEY_ED25519, 256));
+    hostKeys.push_back(*openssh::SSHKey::generate(KEY_ECDSA, 256));
+    hostKeys.push_back(*openssh::SSHKey::generate(KEY_ECDSA, 384));
+    hostKeys.push_back(*openssh::SSHKey::generate(KEY_ECDSA, 521));
+    hostKeys.push_back(*openssh::SSHKey::generate(KEY_RSA, 2048));
+
+    std::unordered_map<std::string, bytes> hostKeyBlobs;
+    for (const auto& key : hostKeys) {
+      const auto blob = key->toPublicKeyBlob();
       ASSERT(blob.ok());
-      for (auto alg : (*r)->signatureAlgorithmsForKeyType()) {
-        host_key_blobs_[alg] = *blob;
+      for (auto alg : key->signatureAlgorithmsForKeyType()) {
+        hostKeyBlobs[alg] = *blob;
       }
-      hostKeys.push_back(std::move(*r));
     }
-    ASSERT(hostKeys.size() == 2);
-    return hostKeys;
+    return std::make_pair(std::move(hostKeys), std::move(hostKeyBlobs));
   }
 
   void ContinueUntil(int label) { // NOLINT
@@ -358,6 +356,7 @@ public:
 protected:
   KexSequence sequence;
 
+  std::vector<openssh::SSHKeyPtr> server_host_keys_;
   std::vector<openssh::SSHKeyPtr> client_host_keys_;
   std::optional<bytes> session_id_;
 
@@ -369,12 +368,6 @@ protected:
 
   KexAlgorithmFactoryRegistry algorithm_factories_;
   DirectionalPacketCipherFactoryRegistry cipher_factories_;
-
-  NiceMock<Api::MockApi> api_;
-  NiceMock<Filesystem::MockInstance> file_system_;
-  std::unordered_map<std::string, bytes> host_key_blobs_; // alg->blob
-
-  std::shared_ptr<CodecConfig> config_{newConfig()};
 };
 
 class ServerKexTest : public BaseKexTest {
@@ -397,13 +390,16 @@ public:
       : BaseKexTest(startKexSequence(normal_client_kex_init_msg)) {}
   void SetUp() override {
     kex_ = std::make_unique<Kex>(*transport_callbacks_, *kex_callbacks_, algorithm_factories_, cipher_factories_, KexMode::Server);
-    kex_->setHostKeys(loadHostKeys());
+    auto&& [hostKeys, hostKeyBlobs] = newServerHostKeys();
+    kex_->setHostKeys(std::move(hostKeys));
+    host_key_blobs_ = std::move(hostKeyBlobs);
     kex_->setVersionStrings("SSH-2.0-Server", "SSH-2.0-Client");
     kex_->registerMessageHandlers(*peer_reply_);
   }
 
 protected:
   std::optional<bool> client_supports_ext_info_;
+  std::unordered_map<std::string, bytes> host_key_blobs_; // alg->blob
 
   KexSequence startKexSequence(wire::KexInitMsg client_kex_init, bool initial_kex = true, bool server_initiated_rekey = false) {
     if (!initial_kex) {
@@ -426,7 +422,7 @@ protected:
                                 FIELD_EQ(kex_algorithms,
                                          initial_kex ? append(algorithm_factories_.namesByPriority(), "ext-info-s", "kex-strict-s-v00@openssh.com")
                                                      : algorithm_factories_.namesByPriority()),
-                                FIELD_EQ(server_host_key_algorithms, string_list{"ssh-ed25519", "rsa-sha2-256", "rsa-sha2-512"}),
+                                FIELD_EQ(server_host_key_algorithms, string_list{"ssh-ed25519", "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521", "rsa-sha2-256", "rsa-sha2-512"}),
                                 FIELD_EQ(encryption_algorithms_client_to_server, cipher_factories_.namesByPriority()),
                                 FIELD_EQ(encryption_algorithms_server_to_client, cipher_factories_.namesByPriority()),
                                 FIELD_EQ(mac_algorithms_client_to_server, SupportedMACs),
@@ -688,7 +684,7 @@ TEST_F(AlgorithmNegotiationTest, NoCommonHostKey) {
   ContinueAndExpectSoftError(absl::InvalidArgumentError(
     fmt::format("no common algorithm for host key; client offered: {}; server offered: {}",
                 sequence.client_kex_init_.server_host_key_algorithms,
-                string_list{"ssh-ed25519", "rsa-sha2-256", "rsa-sha2-512"})));
+                string_list{"ssh-ed25519", "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521", "rsa-sha2-256", "rsa-sha2-512"})));
 }
 
 TEST_F(AlgorithmNegotiationTest, NoCommonClientToServerCipher) {
@@ -974,11 +970,9 @@ TEST_F(ServerKexTest, MultiStepAlgorithm) {
 }
 
 TEST_F(ServerKexTest, PickHostKey) {
-  auto ed25519Key = *openssh::SSHKey::fromPrivateKeyFile(api_.fileSystem(), "server/test_host_ed25519_key");
-  auto rsaKey = *openssh::SSHKey::fromPrivateKeyFile(api_.fileSystem(), "server/test_host_rsa_key");
-  EXPECT_EQ(*kex_->pickHostKey("ssh-ed25519"), *ed25519Key);
-  EXPECT_EQ(*kex_->pickHostKey("rsa-sha2-512"), *rsaKey);
-  EXPECT_EQ(*kex_->pickHostKey("rsa-sha2-256"), *rsaKey);
+  EXPECT_EQ(*kex_->pickHostKey("ssh-ed25519"), **openssh::SSHKey::fromPublicKeyBlob(host_key_blobs_["ssh-ed25519"]));
+  EXPECT_EQ(*kex_->pickHostKey("rsa-sha2-512"), **openssh::SSHKey::fromPublicKeyBlob(host_key_blobs_["rsa-sha2-512"]));
+  EXPECT_EQ(*kex_->pickHostKey("rsa-sha2-256"), **openssh::SSHKey::fromPublicKeyBlob(host_key_blobs_["rsa-sha2-256"]));
   EXPECT_EQ(kex_->pickHostKey("ssh-rsa"), nullptr); // sha1 (deprecated)
   EXPECT_EQ(kex_->pickHostKey("nonexistent"), nullptr);
   EXPECT_EQ(kex_->pickHostKey("rsa-sha2-256-cert-v01@openssh.com"), nullptr);
@@ -986,10 +980,8 @@ TEST_F(ServerKexTest, PickHostKey) {
 }
 
 TEST_F(ServerKexTest, GetHostKey) {
-  auto ed25519Key = *openssh::SSHKey::fromPrivateKeyFile(api_.fileSystem(), "server/test_host_ed25519_key");
-  auto rsaKey = *openssh::SSHKey::fromPrivateKeyFile(api_.fileSystem(), "server/test_host_rsa_key");
-  EXPECT_EQ(*kex_->getHostKey(ed25519Key->keyType()), *ed25519Key);
-  EXPECT_EQ(*kex_->getHostKey(rsaKey->keyType()), *rsaKey);
+  EXPECT_EQ(*kex_->getHostKey(KEY_ED25519), **openssh::SSHKey::fromPublicKeyBlob(host_key_blobs_["ssh-ed25519"]));
+  EXPECT_EQ(*kex_->getHostKey(KEY_RSA), **openssh::SSHKey::fromPublicKeyBlob(host_key_blobs_["rsa-sha2-512"]));
   EXPECT_EQ(kex_->getHostKey(static_cast<sshkey_types>(99)), nullptr);
 }
 
@@ -1133,13 +1125,16 @@ public:
 
   void SetUp() override {
     kex_ = std::make_unique<Kex>(*transport_callbacks_, *kex_callbacks_, algorithm_factories_, cipher_factories_, KexMode::Client);
-    kex_->setHostKeys(loadHostKeys());
+    auto&& [hostKeys, hostKeyBlobs] = newServerHostKeys();
+    kex_->setHostKeys(std::move(hostKeys));
+    host_key_blobs_ = std::move(hostKeyBlobs);
     kex_->setVersionStrings("SSH-2.0-Client", "SSH-2.0-Server");
     kex_->registerMessageHandlers(*peer_reply_);
   }
 
 protected:
   std::optional<bool> server_supports_ext_info_;
+  std::unordered_map<std::string, bytes> host_key_blobs_; // alg->blob
 
   KexSequence startKexSequence(wire::KexInitMsg server_kex_init, bool initial_kex = true) {
     // ensure all expected calls are ordered

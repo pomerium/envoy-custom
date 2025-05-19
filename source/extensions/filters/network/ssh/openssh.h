@@ -1,7 +1,6 @@
 #pragma once
 
-#include <cstdint> // IWYU pragma: keep
-#include <cstdio>  // IWYU pragma: keep
+#include <cstdlib>
 
 #include "source/common/common/c_smart_ptr.h"
 
@@ -9,7 +8,6 @@
 
 #pragma clang unsafe_buffer_usage begin
 #include "envoy/buffer/buffer.h"
-#include "envoy/filesystem/filesystem.h"
 #pragma clang unsafe_buffer_usage end
 
 extern "C" {
@@ -26,10 +24,12 @@ using sshkey_ptr = Envoy::CSmartPtr<sshkey, sshkey_free>;
 using sshmac_ptr = Envoy::CSmartPtr<sshmac, mac_clear>;
 using sshcipher_ctx_ptr = Envoy::CSmartPtr<sshcipher_ctx, cipher_free>;
 using ssh_digest_ctx_ptr = Envoy::CSmartPtr<ssh_digest_ctx, ssh_digest_free>;
+
+using c_str_free_type = decltype([](void* p) { ::free(p); });
 } // namespace detail
 
 template <typename T = char>
-using CStringPtr = std::unique_ptr<T, decltype([](void* p) { ::free(p); })>;
+using CStringPtr = std::unique_ptr<T, detail::c_str_free_type>;
 using CBytesPtr = CStringPtr<uint8_t>;
 using iv_bytes = bytes;
 using key_bytes = bytes;
@@ -55,9 +55,6 @@ public:
   bool operator!=(const SSHKey& other) const;
 
   static absl::StatusOr<std::unique_ptr<SSHKey>> fromPrivateKeyFile(const std::string& filepath);
-
-  // TOOD: remove this
-  static absl::StatusOr<std::unique_ptr<SSHKey>> fromPrivateKeyFile(Envoy::Filesystem::Instance& fs, const std::string& filepath);
   static absl::StatusOr<std::unique_ptr<SSHKey>> fromPublicKeyBlob(const bytes& public_key);
   static absl::StatusOr<std::unique_ptr<SSHKey>> generate(sshkey_types type, uint32_t bits);
 
@@ -81,19 +78,20 @@ public:
 
   absl::StatusOr<bytes> toPublicKeyBlob() const;
   absl::StatusOr<std::unique_ptr<SSHKey>> toPublicKey() const;
-  absl::StatusOr<std::string> toPrivateKeyPem() const;
-  absl::StatusOr<std::string> toPublicKeyPem() const;
+  absl::StatusOr<std::string> formatPrivateKey(sshkey_private_format format = SSHKEY_PRIVATE_OPENSSH) const;
+  absl::StatusOr<std::string> formatPublicKey() const;
   absl::StatusOr<bytes> sign(bytes_view payload) const;
   absl::Status verify(bytes_view signature, bytes_view payload);
 
-  const struct sshkey* sshKeyForTest() const { return key_.get(); };
+  const struct sshkey* sshkeyForTest() const { return key_.get(); };
 
 private:
-  explicit SSHKey(detail::sshkey_ptr key);
+  SSHKey(detail::sshkey_ptr key, CStringPtr<char> comment);
 
   const char* namePtr() const;
 
   detail::sshkey_ptr key_;
+  CStringPtr<char> comment_;
 };
 
 using SSHKeyPtr = std::unique_ptr<SSHKey>;
@@ -163,9 +161,9 @@ public:
   SSHMac(const std::string& mac_name, const key_bytes& key);
   ~SSHMac();
 
-  absl::StatusOr<size_t> compute(seqnum_t seqnum,
-                                 Envoy::Buffer::Instance& out,
-                                 const bytes_view& in);
+  void compute(seqnum_t seqnum,
+               Envoy::Buffer::Instance& out,
+               const bytes_view& in);
   absl::Status verify(seqnum_t seqnum,
                       const bytes_view& data,
                       const bytes_view& mac);
@@ -173,51 +171,29 @@ public:
   inline size_t length() const { return mac_.mac_len; }
   inline bool isETM() const { return mac_.etm != 0; }
 
+  struct sshmac* sshmacForTest() { return &mac_; }
+
 private:
   struct sshmac mac_;
+  std::string name_;
   bytes key_;
 };
 
 class Hash {
 public:
-  Hash(int alg_id) {
-    ASSERT(alg_ != -1);
-    alg_ = alg_id;
-    ctx_ = ssh_digest_start(alg_);
-  }
-  Hash(const std::string& alg_name)
-      : Hash(ssh_digest_alg_by_name(alg_name.c_str())) {}
+  Hash(int alg_id);
+  Hash(const std::string& alg_name);
 
   Hash(const Hash&) = delete;
   Hash(Hash&&) = delete;
   Hash& operator=(const Hash&) = delete;
   Hash& operator=(Hash&&) = delete;
 
-  size_t size() const {
-    return ssh_digest_bytes(alg_);
-  }
-
-  size_t blockSize() const {
-    return ssh_digest_blocksize(ctx_.get());
-  }
-
-  void write(bytes_view data) {
-    ssh_digest_update(ctx_.get(), data.data(), data.size());
-  }
-
-  void write(uint8_t data) {
-    ssh_digest_update(ctx_.get(), &data, 1);
-  }
-
-  bytes sum() {
-    bytes digest;
-    digest.resize(size());
-    ASSERT(digest.size() > 0 && digest.size() <= SSH_DIGEST_MAX_LENGTH);
-    if (auto r = ssh_digest_final(ctx_.get(), digest.data(), digest.size()); r != 0) {
-      throw Envoy::EnvoyException(fmt::format("ssh_digest_final failed: {}", statusMessageFromErr(r)));
-    }
-    return digest;
-  }
+  size_t size() const;
+  size_t blockSize() const;
+  void write(bytes_view data);
+  void write(uint8_t data);
+  bytes sum();
 
 private:
   detail::ssh_digest_ctx_ptr ctx_;

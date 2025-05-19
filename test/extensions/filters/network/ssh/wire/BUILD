@@ -115,7 +115,7 @@ envoy_cc_test_library(
     deps = [
         "//source/common:common_lib",
         "//source/extensions/filters/network/ssh/wire:wire_lib_common",
-        "//test/extensions/filters/network/ssh:test_common",
+        "//test/test_common:test_common_lib",
         "@com_google_absl//absl/random",
     ],
 )

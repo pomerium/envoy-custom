@@ -56,9 +56,7 @@ absl::Status ETMPacketCipher::encryptPacket(uint32_t seqnum,
   if (!stat.ok()) {
     return stat;
   }
-  if (auto r = mac_.compute(seqnum, tmp, linearizeToSpan(tmp)); !r.ok()) {
-    return r.status();
-  }
+  mac_.compute(seqnum, tmp, linearizeToSpan(tmp));
   out.move(tmp);
   return absl::OkStatus();
 }

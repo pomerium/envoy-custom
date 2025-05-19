@@ -1,6 +1,4 @@
 #include "test/extensions/filters/network/generic_proxy/mocks/codec.h"
-#include "test/extensions/filters/network/ssh/test_config.h"
-#include "test/extensions/filters/network/ssh/test_data.h"
 #include "test/mocks/server/factory_context.h"
 #include "gtest/gtest.h"
 #include "test/test_common/test_common.h"
@@ -15,14 +13,10 @@ namespace test {
 class ClientTransportTest : public testing::Test {
 public:
   ClientTransportTest() {
-    setupMockFilesystem(api_, file_system_);
     initializeCodec();
   }
 
   void initializeCodec() {
-
-    auto config = newConfig();
-    configureKeys(config);
 
     tls_slot_ = ThreadLocal::TypedSlot<ThreadLocalData>::makeUnique(tls_allocator_);
     // codec_ = std::make_unique<SshClientTransport>(api_, config, tls_slot_);
