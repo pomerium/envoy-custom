@@ -11,9 +11,11 @@ envoy_cc_library(
     name = "pomerium_ssh",
     srcs = [
         "openssh.cc",
+        "packet_cipher.cc",
     ],
     hdrs = [
         "openssh.h",
+        "packet_cipher.h",
     ],
     copts = [
         "-Wimplicit-fallthrough",
