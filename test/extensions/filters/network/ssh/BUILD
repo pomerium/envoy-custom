@@ -73,7 +73,6 @@ envoy_cc_test(
     ],
     repository = "@envoy",
     deps = [
-        ":test_mocks",
         "//source/extensions/filters/network/ssh:pomerium_ssh",
         "//test/extensions/filters/network/ssh/wire:wire_test_util",
         "@envoy//test/test_common:environment_lib",

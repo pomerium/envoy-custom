@@ -28,7 +28,7 @@ hedron_compile_commands_setup_transitive_transitive_transitive()
 
 envoy_version = "77a4c7abbbe698e78f8be9c16e80dee189b4fea3"
 
-openssh_version = "V_9_9_P1"
+openssh_version = "V_10_0_P2"
 
 magic_enum_version = "a413fcc9c46a020a746907136a384c227f3cd095"
 
@@ -98,7 +98,7 @@ filegroup(
             license = "BSD",
             license_url = "https://github.com/openssh/openssh-portable/blob/master/LICENCE",
             project_name = "openssh-portable",
-            sha256 = "fe3b5bb5087b516f9f0793b9b5f6289a34c44bd1ebd751b4cec93b97c80da112",
+            sha256 = "885b67c6dddb116037f6ed45f4bf83b45fd235f334df73eb878d1e0b8b8c613b",
             strip_prefix = "openssh-portable-" + openssh_version,
             urls = ["https://github.com/openssh/openssh-portable/archive/" + openssh_version + ".zip"],
             version = "master",
@@ -107,10 +107,10 @@ filegroup(
     patch_args = [
         "-p1",
     ],
-    patch_tool = "patch",
     patches = [
         "//patches/openssh:0001-libcrypto-rename.patch",
         "//patches/openssh:0002-no-define-mkstemp.patch",
+        "//patches/openssh:0003-ssh-sk-null.patch",
     ],
 )
 
