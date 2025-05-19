@@ -53,7 +53,7 @@ jobs:
   upload-coverage:
     needs: test
     runs-on:
-      - ubuntu-latest-16-cores${{ matrix.arch == 'arm64' && '-arm64' || '' }}
+      - ubuntu-latest
     steps:
       - name: finish parallel build
         uses: coverallsapp/github-action@v1
