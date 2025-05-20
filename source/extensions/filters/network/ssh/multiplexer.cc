@@ -63,7 +63,7 @@ void SourceUpstreamSessionMultiplexer::updateSource(const wire::ChannelDataMsg& 
   vt_state_->write(msg.data);
   for (auto&& it = active_mirrors_.begin(); it != active_mirrors_.end();) {
     if (auto s = it->lock(); s) {
-      s->sendMsg(msg);
+      s->sendMsg(auto(msg));
       it++;
     } else {
       it = active_mirrors_.erase(it);
@@ -83,7 +83,7 @@ void SourceUpstreamSessionMultiplexer::onMirrorAdded(std::weak_ptr<MirrorCallbac
     vt_state_->dumpState(buffer);
     wire::ChannelDataMsg state;
     state.data = wire::flushTo<bytes>(buffer);
-    l->sendMsg(state);
+    l->sendMsg(std::move(state));
   }
 }
 

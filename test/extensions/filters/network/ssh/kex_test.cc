@@ -498,7 +498,7 @@ protected:
     }
     co_yield AfterEcdhInitSent;
 
-    wire::Message tmp = sequence.server_ecdh_reply_;
+    wire::Message tmp{sequence.server_ecdh_reply_};
     auto r = alg->handleClientRecv(tmp);
     if (!r.ok()) {
       co_return r.status();
@@ -1173,7 +1173,7 @@ protected:
           return 0;
         }));
     }
-    if (auto stat = peer_reply_->dispatch(sequence.server_kex_init_); !stat.ok()) {
+    if (auto stat = peer_reply_->dispatch(auto(sequence.server_kex_init_)); !stat.ok()) {
       co_return stat;
     }
     co_yield AfterServerKexInitSent;
@@ -1191,7 +1191,7 @@ protected:
                  ->create(&magics, &pendingState.negotiated_algorithms,
                           kex_->pickHostKey(pendingState.negotiated_algorithms.host_key));
 
-    wire::Message tmp = sequence.client_ecdh_init_;
+    wire::Message tmp{sequence.client_ecdh_init_};
     auto result = alg->handleServerRecv(tmp);
     if (!result.ok()) {
       co_return result.status();

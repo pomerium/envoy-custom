@@ -176,7 +176,7 @@ TEST(MessagesTest, Message_RoundTrip) {
   EXPECT_TRUE(extInfo.hasExtension<PingExtension>());
   EXPECT_FALSE(extInfo.hasExtension<ServerSigAlgsExtension>());
 
-  wire::Message msg = extInfo; // copy
+  wire::Message msg(extInfo); // copy
 
   Envoy::Buffer::OwnedImpl tmp;
   auto n = msg.encode(tmp);
