@@ -14,7 +14,6 @@
 
 extern "C" {
 #include "openssh/kex.h"
-#include "openssh/digest.h"
 }
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
@@ -92,12 +91,13 @@ protected:
     wire::write_opt<wire::LengthPrefixed>(exchangeHash, server_pub_key);
     wire::writeBignum(exchangeHash, shared_secret);
 
-    fixed_bytes<SSH_DIGEST_MAX_LENGTH> digestBuf;
     auto exchangeHashBuf = linearizeToSpan(exchangeHash);
     auto hash_alg = kex_hash_from_name(algs_->kex.c_str());
-    ssh_digest_memory(hash_alg, exchangeHashBuf.data(), exchangeHashBuf.size(), digestBuf.data(), digestBuf.size());
+    openssh::Hash hash(hash_alg);
+    hash.write(exchangeHashBuf);
+    auto digest = hash.sum();
     exchangeHash.drain(exchangeHash.length());
-    return to_bytes(bytes_view{digestBuf}.first(ssh_digest_bytes(hash_alg)));
+    return digest;
   }
 
   absl::StatusOr<KexResultSharedPtr> computeServerResult(wire::Writer auto const& host_key_blob,
