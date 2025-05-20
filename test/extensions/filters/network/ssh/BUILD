@@ -78,3 +78,20 @@ envoy_cc_test(
         "@envoy//test/test_common:environment_lib",
     ],
 )
+
+envoy_cc_test(
+    name = "kex_alg_test",
+    srcs = [
+        "kex_alg_test.cc",
+    ],
+    data = [
+        "@openssh_portable//:testdata_sshkey",
+    ],
+    repository = "@envoy",
+    deps = [
+        "//:openssh",
+        "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "//test/extensions/filters/network/ssh/wire:wire_test_util",
+        "@envoy//test/test_common:environment_lib",
+    ],
+)
