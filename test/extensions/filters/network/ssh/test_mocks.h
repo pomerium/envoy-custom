@@ -75,5 +75,22 @@ public:
   MOCK_METHOD(size_t, aadLen, (), (const));
 };
 
+class MockSshMessageHandler : public SshMessageHandler {
+public:
+  MockSshMessageHandler();
+  virtual ~MockSshMessageHandler();
+
+  MOCK_METHOD(absl::Status, handleMessage, (wire::Message&&));
+  MOCK_METHOD(void, registerMessageHandlers, (SshMessageDispatcher&));
+};
+
+class MockSshMessageMiddleware : public SshMessageMiddleware {
+public:
+  MockSshMessageMiddleware();
+  virtual ~MockSshMessageMiddleware();
+
+  MOCK_METHOD(absl::StatusOr<MiddlewareResult>, interceptMessage, (wire::Message&));
+};
+
 } // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

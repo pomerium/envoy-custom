@@ -71,7 +71,7 @@ class MessageDispatcher {
 public:
   void registerHandler(message_case_type_t<T> message_type, MessageHandler<T>* handler) {
     if (dispatch_.contains(message_type)) {
-      PANIC("bug: duplicate registration of message type");
+      throw Envoy::EnvoyException(fmt::format("duplicate registration of message type: {}", message_type));
     }
     dispatch_[message_type] = handler;
   }
@@ -117,7 +117,7 @@ protected:
     message_case_type_t<T> mt = messageCase(msg);
     auto&& it = dispatch_.find(mt);
     if (it == dispatch_.end()) [[unlikely]] {
-      return absl::Status(absl::StatusCode::kInvalidArgument, fmt::format("unexpected message received: {}", mt));
+      return absl::InvalidArgumentError(fmt::format("unexpected message received: {}", mt));
     }
     return it->second->handleMessage(std::move(msg));
   }
@@ -133,15 +133,8 @@ template <>
 struct message_case_type<wire::Message> : std::type_identity<wire::SshMessageType> {};
 
 template <>
-struct message_case_type<wire::MessagePtr> : std::type_identity<wire::SshMessageType> {};
-
-template <>
 inline wire::SshMessageType messageCase(const wire::Message& msg) {
   return msg.msg_type();
-}
-template <>
-inline wire::SshMessageType messageCase(const wire::MessagePtr& msg) {
-  return msg->msg_type();
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

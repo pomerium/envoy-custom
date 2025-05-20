@@ -95,3 +95,16 @@ envoy_cc_test(
         "@envoy//test/test_common:environment_lib",
     ],
 )
+
+envoy_cc_test(
+    name = "message_handler_test",
+    srcs = [
+        "message_handler_test.cc",
+    ],
+    repository = "@envoy",
+    deps = [
+        ":test_mocks",
+        "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "//test/test_common:test_common_lib",
+    ],
+)
