@@ -650,9 +650,17 @@ struct Message final {
 
   Message() = default;
 
+  // This constructor is explicit when 'msg' is an lvalue reference to avoid unexpected copying
+  // and/or forgetting std::move in places where a function accepts Message&& (common throughout).
+  // For example, given the function 'dispatch(Message&&)':
+  //  wire::DebugMsg d;
+  //  dispatch(d);            // incorrect: this makes a copy, but it is not obvious
+  //  dispatch(std::move(d)); // correct: moves 'd' into reset()
+  //  dispatch(auto(d));      // correct: makes a copy of DebugMsg, then moves the copy into reset().
+  // The conditional explicit specifier turns the incorrect case into a compiler error.
   template <typename T>
     requires (!std::same_as<std::decay_t<T>, Message>)
-  Message(T&& msg) {
+  explicit(std::is_lvalue_reference_v<T>) Message(T&& msg) {
     reset(std::forward<T>(msg));
   }
 

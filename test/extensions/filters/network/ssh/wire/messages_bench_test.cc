@@ -15,7 +15,7 @@ static wire::KexInitMsg init_msg = [] {
 
 // NOLINTNEXTLINE(readability-identifier-naming)
 static void BenchmarkMessageMove(benchmark::State& state) {
-  Message m1 = init_msg;
+  Message m1{init_msg};
   Message m2;
   bool b{false};
   for (auto _ : state) {
@@ -31,7 +31,7 @@ BENCHMARK(BenchmarkMessageMove);
 
 // NOLINTNEXTLINE(readability-identifier-naming)
 static void BenchmarkMessageCopy(benchmark::State& state) {
-  Message m1 = init_msg;
+  Message m1{init_msg};
   for (auto _ : state) {
     benchmark::DoNotOptimize(auto(m1));
   }
