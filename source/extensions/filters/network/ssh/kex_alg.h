@@ -74,6 +74,7 @@ public:
   virtual const MessageTypeList& clientInitMessageTypes() const PURE;
   virtual wire::Message buildServerReply(const KexResult&) PURE;
   virtual const MessageTypeList& serverReplyMessageTypes() const PURE;
+  constexpr virtual HashFunction hash_algorithm() const PURE;
 
 protected:
   const HandshakeMagics* magics_;
@@ -92,8 +93,7 @@ protected:
     wire::writeBignum(exchangeHash, shared_secret);
 
     auto exchangeHashBuf = linearizeToSpan(exchangeHash);
-    auto hash_alg = kex_hash_from_name(algs_->kex.c_str());
-    openssh::Hash hash(hash_alg);
+    openssh::Hash hash(hash_algorithm());
     hash.write(exchangeHashBuf);
     auto digest = hash.sum();
     exchangeHash.drain(exchangeHash.length());

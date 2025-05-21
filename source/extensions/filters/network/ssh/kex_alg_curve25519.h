@@ -22,6 +22,7 @@ public:
   const MessageTypeList& clientInitMessageTypes() const override;
   wire::Message buildServerReply(const KexResult&) override;
   const MessageTypeList& serverReplyMessageTypes() const override;
+  constexpr HashFunction hash_algorithm() const override { return SHA256; }
 
 private:
   Curve25519Keypair client_keypair_;
