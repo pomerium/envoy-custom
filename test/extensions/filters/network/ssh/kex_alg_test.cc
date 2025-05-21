@@ -74,6 +74,7 @@ public:
     static MessageTypeList list;
     return list;
   }
+  constexpr HashFunction hash_algorithm() const override { return SHA256; }
 
   using KexAlgorithm::computeClientResult;
   using KexAlgorithm::computeExchangeHash;
