@@ -19,6 +19,7 @@ envoy_cc_library(
         "message_handler.h",
         "openssh.h",
         "packet_cipher.h",
+        "service.h",
     ],
     copts = [
         "-Wimplicit-fallthrough",
