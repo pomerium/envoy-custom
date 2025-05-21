@@ -108,8 +108,14 @@ filegroup(
         "-p1",
     ],
     patches = [
+        # Openssh by default links against libcrypto with -lcrypto, but envoy's boringcrypto lib
+        # is named crypto_internal
         "//patches/openssh:0001-libcrypto-rename.patch",
+        # Removes the mkstemp #define that openssh adds for portability reasons, but is not needed
+        # here and interferes with some envoy syscall mock code
         "//patches/openssh:0002-no-define-mkstemp.patch",
+        # Links in the no-op security key implementation used in some openssh tests. We use libssh
+        # standalone, but disable the security key feature, so the symbols are left undefined.
         "//patches/openssh:0003-ssh-sk-null.patch",
     ],
 )
