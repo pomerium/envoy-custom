@@ -33,7 +33,6 @@ inline absl::StatusOr<uint32_t> payloadLength(uint32_t packet_length, uint8_t pa
       packet_length < (padding_length + sizeof(padding_length))) [[unlikely]] {
     return absl::InvalidArgumentError("invalid packet length");
   }
-
   return packet_length - (padding_length + 1);
 }
 
