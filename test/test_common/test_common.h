@@ -22,16 +22,16 @@ using namespace std::literals;
 #undef EXPECT_THROW
 #define EXPECT_THROW #warning "use EXPECT_THROW_WITH_MESSAGE instead of EXPECT_THROW"
 
-#define EXPECT_OK(expr)                                                                  \
-  do {                                                                                   \
-    absl::Status s = (expr);                                                             \
-    EXPECT_TRUE(s.ok()) << "status code: " << s.code() << "; message: " << s.ToString(); \
+#define EXPECT_OK(expr)                                                                                                               \
+  do {                                                                                                                                \
+    absl::Status expect_ok_status = (expr);                                                                                           \
+    EXPECT_TRUE(expect_ok_status.ok()) << "status code: " << expect_ok_status.code() << "; message: " << expect_ok_status.ToString(); \
   } while (false)
 
-#define ASSERT_OK(expr)                                                                  \
-  do {                                                                                   \
-    absl::Status s = (expr);                                                             \
-    ASSERT_TRUE(s.ok()) << "status code: " << s.code() << "; message: " << s.ToString(); \
+#define ASSERT_OK(expr)                                                                                                               \
+  do {                                                                                                                                \
+    absl::Status assert_ok_status = (expr);                                                                                           \
+    ASSERT_TRUE(assert_ok_status.ok()) << "status code: " << assert_ok_status.code() << "; message: " << assert_ok_status.ToString(); \
   } while (false)
 
 // NOLINTBEGIN(readability-identifier-naming)
@@ -71,14 +71,14 @@ WhenResolvedAs(const testing::Matcher<T>& inner_matcher) {
   return testing::MakePolymorphicMatcher(WhenResolvedAsMatcher<T>{inner_matcher});
 }
 
-#define MSG(msg_type, ...)                                                                                      \
-  [&] {                                                                                                         \
-    using MsgType_ = msg_type;                                                                                  \
-    if constexpr (wire::detail::is_overload<MsgType_>) {                                                        \
-      return VariantWith<wire::detail::overload_for_t<MsgType_>>(WhenResolvedAs<MsgType_>(AllOf(__VA_ARGS__))); \
-    } else {                                                                                                    \
-      return VariantWith<MsgType_>(AllOf(__VA_ARGS__));                                                         \
-    }                                                                                                           \
+#define MSG(msg_type, ...)                                                                                                               \
+  [&] {                                                                                                                                  \
+    using MsgType_ = msg_type;                                                                                                           \
+    if constexpr (wire::detail::is_overloaded_message<std::decay_t<MsgType_>>) {                                                         \
+      return VariantWith<wire::detail::overload_set_for_t<std::remove_const_t<MsgType_>>>(WhenResolvedAs<MsgType_>(AllOf(__VA_ARGS__))); \
+    } else {                                                                                                                             \
+      return VariantWith<MsgType_>(AllOf(__VA_ARGS__));                                                                                  \
+    }                                                                                                                                    \
   }()
 // NOLINTEND(readability-identifier-naming)
 
@@ -106,6 +106,8 @@ WhenResolvedAs(const testing::Matcher<T>& inner_matcher) {
 using testing::_; // NOLINT(bugprone-reserved-identifier)
 using testing::AllOf;
 using testing::AllOfArray;
+using testing::AnyOf;
+using testing::AnyOfArray;
 using testing::DoAll;
 using testing::Eq;
 using testing::Field;

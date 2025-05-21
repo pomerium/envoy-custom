@@ -28,6 +28,8 @@ hedron_compile_commands_setup_transitive_transitive_transitive()
 
 envoy_version = "d7809ba2b07fd869d49bfb122b27f6a7977b4d94"
 
+openssh_version = "V_10_0_P2"
+
 magic_enum_version = "a413fcc9c46a020a746907136a384c227f3cd095"
 
 local_repository(
@@ -75,6 +77,48 @@ load("@envoy//bazel:dependency_imports.bzl", "envoy_dependency_imports")
 envoy_dependency_imports()
 
 load("@envoy_api//bazel:envoy_http_archive.bzl", "envoy_http_archive")
+
+envoy_http_archive(
+    name = "openssh_portable",
+    build_file_content = """
+filegroup(
+    name = "all",
+    srcs = glob(["**"]),
+    visibility = ["//visibility:public"],
+)
+filegroup(
+    name = "testdata_sshkey",
+    srcs = glob(["regress/unittests/sshkey/testdata/*"]),
+    visibility = ["//visibility:public"],
+    testonly = True,
+)
+    """,
+    locations = dict(
+        openssh_portable = dict(
+            license = "BSD",
+            license_url = "https://github.com/openssh/openssh-portable/blob/master/LICENCE",
+            project_name = "openssh-portable",
+            sha256 = "885b67c6dddb116037f6ed45f4bf83b45fd235f334df73eb878d1e0b8b8c613b",
+            strip_prefix = "openssh-portable-" + openssh_version,
+            urls = ["https://github.com/openssh/openssh-portable/archive/" + openssh_version + ".zip"],
+            version = "master",
+        ),
+    ),
+    patch_args = [
+        "-p1",
+    ],
+    patches = [
+        # Openssh by default links against libcrypto with -lcrypto, but envoy's boringcrypto lib
+        # is named crypto_internal
+        "//patches/openssh:0001-libcrypto-rename.patch",
+        # Removes the mkstemp #define that openssh adds for portability reasons, but is not needed
+        # here and interferes with some envoy syscall mock code
+        "//patches/openssh:0002-no-define-mkstemp.patch",
+        # Links in the no-op security key implementation used in some openssh tests. We use libssh
+        # standalone, but disable the security key feature, so the symbols are left undefined.
+        "//patches/openssh:0003-ssh-sk-null.patch",
+    ],
+)
 
 envoy_http_archive(
     name = "magic_enum",

@@ -2,6 +2,8 @@ load(
     "@envoy//bazel:envoy_build_system.bzl",
     "envoy_cc_binary",
 )
+load("@rules_foreign_cc//foreign_cc:configure.bzl", "configure_make")
+load("@rules_foreign_cc//foreign_cc:make.bzl", "make")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -18,5 +20,50 @@ envoy_cc_binary(
         "//source/extensions/request_id/uuidx:pomerium_uuidx",
         "//source/extensions/tracers/pomerium_otel",
         "@envoy//source/exe:envoy_main_entry_lib",
+    ],
+)
+
+configure_make(
+    name = "openssh",
+    args = ["-j4"],
+    autoreconf = True,
+    configure_in_place = True,
+    configure_options = [
+        "--disable-pkcs11",
+        "--with-ssl-dir=$$EXT_BUILD_DEPS",
+        "--without-zlib",
+        "--with-sandbox=no",
+    ],
+    defines = [
+        "WITH_OPENSSL=1",
+    ],
+    env = select({
+        "@platforms//os:macos": {"AR": ""},
+        "//conditions:default": {},
+    }),
+    includes = [
+        "openssh",
+    ],
+    lib_source = "@openssh_portable//:all",
+    out_static_libs = [
+        "libssh.a",
+        "libopenbsd-compat.a",
+    ],
+    postfix_script = """
+        cp -L libssh.a $INSTALLDIR/lib && \
+        cp -L openbsd-compat/libopenbsd-compat.a $INSTALLDIR/lib && \
+        rm -rf $INSTALLDIR/include/openssh && \
+        mkdir -p $INSTALLDIR/include/openssh/openbsd-compat && \
+        cp -L *.h $INSTALLDIR/include/openssh && \
+        cp -L openbsd-compat/*.h $INSTALLDIR/include/openssh/openbsd-compat
+    """,
+    set_file_prefix_map = True,
+    targets = [
+        "",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@envoy//bazel:boringcrypto",
+        "@envoy//bazel:boringssl",
     ],
 )

@@ -188,18 +188,23 @@ struct is_vector<std::vector<T, Allocator>> : std::true_type {};
 template <typename T>
 static constexpr bool is_vector_v = is_vector<T>::value;
 
+namespace detail {
+#if defined(__clang__)
+static constexpr auto type_name_prefix_str = "std::string_view type_name() [T = ";
+static constexpr auto type_name_suffix_str = "]";
+#elif defined(__GNUC__)
+static constexpr auto type_name_prefix_str = "constexpr std::string_view type_name() [with T = ";
+static constexpr auto type_name_suffix_str = "; std::string_view = std::basic_string_view<char>]";
+#else
+#error "unsupported compiler"
+#endif
+} // namespace detail
+
 // Returns the string name of a type T. Used for debug logs and human-readable message formatting.
 template <typename T>
 constexpr std::string_view type_name() {
   std::string_view fn = std::source_location::current().function_name();
-#if (defined(__GNUC__) && !defined(__clang__)) // GCC
-  fn.remove_prefix(std::char_traits<char>::length("constexpr std::string_view type_name() [with T = "));
-  fn.remove_suffix(std::char_traits<char>::length("; std::string_view = std::basic_string_view<char>]"));
-#elif (defined(__GNUC__) && defined(__clang__)) // Clang
-  fn.remove_prefix(std::char_traits<char>::length("std::string_view type_name() [T = "));
-  fn.remove_suffix(std::char_traits<char>::length("]"));
-#else
-#error "unsupported compiler"
-#endif
+  fn.remove_prefix(std::char_traits<char>::length(detail::type_name_prefix_str));
+  fn.remove_suffix(std::char_traits<char>::length(detail::type_name_suffix_str));
   return fn;
 }
