@@ -227,10 +227,8 @@ struct sub_message {
   template <typename T>
     requires (has_option<std::decay_t<T>>())
   void reset(T&& other) {
-    // Forward 'other' into the variant using a copy if it is T&, or a move if it is T&&.
-    oneof.emplace(std::forward<T>(other));
-    // update the key field
-    key_field_.value = std::decay_t<T>::submsg_key;
+    oneof.emplace(std::forward<T>(other));          // Forward the new value into the variant
+    key_field_.value = std::decay_t<T>::submsg_key; // Update the key field with the matching key
   }
 
   // Wrappers around std::get to obtain the value in the variant for a specific type.
