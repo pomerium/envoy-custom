@@ -1,5 +1,6 @@
 load(
     "@envoy//bazel:envoy_build_system.bzl",
+    "envoy_cc_mock",
     "envoy_cc_test",
     "envoy_package",
 )
@@ -7,6 +8,17 @@ load(
 licenses(["notice"])  # Apache 2
 
 envoy_package()
+
+envoy_cc_mock(
+    name = "test_mocks",
+    srcs = ["test_mocks.cc"],
+    hdrs = ["test_mocks.h"],
+    repository = "@envoy",
+    deps = [
+        "//:openssh",
+        "//source/extensions/filters/network/ssh:pomerium_ssh",
+    ],
+)
 
 envoy_cc_test(
     name = "openssh_test",
@@ -21,5 +33,18 @@ envoy_cc_test(
         "//source/extensions/filters/network/ssh:pomerium_ssh",
         "//test/extensions/filters/network/ssh/wire:wire_test_util",
         "@envoy//test/test_common:environment_lib",
+    ],
+)
+
+envoy_cc_test(
+    name = "packet_cipher_test",
+    srcs = [
+        "packet_cipher_test.cc",
+    ],
+    repository = "@envoy",
+    deps = [
+        ":test_mocks",
+        "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "//test/extensions/filters/network/ssh/wire:wire_test_util",
     ],
 )
