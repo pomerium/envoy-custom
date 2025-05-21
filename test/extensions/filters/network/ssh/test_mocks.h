@@ -1,6 +1,8 @@
 #pragma once
 
 #include "source/extensions/filters/network/ssh/packet_cipher.h"
+#include "source/extensions/filters/network/ssh/wire/messages.h"
+#include "source/extensions/filters/network/ssh/message_handler.h"
 
 #pragma clang unsafe_buffer_usage begin
 #include "envoy/buffer/buffer.h"
@@ -21,6 +23,23 @@ public:
   MOCK_METHOD(absl::Status, encryptPacket, (uint32_t, Envoy::Buffer::Instance&, Envoy::Buffer::Instance&));
   MOCK_METHOD(size_t, blockSize, (), (const));
   MOCK_METHOD(size_t, aadLen, (), (const));
+};
+
+class MockSshMessageHandler : public SshMessageHandler {
+public:
+  MockSshMessageHandler();
+  virtual ~MockSshMessageHandler();
+
+  MOCK_METHOD(absl::Status, handleMessage, (wire::Message&&));
+  MOCK_METHOD(void, registerMessageHandlers, (SshMessageDispatcher&));
+};
+
+class MockSshMessageMiddleware : public SshMessageMiddleware {
+public:
+  MockSshMessageMiddleware();
+  virtual ~MockSshMessageMiddleware();
+
+  MOCK_METHOD(absl::StatusOr<MiddlewareResult>, interceptMessage, (wire::Message&));
 };
 
 } // namespace test

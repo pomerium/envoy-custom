@@ -16,6 +16,7 @@ envoy_cc_library(
     ],
     hdrs = [
         "kex_alg.h",
+        "message_handler.h",
         "openssh.h",
         "packet_cipher.h",
     ],
