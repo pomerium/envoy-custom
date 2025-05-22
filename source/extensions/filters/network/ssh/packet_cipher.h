@@ -17,6 +17,8 @@ public:
   // Drains bytes from the input buffer.
   // Returns the number of bytes *decrypted*, which will usually be less than the number of
   // bytes read.
+  // If the buffer does not contain an entire packet, it will not drain any bytes and will
+  // return 0.
   virtual absl::StatusOr<size_t> decryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
                                                Envoy::Buffer::Instance& in) PURE;
   virtual absl::Status encryptPacket(uint32_t seqnum, Envoy::Buffer::Instance& out,
