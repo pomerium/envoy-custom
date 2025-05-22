@@ -230,7 +230,7 @@ absl::Status SSHKey::convertToSignedUserCertificate(
   return absl::OkStatus();
 }
 
-absl::StatusOr<bytes> SSHKey::toPublicKeyBlob() const {
+bytes SSHKey::toPublicKeyBlob() const {
   CBytesPtr buf;
   size_t len = 0;
   // only fails on OOM or if the key is in an invalid state
@@ -239,7 +239,7 @@ absl::StatusOr<bytes> SSHKey::toPublicKeyBlob() const {
   return to_bytes(unsafe_forge_span(buf.get(), len));
 }
 
-absl::StatusOr<std::unique_ptr<SSHKey>> SSHKey::toPublicKey() const {
+std::unique_ptr<SSHKey> SSHKey::toPublicKey() const {
   detail::sshkey_ptr key;
   // only fails on OOM or if the key is in an invalid state
   auto r = sshkey_from_private(key_.get(), std::out_ptr(key));
@@ -262,7 +262,7 @@ absl::StatusOr<std::string> SSHKey::formatPrivateKey(sshkey_private_format forma
   return std::string(view.begin(), view.end());
 }
 
-absl::StatusOr<std::string> SSHKey::formatPublicKey() const {
+std::string SSHKey::formatPublicKey() const {
   detail::sshbuf_ptr buf(sshbuf_new());
   detail::sshkey_ptr pub;
 

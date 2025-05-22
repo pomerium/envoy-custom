@@ -38,10 +38,7 @@ absl::StatusOr<std::optional<KexResultSharedPtr>> Curve25519Sha256KexAlgorithm::
       }
 
       auto blob = signer_->toPublicKeyBlob();
-      if (!blob.ok()) {
-        return statusf("error converting public key to blob: {}", blob.status());
-      }
-      auto res = computeServerResult(*blob, client_pub_key, server_keypair.pub, shared_secret);
+      auto res = computeServerResult(blob, client_pub_key, server_keypair.pub, shared_secret);
       if (!res.ok()) {
         return statusf("error computing server result: {}", res.status());
       }

@@ -307,9 +307,8 @@ public:
     std::unordered_map<std::string, bytes> hostKeyBlobs;
     for (const auto& key : hostKeys) {
       const auto blob = key->toPublicKeyBlob();
-      ASSERT(blob.ok());
       for (auto alg : key->signatureAlgorithmsForKeyType()) {
-        hostKeyBlobs[alg] = *blob;
+        hostKeyBlobs[alg] = blob;
       }
     }
     return std::make_pair(std::move(hostKeys), std::move(hostKeyBlobs));

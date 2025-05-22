@@ -313,10 +313,7 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
       pubkeyReq.public_key_alg = "ssh-ed25519-cert-v01@openssh.com";
 
       auto blob = userSessionSshKey->toPublicKeyBlob();
-      if (!blob.ok()) {
-        return statusf("error serializing user session key: {}", blob.status());
-      }
-      pubkeyReq.public_key = *blob;
+      pubkeyReq.public_key = blob;
       req->request = std::move(pubkeyReq);
       pending_req_ = std::move(req);
       pending_user_key_ = std::move(userSessionSshKey);

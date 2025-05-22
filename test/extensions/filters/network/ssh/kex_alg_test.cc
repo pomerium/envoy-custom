@@ -119,7 +119,7 @@ public:
     client_kex_init = *encodeTo<bytes>(client_kex_init_msg);
     server_kex_init = *encodeTo<bytes>(server_kex_init_msg);
     server_host_key = *openssh::SSHKey::generate(KEY_ED25519, 256);
-    server_host_key_blob = *server_host_key->toPublicKeyBlob();
+    server_host_key_blob = server_host_key->toPublicKeyBlob();
     client_ephemeral_key = randomBytes(32);
     server_ephemeral_key = randomBytes(32);
     shared_secret = randomBytes(32);
@@ -200,7 +200,7 @@ TEST_F(KexAlgorithmTestSuite, ComputeServerResult_SignError) {
   HandshakeMagics magics{client_version, server_version, client_kex_init, server_kex_init};
   Algorithms algs;
   algs.kex = "curve25519-sha256";
-  auto badSigner = *server_host_key->toPublicKey();
+  auto badSigner = server_host_key->toPublicKey();
   auto kexAlg = TestKexAlgorithm(&magics, &algs, badSigner.get());
   auto result = kexAlg.computeServerResult(server_host_key_blob,
                                            client_ephemeral_key,
