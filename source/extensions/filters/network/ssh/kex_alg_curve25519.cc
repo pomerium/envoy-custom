@@ -2,8 +2,6 @@
 
 #include <algorithm>
 
-#include "openssl/curve25519.h"
-
 #include "source/common/status.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
@@ -21,17 +19,17 @@ absl::StatusOr<std::optional<KexResultSharedPtr>> Curve25519Sha256KexAlgorithm::
         return absl::InvalidArgumentError("invalid key exchange init");
       }
       auto& msg = opt_msg->get();
-      if (auto sz = msg.client_pub_key->size(); sz != 32) {
+      if (auto sz = msg.client_pub_key->size(); sz != X25519_PUBLIC_VALUE_LEN) {
         return absl::InvalidArgumentError(
           fmt::format("invalid peer public key size (expected 32, got {})", sz));
       }
-      fixed_bytes<32> client_pub_key;
-      std::copy_n(msg.client_pub_key->begin(), 32, client_pub_key.begin());
+      fixed_bytes<X25519_PUBLIC_VALUE_LEN> client_pub_key;
+      std::copy_n(msg.client_pub_key->begin(), X25519_PUBLIC_VALUE_LEN, client_pub_key.begin());
 
       Curve25519Keypair server_keypair;
       kexc25519_keygen(server_keypair.priv.data(), server_keypair.pub.data());
 
-      fixed_bytes<32> shared_secret;
+      fixed_bytes<X25519_SHARED_KEY_LEN> shared_secret;
       // NB: this function validates that the output is not all-zeros
       if (X25519(shared_secret.data(), server_keypair.priv.data(), client_pub_key.data()) == 0) {
         return absl::InvalidArgumentError("x25519 error");
@@ -56,15 +54,15 @@ absl::StatusOr<std::optional<KexResultSharedPtr>> Curve25519Sha256KexAlgorithm::
         return absl::InvalidArgumentError("invalid key exchange reply");
       }
       auto& msg = opt_msg->get();
-      if (auto sz = msg.ephemeral_pub_key->size(); sz != 32) {
+      if (auto sz = msg.ephemeral_pub_key->size(); sz != X25519_PUBLIC_VALUE_LEN) {
         return absl::InvalidArgumentError(
           fmt::format("invalid peer public key size (expected 32, got {})", sz));
       }
 
-      fixed_bytes<32> server_pub_key;
-      std::copy_n(msg.ephemeral_pub_key->begin(), 32, server_pub_key.begin());
+      fixed_bytes<X25519_PUBLIC_VALUE_LEN> server_pub_key;
+      std::copy_n(msg.ephemeral_pub_key->begin(), X25519_PUBLIC_VALUE_LEN, server_pub_key.begin());
 
-      fixed_bytes<32> shared_secret;
+      fixed_bytes<X25519_SHARED_KEY_LEN> shared_secret;
       if (!X25519(shared_secret.data(), client_keypair_.priv.data(), server_pub_key.data())) {
         return absl::InvalidArgumentError("x25519 error");
       }
@@ -86,7 +84,7 @@ wire::Message Curve25519Sha256KexAlgorithm::buildClientInit() {
   client_keypair_ = client_keypair;
   auto msg = wire::KexEcdhInitMsg{};
 
-  msg.client_pub_key = bytes{client_keypair.pub.begin(), client_keypair.pub.end()};
+  msg.client_pub_key = to_bytes(client_keypair.pub);
   return msg;
 }
 
