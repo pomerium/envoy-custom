@@ -1259,7 +1259,7 @@ TEST(ReadOptTest, ZeroLength) {
   Buffer::OwnedImpl buffer;
   bytes out;
   EXPECT_NO_THROW({
-    auto n = read_opt<None>(buffer, out, buffer.length());
+    auto n = read_opt<None>(buffer, out, static_cast<size_t>(buffer.length()));
     EXPECT_EQ(0, n);
     EXPECT_EQ(0, out.size());
   });
@@ -1267,7 +1267,7 @@ TEST(ReadOptTest, ZeroLength) {
   buffer.writeByte(2);
   buffer.writeByte(3);
   EXPECT_NO_THROW({
-    auto n = read_opt<None>(buffer, out, buffer.length());
+    auto n = read_opt<None>(buffer, out, static_cast<size_t>(buffer.length()));
     EXPECT_EQ(3, n);
     EXPECT_EQ(3, out.size());
   });
