@@ -13,12 +13,14 @@ envoy_cc_library(
         "kex_alg.cc",
         "openssh.cc",
         "packet_cipher.cc",
+        "packet_cipher_aead.cc",
     ],
     hdrs = [
         "kex_alg.h",
         "message_handler.h",
         "openssh.h",
         "packet_cipher.h",
+        "packet_cipher_aead.h",
         "service.h",
     ],
     copts = [
