@@ -167,6 +167,30 @@ TEST(MessagesTest, Message_Visit_ConceptArgs) {
   EXPECT_EQ(1, visitor(msg));
 }
 
+TEST(MessagesTest, Message_Visit_Mutable) {
+  wire::Message msg{wire::KexInitMsg{}};
+  msg.visit(
+    [](wire::KexInitMsg& msg) {
+      msg.reserved = 1234;
+    },
+    [](auto&) {});
+  ASSERT_EQ(1234, *msg.message.get<wire::KexInitMsg>().reserved);
+}
+
+TEST(MessagesTest, Message_Visit_Overload_Mutable) {
+  wire::Message msg{wire::KexEcdhInitMsg{}};
+  msg.visit(
+    [](opt_ref<wire::KexEcdhInitMsg> msg) {
+      msg->get().client_pub_key = {1};
+    },
+    [](auto&) {});
+  msg.visit(
+    [](opt_ref<wire::KexEcdhInitMsg> msg) {
+      ASSERT_EQ(bytes{1}, msg->get().client_pub_key);
+    },
+    [](auto&) {});
+}
+
 TEST(MessagesTest, Message_RoundTrip) {
   wire::ExtInfoMsg extInfo;
   wire::PingExtension pingExt;

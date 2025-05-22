@@ -100,9 +100,32 @@ struct top_level_visitor<IsConst, F> : private F {
     }
   }
 
-  using arg = callable_arg_type_t<F>;
-  decltype(auto) operator()(arg_type_transform<arg> o) const {
-    return F::operator()(o.template resolve<arg>());
+  // This call operator wraps a lambda provided to visit() to handle overloaded message types. It
+  // resolves the overloaded message to the requested type, then passes it to the original lambda
+  // as an opt_ref.
+  //
+  // Example: if the sub-message type is OverloadSet<Foo, Bar>, and the caller writes:
+  //
+  //  visit([](opt_ref<Foo> msg) {
+  //    ...
+  //  });
+  //
+  // Then it is effectively transformed into:
+  //
+  //  visit([](OverloadSet<Foo, Bar> o) {
+  //           ^^^^^^^^^^^^^^^^^^^^^ overload_set_for_t<Foo>
+  //    auto f = [](opt_ref<Foo> msg) { ... };
+  //                        ^^^ decayed_arg, aka callable_arg_type_t<F>
+  //             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ F (the original lambda)
+  //    opt_ref<Foo> resolved = o.resolve<Foo>();
+  //                                      ^^^ decayed_arg
+  //    return f(resolved);
+  //  });
+  //
+  using decayed_arg = callable_arg_type_t<F>;
+  using overload_set = overload_set_for_t<decayed_arg>;
+  decltype(auto) operator()(overload_set& o) const {
+    return F::operator()(o.template resolve<decayed_arg>());
   }
 };
 
