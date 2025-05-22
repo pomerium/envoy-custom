@@ -1,0 +1,62 @@
+name: Test (Linux)
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ["x64", "arm64"]
+    runs-on:
+      - ubuntu-latest-16-cores${{ matrix.arch == 'arm64' && '-arm64' || '' }}
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: disable man-db auto update
+        if: ${{ runner.environment == 'github-hosted' }}
+        run: sudo rm -f /var/lib/man-db/auto-update
+
+      - name: setup clang
+        run: |
+          sudo apt -y install virtualenv lcov llvm-19 llvm-19-linker-tools llvm-19-runtime llvm-19-tools libllvm19 clang-19 clang-tidy-19 clang-tools-19 libclang1-19 libclang-cpp19 libc++-19-dev libc++abi1-19 lld-19
+          tools/setup_clang.sh /usr/lib/llvm-19
+
+      - name: setup bazel
+        uses: bazel-contrib/setup-bazel@e8776f58fb6a6e9055cbaf1b38c52ccc5247e9c4
+        with:
+          bazelisk-version: 1.25.0
+          bazelisk-cache: true
+          disk-cache: bazel-linux-${{ matrix.arch }}
+          repository-cache: true
+
+      - name: test
+        run: bazel coverage //test/...
+
+      - name: upload to coveralls
+        uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          file: bazel-out/_coverage/_coverage_report.dat
+          format: lcov
+          parallel: true
+
+  upload-coverage:
+    needs: test
+    runs-on:
+      - ubuntu-latest
+    steps:
+      - name: finish parallel build
+        uses: coverallsapp/github-action@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          parallel-finished: true
