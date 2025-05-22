@@ -82,7 +82,7 @@ TEST(SSHKeyTest, FromToPublicKeyBlob) {
     copyTestdataToWritableTmp(fmt::format("regress/unittests/sshkey/testdata/{}.pub", keyName), 0644);
     auto privKeyPath = copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600);
     auto priv = *SSHKey::fromPrivateKeyFile(privKeyPath);
-    auto our_blob = *priv->toPublicKeyBlob();
+    auto our_blob = priv->toPublicKeyBlob();
 
     const auto rsa1Pub = privKeyPath + ".pub";
     detail::sshkey_ptr openssh_pubkey;
@@ -138,7 +138,7 @@ TEST(SSHKeyTest, ToPublicKeyPem) {
     auto relPath = absl::StrCat("regress/unittests/sshkey/testdata/", keyName);
     auto privKeyPath = copyTestdataToWritableTmp(relPath, 0600);
     auto priv = *SSHKey::fromPrivateKeyFile(privKeyPath);
-    auto ours = *priv->formatPublicKey();
+    auto ours = priv->formatPublicKey();
 
     const std::string runfilePath = Envoy::TestEnvironment::runfilesPath(absl::StrCat(relPath, ".pub"), "openssh_portable");
     auto golden = Envoy::TestEnvironment::readFileToStringForTest(runfilePath);
@@ -191,18 +191,18 @@ TEST_P(SSHKeyTestSuite, Compare) {
   EXPECT_EQ(*key1, *key1);
   EXPECT_EQ(*key2, *key2);
   EXPECT_NE(*key1, *key2);
-  EXPECT_EQ(**key1->toPublicKey(), *key1);
-  EXPECT_NE(**key2->toPublicKey(), *key1);
-  EXPECT_EQ(**key1->toPublicKey(), **key1->toPublicKey());
-  EXPECT_NE(**key2->toPublicKey(), **key1->toPublicKey());
+  EXPECT_EQ(*key1->toPublicKey(), *key1);
+  EXPECT_NE(*key2->toPublicKey(), *key1);
+  EXPECT_EQ(*key1->toPublicKey(), *key1->toPublicKey());
+  EXPECT_NE(*key2->toPublicKey(), *key1->toPublicKey());
 }
 
 TEST_P(SSHKeyTestSuite, SignVerify) {
   auto key1 = generate();
   auto key2 = generate();
 
-  auto key1_pub = *key1->toPublicKey();
-  auto key2_pub = *key2->toPublicKey();
+  auto key1_pub = key1->toPublicKey();
+  auto key2_pub = key2->toPublicKey();
 
   bytes payload{'f', 'o', 'o', 'b', 'a', 'r', 'b', 'a', 'z'};
   {
@@ -264,7 +264,7 @@ TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate) {
   auto sig = key_->sign(payload);
   ASSERT_OK(sig.status());
 
-  auto pubKey = *key_->toPublicKey();
+  auto pubKey = key_->toPublicKey();
   ASSERT_OK(pubKey->verify(*sig, payload));
 }
 
@@ -301,7 +301,7 @@ TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate_AlreadyCert) {
 
 TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate_KeyIsPublicKey) {
   auto key = generate();
-  auto pub = *key->toPublicKey();
+  auto pub = key->toPublicKey();
   auto stat = pub->convertToSignedUserCertificate(1, {}, {}, absl::Hours(24), *signer_);
   // this is fine, the cert just won't be able to sign etc.
   ASSERT_OK(stat);
@@ -312,7 +312,7 @@ TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate_KeyIsPublicKey) {
 
 TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate_SignerIsPublicKey) {
   auto key = generate();
-  auto pub = *key->toPublicKey();
+  auto pub = key->toPublicKey();
   auto stat = key_->convertToSignedUserCertificate(1, {}, {}, absl::Hours(24), *pub);
   ASSERT_THAT(stat, AnyOf(Eq(absl::InvalidArgumentError("invalid argument")),
                           Eq(absl::InternalError("error in libcrypto"))));
@@ -327,7 +327,7 @@ TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate_TooManyPrincipals) {
 TEST_P(SSHKeyCertTestSuite, Compare) {
   auto stat = key_->convertToSignedUserCertificate(1, {"principal1", "principal2"}, {"extension1", "extension2"}, absl::Hours(24), *signer_);
   EXPECT_EQ(*key_, *key_);
-  EXPECT_EQ(*key_, **key_->toPublicKey());
+  EXPECT_EQ(*key_, *key_->toPublicKey());
 }
 
 INSTANTIATE_TEST_SUITE_P(SSHKeyCertTest, SSHKeyCertTestSuite,

@@ -76,10 +76,10 @@ public:
     absl::Duration valid_duration,
     const SSHKey& signer);
 
-  absl::StatusOr<bytes> toPublicKeyBlob() const;
-  absl::StatusOr<std::unique_ptr<SSHKey>> toPublicKey() const;
+  bytes toPublicKeyBlob() const;
+  std::unique_ptr<SSHKey> toPublicKey() const;
   absl::StatusOr<std::string> formatPrivateKey(sshkey_private_format format = SSHKEY_PRIVATE_OPENSSH) const;
-  absl::StatusOr<std::string> formatPublicKey() const;
+  std::string formatPublicKey() const;
   absl::StatusOr<bytes> sign(bytes_view payload) const;
   absl::Status verify(bytes_view signature, bytes_view payload);
 
