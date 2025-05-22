@@ -104,8 +104,10 @@ WhenResolvedAs(const testing::Matcher<T>& inner_matcher) {
   EXPECT_STATIC_ASSERT_IMPL_((__VA_ARGS__))
 
 using testing::_; // NOLINT(bugprone-reserved-identifier)
+using testing::A;
 using testing::AllOf;
 using testing::AllOfArray;
+using testing::An;
 using testing::AnyOf;
 using testing::AnyOfArray;
 using testing::DoAll;
@@ -114,11 +116,13 @@ using testing::Field;
 using testing::InSequence;
 using testing::Invoke;
 using testing::NiceMock;
+using testing::NotNull;
 using testing::Property;
 using testing::Return;
 using testing::SaveArg;
 using testing::Types;
 using testing::VariantWith;
+using testing::WhenDynamicCastTo;
 
 using Envoy::EnvoyException;
 namespace Buffer = Envoy::Buffer;
