@@ -1,15 +1,15 @@
 #pragma once
 
 #include "source/extensions/filters/network/ssh/kex_alg.h"
-
+#include "openssl/curve25519.h"
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 static constexpr auto kexAlgoCurve25519SHA256LibSSH = "curve25519-sha256@libssh.org";
 static constexpr auto kexAlgoCurve25519SHA256 = "curve25519-sha256";
 
 struct Curve25519Keypair {
-  std::array<uint8_t, 32> priv;
-  std::array<uint8_t, 32> pub;
+  fixed_bytes<X25519_PRIVATE_KEY_LEN> priv;
+  fixed_bytes<X25519_PUBLIC_VALUE_LEN> pub;
 };
 
 class Curve25519Sha256KexAlgorithm : public KexAlgorithm {
@@ -26,9 +26,6 @@ public:
 
 private:
   Curve25519Keypair client_keypair_;
-
-  absl::Status buildResult(uint8_t client_pub_key[32], uint8_t shared_secret[32],
-                           Curve25519Keypair server_keypair);
 };
 
 class Curve25519Sha256KexAlgorithmFactory : public KexAlgorithmFactory {
