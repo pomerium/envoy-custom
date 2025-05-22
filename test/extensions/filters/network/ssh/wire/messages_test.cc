@@ -169,21 +169,28 @@ TEST(MessagesTest, Message_Visit_ConceptArgs) {
 
 TEST(MessagesTest, Message_Visit_Mutable) {
   wire::Message msg{wire::KexInitMsg{}};
+  // Modify a field in the KexInitMsg contained within 'msg' by using a visitor
   msg.visit(
     [](wire::KexInitMsg& msg) {
       msg.reserved = 1234;
     },
     [](auto&) {});
+  // The change made inside the visitor should be reflected in the original message
   ASSERT_EQ(1234, *msg.message.get<wire::KexInitMsg>().reserved);
 }
 
 TEST(MessagesTest, Message_Visit_Overload_Mutable) {
   wire::Message msg{wire::KexEcdhInitMsg{}};
+  // Modify a field of an overloaded message (which is already resolved) contained within 'msg'
+  // by using a visitor.
+  // Overloaded messages use a different visitor implementation and are accessed within the lambda
+  // via reference_wrapper. The reference_wrapper should hold a reference to the original message.
   msg.visit(
     [](opt_ref<wire::KexEcdhInitMsg> msg) {
       msg->get().client_pub_key = {1};
     },
     [](auto&) {});
+  // Verify that the changes persisted by visiting the same message again and checking the field
   msg.visit(
     [](opt_ref<wire::KexEcdhInitMsg> msg) {
       ASSERT_EQ(bytes{1}, msg->get().client_pub_key);
