@@ -87,18 +87,50 @@ TEST_P(AEADPacketCipherTest, DecryptIncompletePacket) {
   ASSERT_EQ(length, incomplete.length());
 }
 
+std::vector<CipherParameters> AllAEADCipherParameters{
+  { .alg = CipherChacha20Poly1305,
+    .ivSize = 0,
+    .keySize = 64 },
+  { .alg = CipherAES128GCM,
+    .ivSize = 12,
+    .keySize = 16 },
+  { .alg = CipherAES256GCM,
+    .ivSize = 12,
+    .keySize = 32 },
+};
+
 INSTANTIATE_TEST_SUITE_P(AEADPacketCipherTestSuite, AEADPacketCipherTest,
-  testing::ValuesIn(std::vector<CipherParameters>{
-    { .alg = CipherChacha20Poly1305,
-      .ivSize = 0,
-      .keySize = 64 },
-    { .alg = CipherAES128GCM,
-      .ivSize = 12,
-      .keySize = 16 },
-    { .alg = CipherAES256GCM,
-      .ivSize = 12,
-      .keySize = 32 },
-  }));
+  testing::ValuesIn(AllAEADCipherParameters));
+
+TEST(AEADPacketCipherFactoryTest, Factory) {
+  DirectionalPacketCipherFactoryRegistry factories;
+  factories.registerType<Chacha20Poly1305CipherFactory>();
+  factories.registerType<AESGCM128CipherFactory>();
+  factories.registerType<AESGCM256CipherFactory>();
+
+  auto expected = std::vector<std::string>{
+    "chacha20-poly1305@openssh.com",
+    "aes128-gcm@openssh.com",
+    "aes256-gcm@openssh.com",
+  };
+  EXPECT_EQ(expected, factories.namesByPriority());
+
+  ASSERT_THAT(factories.factoryForName("chacha20-poly1305@openssh.com").get(),
+              WhenDynamicCastTo<Chacha20Poly1305CipherFactory*>(NotNull()));
+
+  ASSERT_THAT(factories.factoryForName("aes128-gcm@openssh.com").get(),
+              WhenDynamicCastTo<AESGCM128CipherFactory*>(NotNull()));
+
+  ASSERT_THAT(factories.factoryForName("aes256-gcm@openssh.com").get(),
+              WhenDynamicCastTo<AESGCM256CipherFactory*>(NotNull()));
+
+
+  for (auto params : AllAEADCipherParameters) {
+    auto factory = factories.factoryForName(params.alg);
+    ASSERT_EQ(params.ivSize, factory->ivSize()) << "unexpected IV size for " << params.alg;
+    ASSERT_EQ(params.keySize, factory->keySize()) << "unexpected key size for " << params.alg;
+  }
+}
 
 }
 }
