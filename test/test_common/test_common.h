@@ -114,6 +114,7 @@ using testing::Field;
 using testing::InSequence;
 using testing::Invoke;
 using testing::NiceMock;
+using testing::NotNull;
 using testing::Property;
 using testing::Return;
 using testing::SaveArg;
