@@ -11,11 +11,13 @@ envoy_cc_library(
     name = "pomerium_ssh",
     srcs = [
         "kex_alg.cc",
+        "kex_alg_curve25519.cc",
         "openssh.cc",
         "packet_cipher.cc",
     ],
     hdrs = [
         "kex_alg.h",
+        "kex_alg_curve25519.h",
         "message_handler.h",
         "openssh.h",
         "packet_cipher.h",
