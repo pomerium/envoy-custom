@@ -10,12 +10,14 @@ licenses(["notice"])
 envoy_cc_library(
     name = "pomerium_ssh",
     srcs = [
+        "grpc_client_impl.cc",
         "kex_alg.cc",
         "kex_alg_curve25519.cc",
         "openssh.cc",
         "packet_cipher.cc",
     ],
     hdrs = [
+        "grpc_client_impl.h",
         "kex_alg.h",
         "kex_alg_curve25519.h",
         "message_handler.h",
@@ -42,6 +44,8 @@ envoy_cc_library(
         "@envoy//source/common/common:logger_lib",
         "@envoy//source/common/common:utility_lib",
         "@envoy//source/common/crypto:utility_lib",
+        "@envoy//source/common/grpc:async_client_lib",
+        "@envoy//source/common/grpc:typed_async_client_lib",
     ],
 )
 

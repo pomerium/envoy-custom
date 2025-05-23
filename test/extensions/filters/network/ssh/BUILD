@@ -80,6 +80,21 @@ envoy_cc_test(
 )
 
 envoy_cc_test(
+    name = "grpc_client_impl_test",
+    srcs = [
+        "grpc_client_impl_test.cc",
+    ],
+    repository = "@envoy",
+    deps = [
+        ":test_mocks",
+        "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "//test/extensions/filters/network/ssh/wire:wire_test_util",
+        "//test/test_common:test_common_lib",
+        "@envoy//test/mocks/grpc:grpc_mocks",
+    ],
+)
+
+envoy_cc_test(
     name = "kex_alg_curve25519_test",
     srcs = [
         "kex_alg_curve25519_test.cc",
