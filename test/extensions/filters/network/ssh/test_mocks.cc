@@ -18,5 +18,11 @@ MockSshMessageHandler::~MockSshMessageHandler() {}
 MockSshMessageMiddleware::MockSshMessageMiddleware() {}
 MockSshMessageMiddleware::~MockSshMessageMiddleware() {}
 
+MockStreamMgmtServerMessageHandler::MockStreamMgmtServerMessageHandler() {}
+MockStreamMgmtServerMessageHandler::~MockStreamMgmtServerMessageHandler() {}
+
+MockChannelStreamCallbacks::MockChannelStreamCallbacks() {}
+MockChannelStreamCallbacks::~MockChannelStreamCallbacks() {}
+
 } // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

@@ -92,5 +92,22 @@ public:
   MOCK_METHOD(absl::StatusOr<MiddlewareResult>, interceptMessage, (wire::Message&));
 };
 
+class MockStreamMgmtServerMessageHandler : public StreamMgmtServerMessageHandler {
+public:
+  MockStreamMgmtServerMessageHandler();
+  virtual ~MockStreamMgmtServerMessageHandler();
+
+  MOCK_METHOD(absl::Status, handleMessage, (Grpc::ResponsePtr<ServerMessage>&&));
+  MOCK_METHOD(void, registerMessageHandlers, (StreamMgmtServerMessageDispatcher&));
+};
+
+class MockChannelStreamCallbacks : public ChannelStreamCallbacks {
+public:
+  MockChannelStreamCallbacks();
+  virtual ~MockChannelStreamCallbacks();
+
+  MOCK_METHOD(absl::Status, onReceiveMessage, (Grpc::ResponsePtr<ChannelMessage>&&));
+};
+
 } // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

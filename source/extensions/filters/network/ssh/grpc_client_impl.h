@@ -46,9 +46,9 @@ public:
 
   Grpc::AsyncStream<ClientMessage>& stream();
   void setOnRemoteCloseCallback(std::function<void(Grpc::Status::GrpcStatus, std::string)> cb);
+  void onReceiveMessage(Grpc::ResponsePtr<ServerMessage>&& message) override;
 
 private:
-  void onReceiveMessage(Grpc::ResponsePtr<ServerMessage>&& message) override;
   void onCreateInitialMetadata(Http::RequestHeaderMap&) override {}
   void onReceiveInitialMetadata([[maybe_unused]] Http::ResponseHeaderMapPtr&&) override {}
   void onReceiveTrailingMetadata([[maybe_unused]] Http::ResponseTrailerMapPtr&&) override {}
@@ -72,9 +72,9 @@ public:
   std::weak_ptr<Grpc::AsyncStream<ChannelMessage>> start(ChannelStreamCallbacks* callbacks,
                                                          std::optional<envoy::config::core::v3::Metadata> metadata);
   void setOnRemoteCloseCallback(std::function<void(Grpc::Status::GrpcStatus, std::string)> cb);
+  void onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) override;
 
 private:
-  void onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) override;
   void onCreateInitialMetadata(Http::RequestHeaderMap&) override {}
   void onReceiveInitialMetadata([[maybe_unused]] Http::ResponseHeaderMapPtr&&) override {}
   void onReceiveTrailingMetadata([[maybe_unused]] Http::ResponseTrailerMapPtr&&) override {}

@@ -22,6 +22,7 @@ void StreamManagementServiceClient::connect(stream_id_t stream_id) {
   ClientMessage msg;
   msg.mutable_event()->mutable_downstream_connected()->set_stream_id(stream_id);
   stream_ = client_.start(method_manage_stream_, *this, Http::AsyncClient::StreamOptions{});
+  ASSERT(stream_ != nullptr);
   stream_.sendMessage(msg, false);
 }
 
@@ -37,10 +38,9 @@ void StreamManagementServiceClient::onRemoteClose(Grpc::Status::GrpcStatus statu
   if (on_remote_close_) {
     on_remote_close_(status, err);
   }
-  if (stream_ != nullptr) {
-    stream_.resetStream();
-    stream_ = nullptr;
-  }
+  ASSERT(stream_ != nullptr);
+  stream_.resetStream();
+  stream_ = nullptr;
 }
 
 ChannelStreamServiceClient::ChannelStreamServiceClient(Grpc::RawAsyncClientSharedPtr client)
@@ -53,11 +53,13 @@ std::weak_ptr<Grpc::AsyncStream<ChannelMessage>> ChannelStreamServiceClient::sta
   callbacks_ = callbacks;
   Http::AsyncClient::StreamOptions opts;
   stream_ = std::make_shared<Grpc::AsyncStream<ChannelMessage>>(client_.start(method_manage_stream_, *this, opts));
+  ChannelMessage mdMsg;
   if (metadata.has_value()) {
-    ChannelMessage mdMsg;
     *mdMsg.mutable_metadata() = *metadata;
-    stream_->sendMessage(mdMsg, false);
+  } else {
+    mdMsg.mutable_metadata(); // set empty metadata
   }
+  stream_->sendMessage(mdMsg, false);
   return stream_;
 }
 
@@ -74,10 +76,9 @@ void ChannelStreamServiceClient::onRemoteClose(Grpc::Status::GrpcStatus status, 
   if (on_remote_close_) {
     on_remote_close_(status, err);
   }
-  if (stream_ != nullptr) {
-    stream_->resetStream();
-    stream_ = nullptr;
-  }
+  ASSERT(stream_ != nullptr);
+  stream_->resetStream();
+  stream_ = nullptr;
   callbacks_ = nullptr;
 }
 
