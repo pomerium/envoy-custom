@@ -1,8 +1,9 @@
 #pragma once
-
 #include "source/extensions/filters/network/ssh/packet_cipher.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/message_handler.h"
+#include "source/extensions/filters/network/ssh/grpc_client_impl.h"
+#include "api/extensions/filters/network/ssh/ssh.pb.h"
 
 #pragma clang unsafe_buffer_usage begin
 #include "envoy/buffer/buffer.h"
@@ -40,6 +41,23 @@ public:
   virtual ~MockSshMessageMiddleware();
 
   MOCK_METHOD(absl::StatusOr<MiddlewareResult>, interceptMessage, (wire::Message&));
+};
+
+class MockStreamMgmtServerMessageHandler : public StreamMgmtServerMessageHandler {
+public:
+  MockStreamMgmtServerMessageHandler();
+  virtual ~MockStreamMgmtServerMessageHandler();
+
+  MOCK_METHOD(absl::Status, handleMessage, (Grpc::ResponsePtr<ServerMessage>&&));
+  MOCK_METHOD(void, registerMessageHandlers, (StreamMgmtServerMessageDispatcher&));
+};
+
+class MockChannelStreamCallbacks : public ChannelStreamCallbacks {
+public:
+  MockChannelStreamCallbacks();
+  virtual ~MockChannelStreamCallbacks();
+
+  MOCK_METHOD(absl::Status, onReceiveMessage, (Grpc::ResponsePtr<ChannelMessage>&&));
 };
 
 } // namespace test
