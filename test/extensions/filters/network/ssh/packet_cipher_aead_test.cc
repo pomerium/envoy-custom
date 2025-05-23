@@ -20,8 +20,13 @@ public:
     DerivedKeys keys{
       .iv = bytes(params.ivSize),
       .key = bytes(params.keySize),
+      .mac = bytes(),
     };
-    DirectionAlgorithms algs{ .cipher = params.alg };
+    DirectionAlgorithms algs{
+      .cipher = params.alg,
+      .mac = "",
+      .compression = "",
+    };
 
     write_cipher_ = std::make_unique<AEADPacketCipher>(keys, algs, openssh::CipherMode::Write);
     read_cipher_ = std::make_unique<AEADPacketCipher>(keys, algs, openssh::CipherMode::Read);
@@ -129,8 +134,20 @@ TEST(AEADPacketCipherFactoryTest, Factory) {
     auto factory = factories.factoryForName(params.alg);
     ASSERT_EQ(params.ivSize, factory->ivSize()) << "unexpected IV size for " << params.alg;
     ASSERT_EQ(params.keySize, factory->keySize()) << "unexpected key size for " << params.alg;
+
+    DerivedKeys keys{
+      .iv = bytes(params.ivSize),
+      .key = bytes(params.keySize),
+      .mac = bytes(),
+    };
+    DirectionAlgorithms algs{
+      .cipher = params.alg,
+      .mac = "",
+      .compression = "",
+    };
+    ASSERT_NE(nullptr, factory->create(keys, algs, openssh::CipherMode::Write));
   }
 }
 
-}
-}
+} // namespace test
+} // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
