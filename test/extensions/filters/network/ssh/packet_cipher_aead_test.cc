@@ -13,36 +13,78 @@ struct CipherParameters {
   size_t keySize;
 };
 
-class AEADPacketCipherTest : public testing::TestWithParam<CipherParameters> {};
+class AEADPacketCipherTest : public testing::TestWithParam<CipherParameters> {
+public:
+  void SetUp() override {
+    auto params = GetParam();
+    DerivedKeys keys{
+      .iv = bytes(params.ivSize),
+      .key = bytes(params.keySize),
+    };
+    DirectionAlgorithms algs{ .cipher = params.alg };
+
+    write_cipher_ = std::make_unique<AEADPacketCipher>(keys, algs, openssh::CipherMode::Write);
+    read_cipher_ = std::make_unique<AEADPacketCipher>(keys, algs, openssh::CipherMode::Read);
+  }
+
+protected:
+  std::unique_ptr<AEADPacketCipher> write_cipher_;
+  std::unique_ptr<AEADPacketCipher> read_cipher_;
+};
 
 TEST_P(AEADPacketCipherTest, EncryptDecryptPacket) {
-  auto params = GetParam();
-  DerivedKeys keys{
-    .iv = bytes(params.ivSize),
-    .key = bytes(params.keySize),
-  };
-  DirectionAlgorithms algs{ .cipher = params.alg };
-
-  AEADPacketCipher writeCipher(keys, algs, openssh::CipherMode::Write);
-  AEADPacketCipher readCipher(keys, algs, openssh::CipherMode::Write);
-
   wire::ChannelDataMsg msg;
   wire::test::populateFields(msg);
 
   Buffer::OwnedImpl buffer;
-  ASSERT_OK(wire::encodePacket(buffer, msg, writeCipher.blockSize(), writeCipher.aadLen()).status());
+  ASSERT_OK(wire::encodePacket(buffer, msg, write_cipher_->blockSize(), write_cipher_->aadLen()).status());
 
   auto packetData = buffer.toString();
 
   Buffer::OwnedImpl encrypted;
-  ASSERT_OK(writeCipher.encryptPacket(0, encrypted, buffer));
+  ASSERT_OK(write_cipher_->encryptPacket(0, encrypted, buffer));
   ASSERT_NE(packetData, encrypted.toString());
 
   Buffer::OwnedImpl decrypted;
-  auto r = readCipher.decryptPacket(0, decrypted, encrypted);
+  auto r = read_cipher_->decryptPacket(0, decrypted, encrypted);
   ASSERT_OK(r.status());
   ASSERT_EQ(packetData.size() - 4, *r);
   ASSERT_EQ(packetData, decrypted.toString());
+}
+
+TEST_P(AEADPacketCipherTest, DecryptPacketSmallerThanBlockSize) {
+  // Attempting to decrypt an incomplete packet should not drain any buffer data.
+  Buffer::OwnedImpl buffer("AA");
+
+  Buffer::OwnedImpl decrypted;
+  auto r = read_cipher_->decryptPacket(0, decrypted, buffer);
+  ASSERT_OK(r.status());
+  ASSERT_EQ(0, *r);
+  ASSERT_EQ("AA", buffer.toString());
+}
+
+TEST_P(AEADPacketCipherTest, DecryptIncompletePacket) {
+  // Generate an incomplete packet by dropping the last 4 bytes from a valid packet.
+  wire::ChannelDataMsg msg;
+  wire::test::populateFields(msg);
+
+  Buffer::OwnedImpl buffer;
+  ASSERT_OK(wire::encodePacket(buffer, msg, write_cipher_->blockSize(), write_cipher_->aadLen()).status());
+
+  Buffer::OwnedImpl encrypted;
+  ASSERT_OK(write_cipher_->encryptPacket(0, encrypted, buffer));
+
+  Buffer::OwnedImpl incomplete;
+  size_t length = encrypted.length() - 4;
+  auto* data = encrypted.linearize(length);
+  incomplete.add(data, length);
+
+  // Attempting to decrypt an incomplete packet should not drain any buffer data.
+  Buffer::OwnedImpl decrypted;
+  auto r = read_cipher_->decryptPacket(0, decrypted, incomplete);
+  ASSERT_OK(r.status());
+  ASSERT_EQ(0, *r);
+  ASSERT_EQ(length, incomplete.length());
 }
 
 INSTANTIATE_TEST_SUITE_P(AEADPacketCipherTestSuite, AEADPacketCipherTest,
