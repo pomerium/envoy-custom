@@ -136,3 +136,16 @@ envoy_cc_test(
         "@envoy//test/mocks/grpc:grpc_mocks",
     ],
 )
+
+envoy_cc_test(
+    name = "frame_test",
+    srcs = [
+        "frame_test.cc",
+    ],
+    repository = "@envoy",
+    deps = [
+        "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "//test/extensions/filters/network/ssh/wire:wire_test_util",
+        "//test/test_common:test_common_lib",
+    ],
+)

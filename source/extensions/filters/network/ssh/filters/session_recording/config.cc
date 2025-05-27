@@ -56,7 +56,7 @@ CommonFilterStatus SessionRecordingFilter::decodeCommonFrame(RequestCommonFrame&
 }
 
 HeaderFilterStatus SessionRecordingFilter::encodeHeaderFrame(ResponseHeaderFrame& frame) {
-  if (!frame.status().ok()) {
+  if ((frame.frameFlags().frameTags() & Codec::FrameTags::Error) != 0) {
     return HeaderFilterStatus::Continue; // do nothing, this error will be handled elsewhere
   }
   auto stat = initializeRecording();
