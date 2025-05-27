@@ -28,7 +28,6 @@ envoy_cc_library(
         "service_connection.cc",
         "service_userauth.cc",
         "shared.cc",
-        "transport.cc",
         "version_exchange.cc",
         "vt_buffer.cc",
     ],

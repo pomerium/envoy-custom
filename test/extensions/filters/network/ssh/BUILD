@@ -149,3 +149,17 @@ envoy_cc_test(
         "//test/test_common:test_common_lib",
     ],
 )
+
+envoy_cc_test(
+    name = "transport_test",
+    srcs = [
+        "transport_test.cc",
+    ],
+    repository = "@envoy",
+    deps = [
+        ":test_mocks",
+        "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "//test/extensions/filters/network/ssh/wire:wire_test_util",
+        "//test/test_common:test_common_lib",
+    ],
+)

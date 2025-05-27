@@ -8,25 +8,6 @@
 #include "gtest/gtest.h"
 #include <coroutine>
 
-namespace wire {
-template <typename T>
-constexpr bool holds_alternative(const Message& msg) {
-  return msg.message.holds_alternative<T>();
-}
-template <typename T>
-constexpr bool holds_alternative(Message&& msg) {
-  return std::move(msg).message.holds_alternative<T>();
-}
-template <typename T>
-constexpr decltype(auto) get(const Message& msg) {
-  return msg.message.template get<T>();
-}
-template <typename T>
-constexpr decltype(auto) get(Message&& msg) {
-  return std::move(msg).message.template get<T>();
-}
-
-} // namespace wire
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 namespace test {

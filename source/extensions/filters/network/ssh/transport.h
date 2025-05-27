@@ -44,7 +44,7 @@ enum class ReadWriteMode {
 };
 
 struct HandoffInfo {
-  bool handoff_in_progress{false};
+  bool handoff_in_progress{};
   std::unique_ptr<pomerium::extensions::ssh::SSHDownstreamChannelInfo> channel_info;
   std::unique_ptr<pomerium::extensions::ssh::SSHDownstreamPTYInfo> pty_info;
 };
@@ -58,17 +58,14 @@ struct MultiplexingInfo {
 
 struct AuthState {
   std::string server_version;
-  stream_id_t stream_id; // unique stream id for both connections
-  ChannelMode channel_mode;
+  stream_id_t stream_id{}; // unique stream id for both connections
+  ChannelMode channel_mode{};
   std::weak_ptr<Grpc::AsyncStream<pomerium::extensions::ssh::ChannelMessage>> hijacked_stream;
   HandoffInfo handoff_info;
   MultiplexingInfo multiplexing_info;
   std::optional<wire::ExtInfoMsg> downstream_ext_info;
   std::optional<wire::ExtInfoMsg> upstream_ext_info;
-
   std::unique_ptr<pomerium::extensions::ssh::AllowResponse> allow_response;
-
-  std::unique_ptr<AuthState> clone();
 };
 
 using AuthStateSharedPtr = std::shared_ptr<AuthState>;

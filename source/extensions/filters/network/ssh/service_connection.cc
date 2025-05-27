@@ -101,7 +101,11 @@ absl::Status DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<Cha
     switch (ctrl_action.action_case()) {
     case pomerium::extensions::ssh::SSHChannelControlAction::kHandOff: {
       auto* handOffMsg = ctrl_action.mutable_hand_off();
-      auto newState = transport_.authState().clone();
+      auto newState = std::make_unique<AuthState>();
+      newState->server_version = transport_.authState().server_version;
+      newState->stream_id = transport_.authState().stream_id;
+      newState->channel_mode = transport_.authState().channel_mode;
+      newState->hijacked_stream = transport_.authState().hijacked_stream;
       switch (handOffMsg->upstream_auth().target_case()) {
       case pomerium::extensions::ssh::AllowResponse::kUpstream: {
         newState->handoff_info.handoff_in_progress = true;
