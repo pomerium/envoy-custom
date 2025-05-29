@@ -18,6 +18,7 @@ envoy_cc_library(
         "packet_cipher.cc",
         "packet_cipher_aead.cc",
         "packet_cipher_etm.cc",
+        "version_exchange.cc",
     ],
     hdrs = [
         "frame.h",
@@ -31,6 +32,7 @@ envoy_cc_library(
         "packet_cipher_etm.h",
         "service.h",
         "transport.h",
+        "version_exchange.h",
     ],
     copts = [
         "-Wimplicit-fallthrough",

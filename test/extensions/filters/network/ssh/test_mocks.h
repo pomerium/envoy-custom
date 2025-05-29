@@ -39,6 +39,11 @@ public:
   MOCK_METHOD(uint64_t, resetWriteSequenceNumber, ());
 };
 
+class MockVersionExchangeCallbacks : public VersionExchangeCallbacks {
+public:
+  MOCK_METHOD(void, onVersionExchangeComplete, (const bytes&, const bytes&, const bytes&));
+};
+
 class MockDirectionalPacketCipher : public DirectionalPacketCipher {
 public:
   MockDirectionalPacketCipher();
