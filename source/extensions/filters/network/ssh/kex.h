@@ -89,7 +89,9 @@ public:
   absl::Status handleMessage(wire::Message&& msg) noexcept override;
 
   // VersionExchangeCallbacks
-  void setVersionStrings(const std::string& ours, const std::string& peer) override;
+  void onVersionExchangeComplete(const bytes& server_version,
+                                 const bytes& client_version,
+                                 const bytes& banner) override;
 
   void setHostKeys(std::vector<openssh::SSHKeyPtr> host_keys);
 
@@ -147,8 +149,9 @@ private:
   KexAlgorithmFactoryRegistry& algorithm_factories_;
   DirectionalPacketCipherFactoryRegistry& cipher_factories_;
 
-  std::string client_version_;
-  std::string server_version_;
+  bytes server_version_;
+  bytes client_version_;
+  bytes version_exchange_banner_;
   std::unique_ptr<KexState> pending_state_;
   std::unique_ptr<KexState> active_state_;
   bool is_server_;

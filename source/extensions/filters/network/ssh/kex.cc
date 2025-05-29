@@ -28,14 +28,12 @@ void Kex::registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) 
   msg_dispatcher_ = dispatcher;
 }
 
-void Kex::setVersionStrings(const std::string& ours, const std::string& peer) {
-  if (is_server_) {
-    server_version_ = ours;
-    client_version_ = peer;
-  } else {
-    server_version_ = peer;
-    client_version_ = ours;
-  }
+void Kex::onVersionExchangeComplete(const bytes& server_version,
+                                    const bytes& client_version,
+                                    const bytes& banner) {
+  server_version_ = server_version;
+  client_version_ = client_version;
+  version_exchange_banner_ = banner;
 }
 
 void Kex::setHostKeys(std::vector<openssh::SSHKeyPtr> host_keys) {

@@ -12,15 +12,11 @@
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
 
-extern "C" {
-#include "openssh/kex.h"
-}
-
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 struct HandshakeMagics {
-  std::string client_version;
-  std::string server_version;
+  bytes client_version;
+  bytes server_version;
   bytes client_kex_init;
   bytes server_kex_init;
 

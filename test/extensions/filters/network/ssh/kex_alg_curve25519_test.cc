@@ -12,8 +12,8 @@ public:
   void SetUp() {
     algs_.kex = "curve25519-sha256";
     algs_.host_key = "ssh-ed25519";
-    magics_.client_version = "SSH-2.0-Client"s;
-    magics_.server_version = "SSH-2.0-Server-Version"s;
+    magics_.client_version = to_bytes("SSH-2.0-Client"sv);
+    magics_.server_version = to_bytes("SSH-2.0-Server-Version"sv);
     wire::KexInitMsg client_kex_init_msg;
     wire::test::populateFields(client_kex_init_msg);
     wire::KexInitMsg server_kex_init_msg;

@@ -26,7 +26,8 @@ struct codec_traits<T> {
   using callbacks_type = ServerCodecCallbacks;
   static constexpr DirectionTags direction_read = clientKeys;
   static constexpr DirectionTags direction_write = serverKeys;
-  static constexpr KexMode kex_mode = KexMode::Server;
+  static constexpr auto kex_mode = KexMode::Server;
+  static constexpr auto version_exchange_mode = VersionExchangeMode::Server;
   static constexpr std::string_view name = "server";
 };
 
@@ -36,8 +37,9 @@ struct codec_traits<T> {
   using callbacks_type = ClientCodecCallbacks;
   static constexpr DirectionTags direction_read = serverKeys;
   static constexpr DirectionTags direction_write = clientKeys;
-  static constexpr KexMode kex_mode = KexMode::Client;
+  static constexpr auto kex_mode = KexMode::Client;
   static constexpr std::string_view name = "client";
+  static constexpr auto version_exchange_mode = VersionExchangeMode::Client;
 };
 
 // RFC4344 § 3.1 states:
@@ -75,7 +77,7 @@ public:
     this->callbacks_ = &callbacks;
     kex_ = std::make_unique<Kex>(*this, *this, algorithm_factories_, cipher_factories_, codec_traits<Codec>::kex_mode);
     kex_->registerMessageHandlers(*this);
-    version_exchanger_ = std::make_unique<VersionExchanger>(*this, *kex_);
+    version_exchanger_ = std::make_unique<VersionExchanger>(*this, *kex_, codec_traits<Codec>::version_exchange_mode);
 
     cipher_state_.cipher = std::make_unique<PacketCipher>(std::make_unique<NoCipher>(), std::make_unique<NoCipher>());
     cipher_state_.seq_read = 0;
@@ -88,9 +90,13 @@ public:
     while (buffer.length() > 0) {
       if (!version_exchange_done_) {
         if (!version_exchanger_->versionRead()) {
-          auto stat = version_exchanger_->readVersion(buffer);
-          if (!stat.ok()) {
-            onDecodingFailure(stat);
+          auto n = version_exchanger_->readVersion(buffer);
+          if (!n.ok()) {
+            onDecodingFailure(n.status());
+            return;
+          }
+          if (*n == 0) {
+            ENVOY_LOG(debug, "received incomplete packet; waiting for more data");
             return;
           }
         }

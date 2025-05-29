@@ -373,7 +373,9 @@ public:
     auto&& [hostKeys, hostKeyBlobs] = newServerHostKeys();
     kex_->setHostKeys(std::move(hostKeys));
     host_key_blobs_ = std::move(hostKeyBlobs);
-    kex_->setVersionStrings("SSH-2.0-Server", "SSH-2.0-Client");
+    kex_->onVersionExchangeComplete(to_bytes("SSH-2.0-Server"sv),
+                                    to_bytes("SSH-2.0-Client"sv),
+                                    bytes{});
     kex_->registerMessageHandlers(*peer_reply_);
   }
 
@@ -445,8 +447,8 @@ protected:
     EXPECT_TRUE(client_hostkey != nullptr);
 
     HandshakeMagics magics{
-      .client_version = "SSH-2.0-Client",
-      .server_version = "SSH-2.0-Server",
+      .client_version = to_bytes("SSH-2.0-Client"sv),
+      .server_version = to_bytes("SSH-2.0-Server"sv),
       .client_kex_init = *encodeTo<bytes>(sequence.client_kex_init_),
       .server_kex_init = *encodeTo<bytes>(sequence.server_kex_init_),
     };
@@ -1108,7 +1110,7 @@ public:
     auto&& [hostKeys, hostKeyBlobs] = newServerHostKeys();
     kex_->setHostKeys(std::move(hostKeys));
     host_key_blobs_ = std::move(hostKeyBlobs);
-    kex_->setVersionStrings("SSH-2.0-Client", "SSH-2.0-Server");
+    kex_->onVersionExchangeComplete(to_bytes("SSH-2.0-Server"sv), to_bytes("SSH-2.0-Client"sv), bytes{});
     kex_->registerMessageHandlers(*peer_reply_);
   }
 
@@ -1159,8 +1161,8 @@ protected:
     co_yield AfterServerKexInitSent;
 
     HandshakeMagics magics{
-      .client_version = "SSH-2.0-Client",
-      .server_version = "SSH-2.0-Server",
+      .client_version = to_bytes("SSH-2.0-Client"sv),
+      .server_version = to_bytes("SSH-2.0-Server"sv),
       .client_kex_init = *encodeTo<bytes>(sequence.client_kex_init_),
       .server_kex_init = *encodeTo<bytes>(sequence.server_kex_init_),
     };
