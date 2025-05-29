@@ -9,8 +9,8 @@ namespace test {
 
 TEST(HandshakeMagicsTest, Encode) {
   HandshakeMagics magics;
-  magics.client_version = "SSH-2.0-Client";
-  magics.server_version = "SSH-2.0-Server-Version";
+  magics.client_version = to_bytes("SSH-2.0-Client"sv);
+  magics.server_version = to_bytes("SSH-2.0-Server-Version"sv);
   // not testing the contents of the messages, just the encoding of HandshakeMagics
   magics.client_kex_init = to_bytes("client_kex_init_msg"sv);
   magics.server_kex_init = to_bytes("server_kex_init"sv);
@@ -111,8 +111,8 @@ From https://datatracker.ietf.org/doc/html/rfc5656#section-4:
 class KexAlgorithmTestSuite : public testing::Test {
 public:
   void SetUp() {
-    client_version = "SSH-2.0-Client"s;
-    server_version = "SSH-2.0-Server-Version"s;
+    client_version = to_bytes("SSH-2.0-Client"sv);
+    server_version = to_bytes("SSH-2.0-Server-Version"sv);
     wire::KexInitMsg client_kex_init_msg;
     wire::test::populateFields(client_kex_init_msg);
     wire::KexInitMsg server_kex_init_msg;
@@ -137,8 +137,8 @@ public:
     wire::writeBignum(dest, shared_secret);
   }
 
-  std::string client_version;
-  std::string server_version;
+  bytes client_version;
+  bytes server_version;
   bytes client_kex_init;
   bytes server_kex_init;
   openssh::SSHKeyPtr server_host_key;
