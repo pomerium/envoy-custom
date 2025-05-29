@@ -13,49 +13,79 @@ enum ExchangeOrder {
   ReadFirst,
 };
 
-class ReadVersionNoErrorsTest : public testing::TestWithParam<std::tuple<std::tuple<bytes, bytes>,
-                                                                         VersionExchangeMode,
-                                                                         ExchangeOrder>> {
+class ReadVersionTest : public testing::TestWithParam<std::tuple<std::tuple<bytes, bytes, absl::Status>,
+                                                                 bytes,
+                                                                 VersionExchangeMode,
+                                                                 ExchangeOrder,
+                                                                 std::function<std::vector<bytes>(const bytes&)>>> {
 public:
-  ReadVersionNoErrorsTest()
-      : vex_(transport_, vex_callbacks_, std::get<1>(GetParam())) {}
+  ReadVersionTest()
+      : vex_(transport_, vex_callbacks_, std::get<2>(GetParam())) {}
 
   void SetUp() override {
-    EXPECT_FALSE(vex_.versionRead());
-    EXPECT_FALSE(vex_.versionWritten());
-    if (std::get<2>(GetParam()) == WriteFirst) {
+    ASSERT_FALSE(vex_.versionRead());
+    ASSERT_FALSE(vex_.versionWritten());
+    if (std::get<3>(GetParam()) == WriteFirst) {
       doWrite();
-      EXPECT_TRUE(vex_.versionWritten());
+      if (!skipped_) {
+        ASSERT_TRUE(vex_.versionWritten());
+      }
     }
   }
 
   void TearDown() override {
-    if (std::get<2>(GetParam()) == ReadFirst) {
-      EXPECT_TRUE(vex_.versionRead());
-      EXPECT_FALSE(vex_.versionWritten());
-      doWrite();
-      EXPECT_TRUE(vex_.versionWritten());
-    } else {
-      EXPECT_TRUE(vex_.versionRead());
-      EXPECT_TRUE(vex_.versionWritten());
+    if (skipped_) {
+      return;
     }
-    Buffer::OwnedImpl tmp;
-    ASSERT_EQ(absl::FailedPreconditionError("version already read"), vex_.readVersion(tmp).status());
+    auto order = std::get<3>(GetParam());
+    auto status = std::get<2>(std::get<0>(GetParam()));
+
+    if (order == ReadFirst) {
+      if (status.ok()) {
+        ASSERT_TRUE(vex_.versionRead());
+        Buffer::OwnedImpl tmp;
+        ASSERT_EQ(absl::FailedPreconditionError("version already read"), vex_.readVersion(tmp).status());
+      } else {
+        ASSERT_FALSE(vex_.versionRead());
+      }
+      ASSERT_FALSE(vex_.versionWritten());
+      doWrite();
+      ASSERT_TRUE(vex_.versionWritten());
+    } else {
+      if (status.ok()) {
+        ASSERT_TRUE(vex_.versionRead());
+        Buffer::OwnedImpl tmp;
+        ASSERT_EQ(absl::FailedPreconditionError("version already read"), vex_.readVersion(tmp).status());
+      } else {
+        ASSERT_FALSE(vex_.versionRead());
+      }
+      ASSERT_TRUE(vex_.versionWritten());
+    }
   }
 
   void doWrite() {
-    auto [params, mode, order] = GetParam();
-    auto [expected, terminator] = params;
-    expected.append_range(terminator);
+    const auto& parts = getParts();
+    if (parts.empty()) {
+      skipped_ = true;
+      return;
+    }
 
+    const auto& [params, terminator, mode, order, split] = GetParam();
+    const auto& [banner, version, status] = params;
+    bytes versionWithTerm = version;
+    replaceTerm(versionWithTerm, terminator);
     switch (mode) {
     case VersionExchangeMode::Server:
       EXPECT_CALL(transport_, writeToConnection(BufferStringEqual("ignored\r\n"s)));
       if (order == WriteFirst) {
         ASSERT_OK(vex_.writeVersion("ignored").status());
-        EXPECT_CALL(vex_callbacks_, onVersionExchangeComplete("ignored\r\n"_bytes, expected, bytes{}));
+        if (status.ok()) {
+          EXPECT_CALL(vex_callbacks_, onVersionExchangeComplete("ignored\r\n"_bytes, versionWithTerm, bytes{}));
+        }
       } else {
-        EXPECT_CALL(vex_callbacks_, onVersionExchangeComplete("ignored\r\n"_bytes, expected, bytes{}));
+        if (status.ok()) {
+          EXPECT_CALL(vex_callbacks_, onVersionExchangeComplete("ignored\r\n"_bytes, versionWithTerm, bytes{}));
+        }
         ASSERT_OK(vex_.writeVersion("ignored").status());
       }
       break;
@@ -63,9 +93,13 @@ public:
       EXPECT_CALL(transport_, writeToConnection(BufferStringEqual("ignored\r\n"s)));
       if (order == WriteFirst) {
         ASSERT_OK(vex_.writeVersion("ignored").status());
-        EXPECT_CALL(vex_callbacks_, onVersionExchangeComplete(expected, "ignored\r\n"_bytes, bytes{}));
+        if (status.ok()) {
+          EXPECT_CALL(vex_callbacks_, onVersionExchangeComplete(versionWithTerm, "ignored\r\n"_bytes, banner));
+        }
       } else {
-        EXPECT_CALL(vex_callbacks_, onVersionExchangeComplete(expected, "ignored\r\n"_bytes, bytes{}));
+        if (status.ok()) {
+          EXPECT_CALL(vex_callbacks_, onVersionExchangeComplete(versionWithTerm, "ignored\r\n"_bytes, banner));
+        }
         ASSERT_OK(vex_.writeVersion("ignored").status());
       }
       break;
@@ -74,374 +108,426 @@ public:
     }
   }
 
+  void replaceTerm(bytes& in, const bytes& with) {
+    // replace "{term}" in the byte array with the terminator param
+    auto view = bytes_view(in);
+    if (auto sub = std::ranges::search(view, "{term}"_bytes); !sub.empty()) {
+      auto idx = std::distance(view.begin(), sub.begin());
+      bytes replace = to_bytes(view.first(idx));
+      replace.append_range(with);
+      replace.append_range(view.subspan(idx + sub.size()));
+      std::swap(in, replace);
+    }
+  }
+
+  const std::vector<bytes>& getParts() {
+    if (parts_.has_value()) {
+      return *parts_;
+    }
+    const auto& [params, terminator, mode, _, split] = GetParam();
+    const auto& [banner, version, expectedStatus] = params;
+    bytes versionWithTerm = version;
+    replaceTerm(versionWithTerm, terminator);
+    Buffer::OwnedImpl buf;
+    bytes combined;
+    if (mode == VersionExchangeMode::Client) {
+      combined.append_range(banner);
+    }
+    combined.append_range(versionWithTerm);
+
+    parts_ = split(combined);
+    return *parts_;
+  }
   MockTransportCallbacks transport_;
   MockVersionExchangeCallbacks vex_callbacks_;
   VersionExchanger vex_;
+  bool skipped_{};
+
+private:
+  std::optional<std::vector<bytes>> parts_;
 };
 
-TEST_P(ReadVersionNoErrorsTest, ReadVersion) {
-  auto [expected, terminator] = std::get<0>(GetParam());
-  expected.append_range(terminator);
-  Buffer::OwnedImpl buf;
-  wire::write(buf, expected);
-  auto r = vex_.readVersion(buf);
-  ASSERT_OK(r.status());
-  EXPECT_EQ(expected.size(), *r);
+testing::AssertionResult isStatusWithValue(absl::StatusOr<size_t> actual, absl::Status expected_stat, size_t expected_value, const std::vector<bytes>& parts) {
+  if (actual.status() != expected_stat) {
+    auto stream = testing::AssertionFailure() << "status: " << actual.status() << "; expected: " << expected_stat << "; parts: ";
+    for (const auto& part : parts) {
+      stream << " \"" << absl::CEscape(std::string(reinterpret_cast<const char*>(part.data()), part.size())) << "\"";
+    }
+    return stream;
+  }
+  if (actual.ok()) {
+    if (*actual != expected_value) {
+      auto stream = testing::AssertionFailure() << "value: " << *actual << "; expected: " << expected_value << "; parts:";
+      for (const auto& part : parts) {
+        stream << " \"" << absl::CEscape(std::string(reinterpret_cast<const char*>(part.data()), part.size())) << "\"";
+      }
+      return stream;
+    }
+  }
+  return testing::AssertionSuccess();
 }
 
-TEST_P(ReadVersionNoErrorsTest, ReadVersion_RandomPartitions) {
-  auto [params, mode, order] = GetParam();
-  auto [expected, terminator] = params;
-  expected.append_range(terminator);
-
-  absl::BitGen rng;
-  Buffer::OwnedImpl buffer;
-  for (size_t i = 0; i < expected.size(); i++) {
-    uint8_t b = expected[i];
-    buffer.writeByte(b);
-    // 10% chance to call readVersion with the partial accumulated bytes
-    if (i == expected.size() - 1) {
-      auto r = vex_.readVersion(buffer);
-      ASSERT_OK(r.status());
-      ASSERT_EQ(expected.size(), *r);
-      ASSERT_EQ(0, buffer.length());
+TEST_P(ReadVersionTest, ReadVersion) {
+  const auto& [params, terminator, mode, _, split] = GetParam();
+  const auto& [banner, version, expectedStatus] = params;
+  const auto& parts = getParts();
+  if (parts.empty()) {
+    skipped_ = true;
+    return;
+  }
+  size_t combinedLen{};
+  Buffer::OwnedImpl buf;
+  for (size_t i = 0; i < parts.size(); i++) {
+    combinedLen += wire::write(buf, parts[i]);
+    auto r = vex_.readVersion(buf);
+    if (i == parts.size() - 1) {
+      if (expectedStatus.ok()) {
+        ASSERT_TRUE(isStatusWithValue(r, absl::OkStatus(), combinedLen, parts));
+        ASSERT_EQ(0, buf.length());
+      } else {
+        // if we expect an error, the final r.status() should be that error
+        ASSERT_TRUE(isStatusWithValue(r, expectedStatus, 0, parts));
+      }
     } else {
-      if (absl::Uniform(rng, 0, 100) < 10) {
-        auto r = vex_.readVersion(buffer);
-        ASSERT_OK(r.status());
-        ASSERT_EQ(0, *r);
+      if (expectedStatus.ok()) {
+        ASSERT_TRUE(isStatusWithValue(r, absl::OkStatus(), 0, parts));
+      } else {
+        // if we expect an error, readVersion should either return that error, or return 0/ok
+        if (r.ok()) {
+          ASSERT_TRUE(isStatusWithValue(r, absl::OkStatus(), 0, parts));
+        } else {
+          ASSERT_TRUE(isStatusWithValue(r, expectedStatus, 0, parts));
+        }
       }
     }
   }
 }
 
-TEST_P(ReadVersionNoErrorsTest, ReadVersion_SingleBytePartitions) {
-  auto [params, mode, order] = GetParam();
-  auto [expected, terminator] = params;
-  expected.append_range(terminator);
-  Buffer::OwnedImpl buffer;
-  for (size_t i = 0; i < expected.size(); i++) {
-    buffer.writeByte(expected[i]);
-    if (i == expected.size() - 1) {
-      auto r = vex_.readVersion(buffer);
-      ASSERT_OK(r.status());
-      ASSERT_EQ(expected.size(), *r);
-      ASSERT_EQ(0, buffer.length());
-    } else {
-      auto r = vex_.readVersion(buffer);
-      ASSERT_OK(r.status());
-      ASSERT_EQ(0, *r);
+template <typename T>
+std::vector<T> cat(std::initializer_list<std::vector<T>> items) {
+  std::vector<T> out;
+  for (auto&& b : items) {
+    out.insert(out.end(), std::make_move_iterator(b.begin()),
+               std::make_move_iterator(b.end()));
+  }
+  return out;
+}
+
+template <typename T, typename U, typename V>
+std::vector<V> cartesianProduct(const std::vector<T>& ts, const std::vector<U>& us,
+                                std::function<V(const T&, const U&)> transform) {
+  std::vector<V> out;
+  for (const auto& t : ts) {
+    for (const auto& u : us) {
+      out.push_back(transform(std::move(t), std::move(u)));
     }
   }
+  return out;
 }
 
-INSTANTIATE_TEST_SUITE_P(ReadVersionNoErrors, ReadVersionNoErrorsTest,
-                         testing::Combine(
-                           testing::Combine(
-                             testing::ValuesIn({
-                               "SSH-2.0-billsSSH_3.6.3q3"_bytes,
-                               "SSH-2.0-test"_bytes,
-                               "SSH-2.0-test comment"_bytes,
-                               "SSH-2.0-test comment with spaces"_bytes,
-                               "SSH-2.0-test comment-with-dash"_bytes,
-                               "SSH-2.0-"
-                               "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                               "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                               "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                               "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                               "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"_bytes, // "SSH-2.0-" (8) + "a"*245 + "\r\n" (2) = 255
-                             }),
-                             testing::ValuesIn({
-                               "\r\n"_bytes,
-                               "\n"_bytes,
-                             })),
-                           testing::ValuesIn({
-                             VersionExchangeMode::Client,
-                             VersionExchangeMode::Server,
-                           }),
-                           testing::ValuesIn({
-                             ReadFirst,
-                             WriteFirst,
-                           })));
-
-class ClientReadVersionErrorsTest : public testing::TestWithParam<std::tuple<bytes, absl::Status>> {
-public:
-  ClientReadVersionErrorsTest()
-      : vex_(transport_, vex_callbacks_, VersionExchangeMode::Client) {}
-
-  void SetUp() override {
-    EXPECT_CALL(transport_, writeToConnection(BufferStringEqual("ignored\r\n"s)));
-    ASSERT_OK(vex_.writeVersion("ignored").status());
-  }
-
-  MockTransportCallbacks transport_;
-  MockVersionExchangeCallbacks vex_callbacks_;
-  VersionExchanger vex_;
+static const auto noBannerTestCases = std::vector<std::tuple<bytes, bytes, absl::Status>>{
+  {bytes{}, "SSH-2.0-billsSSH_3.6.3q3{term}"_bytes, absl::OkStatus()},
+  {bytes{}, "SSH-2.0-test{term}"_bytes, absl::OkStatus()},
+  {bytes{}, "SSH-2.0-test comment{term}"_bytes, absl::OkStatus()},
+  {bytes{}, "SSH-2.0-test comment with spaces{term}"_bytes, absl::OkStatus()},
+  {bytes{}, "SSH-2.0-test comment-with-dash{term}"_bytes, absl::OkStatus()},
+  {bytes{}, "SSH-2.0-"
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 50x
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa{term}"_bytes, // "SSH-2.0-" (8) + "a"*245 + "\r\n" (2) = 255
+   absl::OkStatus()},
+  {bytes{}, "SSH-2.0-{term}"_bytes, absl::InvalidArgumentError("invalid version string")},
+  {bytes{}, "SSH-2.0- -comment{term}"_bytes, absl::InvalidArgumentError("invalid version string")},
+  {bytes{}, "SSH-2.0--foo{term}"_bytes, absl::InvalidArgumentError("version string contains invalid characters")},
+  {bytes{}, "SSH-2.0-foo-bar{term}"_bytes, absl::InvalidArgumentError("version string contains invalid characters")},
+  {bytes{}, "SSH-2.0--foo comment{term}"_bytes, absl::InvalidArgumentError("version string contains invalid characters")},
+  {bytes{}, "SSH-2.0-foo-bar comment{term}"_bytes, absl::InvalidArgumentError("version string contains invalid characters")},
+  {bytes{}, "SSH-2.0-\tfoo comment{term}"_bytes, absl::InvalidArgumentError("version string contains invalid characters")},
+  {bytes{}, "SSH-2.0-\t comment{term}"_bytes, absl::InvalidArgumentError("version string contains invalid characters")},
+  {bytes{}, "SSH-2.0-\tcomment{term}"_bytes, absl::InvalidArgumentError("version string contains invalid characters")},
+  {bytes{}, "SSH-2.0-\x{7F}foo comment{term}"_bytes, absl::InvalidArgumentError("version string contains invalid characters")},
+  {bytes{}, "SSH-2.0-\x{7F} comment{term}"_bytes, absl::InvalidArgumentError("version string contains invalid characters")},
+  {bytes{}, "SSH-2.0-\x{7F}comment{term}"_bytes, absl::InvalidArgumentError("version string contains invalid characters")},
+  {bytes{}, "SSH-2.0-with_ũnicode{term}"_bytes, absl::InvalidArgumentError("version string contains invalid characters")},
+  {bytes{}, "SSH-2{term}"_bytes, absl::InvalidArgumentError("unsupported protocol version")},
+  {bytes{}, "SSH-2.{term}"_bytes, absl::InvalidArgumentError("unsupported protocol version")},
+  {bytes{}, "SSH-2.0{term}"_bytes, absl::InvalidArgumentError("unsupported protocol version")},
+  {bytes{}, "SSH-2.0-"
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"_bytes, // "SSH-2.0-" (8) + "a"*246 + "\r\n" (2) = 256
+   absl::InvalidArgumentError("version string too long")},
 };
 
-TEST_P(ClientReadVersionErrorsTest, ReadVersion) {
-  auto [input, status] = GetParam();
-  Buffer::OwnedImpl buf;
-  wire::write(buf, input);
-  EXPECT_EQ(status, vex_.readVersion(buf).status());
+static const auto bannerTestCasesNoError = cartesianProduct(
+  std::vector<bytes>{
+    "banner"_bytes,                                                                                               // normal
+    "banner line 1\r\nbanner line 2"_bytes,                                                                       // two banner lines
+    "banner line 1\nbanner line 2"_bytes,                                                                         // two banner lines (\n only)
+    "\nbanner line 2\nbanner line 3\n"_bytes,                                                                     // four banner lines
+    "\r\nbanner line 2\r\nbanner line 3\r\n"_bytes,                                                               // four banner lines (\n only)
+    (std::views::repeat("\r\n"_bytes, 1022) | std::views::join | std::ranges::to<bytes>()),                       // 1023 empty lines + version line
+    (std::views::repeat("banner\r\n"_bytes, 1022) | std::views::join | std::ranges::to<bytes>()),                 // 1023 lines + version line
+    (std::views::repeat("a"_bytes, 8190 /* reserve 2 for \r\n */) | std::views::join | std::ranges::to<bytes>()), // one very long line
+    std::ranges::join_view(std::vector{
+      std::views::repeat("a"_bytes, 4094) | std::views::join | std::ranges::to<bytes>(),
+      "\r\n"_bytes,
+      std::views::repeat("b"_bytes, 4094) | std::views::join | std::ranges::to<bytes>(),
+    }) |
+      std::ranges::to<bytes>(), // two long lines
+  },
+  std::vector<bytes>{
+    "SSH-2.0-test{term}"_bytes,
+    "SSH-2.0-test comment{term}"_bytes,
+    "SSH-2.0-test more comments{term}"_bytes,
+  },
+  std::function{[](const bytes& banner, const bytes& version) {
+    bytes bannerWithTerm = banner;
+    bannerWithTerm.push_back('\r');
+    bannerWithTerm.push_back('\n');
+    return std::make_tuple(bannerWithTerm, version, absl::OkStatus());
+  }});
+
+static const auto bannerTestCasesError = cartesianProduct(
+  std::vector<std::tuple<bytes, absl::Status>>{
+    {"invalid banner\0line\r\n"_bytes, absl::InvalidArgumentError("banner line contains invalid characters")},
+    {"invalid banner line\r \n"_bytes, absl::InvalidArgumentError("banner line contains invalid characters")},
+    {"invalid banner line\r\r\n"_bytes, absl::InvalidArgumentError("banner line contains invalid characters")},
+    {(std::views::repeat("\r\n"_bytes, 1024) | std::views::join | std::ranges::to<bytes>()), absl::InvalidArgumentError("too many banner lines received")},
+    {cat({(std::views::repeat("a"_bytes, 8193) | std::views::join | std::ranges::to<bytes>()), "\r\n"_bytes}), absl::InvalidArgumentError("banner line too long")},
+    {(std::views::repeat("a"_bytes, 16385) | std::views::join | std::ranges::to<bytes>()), absl::InvalidArgumentError("no ssh identification string received")},
+  },
+  std::vector<bytes>{
+    "SSH-2.0-test{term}"_bytes,
+    "SSH-2.0-test comment{term}"_bytes,
+    "SSH-2.0-test more comments{term}"_bytes,
+  },
+  std::function{[](const std::tuple<bytes, absl::Status>& banner_and_status, const bytes& version) {
+    const auto& [banner, status] = banner_and_status;
+    return std::make_tuple(banner, version, status);
+  }});
+
+namespace partitions {
+std::vector<bytes> single(const bytes& input) {
+  return std::vector<bytes>{input};
 }
-
-TEST_P(ClientReadVersionErrorsTest, ReadVersion_RandomPartitions) {
-  auto [input, status] = GetParam();
-
+std::vector<bytes> splitEachByte(const bytes& input) {
+  std::vector<bytes> elems;
+  for (auto byte : input) {
+    elems.push_back(bytes{byte});
+  }
+  return elems;
+}
+std::vector<bytes> splitBeforeFinalLF(const bytes& input) {
+  if (input.back() == '\n') {
+    return std::vector<bytes>{to_bytes(bytes_view(input).first(input.size() - 1)),
+                              to_bytes(bytes_view(input).last(1))};
+  } else {
+    return {}; // skip
+  }
+}
+std::vector<bytes> splitBeforeFinalCRLF(const bytes& input) {
+  if (input.size() >= 2 && input[input.size() - 2] == '\r' && input[input.size() - 1] == '\n') {
+    return std::vector<bytes>{to_bytes(bytes_view(input).first(input.size() - 2)),
+                              to_bytes(bytes_view(input).last(2))};
+  } else {
+    return {}; // skip
+  }
+}
+std::vector<bytes> splitOnDashes(const bytes& input) {
+  auto view = bytes_view(input);
+  std::vector<bytes> out;
+  if (auto sub = std::ranges::search(view, "SSH-2.0-"_bytes); !sub.empty()) {
+    auto start = std::distance(view.begin(), sub.begin());
+    if (start > 0) {
+      out.push_back(to_bytes(view.first(start))); // optional banner
+    }
+    out.push_back(to_bytes(view.subspan(start, 3)));     // "SSH"
+    out.push_back(to_bytes(view.subspan(start + 3, 1))); // "-"
+    out.push_back(to_bytes(view.subspan(start + 4, 3))); // "2.0"
+    out.push_back(to_bytes(view.subspan(start + 7, 1))); // "-"
+    out.push_back(to_bytes(view.subspan(start + 8)));    // remainder
+  }
+  return out;
+}
+std::vector<bytes> splitOnProtoVersionBeforeDash(const bytes& input) {
+  auto view = bytes_view(input);
+  std::vector<bytes> out;
+  if (auto sub = std::ranges::search(view, "SSH-2.0"_bytes); !sub.empty()) {
+    auto start = std::distance(view.begin(), sub.begin());
+    if (start > 0) {
+      out.push_back(to_bytes(view.first(start))); // optional banner
+    }
+    out.push_back(to_bytes(view.subspan(start, 7)));  // "SSH-2.0"
+    out.push_back(to_bytes(view.subspan(start + 7))); // remainder
+  }
+  return out;
+}
+std::vector<bytes> splitAfterSSHDash(const bytes& input) {
+  auto view = bytes_view(input);
+  std::vector<bytes> out;
+  if (auto sub = std::ranges::search(view, "SSH-"_bytes); !sub.empty()) {
+    auto start = std::distance(view.begin(), sub.begin());
+    if (start > 0) {
+      out.push_back(to_bytes(view.first(start))); // optional banner
+    }
+    out.push_back(to_bytes(view.subspan(start, 4)));  // "SSH-"
+    out.push_back(to_bytes(view.subspan(start + 4))); // remainder
+  }
+  return out;
+}
+std::vector<bytes> splitWithinSSHDash(const bytes& input) {
+  auto view = bytes_view(input);
+  std::vector<bytes> out;
+  if (auto sub = std::ranges::search(view, "SSH-"_bytes); !sub.empty()) {
+    auto start = std::distance(view.begin(), sub.begin());
+    if (start > 0) {
+      out.push_back(to_bytes(view.first(start))); // optional banner
+    }
+    out.push_back(to_bytes(view.subspan(start, 1)));     // "S"
+    out.push_back(to_bytes(view.subspan(start + 1, 2))); // "SH"
+    out.push_back(to_bytes(view.subspan(start + 3)));    // "-" + remainder
+  }
+  return out;
+}
+std::vector<bytes> splitBannerOnly(const bytes& input) {
+  auto view = bytes_view(input);
+  std::vector<bytes> out;
+  if (auto sub = std::ranges::search(view, "SSH-2.0"_bytes); !sub.empty()) {
+    auto start = std::distance(view.begin(), sub.begin());
+    if (start > 0) {
+      auto banner = view.first(start);
+      out.push_back(to_bytes(banner.first(banner.size() / 2)));
+      out.push_back(to_bytes(banner.subspan(banner.size() / 2)));
+    } else {
+      return {}; // skip
+    }
+    out.push_back(to_bytes(view.subspan(start)));
+  }
+  return out;
+}
+std::vector<bytes> splitBannerAndVersion(const bytes& input) {
+  auto view = bytes_view(input);
+  std::vector<bytes> out;
+  if (auto sub = std::ranges::search(view, "SSH-2.0"_bytes); !sub.empty()) {
+    auto start = std::distance(view.begin(), sub.begin());
+    if (start > 0) {
+      auto banner = view.first(start);
+      out.push_back(to_bytes(banner.first(banner.size() / 2)));
+      out.push_back(to_bytes(banner.subspan(banner.size() / 2)));
+    } else {
+      return {}; // skip
+    }
+    auto version = view.subspan(start);
+    out.push_back(to_bytes(version.first(version.size() / 2)));
+    out.push_back(to_bytes(version.subspan(version.size() / 2)));
+  }
+  return out;
+}
+std::vector<bytes> splitEachByteBannerOnly(const bytes& input) {
+  auto view = bytes_view(input);
+  std::vector<bytes> out;
+  if (auto sub = std::ranges::search(view, "SSH-2.0"_bytes); !sub.empty()) {
+    auto start = std::distance(view.begin(), sub.begin());
+    if (start > 0) {
+      auto banner = view.first(start);
+      for (auto b : banner) {
+        out.push_back({b});
+      }
+    } else {
+      return {}; // skip
+    }
+    out.push_back(to_bytes(view.subspan(start)));
+  }
+  return out;
+}
+std::vector<bytes> random(const bytes& input) {
+  // random
   absl::BitGen rng;
-  Buffer::OwnedImpl buffer;
+  std::vector<bytes> out;
+  bytes current;
   for (size_t i = 0; i < input.size(); i++) {
     uint8_t b = input[i];
-    buffer.writeByte(b);
-    // 10% chance to call readVersion with the partial accumulated bytes
-    if (i == input.size() - 1) {
-      auto r = vex_.readVersion(buffer);
-      ASSERT_EQ(status, r.status());
-    } else {
-      if (absl::Uniform(rng, 0, 100) < 10) {
-        auto r = vex_.readVersion(buffer);
-        if (r.ok()) {
-          ASSERT_EQ(0, *r);
-        } else {
-          ASSERT_EQ(status, r.status());
-          return;
-        }
-      }
+    current.push_back(b);
+    if (absl::Uniform(rng, 0, 100) <= 10) {
+      out.push_back(std::move(current));
+      current.clear();
     }
   }
-}
-
-INSTANTIATE_TEST_SUITE_P(ClientReadVersionErrors, ClientReadVersionErrorsTest,
-                         testing::ValuesIn(std::vector<std::tuple<bytes, absl::Status>>{
-                           {"invalid banner\0line\r\nSSH-2.0-test"_bytes, absl::InvalidArgumentError("banner line contains invalid characters")},
-                           {"invalid banner line\r \nSSH-2.0-test"_bytes, absl::InvalidArgumentError("banner line contains invalid characters")},
-                           {"invalid banner line\r\r\nSSH-2.0-test"_bytes, absl::InvalidArgumentError("banner line contains invalid characters")},
-                           {"SSH-2.0-\r\n"_bytes, absl::InvalidArgumentError("invalid version string")},
-                           {"SSH-2.0- -comment\r\n"_bytes, absl::InvalidArgumentError("invalid version string")},
-                           {"SSH-2.0--foo\r\n"_bytes, absl::InvalidArgumentError("version string contains invalid characters")},
-                           {"SSH-2.0-foo-bar\r\n"_bytes, absl::InvalidArgumentError("version string contains invalid characters")},
-                           {"SSH-2.0--foo comment\r\n"_bytes, absl::InvalidArgumentError("version string contains invalid characters")},
-                           {"SSH-2.0-foo-bar comment\r\n"_bytes, absl::InvalidArgumentError("version string contains invalid characters")},
-                           {"SSH-2.0-\tfoo comment\r\n"_bytes, absl::InvalidArgumentError("version string contains invalid characters")},
-                           {"SSH-2.0-\t comment\r\n"_bytes, absl::InvalidArgumentError("version string contains invalid characters")},
-                           {"SSH-2.0-\tcomment\r\n"_bytes, absl::InvalidArgumentError("version string contains invalid characters")},
-                           {"SSH-2.0-\x{7F}foo comment\r\n"_bytes, absl::InvalidArgumentError("version string contains invalid characters")},
-                           {"SSH-2.0-\x{7F} comment\r\n"_bytes, absl::InvalidArgumentError("version string contains invalid characters")},
-                           {"SSH-2.0-\x{7F}comment\r\n"_bytes, absl::InvalidArgumentError("version string contains invalid characters")},
-                           {"SSH-2.1-test\r\n"_bytes, absl::InvalidArgumentError("unsupported protocol version")},
-                           {"SSH-\r\n"_bytes, absl::InvalidArgumentError("unsupported protocol version")},
-                           {"SSH-2\r\n"_bytes, absl::InvalidArgumentError("unsupported protocol version")},
-                           {"SSH-2.\r\n"_bytes, absl::InvalidArgumentError("unsupported protocol version")},
-                           {"SSH-2.0\r\n"_bytes, absl::InvalidArgumentError("unsupported protocol version")},
-                           {"SSH-2.0-with_ũnicode\r\n"_bytes, absl::InvalidArgumentError("version string contains invalid characters")},
-                           {"SSH-2.0-"
-                            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"_bytes, // "SSH-2.0-" (8) + "a"*246 + "\r\n" (2) = 256
-                            absl::InvalidArgumentError("version string too long")},
-                         }));
-
-class ClientReadVersionWithBannerNoErrorsTest : public testing::TestWithParam<std::tuple<bytes, bytes, bytes>> {
-public:
-  ClientReadVersionWithBannerNoErrorsTest()
-      : vex_(transport_, vex_callbacks_, VersionExchangeMode::Client) {}
-
-  void SetUp() override {
-    EXPECT_CALL(transport_, writeToConnection(BufferStringEqual("ignored\r\n"s)));
-    ASSERT_OK(vex_.writeVersion("ignored").status());
+  if (!current.empty()) {
+    out.push_back(std::move(current));
   }
-
-  MockTransportCallbacks transport_;
-  MockVersionExchangeCallbacks vex_callbacks_;
-  VersionExchanger vex_;
-};
-
-TEST_P(ClientReadVersionWithBannerNoErrorsTest, ReadVersion) {
-  auto [banner, version, terminator] = GetParam();
-  banner.append_range(terminator);
-  version.append_range(terminator);
-  EXPECT_CALL(vex_callbacks_, onVersionExchangeComplete(version, "ignored\r\n"_bytes, banner));
-  Buffer::OwnedImpl buf;
-  wire::write(buf, banner);
-  wire::write(buf, version);
-  auto len = buf.length();
-  auto r = vex_.readVersion(buf);
-  ASSERT_OK(r.status());
-  EXPECT_EQ(len, *r);
+  return out;
 }
+} // namespace partitions
 
-TEST_P(ClientReadVersionWithBannerNoErrorsTest, ReadVersion_RandomPartitions) {
-  auto [banner, version, terminator] = GetParam();
-  banner.append_range(terminator);
-  version.append_range(terminator);
-  EXPECT_CALL(vex_callbacks_, onVersionExchangeComplete(version, "ignored\r\n"_bytes, banner));
+INSTANTIATE_TEST_SUITE_P(
+  ReadVersionClient, ReadVersionTest,
+  testing::Combine(
+    testing::ValuesIn(
+      cat({
+        noBannerTestCases,
+        bannerTestCasesNoError,
+        bannerTestCasesError,
+      })),
+    testing::ValuesIn({
+      "\r\n"_bytes,
+      "\n"_bytes,
+    }),
+    testing::ValuesIn({
+      VersionExchangeMode::Client,
+      // VersionExchangeMode::Server,
+    }),
+    testing::ValuesIn({
+      ReadFirst,
+      WriteFirst,
+    }),
+    testing::ValuesIn(std::vector<std::function<std::vector<bytes>(const bytes&)>>{
+      partitions::single,
+      partitions::splitEachByte,
+      partitions::splitBeforeFinalLF,
+      partitions::splitBeforeFinalCRLF,
+      partitions::splitOnDashes,
+      partitions::splitOnProtoVersionBeforeDash,
+      partitions::splitAfterSSHDash,
+      partitions::splitWithinSSHDash,
+      partitions::splitBannerOnly,
+      partitions::splitBannerAndVersion,
+      partitions::splitEachByteBannerOnly,
+      partitions::random,
+    })));
 
-  bytes complete;
-  complete.append_range(banner);
-  complete.append_range(version);
-
-  absl::BitGen rng;
-  Buffer::OwnedImpl buffer;
-  for (size_t i = 0; i < complete.size(); i++) {
-    uint8_t b = complete[i];
-    buffer.writeByte(b);
-    // 10% chance to call readVersion with the partial accumulated bytes
-    if (i == complete.size() - 1) {
-      auto r = vex_.readVersion(buffer);
-      ASSERT_OK(r.status());
-      ASSERT_EQ(complete.size(), *r);
-      ASSERT_EQ(0, buffer.length());
-    } else {
-      if (absl::Uniform(rng, 0, 100) < 10) {
-        auto r = vex_.readVersion(buffer);
-        ASSERT_OK(r.status());
-        ASSERT_EQ(0, *r);
-      }
-    }
-  }
-}
-
-TEST_P(ClientReadVersionWithBannerNoErrorsTest, ReadVersion_SingleBytePartitions) {
-  auto [banner, version, terminator] = GetParam();
-  banner.append_range(terminator);
-  version.append_range(terminator);
-  EXPECT_CALL(vex_callbacks_, onVersionExchangeComplete(version, "ignored\r\n"_bytes, banner));
-
-  bytes complete;
-  complete.append_range(banner);
-  complete.append_range(version);
-
-  Buffer::OwnedImpl buffer;
-  for (size_t i = 0; i < complete.size(); i++) {
-    buffer.writeByte(complete[i]);
-    if (i == complete.size() - 1) {
-      auto r = vex_.readVersion(buffer);
-      ASSERT_OK(r.status());
-      ASSERT_EQ(complete.size(), *r);
-      ASSERT_EQ(0, buffer.length());
-    } else {
-      auto r = vex_.readVersion(buffer);
-      ASSERT_OK(r.status());
-      ASSERT_EQ(0, *r);
-    }
-  }
-}
-
-INSTANTIATE_TEST_SUITE_P(ClientReadVersionWithBannerNoErrors, ClientReadVersionWithBannerNoErrorsTest,
-                         testing::Combine(
-                           testing::ValuesIn({
-                             "banner"_bytes,
-                             "banner line 1\r\nbanner line 2"_bytes,
-                             "banner line 1\nbanner line 2"_bytes,
-                             "\nbanner line 2\nbanner line 3\n"_bytes,
-                             "\r\nbanner line 2\r\nbanner line 3\r\n"_bytes,
-                             (std::views::repeat("\r\n"_bytes, 1022) | std::views::join | std::ranges::to<bytes>()),                       // 1023 empty lines + version line
-                             (std::views::repeat("banner\r\n"_bytes, 1022) | std::views::join | std::ranges::to<bytes>()),                 // 1023 lines + version line
-                             (std::views::repeat("a"_bytes, 8190 /* reserve 2 for \r\n */) | std::views::join | std::ranges::to<bytes>()), // one very long line
-                             std::ranges::join_view(
-                               std::vector{
-                                 std::views::repeat("a"_bytes, 4094) | std::views::join | std::ranges::to<bytes>(),
-                                 "\r\n"_bytes,
-                                 std::views::repeat("b"_bytes, 4094) | std::views::join | std::ranges::to<bytes>(),
-                               }) |
-                               std::ranges::to<bytes>(), // two long lines
-                           }),
-                           testing::ValuesIn({
-                             "SSH-2.0-test"_bytes,
-                             "SSH-2.0-test comment"_bytes,
-                             "SSH-2.0-test more comments"_bytes,
-                           }),
-                           testing::ValuesIn({
-                             "\r\n"_bytes,
-                             "\n"_bytes,
-                           })));
-
-class ClientReadVersionWithBannerErrorsTest : public testing::TestWithParam<std::tuple<std::tuple<bytes, absl::Status>, bytes, bytes>> {
-public:
-  ClientReadVersionWithBannerErrorsTest()
-      : vex_(transport_, vex_callbacks_, VersionExchangeMode::Client) {}
-
-  void SetUp() override {
-    EXPECT_CALL(transport_, writeToConnection(BufferStringEqual("ignored\r\n"s)));
-    ASSERT_OK(vex_.writeVersion("ignored").status());
-  }
-
-  MockTransportCallbacks transport_;
-  MockVersionExchangeCallbacks vex_callbacks_;
-  VersionExchanger vex_;
-};
-
-TEST_P(ClientReadVersionWithBannerErrorsTest, ReadVersion) {
-  auto [banner_status, version, terminator] = GetParam();
-  auto [banner, status] = banner_status;
-  Buffer::OwnedImpl buf;
-  wire::write(buf, banner);
-  wire::write(buf, terminator);
-  wire::write(buf, version);
-  wire::write(buf, terminator);
-  auto r = vex_.readVersion(buf);
-  ASSERT_EQ(status, r.status());
-}
-
-TEST_P(ClientReadVersionWithBannerErrorsTest, ReadVersion_RandomPartitions) {
-  auto [banner_status, version, terminator] = GetParam();
-  auto [banner, status] = banner_status;
-  bytes complete;
-  complete.append_range(banner);
-  complete.append_range(terminator);
-  complete.append_range(version);
-  complete.append_range(terminator);
-
-  absl::BitGen rng;
-  Buffer::OwnedImpl buffer;
-  for (size_t i = 0; i < complete.size(); i++) {
-    uint8_t b = complete[i];
-    buffer.writeByte(b);
-    // 10% chance to call readVersion with the partial accumulated bytes
-    if (i == complete.size() - 1) {
-      auto r = vex_.readVersion(buffer);
-      ASSERT_EQ(status, r.status());
-    } else {
-      if (absl::Uniform(rng, 0, 100) < 10) {
-        auto r = vex_.readVersion(buffer);
-        if (r.ok()) {
-          ASSERT_EQ(0, *r);
-        } else {
-          ASSERT_EQ(status, r.status());
-          return;
-        }
-      }
-    }
-  }
-}
-
-INSTANTIATE_TEST_SUITE_P(ClientReadVersionWithBannerErrors, ClientReadVersionWithBannerErrorsTest,
-                         testing::Combine(
-                           testing::ValuesIn(std::vector<std::tuple<bytes, absl::Status>>{
-                             {(std::views::repeat("\r\n"_bytes, 1024) | std::views::join | std::ranges::to<bytes>()), absl::InvalidArgumentError("too many banner lines received")},
-                             {(std::views::repeat("a"_bytes, 8193) | std::views::join | std::ranges::to<bytes>()), absl::InvalidArgumentError("banner line too long")},
-                             {(std::views::repeat("a"_bytes, 16385) | std::views::join | std::ranges::to<bytes>()), absl::InvalidArgumentError("no ssh identification string received")},
-                             {"SSH-2.0-"
-                              "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                              "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                              "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                              "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                              "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                              "aaaaa\r\n"_bytes, // 255 'a's
-                              absl::InvalidArgumentError("version string too long")},
-                           }),
-                           testing::ValuesIn({
-                             "SSH-2.0-test"_bytes,
-                             "SSH-2.0-test comment"_bytes,
-                             "SSH-2.0-test more comments"_bytes,
-                           }),
-                           testing::ValuesIn({
-                             "\r\n"_bytes,
-                             "\n"_bytes,
-                           })));
+INSTANTIATE_TEST_SUITE_P(
+  ReadVersionServer, ReadVersionTest,
+  testing::Combine(
+    testing::ValuesIn(noBannerTestCases),
+    testing::ValuesIn({
+      "\r\n"_bytes,
+      "\n"_bytes,
+    }),
+    testing::ValuesIn({
+      // VersionExchangeMode::Client,
+      VersionExchangeMode::Server,
+    }),
+    testing::ValuesIn({
+      ReadFirst,
+      WriteFirst,
+    }),
+    testing::ValuesIn(std::vector<std::function<std::vector<bytes>(const bytes&)>>{
+      partitions::single,
+      partitions::splitEachByte,
+      partitions::splitBeforeFinalLF,
+      partitions::splitBeforeFinalCRLF,
+      partitions::splitOnDashes,
+      partitions::splitOnProtoVersionBeforeDash,
+      partitions::splitAfterSSHDash,
+      partitions::splitWithinSSHDash,
+      partitions::random,
+    })));
 
 TEST(VersionExchangerTest, ServerReadBannerTextError) {
   MockTransportCallbacks transport;
