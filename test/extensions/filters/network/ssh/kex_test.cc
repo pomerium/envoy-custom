@@ -1132,7 +1132,6 @@ protected:
           sequence.client_kex_init_ = msg.message.get<wire::KexInitMsg>();
           return 0;
         }));
-      EXPECT_CALL(*kex_callbacks_, onKexStarted(initial_kex));
     }
     if (auto stat = kex_->initiateKex(); !stat.ok()) {
       co_return stat;
@@ -1141,6 +1140,7 @@ protected:
 
     sequence.server_kex_init_ = server_kex_init;
     co_yield BeforeServerKexInitSent;
+    EXPECT_CALL(*kex_callbacks_, onKexStarted(initial_kex));
     if (!sequence.expecting_error_) {
       EXPECT_CALL(*transport_callbacks_, sendMessageDirect(MSG(wire::KexEcdhInitMsg, _)))
         .WillOnce(Invoke([&](wire::Message&& msg) -> absl::StatusOr<size_t> {
@@ -1235,6 +1235,71 @@ protected:
 };
 
 TEST_F(ClientKexTest, BasicKeyExchange) {
+  ContinueUntilEnd();
+}
+
+TEST_F(ClientKexTest, NoExtInfo) {
+  ContinueUntil(BeforeServerKexInitSent);
+  remove(*sequence.server_kex_init_.kex_algorithms, "ext-info-s"s);
+  ContinueUntil(AfterServerNewKeysSent);
+  EXPECT_FALSE(sequence.client_kex_result_->server_supports_ext_info);
+  ContinueUntilEnd();
+}
+
+TEST_F(ClientKexTest, StrictMode) {
+  ContinueUntil(BeforeServerKexInitSent);
+  remove(*sequence.server_kex_init_.kex_algorithms, "kex-strict-s-v00@openssh.com"s);
+  ContinueAndExpectError(absl::InvalidArgumentError("strict key exchange mode is required"));
+}
+
+TEST_F(ClientKexTest, StrictModeEnforcement_BeforeKexInitRecv) {
+  ContinueUntil(BeforeServerKexInitSent);
+  auto r = peer_reply_->dispatch(wire::Message{wire::IgnoreMsg{}});
+  ASSERT_FALSE(r.ok());
+  EXPECT_EQ(r.message(), fmt::format("unexpected message received: Ignore (2)"));
+}
+
+TEST_F(ClientKexTest, StrictModeEnforcement_BeforeEcdhReplyRecv) {
+  ContinueUntil(BeforeServerEcdhReplySent);
+  auto r = peer_reply_->dispatch(wire::Message{wire::IgnoreMsg{}});
+  ASSERT_FALSE(r.ok());
+  EXPECT_EQ(r.message(), fmt::format("unexpected message received: Ignore (2)"));
+}
+
+TEST_F(ClientKexTest, StrictModeEnforcement_BeforeNewKeysRecv) {
+  ContinueUntil(BeforeServerNewKeysSent);
+  auto r = peer_reply_->dispatch(wire::Message{wire::IgnoreMsg{}});
+  ASSERT_FALSE(r.ok());
+  EXPECT_EQ(r.message(), fmt::format("key exchange error: expected NewKeys, received Ignore (2)"));
+}
+
+TEST_F(ClientKexTest, StrictModeEnforcement_AfterNewKeysAndBeforeExtInfoRecv) {
+  // the server is not *required* to send ExtInfo like the client is if it signals it in the
+  // key exchange, but if it does, it must be the first message after NewKeys.
+
+  ContinueUntil(AfterServerNewKeysSent); // this routine does not send server ExtInfo, since it is normally sent by the transport
+  // send a message after NewKeys but before ExtInfo
+  ASSERT_OK(peer_reply_->dispatch(wire::Message{wire::IgnoreMsg{}}));
+
+  auto r = peer_reply_->dispatch(wire::ExtInfoMsg{});
+  EXPECT_EQ(absl::InvalidArgumentError("unexpected message received: ExtInfo (7)"), r);
+}
+
+TEST_F(ClientKexTest, ServerExtInfo) {
+  ContinueUntil(AfterServerNewKeysSent);
+  EXPECT_CALL(*transport_callbacks_, updatePeerExtInfo(std::optional{wire::ExtInfoMsg{}}))
+    .WillOnce(Return());
+  // send ExtInfo as the first message after NewKeys
+  ASSERT_OK(peer_reply_->dispatch(wire::ExtInfoMsg{}));
+  // send something afterwards
+  ASSERT_OK(peer_reply_->dispatch(wire::Message{wire::IgnoreMsg{}}));
+}
+
+TEST_F(ClientKexTest, StrictModeEnforcement_AfterNewKeysRecv) {
+  ContinueUntil(BeforeServerKexInitSent);
+  remove(*sequence.server_kex_init_.kex_algorithms, "ext-info-s"s);
+  ContinueUntil(AfterServerNewKeysSent);
+  EXPECT_OK(peer_reply_->dispatch(wire::Message{wire::IgnoreMsg{}}));
   ContinueUntilEnd();
 }
 
