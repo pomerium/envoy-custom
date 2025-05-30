@@ -12,7 +12,9 @@ ETMPacketCipher::ETMPacketCipher(const DerivedKeys& keys,
                                  openssh::CipherMode mode)
     : ctx_(algs.cipher, keys.iv, keys.key, mode, 4),
       mac_(algs.mac, keys.mac) {
-  ASSERT(mac_.isETM(), "only etm mac algorithms are supported");
+  if (!mac_.isETM()) {
+    throw Envoy::EnvoyException(fmt::format("unsupported mac algorithm ({}): only etm mac algorithms are supported", algs.mac));
+  }
 }
 
 absl::StatusOr<size_t> ETMPacketCipher::decryptPacket(uint32_t seqnum,
@@ -24,11 +26,9 @@ absl::StatusOr<size_t> ETMPacketCipher::decryptPacket(uint32_t seqnum,
   }
 
   uint32_t packet_length = 0;
-  if (auto l = ctx_.packetLength(seqnum, in); !l.ok()) {
-    return l.status();
-  } else {
-    packet_length = *l;
-  }
+  auto l = ctx_.packetLength(seqnum, in);
+  ASSERT(l.ok()); // can't fail for AES cipher modes
+  packet_length = *l;
   const auto mac_len = mac_.length();
   size_t need = ctx_.aadLen() + packet_length + mac_len;
   if (in.length() < need) {
@@ -41,9 +41,7 @@ absl::StatusOr<size_t> ETMPacketCipher::decryptPacket(uint32_t seqnum,
     return status;
   }
   auto stat = ctx_.decryptPacket(seqnum, out, in, packet_length);
-  if (!stat.ok()) {
-    return stat;
-  }
+  ASSERT(stat.ok()); // can't fail for AES cipher modes
   in.drain(mac_len);
   return packet_length;
 }
@@ -53,9 +51,7 @@ absl::Status ETMPacketCipher::encryptPacket(uint32_t seqnum,
                                             Envoy::Buffer::Instance& in) {
   Envoy::Buffer::OwnedImpl tmp;
   auto stat = ctx_.encryptPacket(seqnum, tmp, in);
-  if (!stat.ok()) {
-    return stat;
-  }
+  ASSERT(stat.ok()); // can't fail for AES cipher modes
   mac_.compute(seqnum, tmp, linearizeToSpan(tmp));
   out.move(tmp);
   return absl::OkStatus();
