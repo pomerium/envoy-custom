@@ -16,6 +16,7 @@ envoy_cc_library(
         "openssh.cc",
         "packet_cipher.cc",
         "packet_cipher_aead.cc",
+        "packet_cipher_etm.cc",
     ],
     hdrs = [
         "grpc_client_impl.h",
@@ -25,6 +26,7 @@ envoy_cc_library(
         "openssh.h",
         "packet_cipher.h",
         "packet_cipher_aead.h",
+        "packet_cipher_etm.h",
         "service.h",
     ],
     copts = [
