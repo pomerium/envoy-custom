@@ -41,7 +41,7 @@ absl::StatusOr<size_t> ETMPacketCipher::decryptPacket(uint32_t seqnum,
     return status;
   }
   auto stat = ctx_.decryptPacket(seqnum, out, in, packet_length);
-  ASSERT(stat.ok()); // can't fail for AES cipher modes
+  ASSERT(stat.ok()); // can't fail for AES-CTR cipher modes
   in.drain(mac_len);
   return packet_length;
 }
