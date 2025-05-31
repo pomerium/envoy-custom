@@ -28,6 +28,14 @@ constexpr bytes to_bytes(const auto& view) {
   return {view.begin(), view.end()};
 }
 
+constexpr bytes operator""_bytes(const char* str, size_t len) {
+  return to_bytes(std::string_view(str, len));
+}
+
+constexpr uint8_t operator""_byte(char c) {
+  return static_cast<uint8_t>(c);
+}
+
 template <typename T>
 struct is_bytes : std::false_type {};
 
