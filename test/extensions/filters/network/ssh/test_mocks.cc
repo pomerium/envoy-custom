@@ -6,6 +6,9 @@ namespace test {
 MockTransportCallbacks::MockTransportCallbacks() {}
 MockTransportCallbacks::~MockTransportCallbacks() {}
 
+MockKexCallbacks::MockKexCallbacks() {}
+MockKexCallbacks::~MockKexCallbacks() {}
+
 MockDirectionalPacketCipher::MockDirectionalPacketCipher() {}
 MockDirectionalPacketCipher::~MockDirectionalPacketCipher() {}
 
