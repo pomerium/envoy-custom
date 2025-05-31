@@ -72,10 +72,11 @@ private:
 };
 
 // Branchless conversion from FrameTags to matching FrameTags.
+// Returns (FLAG_END_STREAM | FLAG_DRAIN_CLOSE) if tags has the Error bit set, otherwise 0.
+//
+// Note: this is '((tags & Error) >> 5) * 5' with the current values of Error and FrameFlags, but
+// will not need to be updated if those ever change.
 constexpr inline uint32_t to_frame_flags(FrameTags tags) {
-  // returns (FLAG_END_STREAM | FLAG_DRAIN_CLOSE) if tags has the Error bit set, otherwise 0.
-  // this is '((tags & Error) >> 5) * 5' with the current values of Error and FrameFlags, but
-  // will not need to be updated if those ever change.
   return ((tags & Error) >> std::countr_zero(std::to_underlying(Error))) *
          (FrameFlags::FLAG_END_STREAM | FrameFlags::FLAG_DRAIN_CLOSE);
 }
