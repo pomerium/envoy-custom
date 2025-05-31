@@ -290,6 +290,7 @@ public:
       const auto blob = key->toPublicKeyBlob();
       for (auto alg : key->signatureAlgorithmsForKeyType()) {
         hostKeyBlobs[alg] = blob;
+        server_host_key_sig_algs_.push_back(alg);
       }
     }
     return std::make_pair(std::move(hostKeys), std::move(hostKeyBlobs));
@@ -336,7 +337,7 @@ public:
 protected:
   KexSequence sequence;
 
-  std::vector<openssh::SSHKeyPtr> server_host_keys_;
+  std::vector<std::string> server_host_key_sig_algs_; // in priority order
   std::vector<openssh::SSHKeyPtr> client_host_keys_;
   std::optional<bytes> session_id_;
 
@@ -751,34 +752,135 @@ TEST_F(AlgorithmNegotiationTest, NoCommonServerToClientLanguage) {
   ContinueAndExpectSoftError(absl::UnimplementedError("unsupported server to client language"));
 }
 
-TEST_F(ServerKexTest, IncorrectClientGuess_KexAlg) {
+TEST_F(ServerKexTest, IncorrectClientGuess_NeitherAlgorithmMatches) {
   ContinueUntil(BeforeKexInitSent);
-  sequence.client_kex_init_.first_kex_packet_follows = true;
-  ContinueUntil(BeforeEcdhInitSent);
-  wire::KexEcdhInitMsg ecdhInit;
-  ecdhInit.client_pub_key = wire::test::random_value<bytes>();
-  EXPECT_OK(peer_reply_->dispatch(wire::Message{ecdhInit}));
-  ContinueUntilEnd();
-}
 
-TEST_F(ServerKexTest, IncorrectClientGuess_HostKeyAlg) {
-  ContinueUntil(BeforeKexInitSent);
   sequence.client_kex_init_.first_kex_packet_follows = true;
-  sequence.client_kex_init_.server_host_key_algorithms = {"bad-first-guess", "ssh-ed25519", "rsa-sha2-512"};
+
+  // both the kex algorithm and host key algorithm need to match, otherwise the next packet is dropped
+  ASSERT_NE(sequence.client_kex_init_.kex_algorithms[0],
+            algorithm_factories_.namesByPriority()[0]);
+  ASSERT_NE(server_host_key_sig_algs_[0],
+            sequence.client_kex_init_.server_host_key_algorithms[0]);
+
   ContinueUntil(BeforeEcdhInitSent);
+
+  // send bogus packet that would otherwise not work. it should be dropped
   wire::KexEcdhInitMsg ecdhInit;
   ecdhInit.client_pub_key = wire::test::random_value<bytes>();
   EXPECT_OK(peer_reply_->dispatch(wire::Message{ecdhInit}));
+
   ContinueUntilEnd();
 }
 
 TEST_F(ServerKexTest, IncorrectClientGuess_WrongMessageType) {
   ContinueUntil(BeforeKexInitSent);
+
   sequence.client_kex_init_.first_kex_packet_follows = true;
+
   ContinueUntil(BeforeEcdhInitSent);
+
+  // the expected message types still need to match, i.e. the dropped packet should be of some type
+  // of key exchange init, even if it is the wrong one. note that such messages are usually
+  // overloaded, and will have the same ID.
   auto r = peer_reply_->dispatch(wire::Message{wire::IgnoreMsg{}});
   EXPECT_FALSE(r.ok());
+
   EXPECT_EQ(r, absl::InvalidArgumentError("unexpected message received: Ignore (2)"));
+}
+
+TEST_F(ServerKexTest, IncorrectClientGuess_KexAlgMatchesButHostKeyDoesnt) {
+  ContinueUntil(BeforeKexInitSent);
+
+  sequence.client_kex_init_.first_kex_packet_follows = true;
+
+  auto firstKexAlg = algorithm_factories_.namesByPriority()[0];
+  // promote the expected algorithm to the first position
+  std::iter_swap(std::ranges::find(*sequence.client_kex_init_.kex_algorithms, firstKexAlg),
+                 sequence.client_kex_init_.kex_algorithms->begin());
+  ASSERT_EQ(sequence.client_kex_init_.kex_algorithms[0], firstKexAlg); // sanity check
+
+  // not modifying the host key algs, just ensure they don't match
+  ASSERT_NE(server_host_key_sig_algs_[0],
+            sequence.client_kex_init_.server_host_key_algorithms[0]);
+
+  ContinueUntil(BeforeEcdhInitSent);
+
+  wire::KexEcdhInitMsg ecdhInit;
+  ecdhInit.client_pub_key = wire::test::random_value<bytes>();
+  EXPECT_OK(peer_reply_->dispatch(wire::Message{ecdhInit}));
+
+  ContinueUntilEnd();
+}
+
+TEST_F(ServerKexTest, IncorrectClientGuess_HostKeyMatchesButKexAlgDoesnt) {
+  ContinueUntil(BeforeKexInitSent);
+
+  sequence.client_kex_init_.first_kex_packet_follows = true;
+
+  auto firstHostKeyAlg = server_host_key_sig_algs_[0];
+
+  // promote the expected algorithm to the first position
+  std::iter_swap(std::ranges::find(*sequence.client_kex_init_.server_host_key_algorithms, firstHostKeyAlg),
+                 sequence.client_kex_init_.server_host_key_algorithms->begin());
+  ASSERT_EQ(sequence.client_kex_init_.server_host_key_algorithms[0], firstHostKeyAlg); // sanity check
+
+  // not modifying kex algs, just ensure they don't match
+  ASSERT_NE(sequence.client_kex_init_.kex_algorithms[0],
+            algorithm_factories_.namesByPriority()[0]);
+
+  ContinueUntil(BeforeEcdhInitSent);
+
+  wire::KexEcdhInitMsg ecdhInit;
+  ecdhInit.client_pub_key = wire::test::random_value<bytes>();
+  EXPECT_OK(peer_reply_->dispatch(wire::Message{ecdhInit}));
+
+  ContinueUntilEnd();
+}
+
+TEST_F(ServerKexTest, CorrectClientGuess) {
+  ContinueUntil(BeforeKexInitSent);
+
+  sequence.client_kex_init_.first_kex_packet_follows = true;
+
+  auto firstKexAlg = algorithm_factories_.namesByPriority()[0];
+  auto firstHostKeyAlg = server_host_key_sig_algs_[0];
+
+  std::iter_swap(std::ranges::find(*sequence.client_kex_init_.kex_algorithms, firstKexAlg),
+                 sequence.client_kex_init_.kex_algorithms->begin());
+  std::iter_swap(std::ranges::find(*sequence.client_kex_init_.server_host_key_algorithms, firstHostKeyAlg),
+                 sequence.client_kex_init_.server_host_key_algorithms->begin());
+  ASSERT_EQ(sequence.client_kex_init_.kex_algorithms[0], firstKexAlg);                 // sanity check
+  ASSERT_EQ(sequence.client_kex_init_.server_host_key_algorithms[0], firstHostKeyAlg); // sanity check
+
+  // both algorithms should match now
+  ContinueUntilEnd();
+}
+
+TEST_F(ServerKexTest, CorrectClientGuess_KexAlgAlternateName) {
+  // some algorithms have multiple names that are logically equivalent, but they should still be
+  // treated as different algorithms for purposes of determining whether a guess is correct
+  ContinueUntil(BeforeKexInitSent);
+
+  sequence.client_kex_init_.first_kex_packet_follows = true;
+
+  ASSERT_EQ("curve25519-sha256", algorithm_factories_.namesByPriority()[0]);
+  ASSERT_EQ("curve25519-sha256@libssh.org", sequence.client_kex_init_.kex_algorithms[4]);
+  std::swap(sequence.client_kex_init_.kex_algorithms[0],
+            sequence.client_kex_init_.kex_algorithms[4]);
+
+  auto firstHostKeyAlg = server_host_key_sig_algs_[0];
+  std::iter_swap(std::ranges::find(*sequence.client_kex_init_.server_host_key_algorithms, firstHostKeyAlg),
+                 sequence.client_kex_init_.server_host_key_algorithms->begin());
+  ASSERT_EQ(sequence.client_kex_init_.server_host_key_algorithms[0], firstHostKeyAlg); // sanity check
+
+  ContinueUntil(BeforeEcdhInitSent);
+
+  wire::KexEcdhInitMsg ecdhInit;
+  ecdhInit.client_pub_key = wire::test::random_value<bytes>();
+  EXPECT_OK(peer_reply_->dispatch(wire::Message{ecdhInit}));
+
+  ContinueUntilEnd();
 }
 
 TEST_F(ServerKexTest, ClientInitiatedRekey) {
@@ -907,11 +1009,16 @@ TEST_F(ServerKexTest, SendKexInitFail) {
   ContinueAndExpectError(absl::InternalError("test error"));
 }
 
-class TestMultiStepKexAlgorithm : public Curve25519Sha256KexAlgorithm {
+// A test algorithm that simulates a "two step" key exchange for one side (each side is tested
+// individually). To perform the key exchange, the peer must first send a debug message, followed by
+// the actual expected message.
+template <KexMode Mode>
+class TestMultiStepKexAlgorithm;
+
+template <>
+class TestMultiStepKexAlgorithm<KexMode::Client> : public Curve25519Sha256KexAlgorithm {
 public:
   using Curve25519Sha256KexAlgorithm::Curve25519Sha256KexAlgorithm;
-
-  bool first{true};
 
   const MessageTypeList& clientInitMessageTypes() const override {
     static MessageTypeList list{wire::KexEcdhInitMsg::type, wire::DebugMsg::type};
@@ -919,16 +1026,43 @@ public:
   }
 
   absl::StatusOr<std::optional<KexResultSharedPtr>> handleServerRecv(wire::Message& msg) override {
-    if (first) {
-      first = false;
+    if (first_) {
+      first_ = false;
       EXPECT_EQ(msg.msg_type(), wire::DebugMsg::type);
       return std::optional<KexResultSharedPtr>{};
     }
     EXPECT_EQ(msg.msg_type(), wire::KexEcdhInitMsg::type);
     return Curve25519Sha256KexAlgorithm::handleServerRecv(msg);
   }
+
+private:
+  bool first_{true};
 };
 
+template <>
+class TestMultiStepKexAlgorithm<KexMode::Server> : public Curve25519Sha256KexAlgorithm {
+  using Curve25519Sha256KexAlgorithm::Curve25519Sha256KexAlgorithm;
+
+  const MessageTypeList& serverReplyMessageTypes() const override {
+    static MessageTypeList list{wire::KexEcdhReplyMsg::type, wire::DebugMsg::type};
+    return list;
+  }
+
+  absl::StatusOr<std::optional<KexResultSharedPtr>> handleClientRecv(wire::Message& msg) override {
+    if (first_) {
+      first_ = false;
+      EXPECT_EQ(msg.msg_type(), wire::DebugMsg::type);
+      return std::optional<KexResultSharedPtr>{};
+    }
+    EXPECT_EQ(msg.msg_type(), wire::KexEcdhReplyMsg::type);
+    return Curve25519Sha256KexAlgorithm::handleClientRecv(msg);
+  }
+
+private:
+  bool first_{true};
+};
+
+template <KexMode Mode>
 class TestMultiStepKexAlgorithmFactory : public Curve25519Sha256KexAlgorithmFactory {
 public:
   std::vector<std::pair<std::string, priority_t>> names() const override {
@@ -938,12 +1072,12 @@ public:
     const HandshakeMagics* magics,
     const Algorithms* algs,
     const openssh::SSHKey* signer) const override {
-    return std::make_unique<TestMultiStepKexAlgorithm>(magics, algs, signer);
+    return std::make_unique<TestMultiStepKexAlgorithm<Mode>>(magics, algs, signer);
   }
 };
 
 TEST_F(ServerKexTest, MultiStepAlgorithm) {
-  algorithm_factories_.registerType<TestMultiStepKexAlgorithmFactory>();
+  algorithm_factories_.registerType<TestMultiStepKexAlgorithmFactory<KexMode::Client>>();
   ContinueUntil(BeforeKexInitSent);
   sequence.client_kex_init_.kex_algorithms = {"test-multi-step", "kex-strict-c-v00@openssh.com"};
   ContinueUntil(BeforeEcdhInitSent);
@@ -1085,6 +1219,36 @@ INSTANTIATE_TEST_SUITE_P(
       .at(info.index);
   });
 
+TEST(ReadDirectionAlgsForMode, ValidModes) {
+  Algorithms algs{};
+  algs.client_to_server.cipher = "client_to_server";
+  algs.server_to_client.cipher = "server_to_client";
+  EXPECT_EQ(algs.server_to_client, readDirectionAlgsForMode(algs, KexMode::Client));
+  EXPECT_EQ(algs.client_to_server, readDirectionAlgsForMode(algs, KexMode::Server));
+}
+
+TEST(ReadDirectionAlgsForMode, InvalidMode) {
+  Algorithms algs{};
+  EXPECT_THROW_WITH_MESSAGE(readDirectionAlgsForMode(algs, KexMode(99)),
+                            EnvoyException,
+                            "invalid KexMode");
+}
+
+TEST(WriteDirectionAlgsForMode, ValidModes) {
+  Algorithms algs{};
+  algs.client_to_server.cipher = "client_to_server";
+  algs.server_to_client.cipher = "server_to_client";
+  EXPECT_EQ(algs.server_to_client, writeDirectionAlgsForMode(algs, KexMode::Server));
+  EXPECT_EQ(algs.client_to_server, writeDirectionAlgsForMode(algs, KexMode::Client));
+}
+
+TEST(WriteDirectionAlgsForMode, InvalidMode) {
+  Algorithms algs{};
+  EXPECT_THROW_WITH_MESSAGE(writeDirectionAlgsForMode(algs, KexMode(99)),
+                            EnvoyException,
+                            "invalid KexMode");
+}
+
 class ClientKexTest : public BaseKexTest {
 public:
   enum SuspensionPoint {
@@ -1140,8 +1304,8 @@ protected:
 
     sequence.server_kex_init_ = server_kex_init;
     co_yield BeforeServerKexInitSent;
-    EXPECT_CALL(*kex_callbacks_, onKexStarted(initial_kex));
     if (!sequence.expecting_error_) {
+      EXPECT_CALL(*kex_callbacks_, onKexStarted(initial_kex));
       EXPECT_CALL(*transport_callbacks_, sendMessageDirect(MSG(wire::KexEcdhInitMsg, _)))
         .WillOnce(Invoke([&](wire::Message&& msg) -> absl::StatusOr<size_t> {
           EXPECT_EQ(wire::KexEcdhInitMsg::type, msg.msg_type());
@@ -1194,6 +1358,14 @@ protected:
       sequence.server_kex_result_->server_supports_ext_info = server_supports_ext_info_.value();
     }
 
+    auto serverReply = alg->buildServerReply(*sequence.server_kex_result_);
+    serverReply.visit(
+      [&](opt_ref<wire::KexEcdhReplyMsg> msg) {
+        sequence.server_ecdh_reply_ = *msg;
+      },
+      [](auto&) {
+        FAIL();
+      });
     co_yield BeforeServerEcdhReplySent;
     if (!sequence.expecting_error_) {
       EXPECT_CALL(*transport_callbacks_, sendMessageDirect(MSG(wire::NewKeysMsg, _)))
@@ -1205,7 +1377,7 @@ protected:
         .WillOnce(Return(3)); // KexInitMsg, KexEcdhReplyMsg, NewKeysMsg
     }
 
-    if (auto stat = peer_reply_->dispatch(alg->buildServerReply(*sequence.server_kex_result_)); !stat.ok()) {
+    if (auto stat = peer_reply_->dispatch(auto(sequence.server_ecdh_reply_)); !stat.ok()) {
       co_return stat;
     }
     co_yield AfterServerEcdhReplySent;
@@ -1248,6 +1420,9 @@ TEST_F(ClientKexTest, NoExtInfo) {
 
 TEST_F(ClientKexTest, StrictMode) {
   ContinueUntil(BeforeServerKexInitSent);
+  // onKexStarted should be called when the server sends its KexInit, regardless of if it is invalid
+  // (the error still occurs, but after this callback)
+  EXPECT_CALL(*kex_callbacks_, onKexStarted);
   remove(*sequence.server_kex_init_.kex_algorithms, "kex-strict-s-v00@openssh.com"s);
   ContinueAndExpectError(absl::InvalidArgumentError("strict key exchange mode is required"));
 }
@@ -1301,6 +1476,121 @@ TEST_F(ClientKexTest, StrictModeEnforcement_AfterNewKeysRecv) {
   ContinueUntil(AfterServerNewKeysSent);
   EXPECT_OK(peer_reply_->dispatch(wire::Message{wire::IgnoreMsg{}}));
   ContinueUntilEnd();
+}
+
+TEST_F(ClientKexTest, MultiStepAlgorithm) {
+  algorithm_factories_.registerType<TestMultiStepKexAlgorithmFactory<KexMode::Server>>();
+  ContinueUntil(BeforeServerKexInitSent);
+  sequence.server_kex_init_.kex_algorithms = {"test-multi-step", "kex-strict-s-v00@openssh.com"};
+  ContinueUntil(BeforeServerEcdhReplySent);
+  EXPECT_OK(peer_reply_->dispatch(wire::Message{wire::DebugMsg{}}));
+  ContinueUntilEnd();
+}
+
+TEST_F(ClientKexTest, DifferentDirectionAlgorithms) {
+  ContinueUntil(BeforeServerKexInitSent);
+  sequence.server_kex_init_.encryption_algorithms_client_to_server = {CipherChacha20Poly1305};
+  sequence.server_kex_init_.encryption_algorithms_server_to_client = {CipherAES256CTR};
+  sequence.server_kex_init_.mac_algorithms_client_to_server->clear();
+  sequence.server_kex_init_.mac_algorithms_server_to_client = {"hmac-sha2-512-etm@openssh.com"};
+  ContinueUntilEnd();
+  EXPECT_EQ(CipherChacha20Poly1305, sequence.server_kex_result_->algorithms.client_to_server.cipher);
+  EXPECT_EQ(CipherChacha20Poly1305, sequence.client_kex_result_->algorithms.client_to_server.cipher);
+
+  EXPECT_EQ(CipherAES256CTR, sequence.server_kex_result_->algorithms.server_to_client.cipher);
+  EXPECT_EQ(CipherAES256CTR, sequence.client_kex_result_->algorithms.server_to_client.cipher);
+
+  EXPECT_EQ("", sequence.server_kex_result_->algorithms.client_to_server.mac);
+  EXPECT_EQ("", sequence.client_kex_result_->algorithms.client_to_server.mac);
+
+  EXPECT_EQ("hmac-sha2-512-etm@openssh.com", sequence.server_kex_result_->algorithms.server_to_client.mac);
+  EXPECT_EQ("hmac-sha2-512-etm@openssh.com", sequence.client_kex_result_->algorithms.server_to_client.mac);
+}
+
+TEST_F(ClientKexTest, ClientInitiatedRekey) {
+  ContinueUntilEnd();
+  for (auto i = 0; i < 10; i++) {
+    auto rekeyInit = normal_server_kex_init_msg;
+    rekeyInit.kex_algorithms = all_kex_algorithms;
+    sequence = startKexSequence(rekeyInit, false);
+    ContinueUntilEnd();
+  }
+}
+
+TEST_F(ClientKexTest, ClientInitiatedRekey_NewAlgorithms) {
+  ContinueUntilEnd();
+  auto rekeyInit = normal_server_kex_init_msg;
+  rekeyInit.encryption_algorithms_client_to_server = {"aes256-gcm@openssh.com"};
+  rekeyInit.encryption_algorithms_server_to_client = {"aes256-gcm@openssh.com"};
+  sequence = startKexSequence(rekeyInit, false);
+  ContinueUntilEnd();
+  EXPECT_EQ("aes256-gcm@openssh.com", sequence.client_kex_result_->algorithms.client_to_server.cipher);
+  EXPECT_EQ("aes256-gcm@openssh.com", sequence.client_kex_result_->algorithms.server_to_client.cipher);
+}
+
+TEST_F(ClientKexTest, EcdhFailure_KeySize) {
+  ContinueUntil(BeforeServerEcdhReplySent);
+  auto b = wire::test::random_value<bytes>();
+  b.resize(std::min(b.size(), 30uz));
+  sequence.server_ecdh_reply_.ephemeral_pub_key = b;
+  ContinueAndExpectError(absl::InvalidArgumentError(
+    fmt::format("key exchange failed: invalid peer public key size (expected 32, got {})", b.size())));
+}
+
+TEST_F(ClientKexTest, EcdhFailure_X25519) {
+  ContinueUntil(BeforeServerEcdhReplySent);
+  sequence.server_ecdh_reply_.ephemeral_pub_key = to_bytes(kSmallOrderPoint);
+  ContinueAndExpectError(absl::InvalidArgumentError("key exchange failed: x25519 error"));
+}
+
+TEST_F(ClientKexTest, SendEcdhInitFail) {
+  ContinueUntil(BeforeServerKexInitSent);
+  EXPECT_CALL(*kex_callbacks_, onKexStarted);
+  EXPECT_CALL(*transport_callbacks_, sendMessageDirect(VariantWith<wire::detail::overload_set_for_t<wire::KexEcdhInitMsg>>(_)))
+    .WillOnce(Return(absl::InternalError("test error")));
+  ContinueAndExpectError(absl::InternalError("test error"));
+}
+
+TEST_F(ClientKexTest, SendNewKeysFail) {
+  ContinueUntil(BeforeServerEcdhReplySent);
+  EXPECT_CALL(*transport_callbacks_, sendMessageDirect(VariantWith<wire::NewKeysMsg>(_)))
+    .WillOnce(Return(absl::InternalError("test error")));
+  ContinueAndExpectError(absl::InternalError("test error"));
+}
+
+TEST_F(ClientKexTest, UnexpectedKexInit) {
+  ContinueUntil(BeforeServerKexInitSent);
+  auto expectedErr = absl::FailedPreconditionError("unexpected KexInit message received");
+  EXPECT_CALL(*kex_callbacks_, onKexStarted(true));
+  EXPECT_CALL(*transport_callbacks_, sendMessageDirect(MSG(wire::KexEcdhInitMsg, _)))
+    .WillOnce(Return(0));
+  ASSERT_OK(peer_reply_->dispatch(auto(sequence.server_kex_init_)));
+  ContinueAndExpectError(absl::InvalidArgumentError("unexpected message received: KexInit (20)"));
+}
+
+TEST_F(ClientKexTest, IncorrectServerGuess_WrongMessageType) {
+  // the logic for handling first_kex_packet_follows is mostly the same for both client and server,
+  // so we don't need to repeat all the test cases again. This is the only place where the logic
+  // is different - depending on client vs server, it will compare against a different set of
+  // mesasge ids.
+
+  ContinueUntil(BeforeServerKexInitSent);
+
+  sequence.server_kex_init_.first_kex_packet_follows = true;
+
+  ContinueUntil(AfterServerKexInitSent);
+
+  auto r = peer_reply_->dispatch(wire::Message{wire::IgnoreMsg{}});
+  EXPECT_FALSE(r.ok());
+
+  EXPECT_EQ(r, absl::InvalidArgumentError("unexpected message received: Ignore (2)"));
+}
+
+TEST_F(ClientKexTest, InvalidMessageReceived) {
+  // This isn't really a "valid" situation that would ever happen, since the only message type that
+  // Kex listens for is KexInit. But it can still be called like this, since it's a public api.
+  EXPECT_EQ(absl::InvalidArgumentError("unexpected message received: Ignore (2)"),
+            kex_->handleMessage(wire::IgnoreMsg{}));
 }
 
 } // namespace test

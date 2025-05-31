@@ -149,9 +149,11 @@ absl::Status Kex::handleMessage(wire::Message&& msg) noexcept {
   return msg.visit(
     [&](wire::KexInitMsg& msg) {
       if (pending_state_) {
-        if (!pending_state_->kex_init_sent || pending_state_->kex_init_received) {
-          return absl::FailedPreconditionError("unexpected KexInit message received");
-        }
+        // The only way to get here is if we initiated the key exchange but have not received a
+        // response yet. It shouldn't be possible to receive two KexInit messages *here* since
+        // a second KexInit message would be caught by one of the middlewares.
+        RELEASE_ASSERT(pending_state_->kex_init_sent && !pending_state_->kex_init_received,
+                       "bug: unexpected KexInitMsg received");
       } else {
         pending_state_ = std::make_unique<KexState>();
       }
@@ -159,18 +161,16 @@ absl::Status Kex::handleMessage(wire::Message&& msg) noexcept {
       auto initial_kex = isInitialKex();
       kex_callbacks_.onKexStarted(initial_kex);
 
-      auto raw_peer_kex_init = encodeTo<bytes>(msg);
-      if (!raw_peer_kex_init.ok()) {
-        return raw_peer_kex_init.status();
-      }
+      auto rawPeerKexInit = encodeTo<bytes>(msg);
+      RELEASE_ASSERT(rawPeerKexInit.ok(), "bug: failed to encode KexInit");
 
       // set up magics
       pending_state_->magics.client_version = client_version_;
       pending_state_->magics.server_version = server_version_;
       if (is_server_) {
-        pending_state_->magics.client_kex_init = std::move(*raw_peer_kex_init);
+        pending_state_->magics.client_kex_init = std::move(*rawPeerKexInit);
       } else {
-        pending_state_->magics.server_kex_init = std::move(*raw_peer_kex_init);
+        pending_state_->magics.server_kex_init = std::move(*rawPeerKexInit);
       }
       pending_state_->peer_kex = std::move(msg);
 
@@ -180,14 +180,15 @@ absl::Status Kex::handleMessage(wire::Message&& msg) noexcept {
         }
       }
 
-      if (auto algs = negotiateAlgorithms(initial_kex); !algs.ok()) {
+      if (auto algs = findAgreedAlgorithms(initial_kex); !algs.ok()) {
         return algs.status();
       } else {
         pending_state_->negotiated_algorithms = *algs;
       }
 
       if (pending_state_->peer_kex.first_kex_packet_follows) {
-        if ((pending_state_->peer_kex.kex_algorithms[0] != pending_state_->our_kex.kex_algorithms[0]) ||
+        if ((pending_state_->peer_kex.kex_algorithms[0] !=
+             pending_state_->our_kex.kex_algorithms[0]) ||
             (pending_state_->peer_kex.server_host_key_algorithms[0] !=
              pending_state_->our_kex.server_host_key_algorithms[0])) {
           msg_dispatcher_->installMiddleware(&msg_handler_incorrect_guess_);
@@ -236,9 +237,8 @@ absl::Status Kex::sendKexInitMsg(bool initial_kex) noexcept {
   }
 
   auto rawKexInit = encodeTo<bytes>(*kexInit);
-  if (!rawKexInit.ok()) {
-    return rawKexInit.status();
-  }
+  RELEASE_ASSERT(rawKexInit.ok(), "bug: failed to encode KexInit");
+
   if (is_server_) {
     pending_state_->magics.server_kex_init = std::move(*rawKexInit);
   } else {
@@ -290,7 +290,9 @@ absl::Status Kex::sendNewKeysMsg() {
   return absl::OkStatus();
 }
 
-absl::StatusOr<Algorithms> Kex::negotiateAlgorithms(bool initial_kex) const noexcept {
+// Adapted from findAgreedAlgorithms in https://github.com/golang/crypto/blob/master/ssh/common.go
+// which is licensed under a BSD-style license (Copyright 2011 The Go Authors).
+absl::StatusOr<Algorithms> Kex::findAgreedAlgorithms(bool initial_kex) const noexcept {
   if (initial_kex) {
     if (is_server_) {
       pending_state_->client_supports_ext_info = absl::c_contains(*pending_state_->peer_kex.kex_algorithms, "ext-info-c");
@@ -329,91 +331,89 @@ absl::StatusOr<Algorithms> Kex::negotiateAlgorithms(bool initial_kex) const noex
   wire::KexInitMsg& client_kex = is_server_ ? pending_state_->peer_kex : pending_state_->our_kex;
   wire::KexInitMsg& server_kex = is_server_ ? pending_state_->our_kex : pending_state_->peer_kex;
 
-  // logic below is translated from go ssh/common.go findAgreedAlgorithms
   Algorithms result{};
-  {
-    auto common_kex = findCommon("key exchange",
-                                 client_kex.kex_algorithms,
-                                 server_kex.kex_algorithms);
-    if (!common_kex.ok()) {
-      return common_kex.status();
-    }
-    result.kex = *common_kex;
 
-    // RFC8308 § 2.2
-    if (InvalidKeyExchangeMethods.contains(result.kex)) {
-      return absl::InvalidArgumentError(
-        fmt::format("negotiated an invalid key exchange method: {}", result.kex));
-    }
-  }
-  {
-    auto common_host_key = findCommon("host key",
-                                      client_kex.server_host_key_algorithms,
-                                      server_kex.server_host_key_algorithms);
-    if (!common_host_key.ok()) {
-      return common_host_key.status();
-    }
-    result.host_key = *common_host_key;
+  if (auto alg = findCommon("key exchange",
+                            client_kex.kex_algorithms,
+                            server_kex.kex_algorithms);
+      !alg.ok()) {
+    return alg.status();
+  } else {
+    result.kex = *alg;
   }
 
-  {
-    auto common_cipher = findCommon("client to server cipher",
-                                    client_kex.encryption_algorithms_client_to_server,
-                                    server_kex.encryption_algorithms_client_to_server);
-    if (!common_cipher.ok()) {
-      return common_cipher.status();
-    }
-    result.client_to_server.cipher = *common_cipher;
+  // RFC8308 § 2.2
+  if (InvalidKeyExchangeMethods.contains(result.kex)) {
+    return absl::InvalidArgumentError(
+      fmt::format("negotiated an invalid key exchange method: {}", result.kex));
   }
-  {
-    auto common_cipher = findCommon("server to client cipher",
-                                    client_kex.encryption_algorithms_server_to_client,
-                                    server_kex.encryption_algorithms_server_to_client);
-    if (!common_cipher.ok()) {
-      return common_cipher.status();
-    }
-    result.server_to_client.cipher = *common_cipher;
+
+  if (auto alg = findCommon("host key",
+                            client_kex.server_host_key_algorithms,
+                            server_kex.server_host_key_algorithms);
+      !alg.ok()) {
+    return alg.status();
+  } else {
+    result.host_key = *alg;
+  }
+
+  if (auto alg = findCommon("client to server cipher",
+                            client_kex.encryption_algorithms_client_to_server,
+                            server_kex.encryption_algorithms_client_to_server);
+      !alg.ok()) {
+    return alg.status();
+  } else {
+    result.client_to_server.cipher = *alg;
+  }
+
+  if (auto alg = findCommon("server to client cipher",
+                            client_kex.encryption_algorithms_server_to_client,
+                            server_kex.encryption_algorithms_server_to_client);
+      !alg.ok()) {
+    return alg.status();
+  } else {
+    result.server_to_client.cipher = *alg;
   }
 
   if (!AEADCiphers.contains(result.client_to_server.cipher)) {
-    auto common_mac =
-      findCommon("client to server MAC",
-                 client_kex.mac_algorithms_client_to_server,
-                 server_kex.mac_algorithms_client_to_server);
-    if (!common_mac.ok()) {
-      return common_mac.status();
+    if (auto alg =
+          findCommon("client to server MAC",
+                     client_kex.mac_algorithms_client_to_server,
+                     server_kex.mac_algorithms_client_to_server);
+        !alg.ok()) {
+      return alg.status();
+    } else {
+      result.client_to_server.mac = *alg;
     }
-    result.client_to_server.mac = *common_mac;
   }
 
   if (!AEADCiphers.contains(result.server_to_client.cipher)) {
-    auto common_mac =
-      findCommon("server to client MAC",
-                 client_kex.mac_algorithms_server_to_client,
-                 server_kex.mac_algorithms_server_to_client);
-    if (!common_mac.ok()) {
-      return common_mac.status();
+    if (auto alg = findCommon("server to client MAC",
+                              client_kex.mac_algorithms_server_to_client,
+                              server_kex.mac_algorithms_server_to_client);
+        !alg.ok()) {
+      return alg.status();
+    } else {
+      result.server_to_client.mac = *alg;
     }
-    result.server_to_client.mac = *common_mac;
   }
 
-  {
-    auto common_compression = findCommon("client to server compression",
-                                         client_kex.compression_algorithms_client_to_server,
-                                         server_kex.compression_algorithms_client_to_server);
-    if (!common_compression.ok()) {
-      return common_compression.status();
-    }
-    result.client_to_server.compression = *common_compression;
+  if (auto alg = findCommon("client to server compression",
+                            client_kex.compression_algorithms_client_to_server,
+                            server_kex.compression_algorithms_client_to_server);
+      !alg.ok()) {
+    return alg.status();
+  } else {
+    result.client_to_server.compression = *alg;
   }
-  {
-    auto common_compression = findCommon("server to client compression",
-                                         client_kex.compression_algorithms_server_to_client,
-                                         server_kex.compression_algorithms_server_to_client);
-    if (!common_compression.ok()) {
-      return common_compression.status();
-    }
-    result.server_to_client.compression = *common_compression;
+
+  if (auto alg = findCommon("server to client compression",
+                            client_kex.compression_algorithms_server_to_client,
+                            server_kex.compression_algorithms_server_to_client);
+      !alg.ok()) {
+    return alg.status();
+  } else {
+    result.server_to_client.compression = *alg;
   }
 
   if (!client_kex.languages_client_to_server->empty()) {
@@ -427,7 +427,7 @@ absl::StatusOr<Algorithms> Kex::negotiateAlgorithms(bool initial_kex) const noex
   return result;
 }
 
-absl::StatusOr<std::string> Kex::findCommon(std::string_view what,
+absl::StatusOr<std::string> Kex::findCommon(const std::string_view what,
                                             const string_list& client,
                                             const string_list& server) const {
   for (const auto& c : client) {

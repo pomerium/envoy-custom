@@ -55,7 +55,7 @@ inline const DirectionAlgorithms& readDirectionAlgsForMode(Algorithms& algorithm
   case KexMode::Client:
     return algorithms.server_to_client;
   default:
-    PANIC("invalid KexMode");
+    throw Envoy::EnvoyException("invalid KexMode");
   }
 }
 
@@ -66,7 +66,7 @@ inline const DirectionAlgorithms& writeDirectionAlgsForMode(Algorithms& algorith
   case KexMode::Client:
     return algorithms.client_to_server;
   default:
-    PANIC("invalid KexMode");
+    throw Envoy::EnvoyException("invalid KexMode");
   }
 }
 
@@ -133,11 +133,12 @@ private:
   ExtInfoMsgHandler msg_handler_ext_info_{*this};
   IncorrectGuessMsgHandler msg_handler_incorrect_guess_{*this};
 
-  absl::StatusOr<Algorithms> negotiateAlgorithms(bool initial_kex) const noexcept;
-  std::unique_ptr<KexAlgorithm> createKexAlgorithm() const;
-
-  absl::StatusOr<std::string> findCommon(std::string_view what, const string_list& client,
+  absl::StatusOr<Algorithms> findAgreedAlgorithms(bool initial_kex) const noexcept;
+  absl::StatusOr<std::string> findCommon(const std::string_view what,
+                                         const string_list& client,
                                          const string_list& server) const;
+
+  std::unique_ptr<KexAlgorithm> createKexAlgorithm() const;
 
   absl::Status sendKexInitMsg(bool initial_kex) noexcept;
   absl::Status sendNewKeysMsg();
