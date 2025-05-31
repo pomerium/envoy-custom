@@ -12,6 +12,7 @@ envoy_cc_library(
     srcs = [
         "frame.cc",
         "grpc_client_impl.cc",
+        "kex.cc",
         "kex_alg.cc",
         "kex_alg_curve25519.cc",
         "openssh.cc",
@@ -23,6 +24,7 @@ envoy_cc_library(
     hdrs = [
         "frame.h",
         "grpc_client_impl.h",
+        "kex.h",
         "kex_alg.h",
         "kex_alg_curve25519.h",
         "message_handler.h",

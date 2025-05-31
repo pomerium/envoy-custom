@@ -102,3 +102,10 @@ template <typename T>
 inline constexpr detail::random_value_impl<T> random_value{};
 
 } // namespace wire::test
+
+namespace wire {
+// required for gtest formatting
+std::ostream& operator<<(std::ostream& os, const SshMessageType& t) {
+  return os << fmt::to_string(t);
+}
+} // namespace wire
