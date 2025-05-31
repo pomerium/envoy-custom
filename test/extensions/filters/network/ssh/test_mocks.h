@@ -5,6 +5,7 @@
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "source/extensions/filters/network/ssh/version_exchange.h"
 #include "source/extensions/filters/network/ssh/transport.h"
+#include "source/extensions/filters/network/ssh/kex.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 
 #pragma clang unsafe_buffer_usage begin
@@ -43,6 +44,17 @@ public:
 class MockVersionExchangeCallbacks : public VersionExchangeCallbacks {
 public:
   MOCK_METHOD(void, onVersionExchangeCompleted, (const bytes&, const bytes&, const bytes&));
+};
+
+class MockKexCallbacks : public KexCallbacks {
+public:
+  MockKexCallbacks();
+  virtual ~MockKexCallbacks();
+
+  MOCK_METHOD(void, onVersionExchangeCompleted, (const bytes&, const bytes&, const bytes&));
+  MOCK_METHOD(void, onKexStarted, (bool));
+  MOCK_METHOD(void, onKexCompleted, (std::shared_ptr<KexResult>, bool));
+  MOCK_METHOD(void, onKexInitMsgSent, ());
 };
 
 class MockDirectionalPacketCipher : public DirectionalPacketCipher {
