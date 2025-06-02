@@ -10,6 +10,7 @@ licenses(["notice"])
 envoy_cc_library(
     name = "pomerium_ssh",
     srcs = [
+        "frame.cc",
         "grpc_client_impl.cc",
         "kex_alg.cc",
         "kex_alg_curve25519.cc",
@@ -19,6 +20,7 @@ envoy_cc_library(
         "packet_cipher_etm.cc",
     ],
     hdrs = [
+        "frame.h",
         "grpc_client_impl.h",
         "kex_alg.h",
         "kex_alg_curve25519.h",
@@ -28,6 +30,7 @@ envoy_cc_library(
         "packet_cipher_aead.h",
         "packet_cipher_etm.h",
         "service.h",
+        "transport.h",
     ],
     copts = [
         "-Wimplicit-fallthrough",
@@ -50,6 +53,8 @@ envoy_cc_library(
         "@envoy//source/common/crypto:utility_lib",
         "@envoy//source/common/grpc:async_client_lib",
         "@envoy//source/common/grpc:typed_async_client_lib",
+        "@envoy//source/extensions/filters/network/generic_proxy/interface:codec_interface",
+        "@envoy//source/extensions/filters/network/generic_proxy/interface:filter_interface",
     ],
 )
 

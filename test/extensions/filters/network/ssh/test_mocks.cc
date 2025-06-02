@@ -3,6 +3,9 @@
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 namespace test {
 
+MockTransportCallbacks::MockTransportCallbacks() {}
+MockTransportCallbacks::~MockTransportCallbacks() {}
+
 MockDirectionalPacketCipher::MockDirectionalPacketCipher() {}
 MockDirectionalPacketCipher::~MockDirectionalPacketCipher() {}
 
