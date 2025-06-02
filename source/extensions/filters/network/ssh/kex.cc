@@ -122,12 +122,10 @@ absl::StatusOr<MiddlewareResult> Kex::NewKeysMsgHandler::interceptMessage(wire::
   }
 
   if (self.isInitialKex()) {
-    // ExtInfo is only sent after the initial NewKeys (RFC8308 § 2.4)
-    if ((self.is_server_ && self.pending_state_->server_supports_ext_info) ||
-        (!self.is_server_ && self.pending_state_->client_supports_ext_info)) {
-      // this stays active for the next received message only, then is uninstalled
-      self.msg_dispatcher_->installMiddleware(&self.msg_handler_ext_info_);
-    }
+    // https://datatracker.ietf.org/doc/html/rfc8308#section-2.4
+    // We always signal support for ext-info, so the peer is always given the opportunity to send
+    // an ExtInfo message after it sends its initial NewKeys message.
+    self.msg_dispatcher_->installMiddleware(&self.msg_handler_ext_info_);
   }
 
   // done
