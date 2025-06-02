@@ -135,7 +135,7 @@ TYPED_TEST_SUITE(EncodeMsgTest, BasicFieldTypes);
 
 TYPED_TEST(DecodeMsgTest, Decode) {
   field<TypeParam> field;
-  auto len = this->buffer.length();
+  size_t len = this->buffer.length();
   auto r = decodeMsg(this->buffer, this->expected_type, len, field);
   EXPECT_TRUE(r.ok()) << r.status().ToString();
   EXPECT_EQ(len, *r);
@@ -145,7 +145,7 @@ TYPED_TEST(DecodeMsgTest, Decode) {
 
 TYPED_TEST(DecodeMsgTest, Decode_ZeroLimit) {
   field<TypeParam> field;
-  auto len = this->buffer.length();
+  size_t len = this->buffer.length();
   auto r = decodeMsg(this->buffer, this->expected_type, 0uz, field);
   EXPECT_TRUE(r.ok()) << r.status().ToString();
   EXPECT_EQ(len, this->buffer.length());
@@ -153,7 +153,7 @@ TYPED_TEST(DecodeMsgTest, Decode_ZeroLimit) {
 
 TYPED_TEST(DecodeMsgTest, Decode_ShortRead) {
   field<TypeParam> field;
-  auto len = this->buffer.length();
+  size_t len = this->buffer.length();
   auto r = decodeMsg(this->buffer, this->expected_type, len + 1, field);
   EXPECT_FALSE(r.ok());
   EXPECT_EQ(absl::StatusCode::kInvalidArgument, r.status().code());
@@ -163,7 +163,7 @@ TYPED_TEST(DecodeMsgTest, Decode_ShortRead) {
 
 TYPED_TEST(DecodeMsgTest, Decode_WrongMessageType) {
   field<TypeParam> field;
-  auto len = this->buffer.length();
+  size_t len = this->buffer.length();
   auto r = decodeMsg(this->buffer, ~this->expected_type, len, field);
   EXPECT_FALSE(r.ok());
   EXPECT_EQ(absl::StatusCode::kInvalidArgument, r.status().code());

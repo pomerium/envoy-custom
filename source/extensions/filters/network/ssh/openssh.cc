@@ -25,7 +25,9 @@ char** cloneStringListForC(const std::vector<std::string>& input) {
   char** out = static_cast<char**>(::calloc(input.size() + 1, sizeof(char*)));
   auto outSpan = unsafe_forge_span(out, input.size() + 1);
   for (size_t i = 0; i < input.size(); i++) {
+    #pragma clang unsafe_buffer_usage begin
     outSpan[i] = ::strdup(input[i].c_str());
+    #pragma clang unsafe_buffer_usage end
   }
   outSpan.back() = nullptr;
   return out;
