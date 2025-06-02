@@ -42,7 +42,7 @@ public:
 
 class MockVersionExchangeCallbacks : public VersionExchangeCallbacks {
 public:
-  MOCK_METHOD(void, onVersionExchangeComplete, (const bytes&, const bytes&, const bytes&));
+  MOCK_METHOD(void, onVersionExchangeCompleted, (const bytes&, const bytes&, const bytes&));
 };
 
 class MockDirectionalPacketCipher : public DirectionalPacketCipher {

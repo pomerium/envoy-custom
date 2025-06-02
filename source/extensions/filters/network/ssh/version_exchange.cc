@@ -119,13 +119,13 @@ void VersionExchanger::invokeCallbacksIfDone() {
   if (did_write_version_ && did_read_version_) {
     if (is_server_) {
       ASSERT(banner_text_.empty());
-      version_exchange_callbacks_.onVersionExchangeComplete(our_version_,   // server (us)
-                                                            their_version_, // client
-                                                            {});
+      version_exchange_callbacks_.onVersionExchangeCompleted(our_version_,   // server (us)
+                                                             their_version_, // client
+                                                             {});
     } else {
-      version_exchange_callbacks_.onVersionExchangeComplete(their_version_, // server
-                                                            our_version_,   // client (us)
-                                                            banner_text_);
+      version_exchange_callbacks_.onVersionExchangeCompleted(their_version_, // server
+                                                             our_version_,   // client (us)
+                                                             banner_text_);
     }
   }
 }

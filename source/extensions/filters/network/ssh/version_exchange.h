@@ -18,9 +18,9 @@ enum class VersionExchangeMode {
 class VersionExchangeCallbacks {
 public:
   virtual ~VersionExchangeCallbacks() = default;
-  virtual void onVersionExchangeComplete(const bytes& server_version,
-                                         const bytes& client_version,
-                                         const bytes& banner_text) PURE;
+  virtual void onVersionExchangeCompleted(const bytes& server_version,
+                                          const bytes& client_version,
+                                          const bytes& banner_text) PURE;
 };
 
 class VersionExchanger final : public Logger::Loggable<Logger::Id::filter> {

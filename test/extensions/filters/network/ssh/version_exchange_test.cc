@@ -80,11 +80,11 @@ public:
       if (order == WriteFirst) {
         ASSERT_OK(vex_.writeVersion("ignored").status());
         if (status.ok()) {
-          EXPECT_CALL(vex_callbacks_, onVersionExchangeComplete("ignored\r\n"_bytes, versionWithTerm, bytes{}));
+          EXPECT_CALL(vex_callbacks_, onVersionExchangeCompleted("ignored\r\n"_bytes, versionWithTerm, bytes{}));
         }
       } else {
         if (status.ok()) {
-          EXPECT_CALL(vex_callbacks_, onVersionExchangeComplete("ignored\r\n"_bytes, versionWithTerm, bytes{}));
+          EXPECT_CALL(vex_callbacks_, onVersionExchangeCompleted("ignored\r\n"_bytes, versionWithTerm, bytes{}));
         }
         ASSERT_OK(vex_.writeVersion("ignored").status());
       }
@@ -94,11 +94,11 @@ public:
       if (order == WriteFirst) {
         ASSERT_OK(vex_.writeVersion("ignored").status());
         if (status.ok()) {
-          EXPECT_CALL(vex_callbacks_, onVersionExchangeComplete(versionWithTerm, "ignored\r\n"_bytes, banner));
+          EXPECT_CALL(vex_callbacks_, onVersionExchangeCompleted(versionWithTerm, "ignored\r\n"_bytes, banner));
         }
       } else {
         if (status.ok()) {
-          EXPECT_CALL(vex_callbacks_, onVersionExchangeComplete(versionWithTerm, "ignored\r\n"_bytes, banner));
+          EXPECT_CALL(vex_callbacks_, onVersionExchangeCompleted(versionWithTerm, "ignored\r\n"_bytes, banner));
         }
         ASSERT_OK(vex_.writeVersion("ignored").status());
       }
