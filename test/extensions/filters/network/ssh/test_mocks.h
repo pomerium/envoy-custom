@@ -56,7 +56,7 @@ public:
 
 class MockVersionExchangeCallbacks : public VersionExchangeCallbacks {
 public:
-  MOCK_METHOD(void, onVersionExchangeComplete, (const bytes&, const bytes&, const bytes&));
+  MOCK_METHOD(void, onVersionExchangeCompleted, (const bytes&, const bytes&, const bytes&));
 };
 
 class MockKexCallbacks : public KexCallbacks {
@@ -64,6 +64,7 @@ public:
   MockKexCallbacks();
   virtual ~MockKexCallbacks();
 
+  MOCK_METHOD(void, onVersionExchangeCompleted, (const bytes&, const bytes&, const bytes&));
   MOCK_METHOD(void, onKexStarted, (bool));
   MOCK_METHOD(void, onKexCompleted, (std::shared_ptr<KexResult>, bool));
   MOCK_METHOD(void, onKexInitMsgSent, ());
