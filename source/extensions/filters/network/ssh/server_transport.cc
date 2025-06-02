@@ -89,7 +89,7 @@ void SshServerTransport::setCodecCallbacks(Callbacks& callbacks) {
 void SshServerTransport::initServices() {
   user_auth_service_ = std::make_unique<DownstreamUserAuthService>(*this, api_);
   connection_service_ = std::make_unique<DownstreamConnectionService>(*this, api_, tls_);
-  ping_handler_ = std::make_unique<DownstreamPingExtensionHandler>(*this);
+  ping_handler_ = std::make_unique<PingExtensionHandler>(*this);
 
   service_names_.insert(user_auth_service_->name());
   service_names_.insert(connection_service_->name());

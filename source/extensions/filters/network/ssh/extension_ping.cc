@@ -4,9 +4,9 @@
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-DownstreamPingExtensionHandler::DownstreamPingExtensionHandler(TransportCallbacks& transport)
+PingExtensionHandler::PingExtensionHandler(TransportCallbacks& transport)
     : transport_(transport) {}
-absl::Status DownstreamPingExtensionHandler::handleMessage(wire::Message&& msg) {
+absl::Status PingExtensionHandler::handleMessage(wire::Message&& msg) {
   return msg.visit(
     [&](wire::PingMsg& msg) {
       if (forward_) {
@@ -33,49 +33,13 @@ absl::Status DownstreamPingExtensionHandler::handleMessage(wire::Message&& msg) 
     });
 }
 
-void DownstreamPingExtensionHandler::registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) {
+void PingExtensionHandler::registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) {
   dispatcher.registerHandler(wire::SshMessageType::Ping, this);
   dispatcher.registerHandler(wire::SshMessageType::Pong, this);
 }
 
-void DownstreamPingExtensionHandler::enableForward(bool enable) {
+void PingExtensionHandler::enableForward(bool enable) {
   forward_ = enable;
 }
 
-UpstreamPingExtensionHandler::UpstreamPingExtensionHandler(TransportCallbacks& transport)
-    : transport_(transport) {}
-absl::Status UpstreamPingExtensionHandler::handleMessage(wire::Message&& msg) {
-  return msg.visit(
-    [&](wire::PingMsg& msg) {
-      if (forward_) {
-        // let the downstream handle the ping request
-        transport_.forward(std::move(msg));
-        return absl::OkStatus();
-      }
-      // send the reply ourselves
-      wire::PongMsg reply;
-      reply.data = msg.data;
-      return transport_.sendMessageToConnection(std::move(reply)).status();
-    },
-    [&](wire::PongMsg& msg) {
-      if (forward_) {
-        transport_.forward(std::move(msg));
-        return absl::OkStatus();
-      }
-      ENVOY_LOG(info, "received pong: {}", msg.data);
-      return absl::OkStatus();
-    },
-    [](auto&) {
-      return absl::OkStatus();
-    });
-}
-
-void UpstreamPingExtensionHandler::registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) {
-  dispatcher.registerHandler(wire::SshMessageType::Ping, this);
-  dispatcher.registerHandler(wire::SshMessageType::Pong, this);
-}
-
-void UpstreamPingExtensionHandler::enableForward(bool enable) {
-  forward_ = enable;
-}
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

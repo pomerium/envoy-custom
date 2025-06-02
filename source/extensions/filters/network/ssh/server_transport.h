@@ -71,7 +71,7 @@ private:
   std::set<std::string> service_names_;
   std::unique_ptr<DownstreamUserAuthService> user_auth_service_;
   std::unique_ptr<DownstreamConnectionService> connection_service_;
-  std::unique_ptr<DownstreamPingExtensionHandler> ping_handler_;
+  std::unique_ptr<PingExtensionHandler> ping_handler_;
 
   std::unique_ptr<StreamManagementServiceClient> mgmt_client_;
   std::unique_ptr<ChannelStreamServiceClient> channel_client_;

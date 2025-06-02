@@ -41,7 +41,7 @@ void SshClientTransport::setCodecCallbacks(GenericProxy::ClientCodecCallbacks& c
 void SshClientTransport::initServices() {
   user_auth_svc_ = std::make_unique<UpstreamUserAuthService>(*this, api_);
   connection_svc_ = std::make_unique<UpstreamConnectionService>(*this, api_, tls_);
-  ping_handler_ = std::make_unique<UpstreamPingExtensionHandler>(*this);
+  ping_handler_ = std::make_unique<PingExtensionHandler>(*this);
 
   services_[user_auth_svc_->name()] = user_auth_svc_.get();
   services_[connection_svc_->name()] = connection_svc_.get();

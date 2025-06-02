@@ -5,24 +5,10 @@
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-class DownstreamPingExtensionHandler : public SshMessageHandler,
+class PingExtensionHandler : public SshMessageHandler,
                                        public Logger::Loggable<Logger::Id::filter> {
 public:
-  DownstreamPingExtensionHandler(TransportCallbacks& transport);
-
-  absl::Status handleMessage(wire::Message&& msg) override;
-  void registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) override;
-  void enableForward(bool enable);
-
-private:
-  TransportCallbacks& transport_;
-  bool forward_{false};
-};
-
-class UpstreamPingExtensionHandler : public SshMessageHandler,
-                                     public Logger::Loggable<Logger::Id::filter> {
-public:
-  UpstreamPingExtensionHandler(TransportCallbacks& transport);
+  PingExtensionHandler(TransportCallbacks& transport);
 
   absl::Status handleMessage(wire::Message&& msg) override;
   void registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) override;

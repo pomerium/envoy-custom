@@ -62,7 +62,7 @@ private:
   AuthStateSharedPtr downstream_state_;
   std::unique_ptr<UpstreamUserAuthService> user_auth_svc_;
   std::unique_ptr<UpstreamConnectionService> connection_svc_;
-  std::unique_ptr<UpstreamPingExtensionHandler> ping_handler_;
+  std::unique_ptr<PingExtensionHandler> ping_handler_;
 
   std::map<std::string, Service*> services_;
 
