@@ -374,9 +374,12 @@ public:
     auto&& [hostKeys, hostKeyBlobs] = newServerHostKeys();
     kex_->setHostKeys(std::move(hostKeys));
     host_key_blobs_ = std::move(hostKeyBlobs);
-    kex_->onVersionExchangeComplete(to_bytes("SSH-2.0-Server"sv),
-                                    to_bytes("SSH-2.0-Client"sv),
-                                    bytes{});
+    EXPECT_CALL(*kex_callbacks_, onVersionExchangeCompleted(to_bytes("SSH-2.0-Server"sv),
+                                                            to_bytes("SSH-2.0-Client"sv),
+                                                            bytes{}));
+    kex_->onVersionExchangeCompleted(to_bytes("SSH-2.0-Server"sv),
+                                     to_bytes("SSH-2.0-Client"sv),
+                                     bytes{});
     kex_->registerMessageHandlers(*peer_reply_);
   }
 
@@ -936,17 +939,13 @@ TEST_F(ServerKexTest, ServerInitiatedRekey) {
   }
 }
 
-TEST_F(ServerKexTest, ServerInitiatedRekey_InvalidUsage1) {
+TEST_F(ServerKexTest, ServerInitiatedRekey_InvalidUsage) {
   ContinueUntilEnd();
   sequence = startKexSequence(normal_client_kex_init_msg, false, true);
   ContinueUntil(DoInitiateRekey);
   ASSERT_OK(kex_->initiateKex());
   ContinueUntil(BeforeEcdhInitSent); // need to wait for peer's KexInit to be received
   EXPECT_ENVOY_BUG(kex_->initiateKex().IgnoreError(), "bug: initiateKex called during key exchange");
-}
-
-TEST_F(ServerKexTest, ServerInitiatedRekey_InvalidUsage2) {
-  EXPECT_ENVOY_BUG(kex_->initiateKex().IgnoreError(), "bug: server cannot start initial key exchange");
 }
 
 TEST_F(ServerKexTest, EcdhFailure_KeySize) {
@@ -1274,7 +1273,12 @@ public:
     auto&& [hostKeys, hostKeyBlobs] = newServerHostKeys();
     kex_->setHostKeys(std::move(hostKeys));
     host_key_blobs_ = std::move(hostKeyBlobs);
-    kex_->onVersionExchangeComplete(to_bytes("SSH-2.0-Server"sv), to_bytes("SSH-2.0-Client"sv), bytes{});
+    EXPECT_CALL(*kex_callbacks_, onVersionExchangeCompleted(to_bytes("SSH-2.0-Server"sv),
+                                                            to_bytes("SSH-2.0-Client"sv),
+                                                            bytes{}));
+    kex_->onVersionExchangeCompleted(to_bytes("SSH-2.0-Server"sv),
+                                     to_bytes("SSH-2.0-Client"sv),
+                                     bytes{});
     kex_->registerMessageHandlers(*peer_reply_);
   }
 

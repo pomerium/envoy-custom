@@ -34,7 +34,7 @@ struct KexState {
   bool kex_rsa_sha2_512_supported{};
 };
 
-class KexCallbacks {
+class KexCallbacks : public VersionExchangeCallbacks {
 public:
   virtual ~KexCallbacks() = default;
   virtual void onKexStarted(bool initial_kex) PURE;
@@ -89,9 +89,9 @@ public:
   absl::Status handleMessage(wire::Message&& msg) noexcept override;
 
   // VersionExchangeCallbacks
-  void onVersionExchangeComplete(const bytes& server_version,
-                                 const bytes& client_version,
-                                 const bytes& banner) override;
+  void onVersionExchangeCompleted(const bytes& server_version,
+                                  const bytes& client_version,
+                                  const bytes& banner) override;
 
   void setHostKeys(std::vector<openssh::SSHKeyPtr> host_keys);
 

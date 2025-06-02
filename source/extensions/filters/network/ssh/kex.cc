@@ -28,12 +28,13 @@ void Kex::registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) 
   msg_dispatcher_ = dispatcher;
 }
 
-void Kex::onVersionExchangeComplete(const bytes& server_version,
-                                    const bytes& client_version,
-                                    const bytes& banner) {
+void Kex::onVersionExchangeCompleted(const bytes& server_version,
+                                     const bytes& client_version,
+                                     const bytes& banner) {
   server_version_ = server_version;
   client_version_ = client_version;
   version_exchange_banner_ = banner;
+  kex_callbacks_.onVersionExchangeCompleted(server_version, client_version, banner);
 }
 
 void Kex::setHostKeys(std::vector<openssh::SSHKeyPtr> host_keys) {
@@ -475,13 +476,8 @@ absl::Status Kex::initiateKex() {
     IS_ENVOY_BUG("bug: initiateKex called during key exchange");
     return absl::InternalError("bug: initiateKex called during key exchange");
   }
-  bool initial = isInitialKex();
-  if (is_server_ && initial) {
-    IS_ENVOY_BUG("bug: server cannot start initial key exchange");
-    return absl::InternalError("bug: server cannot start initial key exchange");
-  }
   pending_state_ = std::make_unique<KexState>();
-  return sendKexInitMsg(initial);
+  return sendKexInitMsg(isInitialKex());
 }
 
 namespace {
