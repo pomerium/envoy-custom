@@ -2,6 +2,7 @@ load(
     "@envoy//bazel:envoy_build_system.bzl",
     "envoy_cc_mock",
     "envoy_cc_test",
+    "envoy_cc_test_library",
     "envoy_package",
 )
 
@@ -20,6 +21,20 @@ envoy_cc_mock(
         "@envoy//test/mocks/api:api_mocks",
         "@envoy//test/mocks/filesystem:filesystem_mocks",
         "@envoy//test/mocks/server:factory_context_mocks",
+    ],
+)
+
+envoy_cc_test_library(
+    name = "test_env_util_lib",
+    srcs = ["test_env_util.cc"],
+    hdrs = ["test_env_util.h"],
+    data = [
+        "@openssh_portable//:testdata_sshkey",
+    ],
+    repository = "@envoy",
+    deps = [
+        "//test/test_common:test_common_lib",
+        "@envoy//test/test_common:environment_lib",
     ],
 )
 
@@ -73,9 +88,9 @@ envoy_cc_test(
     ],
     repository = "@envoy",
     deps = [
+        ":test_env_util_lib",
         "//source/extensions/filters/network/ssh:pomerium_ssh",
         "//test/extensions/filters/network/ssh/wire:wire_test_util",
-        "@envoy//test/test_common:environment_lib",
     ],
 )
 
