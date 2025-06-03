@@ -19,8 +19,7 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 class UpstreamUserAuthService;
 class UpstreamConnectionService;
 
-class SshClientTransport final : public virtual Logger::Loggable<Logger::Id::filter>,
-                                 public TransportBase<ClientCodec>,
+class SshClientTransport final : public TransportBase<ClientCodec>,
                                  public UpstreamTransportCallbacks,
                                  public Network::ConnectionCallbacks,
                                  public SshMessageMiddleware {

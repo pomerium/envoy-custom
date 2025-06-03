@@ -58,7 +58,7 @@ class TransportBase : public Codec,
                       public SshMessageDispatcher,
                       public SshMessageHandler,
                       public virtual TransportCallbacks,
-                      public virtual Logger::Loggable<Logger::Id::filter> {
+                      public Logger::Loggable<Logger::Id::filter> {
 public:
   TransportBase(Api::Api& api,
                 std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config)
@@ -79,27 +79,31 @@ public:
     kex_->registerMessageHandlers(*this);
     version_exchanger_ = std::make_unique<VersionExchanger>(*this, *kex_, codec_traits<Codec>::version_exchange_mode);
 
-    cipher_state_.cipher = std::make_unique<PacketCipher>(std::make_unique<NoCipher>(), std::make_unique<NoCipher>());
-    cipher_state_.seq_read = 0;
-    cipher_state_.seq_write = 0;
-    cipher_state_.read_bytes_remaining = cipher_state_.cipher->rekeyAfterBytes(openssh::CipherMode::Read);
-    cipher_state_.write_bytes_remaining = cipher_state_.cipher->rekeyAfterBytes(openssh::CipherMode::Write);
+    cipher_ = std::make_unique<PacketCipher>(std::make_unique<NoCipher>(), std::make_unique<NoCipher>());
+    seq_read_ = 0;
+    seq_write_ = 0;
+    read_bytes_remaining_ = cipher_->rekeyAfterBytes(openssh::CipherMode::Read);
+    write_bytes_remaining_ = cipher_->rekeyAfterBytes(openssh::CipherMode::Write);
   }
 
   void decode(Envoy::Buffer::Instance& buffer, bool /*end_stream*/) override {
     while (buffer.length() > 0) {
       if (!version_exchange_done_) {
-        if (!version_exchanger_->versionRead()) {
-          auto n = version_exchanger_->readVersion(buffer);
-          if (!n.ok()) {
-            onDecodingFailure(n.status());
-            return;
-          }
-          if (*n == 0) {
-            ENVOY_LOG(debug, "received incomplete packet; waiting for more data");
-            return;
-          }
+        // This is the only place where readVersion should be called; if the version is read
+        // completely, it must have reached the versionWritten() check that follows, which only has
+        // two possible outcomes: either write our version and complete the version exchange or fail
+        // and disconnect. So, we should not be able to get here unless versionRead() is false.
+        ASSERT(!version_exchanger_->versionRead());
+        auto n = version_exchanger_->readVersion(buffer);
+        if (!n.ok()) {
+          onDecodingFailure(n.status());
+          return;
         }
+        if (*n == 0) {
+          ENVOY_LOG(debug, "received incomplete packet; waiting for more data");
+          return;
+        }
+
         if (!version_exchanger_->versionWritten()) {
           auto n = version_exchanger_->writeVersion(server_version_);
           if (!n.ok()) {
@@ -112,7 +116,7 @@ public:
       }
 
       Envoy::Buffer::OwnedImpl dec;
-      auto bytes_read = cipher_state_.cipher->decryptPacket(cipher_state_.seq_read, dec, buffer);
+      auto bytes_read = cipher_->decryptPacket(seq_read_, dec, buffer);
       if (!bytes_read.ok()) {
         onDecodingFailure(statusf("failed to decrypt packet: {}", bytes_read.status()));
         return;
@@ -121,7 +125,7 @@ public:
         ENVOY_LOG(debug, "received incomplete packet; waiting for more data");
         return;
       }
-      auto next_read_seq = ++cipher_state_.seq_read;
+      auto next_read_seq = ++seq_read_;
 
       wire::Message msg;
       auto packet_len = wire::decodePacket(dec, msg);
@@ -135,13 +139,12 @@ public:
         return;
       }
 
-      cipher_state_.read_bytes_remaining = sub_sat(cipher_state_.read_bytes_remaining,
-                                                   static_cast<uint64_t>(*bytes_read));
-      if (!cipher_state_.pending_key_exchange &&
-          (cipher_state_.read_bytes_remaining == 0 || next_read_seq > seqnum_rekey_limit)) {
+      read_bytes_remaining_ = sub_sat(read_bytes_remaining_, static_cast<uint64_t>(*bytes_read));
+      if (!pending_key_exchange_ &&
+          (read_bytes_remaining_ == 0 || next_read_seq > seqnum_rekey_limit)) {
         ENVOY_LOG(debug, "ssh [{}]: read rekey threshold was reached, initiating key re-exchange (bytes remaining: {}; packets sent: {})",
                   codec_traits<Codec>::name,
-                  cipher_state_.read_bytes_remaining, next_read_seq);
+                  read_bytes_remaining_, next_read_seq);
         auto stat = kex_->initiateKex();
         if (!stat.ok()) {
           onDecodingFailure(statusf("failed to initiate rekey: {}", stat));
@@ -150,13 +153,18 @@ public:
     }
   }
 
-  const bytes& sessionId() const final {
-    return kex_result_->session_id;
-  }
-  const pomerium::extensions::ssh::CodecConfig& codecConfig() const final { return *config_; }
-
   void writeToConnection(Envoy::Buffer::Instance& buf) const final {
     return callbacks_->writeToConnection(buf);
+  }
+
+  absl::StatusOr<size_t> sendMessageToConnection(wire::Message&& msg) override {
+    if (!pending_key_exchange_) [[likely]] {
+      return sendMessageDirect(std::move(msg));
+    } else {
+      ENVOY_LOG(debug, "queueing message due to pending key exchange: {}", msg.msg_type());
+      enqueueMessage(std::move(msg));
+      return 0uz;
+    }
   }
 
   void updatePeerExtInfo(std::optional<wire::ExtInfoMsg> msg) override {
@@ -176,23 +184,24 @@ public:
     return {peer_ext_info_};
   }
 
-  absl::StatusOr<size_t> sendMessageToConnection(wire::Message&& msg) override {
-    if (!cipher_state_.pending_key_exchange) [[likely]] {
-      return sendMessageDirect(std::move(msg));
-    } else {
-      ENVOY_LOG(debug, "queueing message due to pending key exchange: {}", msg.msg_type());
-      enqueueMessage(std::move(msg));
-      return 0uz;
+  virtual absl::Status onMessageDecoded(wire::Message&& msg) {
+    return dispatch(std::move(msg));
+  }
+
+  void onVersionExchangeCompleted(const bytes& server_version, const bytes& client_version, const bytes&) override {
+    std::string serverVersionString(reinterpret_cast<const char*>(server_version.data()),
+                                    server_version.size());
+    std::string clientVersionString(reinterpret_cast<const char*>(client_version.data()),
+                                    client_version.size());
+    ENVOY_LOG(debug, "ssh [{}]: stream {}: version exchange complete (server: {}; client: {})",
+              codec_traits<Codec>::name, streamId(), serverVersionString, clientVersionString);
+    if (auto stat = kex_->initiateKex(); !stat.ok()) {
+      onDecodingFailure(stat);
     }
   }
 
   void onKexInitMsgSent() final {
-    cipher_state_.pending_key_exchange = true;
-  }
-
-protected:
-  virtual absl::Status onMessageDecoded(wire::Message&& msg) {
-    return dispatch(std::move(msg));
+    pending_key_exchange_ = true;
   }
 
   void onKexStarted(bool initial_kex) override {
@@ -204,25 +213,25 @@ protected:
   }
 
   void onKexCompleted(std::shared_ptr<KexResult> kex_result, bool initial_kex) override {
-    ASSERT(cipher_state_.pending_key_exchange);
+    ASSERT(pending_key_exchange_);
     kex_result_ = kex_result;
 
-    cipher_state_.cipher = kex_->makePacketCipher(codec_traits<Codec>::direction_read,
-                                                  codec_traits<Codec>::direction_write,
-                                                  codec_traits<Codec>::kex_mode,
-                                                  kex_result.get());
+    cipher_ = kex_->makePacketCipher(codec_traits<Codec>::direction_read,
+                                     codec_traits<Codec>::direction_write,
+                                     codec_traits<Codec>::kex_mode,
+                                     kex_result.get());
     if (config_->has_rekey_threshold()) {
-      cipher_state_.read_bytes_remaining = std::max<uint64_t>(256, config_->rekey_threshold());
-      cipher_state_.write_bytes_remaining = std::max<uint64_t>(256, config_->rekey_threshold());
-      ENVOY_LOG(debug, "ssh [{}]: new read bytes remaining: {}", codec_traits<Codec>::name, cipher_state_.read_bytes_remaining);
-      ENVOY_LOG(debug, "ssh [{}]: new write bytes remaining: {}", codec_traits<Codec>::name, cipher_state_.write_bytes_remaining);
+      read_bytes_remaining_ = std::max<uint64_t>(256, config_->rekey_threshold());
+      write_bytes_remaining_ = std::max<uint64_t>(256, config_->rekey_threshold());
+      ENVOY_LOG(debug, "ssh [{}]: new read bytes remaining: {}", codec_traits<Codec>::name, read_bytes_remaining_);
+      ENVOY_LOG(debug, "ssh [{}]: new write bytes remaining: {}", codec_traits<Codec>::name, write_bytes_remaining_);
 
     } else {
-      cipher_state_.read_bytes_remaining = cipher_state_.cipher->rekeyAfterBytes(openssh::CipherMode::Read);
-      cipher_state_.write_bytes_remaining = cipher_state_.cipher->rekeyAfterBytes(openssh::CipherMode::Write);
+      read_bytes_remaining_ = cipher_->rekeyAfterBytes(openssh::CipherMode::Read);
+      write_bytes_remaining_ = cipher_->rekeyAfterBytes(openssh::CipherMode::Write);
     }
 
-    cipher_state_.pending_key_exchange = false;
+    pending_key_exchange_ = false;
 
     if (initial_kex) {
       ENVOY_LOG(debug, "ssh [{}]: initial key exchange completed", codec_traits<Codec>::name);
@@ -233,7 +242,7 @@ protected:
       if (!pending_messages_.empty()) {
         ENVOY_LOG(debug, "ssh [{}]: sending {} messages queued during key re-exchange",
                   codec_traits<Codec>::name, pending_messages_.size());
-        while (!pending_messages_.empty() && !cipher_state_.pending_key_exchange) {
+        while (!pending_messages_.empty() && !pending_key_exchange_) {
           auto& msg = pending_messages_.back();
           if (auto r = sendMessageDirect(std::move(msg)); !r.ok()) {
             onDecodingFailure(r.status());
@@ -254,6 +263,41 @@ protected:
     callbacks_->onDecodingFailure(err.message());
   }
 
+  const bytes& sessionId() const final { return kex_result_->session_id; }
+  const pomerium::extensions::ssh::CodecConfig& codecConfig() const final { return *config_; }
+
+protected:
+  bool version_exchange_done_{};
+  bool pending_key_exchange_{};
+  uint32_t seq_read_{};
+  uint32_t seq_write_{};
+  std::unique_ptr<PacketCipher> cipher_;
+  uint64_t read_bytes_remaining_{};
+  uint64_t write_bytes_remaining_{};
+
+  Callbacks* callbacks_;
+  std::unique_ptr<VersionExchanger> version_exchanger_;
+  std::unique_ptr<Kex> kex_;
+  std::shared_ptr<KexResult> kex_result_;
+  std::optional<wire::ExtInfoMsg> outgoing_ext_info_;
+  std::optional<wire::ExtInfoMsg> peer_ext_info_;
+
+  KexAlgorithmFactoryRegistry algorithm_factories_;
+  DirectionalPacketCipherFactoryRegistry cipher_factories_;
+
+  Api::Api& api_;
+  std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config_;
+
+  std::string server_version_{"SSH-2.0-Envoy"};
+
+  uint64_t resetReadSequenceNumber() override {
+    return std::exchange(seq_read_, 0);
+  }
+
+  uint64_t resetWriteSequenceNumber() override {
+    return std::exchange(seq_write_, 0);
+  }
+
   void runInNextIteration(std::function<void()> fn) {
     auto id = api_.randomGenerator().uuid();
     auto* dispatcher = &callbacks_
@@ -271,63 +315,31 @@ protected:
     scheduled_callbacks_[id] = std::make_unique<scheduled_callback>(std::move(cb));
   }
 
-  const CipherState& getCipherStateForTest() const {
-    return cipher_state_;
-  }
-
-protected:
-  Callbacks* callbacks_;
-
-  CipherState cipher_state_;
-  std::unique_ptr<VersionExchanger> version_exchanger_;
-  std::unique_ptr<Kex> kex_;
-  std::shared_ptr<KexResult> kex_result_;
-  std::optional<wire::ExtInfoMsg> outgoing_ext_info_;
-  std::optional<wire::ExtInfoMsg> peer_ext_info_;
-
-  KexAlgorithmFactoryRegistry algorithm_factories_;
-  DirectionalPacketCipherFactoryRegistry cipher_factories_;
-
-  Api::Api& api_;
-  std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config_;
-
-  std::string server_version_{"SSH-2.0-Envoy"};
-
-  uint64_t resetReadSequenceNumber() override {
-    return std::exchange(cipher_state_.seq_read, 0);
-  }
-
-  uint64_t resetWriteSequenceNumber() override {
-    return std::exchange(cipher_state_.seq_write, 0);
-  }
-
 private:
-  bool version_exchange_done_{};
-
   absl::StatusOr<size_t> sendMessageDirect(wire::Message&& msg) final {
     Envoy::Buffer::OwnedImpl dec;
     auto packet_len = wire::encodePacket(dec,
                                          msg,
-                                         cipher_state_.cipher->blockSize(openssh::CipherMode::Write),
-                                         cipher_state_.cipher->aadSize(openssh::CipherMode::Write));
+                                         cipher_->blockSize(openssh::CipherMode::Write),
+                                         cipher_->aadSize(openssh::CipherMode::Write));
     if (!packet_len.ok()) {
       return statusf("error encoding packet: {}", packet_len.status());
     }
     Envoy::Buffer::OwnedImpl enc;
 
-    auto stat = cipher_state_.cipher->encryptPacket(cipher_state_.seq_write++, enc, dec);
+    auto stat = cipher_->encryptPacket(seq_write_++, enc, dec);
     if (!stat.ok()) {
       return statusf("error encrypting packet: {}", stat);
     }
     size_t n = enc.length();
     writeToConnection(enc);
 
-    cipher_state_.write_bytes_remaining = sub_sat(cipher_state_.write_bytes_remaining,
-                                                  static_cast<uint64_t>(*packet_len));
-    if (!cipher_state_.pending_key_exchange &&
-        (cipher_state_.write_bytes_remaining == 0 || cipher_state_.seq_write > seqnum_rekey_limit)) {
+    write_bytes_remaining_ = sub_sat(write_bytes_remaining_,
+                                     static_cast<uint64_t>(*packet_len));
+    if (!pending_key_exchange_ &&
+        (write_bytes_remaining_ == 0 || seq_write_ > seqnum_rekey_limit)) {
       ENVOY_LOG(debug, "ssh [{}]: write rekey threshold was reached, initiating key re-exchange (bytes remaining: {}; packets sent: {})",
-                codec_traits<Codec>::name, cipher_state_.write_bytes_remaining, cipher_state_.seq_write);
+                codec_traits<Codec>::name, write_bytes_remaining_, seq_write_);
       auto r = kex_->initiateKex();
       if (!r.ok()) {
         return r;

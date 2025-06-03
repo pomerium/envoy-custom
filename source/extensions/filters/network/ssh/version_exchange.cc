@@ -1,4 +1,5 @@
 #include "source/extensions/filters/network/ssh/version_exchange.h"
+#include <ranges>
 
 extern "C" {
 #include "openssh/ssh.h"
