@@ -174,3 +174,18 @@ envoy_cc_test(
         "//test/test_common:test_common_lib",
     ],
 )
+
+envoy_cc_test(
+    name = "version_exchange_test",
+    srcs = [
+        "version_exchange_test.cc",
+    ],
+    repository = "@envoy",
+    deps = [
+        ":test_mocks",
+        "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "//test/extensions/filters/network/ssh/wire:wire_test_util",
+        "//test/test_common:test_common_lib",
+        "@envoy//test/mocks/buffer:buffer_mocks",
+    ],
+)

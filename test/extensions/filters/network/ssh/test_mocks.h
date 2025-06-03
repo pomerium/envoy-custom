@@ -3,6 +3,7 @@
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/message_handler.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
+#include "source/extensions/filters/network/ssh/version_exchange.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 
@@ -37,6 +38,11 @@ public:
   MOCK_METHOD(absl::StatusOr<size_t>, sendMessageDirect, (wire::Message&&));
   MOCK_METHOD(uint64_t, resetReadSequenceNumber, ());
   MOCK_METHOD(uint64_t, resetWriteSequenceNumber, ());
+};
+
+class MockVersionExchangeCallbacks : public VersionExchangeCallbacks {
+public:
+  MOCK_METHOD(void, onVersionExchangeCompleted, (const bytes&, const bytes&, const bytes&));
 };
 
 class MockDirectionalPacketCipher : public DirectionalPacketCipher {
