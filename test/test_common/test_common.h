@@ -5,6 +5,7 @@
 #pragma clang unsafe_buffer_usage begin
 #include "source/common/buffer/buffer_impl.h" // IWYU pragma: keep
 #include "absl/status/statusor.h"             // IWYU pragma: keep
+#include "absl/strings/str_split.h"
 
 #if defined(NDEBUG) || defined(ENVOY_CONFIG_COVERAGE)
 #include "test/test_common/logging.h"
@@ -110,11 +111,14 @@ using testing::AllOfArray;
 using testing::An;
 using testing::AnyOf;
 using testing::AnyOfArray;
+using testing::Contains;
 using testing::DoAll;
 using testing::Eq;
 using testing::Field;
+using testing::HasSubstr;
 using testing::InSequence;
 using testing::Invoke;
+using testing::InvokeWithoutArgs;
 using testing::NiceMock;
 using testing::NotNull;
 using testing::Property;
@@ -126,6 +130,17 @@ using testing::WhenDynamicCastTo;
 
 using Envoy::EnvoyException;
 namespace Buffer = Envoy::Buffer;
+
+inline bool isDebuggerAttached() {
+  std::ifstream status{"/proc/self/status"};
+  std::string line;
+  while (std::getline(status, line)) {
+    if (line.starts_with("TracerPid:\t")) {
+      return line[12] != '0';
+    }
+  }
+  return false;
+}
 
 // =================================================================================================
 // code below vendored from envoy test/test_common/utility.h, which pulls in too many dependencies

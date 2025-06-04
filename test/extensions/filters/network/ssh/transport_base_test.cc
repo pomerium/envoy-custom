@@ -2,6 +2,8 @@
 #include "gtest/gtest.h"
 #include "test/extensions/filters/network/generic_proxy/mocks/codec.h"
 #include "test/extensions/filters/network/ssh/test_env_util.h"
+#include "test/extensions/filters/network/ssh/wire/test_field_reflect.h"
+#include "test/extensions/filters/network/ssh/test_mocks.h"
 #include "test/test_common/test_common.h"
 #include "test/test_common/utility.h"
 
@@ -16,6 +18,10 @@ public:
       : TransportBase<T>(api, config),
         dispatcher_(api.allocateDispatcher(std::string(codec_traits<T>::name))) {
     SetVersion(fmt::format("SSH-2.0-{}", codec_traits<T>::name));
+  }
+
+  void setupDefaultMocks() {
+    RELEASE_ASSERT(dispatcher_->isThreadSafe(), "test bug: not thread-safe");
     ON_CALL(*this, onKexStarted(_))
       .WillByDefault([this](bool initial) {
         return this->TransportBase<T>::onKexStarted(initial);
@@ -23,6 +29,14 @@ public:
     ON_CALL(*this, onKexCompleted(_, _))
       .WillByDefault([this](std::shared_ptr<KexResult> result, bool initial) {
         return this->TransportBase<T>::onKexCompleted(result, initial);
+      });
+    ON_CALL(*this, onVersionExchangeCompleted(_, _, _))
+      .WillByDefault([this](const bytes& server_version, const bytes& client_version, const bytes& banner) {
+        return this->TransportBase<T>::onVersionExchangeCompleted(server_version, client_version, banner);
+      });
+    ON_CALL(*this, onMessageDecoded(_))
+      .WillByDefault([this](wire::Message&& msg) {
+        return this->TransportBase<T>::onMessageDecoded(std::move(msg));
       });
     ON_CALL(*this, updatePeerExtInfo(_))
       .WillByDefault([this](std::optional<wire::ExtInfoMsg> msg) {
@@ -45,10 +59,14 @@ public:
 
   using TransportBase<T>::outgoingExtInfo;
   using TransportBase<T>::peerExtInfo;
+  using TransportBase<T>::seq_read_;
+  using TransportBase<T>::seq_write_;
 
-  MOCK_METHOD(void, updatePeerExtInfo, (std::optional<wire::ExtInfoMsg>), (override)); // delegates to the base class
-  MOCK_METHOD(void, onKexStarted, (bool), (override));                                 // delegates to the base class
-  MOCK_METHOD(void, onKexCompleted, (std::shared_ptr<KexResult>, bool), (override));   // delegates to the base class
+  MOCK_METHOD(void, updatePeerExtInfo, (std::optional<wire::ExtInfoMsg>), (override));                   // delegates to the base class
+  MOCK_METHOD(void, onKexStarted, (bool), (override));                                                   // delegates to the base class
+  MOCK_METHOD(void, onKexCompleted, (std::shared_ptr<KexResult>, bool), (override));                     // delegates to the base class
+  MOCK_METHOD(void, onVersionExchangeCompleted, (const bytes&, const bytes&, const bytes&), (override)); // delegates to the base class
+  MOCK_METHOD(absl::Status, onMessageDecoded, (wire::Message&&), (override));                            // delegates to the base class
 
   MOCK_METHOD(EncodingResult, encode, (const StreamFrame&, EncodingContext&));                         // pure virtual, not tested here
   MOCK_METHOD(ResponseHeaderFramePtr, respond, (Status, std::string_view, const RequestHeaderFrame&)); // pure virtual, not tested here
@@ -66,14 +84,25 @@ public:
     this->outgoing_ext_info_ = std::move(msg);
   }
 
-  auto StartThread() {
+  auto StartThread(absl::Duration timeout) {
     ASSERT_IS_TEST_THREAD();
-    return this->api_.threadFactory().createThread([this] {
-      dispatcher_->run(::Envoy::Event::Dispatcher::RunType::RunUntilExit);
-    });
+    auto opts = Thread::Options{.name_ = fmt::format("{} thread", codec_traits<T>::name)};
+    return this->api_.threadFactory().createThread(
+      [this, timeout] {
+        setupDefaultMocks();
+        auto timer = dispatcher_->createTimer([this] {
+          RELEASE_ASSERT(dispatcher_->isThreadSafe(), "test bug: not thread-safe");
+          dispatcher_->exit();
+          ADD_FAILURE() << "timeout";
+        });
+        timer->enableTimer(absl::ToChronoMilliseconds(timeout));
+        dispatcher_->run(::Envoy::Event::Dispatcher::RunType::RunUntilExit);
+        timer->disableTimer();
+      },
+      opts);
   }
 
-  absl::StatusOr<size_t> InitiateVersionExchange() {
+  size_t InitiateVersionExchange() {
     RELEASE_ASSERT(dispatcher_->isThreadSafe(), "test bug: not thread-safe");
     return this->version_exchanger_->writeVersion(this->server_version_);
   }
@@ -138,9 +167,12 @@ public:
     client_transport_.setCodecCallbacks(client_codec_callbacks_);
   }
 
-  void Start() {
-    server_thread_ = server_transport_.StartThread();
-    client_thread_ = client_transport_.StartThread();
+  void Start(absl::Duration timeout = absl::Seconds(1)) {
+    if (isDebuggerAttached()) {
+      timeout = absl::Hours(1);
+    }
+    server_thread_ = server_transport_.StartThread(timeout);
+    client_thread_ = client_transport_.StartThread(timeout);
   }
 
   void Join() {
@@ -183,7 +215,7 @@ public:
   void InitiateVersionExchange() {
     // The constraint that the client initiates the handshake doesn't apply at this abstraction level
     InitiatingTransport().Post([this] {
-      ASSERT_OK(InitiatingTransport().InitiateVersionExchange().status());
+      InitiatingTransport().InitiateVersionExchange();
     });
   }
 
@@ -275,22 +307,7 @@ TYPED_TEST(TransportBaseTest, TestHandshakeWithExtInfo) {
   EXPECT_EQ(std::nullopt, this->NonInitiatingTransport().outgoingExtInfo());
 }
 
-TYPED_TEST(TransportBaseTest, TestVersionExchange_InvalidVersionIncoming) {
-  EXPECT_CALL(this->InitiatingCallbacks(), onDecodingFailure("version string contains invalid characters"sv))
-    .WillOnce([this](std::string_view) {
-      this->NonInitiatingTransport().Post([this] {
-        this->NonInitiatingTransport().Exit();
-      });
-      this->InitiatingTransport().Exit();
-    });
-  this->NonInitiatingTransport().SetVersion("SSH-2.0--");
-
-  this->Start();
-  this->InitiateVersionExchange();
-  this->Join();
-}
-
-TYPED_TEST(TransportBaseTest, TestVersionExchange_InvalidVersionOutgoing) {
+TYPED_TEST(TransportBaseTest, TestVersionExchange_InvalidVersion) {
   EXPECT_CALL(this->NonInitiatingCallbacks(), onDecodingFailure("version string contains invalid characters"sv))
     .WillOnce([this](std::string_view) {
       this->InitiatingTransport().Post([this] {
@@ -306,15 +323,98 @@ TYPED_TEST(TransportBaseTest, TestVersionExchange_InvalidVersionOutgoing) {
 }
 
 TYPED_TEST(TransportBaseTest, TestVersionExchangeIncomplete) {
-}
+  EXPECT_CALL(this->InitiatingCallbacks(), writeToConnection)
+    .WillOnce(Invoke([&](Envoy::Buffer::Instance& input) {
+      // send two buffers,
+      Buffer::OwnedImpl buffer1; // "SSH-2.0-"
+      buffer1.add(input.linearize(input.length()), input.length() / 2);
+      Buffer::OwnedImpl buffer2; // "SSH-2.0-aaaaaa\r\n"
+      buffer2.move(input);
+      this->NonInitiatingTransport().Post([this, buffer = std::move(buffer1)] mutable {
+        this->NonInitiatingTransport().decode(buffer, false);
+      });
+      this->NonInitiatingTransport().Post([this, buffer = std::move(buffer2)] mutable {
+        this->NonInitiatingTransport().decode(buffer, false);
+      });
+    }));
+  EXPECT_CALL(this->InitiatingTransport(), onVersionExchangeCompleted)
+    .WillOnce(InvokeWithoutArgs([this] {
+      this->InitiatingTransport().Exit();
+    }));
+  EXPECT_CALL(this->NonInitiatingTransport(), onVersionExchangeCompleted)
+    .WillOnce(InvokeWithoutArgs([this] {
+      this->NonInitiatingTransport().Exit();
+    }));
+  this->InitiatingTransport().SetVersion("SSH-2.0-aaaaaa");
 
-TYPED_TEST(TransportBaseTest, TestVersionExchangeWriteFailure) {
+  this->Start();
+  this->InitiateVersionExchange();
+  this->Join();
 }
 
 TYPED_TEST(TransportBaseTest, TestDecryptPacketFailure) {
+  EXPECT_CALL(this->InitiatingTransport(), onKexStarted(true));
+  EXPECT_CALL(this->NonInitiatingTransport(), onKexStarted(true));
+  EXPECT_CALL(this->InitiatingTransport(), onKexCompleted(_, true));
+  EXPECT_CALL(this->NonInitiatingTransport(), onKexCompleted(_, true))
+    .WillOnce(Invoke([this](std::shared_ptr<KexResult> result, bool initial) {
+      this->NonInitiatingTransport().TransportBase::onKexCompleted(result, initial);
+      this->InitiatingTransport().Post([this] {
+        // change the receiver's sequence number, so they will fail to decrypt the packet
+        this->InitiatingTransport().seq_read_++;
+        // then send them a message
+        this->NonInitiatingTransport().Post([this] {
+          EXPECT_OK(this->NonInitiatingTransport().sendMessageToConnection(wire::Message{wire::DebugMsg{}}).status());
+          this->NonInitiatingTransport().Exit();
+        });
+      });
+    }));
+
+  EXPECT_CALL(this->InitiatingCallbacks(), onDecodingFailure(HasSubstr("failed to decrypt packet"s)))
+    .WillOnce(InvokeWithoutArgs([this] {
+      this->InitiatingTransport().Exit();
+    }));
+  this->Start();
+  this->InitiateVersionExchange();
+  this->Join();
 }
 
 TYPED_TEST(TransportBaseTest, TestReadIncompletePacket) {
+  EXPECT_CALL(this->InitiatingTransport(), onKexStarted(true));
+  EXPECT_CALL(this->NonInitiatingTransport(), onKexStarted(true));
+  EXPECT_CALL(this->NonInitiatingTransport(), onKexCompleted(_, true));
+
+  wire::Message expectedMsg{wire::IgnoreMsg{.data = "foo"_bytes}};
+  EXPECT_CALL(this->InitiatingTransport(), onKexCompleted(_, true))
+    .WillOnce(Invoke([this, expectedMsg](std::shared_ptr<KexResult> result, bool initial) {
+      this->InitiatingTransport().TransportBase::onKexCompleted(result, initial);
+      IN_SEQUENCE;
+      EXPECT_CALL(this->InitiatingCallbacks(), writeToConnection)
+        .WillOnce(Invoke([&](Envoy::Buffer::Instance& input) {
+          Buffer::OwnedImpl buffer1;
+          buffer1.add(input.linearize(input.length()), input.length() / 2);
+          Buffer::OwnedImpl buffer2;
+          buffer2.move(input);
+          this->NonInitiatingTransport().Post([this, buffer = std::move(buffer1)] mutable {
+            this->NonInitiatingTransport().decode(buffer, false);
+          });
+          this->NonInitiatingTransport().Post([this, buffer = std::move(buffer2)] mutable {
+            this->NonInitiatingTransport().decode(buffer, false);
+          });
+        }));
+      EXPECT_CALL(this->NonInitiatingTransport(), onMessageDecoded(MSG(wire::IgnoreMsg, Eq(wire::IgnoreMsg{.data = "foo"_bytes}))))
+        .WillOnce(Invoke([this](wire::Message&&) {
+          this->NonInitiatingTransport().Exit();
+          this->InitiatingTransport().Post([this] {
+            this->InitiatingTransport().Exit();
+          });
+          return absl::OkStatus();
+        }));
+      EXPECT_OK(this->InitiatingTransport().sendMessageToConnection(auto(expectedMsg)).status());
+    }));
+  this->Start();
+  this->InitiateVersionExchange();
+  this->Join();
 }
 
 TYPED_TEST(TransportBaseTest, TestDecodePacketFailure) {

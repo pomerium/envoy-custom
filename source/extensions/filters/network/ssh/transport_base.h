@@ -90,9 +90,9 @@ public:
     while (buffer.length() > 0) {
       if (!version_exchange_done_) {
         // This is the only place where readVersion should be called; if the version is read
-        // completely, it must have reached the versionWritten() check that follows, which only has
-        // two possible outcomes: either write our version and complete the version exchange or fail
-        // and disconnect. So, we should not be able to get here unless versionRead() is false.
+        // completely, it must return an OK status with non-zero value, then continue on to set
+        // the version_exchange_done_ flag to true. So, we should not be able to get here unless
+        // versionRead() is false.
         ASSERT(!version_exchanger_->versionRead());
         auto n = version_exchanger_->readVersion(buffer);
         if (!n.ok()) {
@@ -105,11 +105,7 @@ public:
         }
 
         if (!version_exchanger_->versionWritten()) {
-          auto n = version_exchanger_->writeVersion(server_version_);
-          if (!n.ok()) {
-            onDecodingFailure(n.status());
-            return;
-          }
+          version_exchanger_->writeVersion(server_version_);
         }
         version_exchange_done_ = true;
         continue;

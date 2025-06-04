@@ -31,7 +31,7 @@ namespace test {
 //   MOCK_METHOD(stream_id_t, streamId, (), (const));
 // };
 
-class MockTransportCallbacks : public TransportCallbacks {
+class MockTransportCallbacks : public virtual TransportCallbacks {
 public:
   MockTransportCallbacks();
   virtual ~MockTransportCallbacks();

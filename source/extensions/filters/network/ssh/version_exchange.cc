@@ -37,9 +37,7 @@ static constexpr size_t MaxVersionExchangeBytes = 16384;
 // upstream to send as either an authentication banner message or a disconnect mesage to the
 // downstream client, depending on whether the upstream disconnects after sending the banner.
 absl::StatusOr<size_t> VersionExchanger::readVersion(Envoy::Buffer::Instance& buffer) {
-  if (did_read_version_) {
-    return absl::FailedPreconditionError("version already read");
-  }
+  RELEASE_ASSERT(!did_read_version_, "bug: version already read");
   if (buffer.length() > MaxVersionExchangeBytes) {
     return absl::InvalidArgumentError("no ssh identification string received");
   } else if (buffer.length() < 4) { // "SSH-"
@@ -99,10 +97,8 @@ absl::StatusOr<size_t> VersionExchanger::readVersion(Envoy::Buffer::Instance& bu
   return versionStringEndIndex + 1;
 }
 
-absl::StatusOr<size_t> VersionExchanger::writeVersion(std::string_view ours) {
-  if (did_write_version_) {
-    return absl::FailedPreconditionError("version already written");
-  }
+size_t VersionExchanger::writeVersion(std::string_view ours) {
+  RELEASE_ASSERT(!did_write_version_, "version already written");
   did_write_version_ = true;
 
   our_version_ = to_bytes(ours);
