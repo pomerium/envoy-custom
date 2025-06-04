@@ -261,7 +261,9 @@ public:
     client_host_keys_.push_back(*openssh::SSHKey::generate(KEY_ED25519, 256));
     client_host_keys_.push_back(*openssh::SSHKey::generate(KEY_ECDSA, 256));
     client_host_keys_.push_back(*openssh::SSHKey::generate(KEY_ECDSA, 384));
+#ifdef OPENSSL_HAS_NISTP521
     client_host_keys_.push_back(*openssh::SSHKey::generate(KEY_ECDSA, 521));
+#endif
     client_host_keys_.push_back(*openssh::SSHKey::generate(KEY_RSA, 2048));
 
     algorithm_factories_.registerType<Curve25519Sha256KexAlgorithmFactory>();
@@ -282,7 +284,9 @@ public:
     hostKeys.push_back(*openssh::SSHKey::generate(KEY_ED25519, 256));
     hostKeys.push_back(*openssh::SSHKey::generate(KEY_ECDSA, 256));
     hostKeys.push_back(*openssh::SSHKey::generate(KEY_ECDSA, 384));
+#ifdef OPENSSL_HAS_NISTP521
     hostKeys.push_back(*openssh::SSHKey::generate(KEY_ECDSA, 521));
+#endif
     hostKeys.push_back(*openssh::SSHKey::generate(KEY_RSA, 2048));
 
     std::unordered_map<std::string, bytes> hostKeyBlobs;
@@ -402,13 +406,23 @@ protected:
     if (!sequence.expecting_error_) {
       auto expectOnKexStarted = [&] { EXPECT_CALL(*kex_callbacks_, onKexStarted(initial_kex)).Times(1); };
       auto expectOnKexInitMsgSent = [&] { EXPECT_CALL(*kex_callbacks_, onKexInitMsgSent()); };
+      auto expectedKexAlgs = initial_kex ? append(algorithm_factories_.namesByPriority(), "ext-info-s", "kex-strict-s-v00@openssh.com")
+                                         : algorithm_factories_.namesByPriority();
+      auto expectedHostKeyAlgs = string_list{
+        "ssh-ed25519",
+        "ecdsa-sha2-nistp256",
+        "ecdsa-sha2-nistp384",
+#ifdef OPENSSL_HAS_NISTP521
+        "ecdsa-sha2-nistp521",
+#endif
+        "rsa-sha2-256",
+        "rsa-sha2-512",
+      };
       auto expectServerKexInit = [&] {
         EXPECT_SERVER_REPLY_VAR(sequence.server_kex_init_,
                                 wire::KexInitMsg,
-                                FIELD_EQ(kex_algorithms,
-                                         initial_kex ? append(algorithm_factories_.namesByPriority(), "ext-info-s", "kex-strict-s-v00@openssh.com")
-                                                     : algorithm_factories_.namesByPriority()),
-                                FIELD_EQ(server_host_key_algorithms, string_list{"ssh-ed25519", "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521", "rsa-sha2-256", "rsa-sha2-512"}),
+                                FIELD_EQ(kex_algorithms, expectedKexAlgs),
+                                FIELD_EQ(server_host_key_algorithms, expectedHostKeyAlgs),
                                 FIELD_EQ(encryption_algorithms_client_to_server, cipher_factories_.namesByPriority()),
                                 FIELD_EQ(encryption_algorithms_server_to_client, cipher_factories_.namesByPriority()),
                                 FIELD_EQ(mac_algorithms_client_to_server, SupportedMACs),
@@ -670,7 +684,16 @@ TEST_F(AlgorithmNegotiationTest, NoCommonHostKey) {
   ContinueAndExpectSoftError(absl::InvalidArgumentError(
     fmt::format("no common algorithm for host key; client offered: {}; server offered: {}",
                 sequence.client_kex_init_.server_host_key_algorithms,
-                string_list{"ssh-ed25519", "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521", "rsa-sha2-256", "rsa-sha2-512"})));
+                string_list{
+                  "ssh-ed25519",
+                  "ecdsa-sha2-nistp256",
+                  "ecdsa-sha2-nistp384",
+#ifdef OPENSSL_HAS_NISTP521
+                  "ecdsa-sha2-nistp521",
+#endif
+                  "rsa-sha2-256",
+                  "rsa-sha2-512",
+                })));
 }
 
 TEST_F(AlgorithmNegotiationTest, NoCommonClientToServerCipher) {
@@ -1097,7 +1120,9 @@ TEST_F(ServerKexTest, PickHostKey) {
 TEST_F(ServerKexTest, GetHostKey) {
   EXPECT_EQ(*kex_->getHostKey(KEY_ED25519), **openssh::SSHKey::fromPublicKeyBlob(host_key_blobs_["ssh-ed25519"]));
   EXPECT_EQ(*kex_->getHostKey(KEY_RSA), **openssh::SSHKey::fromPublicKeyBlob(host_key_blobs_["rsa-sha2-512"]));
+#if !__has_feature(address_sanitizer)
   EXPECT_EQ(kex_->getHostKey(static_cast<sshkey_types>(99)), nullptr);
+#endif
 }
 
 class MakePacketCipherTest : public ServerKexTest, public testing::WithParamInterface<std::function<wire::KexInitMsg()>> {};

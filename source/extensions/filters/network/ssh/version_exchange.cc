@@ -140,7 +140,7 @@ absl::Status VersionExchanger::validateBanner(const bytes& banner) const {
     if (line.size() > MaxBannerLineLength) {
       return absl::InvalidArgumentError("banner line too long");
     }
-    if (line.back() == '\r') {
+    if (!line.empty() && line.back() == '\r') {
       line = line.subspan(0, line.size() - 1);
     }
 
@@ -152,26 +152,26 @@ absl::Status VersionExchanger::validateBanner(const bytes& banner) const {
 }
 
 absl::Status VersionExchanger::validateVersion(const bytes& version) const {
-  ASSERT(version.back() == '\n');
+  ASSERT(!version.empty() && version.back() == '\n');
   if (!std::ranges::starts_with(version, VersionPrefix)) {
     return absl::InvalidArgumentError("unsupported protocol version");
   }
   // skip "SSH-2.0-" prefix and "\n" suffix
   auto version_view = bytes_view(version).subspan(VersionPrefix.size(),
                                                   version.size() - VersionPrefix.size() - 1);
-  if (version_view.back() == '\r') {
+  // version_view could be empty here
+  if (!version_view.empty() && version_view.back() == '\r') {
     // The version string should end with \r\n, but both openssh and go are lenient here and allow
     // it to end only in \n, so we will do the same.
     version_view = version_view.first(version_view.size() - 1);
   }
-  if (version_view.size() == 0 || // "SSH-2.0-"
-      version_view[0] == ' ') {   // "SSH-2.0- -comment"
+  if (version_view.empty() ||        // "SSH-2.0-"
+      version_view.front() == ' ') { // "SSH-2.0- -comment"
     // the 'softwareversion' string is not optional
     return absl::InvalidArgumentError("invalid version string");
   }
   bool in_comments = false;
-  for (size_t i = 0; i < version_view.size(); i++) {
-    uint8_t b = version_view[i];
+  for (uint8_t b : version_view) {
     if (b < 32 || b > 126) { // printable ascii range
       return absl::InvalidArgumentError("version string contains invalid characters");
     }

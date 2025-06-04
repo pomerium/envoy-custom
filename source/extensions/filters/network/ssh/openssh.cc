@@ -25,9 +25,9 @@ char** cloneStringListForC(const std::vector<std::string>& input) {
   char** out = static_cast<char**>(::calloc(input.size() + 1, sizeof(char*)));
   auto outSpan = unsafe_forge_span(out, input.size() + 1);
   for (size_t i = 0; i < input.size(); i++) {
-    #pragma clang unsafe_buffer_usage begin
+#pragma clang unsafe_buffer_usage begin
     outSpan[i] = ::strdup(input[i].c_str());
-    #pragma clang unsafe_buffer_usage end
+#pragma clang unsafe_buffer_usage end
   }
   outSpan.back() = nullptr;
   return out;
@@ -198,7 +198,7 @@ absl::Status SSHKey::convertToSignedUserCertificate(
   key_->cert->serial = serial;
   key_->cert->nprincipals = static_cast<uint32_t>(principals.size());
   key_->cert->principals = interop::cloneStringListForC(principals);
-  key_->cert->extensions = sshbuf_new();
+  ASSERT(key_->cert->extensions != nullptr);
   std::sort(extensions.begin(), extensions.end());
   for (const auto& ext : extensions) {
     sshbuf_put_cstring(key_->cert->extensions, ext.c_str());
@@ -452,13 +452,14 @@ SSHMac::~SSHMac() {
 void SSHMac::compute(seqnum_t seqnum,
                      Envoy::Buffer::Instance& out,
                      const bytes_view& in) {
+  ASSERT(!in.empty() && in.data() != nullptr);
   auto res = out.reserveSingleSlice(mac_.mac_len);
   // This accepts an int for the mac size parameter because HMAC_Update in OpenSSL 0.9.6 did, when
   // this function was originally written in 2001. HMAC_Update was changed to use size_t in 2004,
   // but mac_compute was never updated.
   auto r = mac_compute(&mac_,
                        seqnum,
-                       in.data(),
+                       in.data(), // can't be nullptr
                        static_cast<int>(in.size()),
                        static_cast<uint8_t*>(res.slice().mem_),
                        res.slice().len_);

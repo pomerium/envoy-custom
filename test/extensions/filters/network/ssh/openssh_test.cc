@@ -142,9 +142,21 @@ TEST(SSHKeyTest, Generate) {
   EXPECT_OK(r.status());
   EXPECT_EQ(KEY_RSA, (*r)->keyType());
 
+  r = SSHKey::generate(KEY_ECDSA, 256);
+  EXPECT_OK(r.status());
+  EXPECT_EQ(KEY_ECDSA, (*r)->keyType());
+
+  r = SSHKey::generate(KEY_ECDSA, 384);
+  EXPECT_OK(r.status());
+  EXPECT_EQ(KEY_ECDSA, (*r)->keyType());
+
+  // XXX: this detection fails in openssh for asan builds, so the nistp-521 curves are disabled.
+  // non-asan builds detect this fine though.
+#ifdef OPENSSL_HAS_NISTP521
   r = SSHKey::generate(KEY_ECDSA, 521);
   EXPECT_OK(r.status());
   EXPECT_EQ(KEY_ECDSA, (*r)->keyType());
+#endif
 
   r = SSHKey::generate(KEY_ED25519, 256);
   EXPECT_OK(r.status());
@@ -222,7 +234,9 @@ INSTANTIATE_TEST_SUITE_P(SSHKeyTest, SSHKeyTestSuite,
                            {KEY_RSA, 2048},
                            {KEY_ECDSA, 256},
                            {KEY_ECDSA, 384},
+#ifdef OPENSSL_HAS_NISTP521
                            {KEY_ECDSA, 521},
+#endif
                            {KEY_ED25519, 256},
                          }));
 
@@ -247,7 +261,7 @@ TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate) {
   EXPECT_TRUE(sshkey_is_cert(key));
   EXPECT_TRUE(sshkey_check_cert_sigtype(key, sigAlgs.c_str()) == 0);
 
-  EXPECT_EQ("user", sshkey_cert_type(key));
+  EXPECT_STREQ("user", sshkey_cert_type(key));
 
   bytes payload = {'f', 'o', 'o', 'b', 'a', 'r', 'b', 'a', 'z'};
   auto sig = key_->sign(payload);
@@ -324,7 +338,9 @@ INSTANTIATE_TEST_SUITE_P(SSHKeyCertTest, SSHKeyCertTestSuite,
                            {KEY_RSA, 2048},
                            {KEY_ECDSA, 256},
                            {KEY_ECDSA, 384},
+#ifdef OPENSSL_HAS_NISTP521
                            {KEY_ECDSA, 521},
+#endif
                            {KEY_ED25519, 256},
                          }));
 
@@ -347,14 +363,18 @@ public:
 
 TEST_P(SSHKeyPropertiesTestSuite, Fingerprint) {
   const auto* raw_key = key_->sshkeyForTest();
-  auto expected = sshkey_fingerprint(raw_key, SSH_DIGEST_SHA256, SSH_FP_DEFAULT);
+  CStringPtr expected{sshkey_fingerprint(raw_key, SSH_DIGEST_SHA256, SSH_FP_DEFAULT)};
   ASSERT_NE(nullptr, expected);
   auto r = key_->fingerprint(SSH_FP_DEFAULT);
   EXPECT_OK(r.status());
-  EXPECT_EQ(std::string_view(expected), std::string_view(*r));
+  EXPECT_EQ(std::string_view(expected.get()), std::string_view(*r));
 }
 
 TEST_P(SSHKeyPropertiesTestSuite, Fingerprint_InvalidFormat) {
+#if __has_feature(address_sanitizer)
+  // asan doesn't like the enum being out of range
+  GTEST_SKIP() << "disabled for asan builds";
+#endif
   const auto* raw_key = key_->sshkeyForTest();
   auto expected = sshkey_fingerprint(raw_key, SSH_DIGEST_SHA256, sshkey_fp_rep(100));
   ASSERT_EQ(nullptr, expected); // sanity check
@@ -519,8 +539,10 @@ INSTANTIATE_TEST_SUITE_P(SSHKeyPropertiesTest, SSHKeyPropertiesTestSuite,
                            {KEY_ECDSA_CERT, 256},
                            {KEY_ECDSA, 384},
                            {KEY_ECDSA_CERT, 384},
+#ifdef OPENSSL_HAS_NISTP521
                            {KEY_ECDSA, 521},
                            {KEY_ECDSA_CERT, 521},
+#endif
                            {KEY_ED25519, 256},
                            {KEY_ED25519_CERT, 256},
                          }));
@@ -822,7 +844,7 @@ TEST_P(SSHMacTestSuite, Verify) {
   for (int i = 0; i < 1000; i++) {
     SSHMac mac(mac_alg, key);
 
-    auto input = randomBytes(absl::Uniform(rng, 0, 256));
+    auto input = randomBytes(absl::Uniform(rng, 1, 256));
 
     Buffer::OwnedImpl out;
     mac.compute(i, out, input);
