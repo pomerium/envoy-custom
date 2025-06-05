@@ -19,6 +19,7 @@ envoy_cc_library(
         "packet_cipher.cc",
         "packet_cipher_aead.cc",
         "packet_cipher_etm.cc",
+        "service_userauth.cc",
         "version_exchange.cc",
     ],
     hdrs = [
@@ -33,6 +34,7 @@ envoy_cc_library(
         "packet_cipher_aead.h",
         "packet_cipher_etm.h",
         "service.h",
+        "service_userauth.h",
         "transport.h",
         "version_exchange.h",
     ],
