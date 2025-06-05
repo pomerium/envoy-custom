@@ -76,6 +76,8 @@ public:
   using TransportBase<T>::seq_read_;
   using TransportBase<T>::seq_write_;
   using TransportBase<T>::cipher_;
+  using TransportBase<T>::read_bytes_remaining_;
+  using TransportBase<T>::write_bytes_remaining_;
 
   MOCK_METHOD(void, updatePeerExtInfo, (std::optional<wire::ExtInfoMsg>), (override));                   // delegates to the base class
   MOCK_METHOD(void, onKexStarted, (bool), (override));                                                   // delegates to the base class
@@ -184,19 +186,19 @@ class TransportBaseTest : public testing::Test {
 public:
   TransportBaseTest()
       : api_(Api::createApiForTest()),
-        server_transport_(*api_, [] {
-          auto cfg = std::make_shared<pomerium::extensions::ssh::CodecConfig>();
+        server_config_(std::make_shared<pomerium::extensions::ssh::CodecConfig>()),
+        client_config_(std::make_shared<pomerium::extensions::ssh::CodecConfig>()),
+        server_transport_(*api_, [this] {
           for (auto keyName : {"rsa_1", "ed25519_1"}) {
-            cfg->add_host_keys(copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600));
+            server_config_->add_host_keys(copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600));
           }
-          return cfg;
+          return server_config_;
         }()),
-        client_transport_(*api_, [] {
-          auto cfg = std::make_shared<pomerium::extensions::ssh::CodecConfig>();
+        client_transport_(*api_, [this] {
           for (auto keyName : {"rsa_2", "ed25519_2"}) {
-            cfg->add_host_keys(copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600));
+            client_config_->add_host_keys(copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600));
           }
-          return cfg;
+          return client_config_;
         }()) {}
 
   void SetUp() override {
@@ -268,6 +270,21 @@ public:
       return client_codec_callbacks_;
     }
   }
+  auto& ClientConfig() {
+    if constexpr (TestOptions::client_initiates) {
+      return *client_config_;
+    } else {
+      return *server_config_;
+    }
+  }
+
+  auto& ServerConfig() {
+    if constexpr (TestOptions::client_initiates) {
+      return *server_config_;
+    } else {
+      return *client_config_;
+    }
+  }
 
   void InitiateVersionExchange() {
     // The constraint that the client initiates the handshake doesn't apply at this abstraction level
@@ -291,6 +308,8 @@ protected:
   Api::ApiPtr api_;
   Thread::ThreadPtr server_thread_;
   Thread::ThreadPtr client_thread_;
+  std::shared_ptr<pomerium::extensions::ssh::CodecConfig> server_config_;
+  std::shared_ptr<pomerium::extensions::ssh::CodecConfig> client_config_;
   testing::NiceMock<MockBaseTransport<ServerCodec>> server_transport_;
   testing::NiceMock<MockBaseTransport<ClientCodec>> client_transport_;
   testing::StrictMock<MockServerCodecCallbacks> server_codec_callbacks_;
@@ -616,144 +635,469 @@ TYPED_TEST(TransportBaseTest, TestRekeyWithQueuedMessages) {
   EXPECT_CALL(this->Client(), onKexStarted(true));
   EXPECT_CALL(this->Server(), onKexStarted(true));
 
-  auto serverKexCompleted = std::make_unique<absl::Notification>();
-  auto clientKexCompleted = std::make_unique<absl::Notification>();
+  absl::Notification serverKexCompleted;
+  absl::Notification clientKexCompleted;
 
   EXPECT_CALL(this->Client(), onKexCompleted(_, true))
     .WillOnce(Invoke([this, &clientKexCompleted](std::shared_ptr<KexResult> result, bool initial) {
       this->Client().TransportBase::onKexCompleted(result, initial);
-      clientKexCompleted->Notify();
+      clientKexCompleted.Notify();
     }));
   EXPECT_CALL(this->Server(), onKexCompleted(_, true))
     .WillOnce(Invoke([this, &serverKexCompleted](std::shared_ptr<KexResult> result, bool initial) {
       this->Server().TransportBase::onKexCompleted(result, initial);
-      serverKexCompleted->Notify();
+      serverKexCompleted.Notify();
     }));
 
   this->Start();
   this->InitiateVersionExchange();
 
-  if (!serverKexCompleted->WaitForNotificationWithTimeout(defaultTimeout())) {
+  if (!serverKexCompleted.WaitForNotificationWithTimeout(defaultTimeout())) {
     ADD_FAILURE() << "timed out waiting for server key exchange";
   }
-  if (!clientKexCompleted->WaitForNotificationWithTimeout(defaultTimeout())) {
+  if (!clientKexCompleted.WaitForNotificationWithTimeout(defaultTimeout())) {
     ADD_FAILURE() << "timed out waiting for client key exchange";
   }
-  // reset the notifications
-  serverKexCompleted = std::make_unique<absl::Notification>();
-  clientKexCompleted = std::make_unique<absl::Notification>();
-  absl::Notification waitRekey;
+
   // reset mocks
   this->VerifyAndClearExpectations();
 
+  absl::Notification serverDone{};
+  absl::Notification clientDone{};
+
+  this->Client().Post([&clientDone](auto& client) {
+    // Each of these sequences is thread-local, so there are two separate sequences set up on
+    // each peer's respective thread.
+    // Note: "this->Client()" can be either the server or client transport, so the order of the
+    // KexEcdh messages is slightly different.
+    IN_SEQUENCE;
+    /*C->S*/ EXPECT_CALL(client, sendMessageToConnection(MSG(wire::DebugMsg, FIELD_EQ(message, "client->server unqueued message 1"s))));
+    /*C->S*/ EXPECT_CALL(client, sendMessageDirect(MSG(wire::DebugMsg, FIELD_EQ(message, "client->server unqueued message 1"s))));
+    /*C->S*/ EXPECT_CALL(client, sendMessageToConnection(MSG(wire::DebugMsg, FIELD_EQ(message, "client->server unqueued message 2"s))));
+    /*C->S*/ EXPECT_CALL(client, sendMessageDirect(MSG(wire::DebugMsg, FIELD_EQ(message, "client->server unqueued message 2"s))));
+    /*C->|*/ EXPECT_CALL(client, sendMessageToConnection(MSG(wire::DebugMsg, FIELD_EQ(message, "client->server queued message 1"s))));
+    /*C->|*/ EXPECT_CALL(client, sendMessageToConnection(MSG(wire::DebugMsg, FIELD_EQ(message, "client->server queued message 2"s))));
+    /*C->S*/ EXPECT_CALL(client, sendMessageDirect(MSG(wire::KexInitMsg, _)));
+    /*C<-S*/ EXPECT_CALL(client, onMessageDecoded(MSG(wire::DebugMsg, FIELD_EQ(message, "server->client unqueued message 1"s))));
+    /*C<-S*/ EXPECT_CALL(client, onMessageDecoded(MSG(wire::DebugMsg, FIELD_EQ(message, "server->client unqueued message 2"s))));
+    /*C<-S*/ EXPECT_CALL(client, onMessageDecoded(MSG(wire::KexInitMsg, _)));
+    EXPECT_CALL(client, onKexStarted(false));
+    if constexpr (TypeParam::client_initiates) {
+      /*C->S*/ EXPECT_CALL(client, sendMessageDirect(MSG(wire::KexEcdhInitMsg, _)));
+      /*C<-S*/ EXPECT_CALL(client, onMessageDecoded(MSG(wire::KexEcdhReplyMsg, _)));
+    } else {
+      /*C<-S*/ EXPECT_CALL(client, onMessageDecoded(MSG(wire::KexEcdhInitMsg, _)));
+      /*C->S*/ EXPECT_CALL(client, sendMessageDirect(MSG(wire::KexEcdhReplyMsg, _)));
+    }
+    /*C->S*/ EXPECT_CALL(client, sendMessageDirect(MSG(wire::NewKeysMsg, _)));
+    /*C<-S*/ EXPECT_CALL(client, onMessageDecoded(MSG(wire::NewKeysMsg, _)));
+    EXPECT_CALL(client, onKexCompleted(_, false));
+    /*|->S*/ EXPECT_CALL(client, sendMessageDirect(MSG(wire::DebugMsg, FIELD_EQ(message, "client->server queued message 1"s))));
+    /*|->S*/ EXPECT_CALL(client, sendMessageDirect(MSG(wire::DebugMsg, FIELD_EQ(message, "client->server queued message 2"s))));
+    /*C<-S*/ EXPECT_CALL(client, onMessageDecoded(MSG(wire::DebugMsg, FIELD_EQ(message, "server->client queued message 1"s))));
+    /*C<-S*/ EXPECT_CALL(client, onMessageDecoded(MSG(wire::DebugMsg, FIELD_EQ(message, "server->client queued message 2"s))))
+      .WillOnce(InvokeWithoutArgs([&clientDone] mutable {
+        clientDone.Notify();
+        return absl::OkStatus();
+      }));
+  });
+
+  this->Server().Post([&serverDone](auto& server) {
+    IN_SEQUENCE;
+    /*S<-C*/ EXPECT_CALL(server, onMessageDecoded(MSG(wire::DebugMsg, FIELD_EQ(message, "client->server unqueued message 1"s))));
+    /*S<-C*/ EXPECT_CALL(server, onMessageDecoded(MSG(wire::DebugMsg, FIELD_EQ(message, "client->server unqueued message 2"s))));
+    /*S<-C*/ EXPECT_CALL(server, onMessageDecoded(MSG(wire::KexInitMsg, _)));
+    EXPECT_CALL(server, onKexStarted(false));
+    /*S->C*/ EXPECT_CALL(server, sendMessageToConnection(MSG(wire::DebugMsg, FIELD_EQ(message, "server->client unqueued message 1"s))));
+    /*S->C*/ EXPECT_CALL(server, sendMessageDirect(MSG(wire::DebugMsg, FIELD_EQ(message, "server->client unqueued message 1"s))));
+    /*S->C*/ EXPECT_CALL(server, sendMessageToConnection(MSG(wire::DebugMsg, FIELD_EQ(message, "server->client unqueued message 2"s))));
+    /*S->C*/ EXPECT_CALL(server, sendMessageDirect(MSG(wire::DebugMsg, FIELD_EQ(message, "server->client unqueued message 2"s))));
+    /*S->|*/ EXPECT_CALL(server, sendMessageToConnection(MSG(wire::DebugMsg, FIELD_EQ(message, "server->client queued message 1"s))));
+    /*S->|*/ EXPECT_CALL(server, sendMessageToConnection(MSG(wire::DebugMsg, FIELD_EQ(message, "server->client queued message 2"s))));
+    /*S->C*/ EXPECT_CALL(server, sendMessageDirect(MSG(wire::KexInitMsg, _)));
+    if constexpr (TypeParam::client_initiates) {
+      /*S<-C*/ EXPECT_CALL(server, onMessageDecoded(MSG(wire::KexEcdhInitMsg, _)));
+      /*S->C*/ EXPECT_CALL(server, sendMessageDirect(MSG(wire::KexEcdhReplyMsg, _)));
+    } else {
+      /*S<-C*/ EXPECT_CALL(server, sendMessageDirect(MSG(wire::KexEcdhInitMsg, _)));
+      /*S->C*/ EXPECT_CALL(server, onMessageDecoded(MSG(wire::KexEcdhReplyMsg, _)));
+    }
+    /*S->C*/ EXPECT_CALL(server, sendMessageDirect(MSG(wire::NewKeysMsg, _)));
+    /*S<-C*/ EXPECT_CALL(server, onMessageDecoded(MSG(wire::NewKeysMsg, _)));
+    EXPECT_CALL(server, onKexCompleted(_, false));
+    /*|->C*/ EXPECT_CALL(server, sendMessageDirect(MSG(wire::DebugMsg, FIELD_EQ(message, "server->client queued message 1"s))));
+    /*|->C*/ EXPECT_CALL(server, sendMessageDirect(MSG(wire::DebugMsg, FIELD_EQ(message, "server->client queued message 2"s))));
+    /*S<-C*/ EXPECT_CALL(server, onMessageDecoded(MSG(wire::DebugMsg, FIELD_EQ(message, "client->server queued message 1"s))));
+    /*S<-C*/ EXPECT_CALL(server, onMessageDecoded(MSG(wire::DebugMsg, FIELD_EQ(message, "client->server queued message 2"s))))
+      .WillOnce(InvokeWithoutArgs([&serverDone] mutable {
+        serverDone.Notify();
+        return absl::OkStatus();
+      }));
+  });
+
   EXPECT_CALL(this->Client(), onKexInitMsgSent())
     .WillOnce(InvokeWithoutArgs([this] {
+      // sneak in messages before our KexInit (this callback fires before actually sending it)
+      // to check that that they are not queued since they are sent before our KexInit.
+      ASSERT_OK(this->Client().sendMessageToConnection(wire::DebugMsg{.message = "client->server unqueued message 1"s}).status());
+      ASSERT_OK(this->Client().sendMessageToConnection(wire::DebugMsg{.message = "client->server unqueued message 2"s}).status());
+
       // Calling the base class onKexInitMsgSent is important here - it sets the flag that causes
-      // newly-sent messages to become queued. We can't override onKexStarted(false) since that
-      // occurs BEFORE sending the KexInit message. Only messages sent after KexInit and before
-      // NewKeys are queued.
+      // newly-sent messages to become queued. Note that onKexStarted(false) signals something
+      // else entirely: that the peer has sent their KexInit message, and we must not allow anything
+      // else from them other than key-exchange related messages until they send NewKeys. We can
+      // receive any messages from the peer after sending our own KexInit (starting the re-exchange)
+      // until receiving their KexInit.
       this->Client().TransportBase::onKexInitMsgSent();
 
       // after starting the re-exchange on the client side, send a couple messages
       // these should only be queued, not sent - the matching EXPECT_CALLs occur below
-      ASSERT_OK(this->Client().sendMessageToConnection(wire::IgnoreMsg{.data = "client->server queued message 1"_bytes}).status());
-      ASSERT_OK(this->Client().sendMessageToConnection(wire::IgnoreMsg{.data = "client->server queued message 2"_bytes}).status());
+      ASSERT_OK(this->Client().sendMessageToConnection(wire::DebugMsg{.message = "client->server queued message 1"s}).status());
+      ASSERT_OK(this->Client().sendMessageToConnection(wire::DebugMsg{.message = "client->server queued message 2"s}).status());
     }));
   EXPECT_CALL(this->Server(), onKexInitMsgSent())
     .WillOnce(InvokeWithoutArgs([this] {
+      // same sequence on the server
+
+      ASSERT_OK(this->Server().sendMessageToConnection(wire::DebugMsg{.message = "server->client unqueued message 1"s}).status());
+      ASSERT_OK(this->Server().sendMessageToConnection(wire::DebugMsg{.message = "server->client unqueued message 2"s}).status());
+
       this->Server().TransportBase::onKexInitMsgSent();
 
-      // same on the server
-      ASSERT_OK(this->Server().sendMessageToConnection(wire::IgnoreMsg{.data = "server->client queued message 1"_bytes}).status());
-      ASSERT_OK(this->Server().sendMessageToConnection(wire::IgnoreMsg{.data = "server->client queued message 2"_bytes}).status());
+      ASSERT_OK(this->Server().sendMessageToConnection(wire::DebugMsg{.message = "server->client queued message 1"s}).status());
+      ASSERT_OK(this->Server().sendMessageToConnection(wire::DebugMsg{.message = "server->client queued message 2"s}).status());
     }));
-
-  EXPECT_CALL(this->Client(), onKexCompleted(_, false))
-    .WillOnce(Invoke([this, &clientKexCompleted, &waitRekey](std::shared_ptr<KexResult> result, bool initial) {
-      // re-exchange done (client)
-      clientKexCompleted->Notify();    // signal that all kex messages have been handled
-      waitRekey.WaitForNotification(); // wait for new expectations to be set up for the queued messages
-      this->Client().TransportBase::onKexCompleted(result, initial);
-    }));
-
-  EXPECT_CALL(this->Server(), onKexCompleted(_, false))
-    .WillOnce(Invoke([this, &serverKexCompleted, &waitRekey](std::shared_ptr<KexResult> result, bool initial) {
-      // re-exchange done (server)
-      serverKexCompleted->Notify();    // signal that all kex messages have been handled
-      waitRekey.WaitForNotification(); // wait for new expectations to be set up for the queued messages
-      this->Server().TransportBase::onKexCompleted(result, initial);
-    }));
-
-  absl::Notification serverReceived{};
-  absl::Notification clientReceived{};
 
   this->Client().Post([](auto& self) {
     EXPECT_OK(self.InitiateRekey());
   });
 
-  // wait for all other key exchange messages to be sent and received
-  if (!serverKexCompleted->WaitForNotificationWithTimeout(defaultTimeout())) {
-    ADD_FAILURE() << "timed out waiting for server key re-exchange";
-  }
-  if (!clientKexCompleted->WaitForNotificationWithTimeout(defaultTimeout())) {
-    ADD_FAILURE() << "timed out waiting for client key re-exchange";
-  }
-
-  // start new expectations for the queued messages, which occur after the key re-exchange messages
-
-  Expectation clientSentQueuedMsg1 =
-    EXPECT_CALL(this->Client(), sendMessageDirect(MSG(wire::IgnoreMsg, FIELD_EQ(data, "client->server queued message 1"_bytes))));
-  Expectation clientSentQueuedMsg2 =
-    EXPECT_CALL(this->Client(), sendMessageDirect(MSG(wire::IgnoreMsg, FIELD_EQ(data, "client->server queued message 2"_bytes))))
-      .After(clientSentQueuedMsg1);
-
-  Expectation onServerRecvdQueuedMsg1 =
-    EXPECT_CALL(this->Server(), onMessageDecoded(MSG(wire::IgnoreMsg, FIELD_EQ(data, "client->server queued message 1"_bytes))))
-      .After(clientSentQueuedMsg1);
-  Expectation onServerRecvdQueuedMsg2 =
-    EXPECT_CALL(this->Server(), onMessageDecoded(MSG(wire::IgnoreMsg, FIELD_EQ(data, "client->server queued message 2"_bytes))))
-      .After(clientSentQueuedMsg2)
-      .WillOnce(InvokeWithoutArgs([&serverReceived] mutable {
-        serverReceived.Notify();
-        return absl::OkStatus();
-      }));
-
-  Expectation onServerSentQueuedMsg1 =
-    EXPECT_CALL(this->Server(), sendMessageDirect(MSG(wire::IgnoreMsg, FIELD_EQ(data, "server->client queued message 1"_bytes))));
-  Expectation onServerSentQueuedMsg2 =
-    EXPECT_CALL(this->Server(), sendMessageDirect(MSG(wire::IgnoreMsg, FIELD_EQ(data, "server->client queued message 2"_bytes))))
-      .After(onServerSentQueuedMsg1);
-
-  Expectation onClientRecvdQueuedMsg1 =
-    EXPECT_CALL(this->Client(), onMessageDecoded(MSG(wire::IgnoreMsg, FIELD_EQ(data, "server->client queued message 1"_bytes))))
-      .After(onServerSentQueuedMsg1);
-  Expectation onClientRecvdQueuedMsg2 =
-    EXPECT_CALL(this->Client(), onMessageDecoded(MSG(wire::IgnoreMsg, FIELD_EQ(data, "server->client queued message 2"_bytes))))
-      .After(onServerSentQueuedMsg2)
-      .WillOnce(InvokeWithoutArgs([&clientReceived] mutable {
-        clientReceived.Notify();
-        return absl::OkStatus();
-      }));
-
-  // release the latch to allow the re-exchange to complete fully (sending the queued messages)
-  waitRekey.Notify();
-
   // verify the queued messages have been received
-  if (!serverReceived.WaitForNotificationWithTimeout(defaultTimeout())) {
+  if (!serverDone.WaitForNotificationWithTimeout(defaultTimeout())) {
     ADD_FAILURE() << "timed out waiting for server to receive queued messages";
   }
-  if (!clientReceived.WaitForNotificationWithTimeout(defaultTimeout())) {
+  if (!clientDone.WaitForNotificationWithTimeout(defaultTimeout())) {
     ADD_FAILURE() << "timed out waiting for server to receive queued messages";
   }
-  this->Client().Exit();
   this->Server().Exit();
+  this->Client().Exit();
+  this->Join();
+}
+
+TYPED_TEST(TransportBaseTest, TestSimultaneousRekeyOnRWThresholds) {
+  this->ClientConfig().set_rekey_threshold(16384);
+  this->ServerConfig().set_rekey_threshold(16384);
+
+  EXPECT_CALL(this->Client(), onKexStarted(true));
+  EXPECT_CALL(this->Server(), onKexStarted(true));
+
+  absl::Notification serverKexCompleted;
+  absl::Notification clientKexCompleted;
+
+  EXPECT_CALL(this->Client(), onKexCompleted(_, true))
+    .WillOnce(Invoke([this, &clientKexCompleted](std::shared_ptr<KexResult> result, bool initial) {
+      this->Client().TransportBase::onKexCompleted(result, initial);
+      clientKexCompleted.Notify();
+    }));
+  EXPECT_CALL(this->Server(), onKexCompleted(_, true))
+    .WillOnce(Invoke([this, &serverKexCompleted](std::shared_ptr<KexResult> result, bool initial) {
+      this->Server().TransportBase::onKexCompleted(result, initial);
+      serverKexCompleted.Notify();
+    }));
+
+  this->Start();
+  this->InitiateVersionExchange();
+
+  if (!serverKexCompleted.WaitForNotificationWithTimeout(defaultTimeout())) {
+    ADD_FAILURE() << "timed out waiting for server key exchange";
+  }
+  if (!clientKexCompleted.WaitForNotificationWithTimeout(defaultTimeout())) {
+    ADD_FAILURE() << "timed out waiting for client key exchange";
+  }
+
+  this->VerifyAndClearExpectations();
+
+  // send a bunch of messages
+  absl::Notification lastMessage;
+  this->Client().Post([&lastMessage](auto& client) {
+    ASSERT_EQ(16384, client.write_bytes_remaining_);
+    while (client.write_bytes_remaining_ > 1044) { // number of bytes encrypted, less than 1060
+      wire::IgnoreMsg msg;
+      msg.data->resize(1024);
+      auto n = client.sendMessageToConnection(std::move(msg));
+      EXPECT_EQ(1060, *n);
+    }
+    // the next message will trigger a rekey
+    lastMessage.Notify();
+  });
+  lastMessage.WaitForNotificationWithTimeout(defaultTimeout());
+  ASSERT_GT(this->Client().write_bytes_remaining_, 0);
+  ASSERT_GT(this->Server().read_bytes_remaining_, 0);
+
+  auto* const old_cipher = std::to_address(this->Client().cipher_);
+  {
+    EXPECT_CALL(this->Client(), sendMessageDirect(AllOf(Not(MSG(wire::IgnoreMsg, _)),
+                                                        Not(MSG(wire::KexInitMsg, _)))))
+      .Times(AnyNumber());
+    EXPECT_CALL(this->Client(), onMessageDecoded(AllOf(Not(MSG(wire::IgnoreMsg, _)),
+                                                       Not(MSG(wire::KexInitMsg, _)))))
+      .Times(AnyNumber());
+    EXPECT_CALL(this->Server(), sendMessageDirect(AllOf(Not(MSG(wire::IgnoreMsg, _)),
+                                                        Not(MSG(wire::KexInitMsg, _)))))
+      .Times(AnyNumber());
+    EXPECT_CALL(this->Server(), onMessageDecoded(AllOf(Not(MSG(wire::IgnoreMsg, _)),
+                                                       Not(MSG(wire::KexInitMsg, _)))))
+      .Times(AnyNumber());
+
+    testing::Sequence s1, s2, s3;
+    EXPECT_CALL(this->Client(), sendMessageDirect(MSG(wire::IgnoreMsg, _))) // triggers re-kex by write threshold
+      .InSequence(s1);
+    EXPECT_CALL(this->Client(), onKexInitMsgSent()) // client starts kex init
+      .InSequence(s1);
+    EXPECT_CALL(this->Client(), sendMessageDirect(MSG(wire::KexInitMsg, _)))
+      .InSequence(s1);
+    EXPECT_CALL(this->Server(), onMessageDecoded(MSG(wire::IgnoreMsg, _))) // triggers re-kex by read threshold
+      .InSequence(s1);
+    EXPECT_CALL(this->Server(), onKexInitMsgSent()) // server also starts kex init
+      .InSequence(s1);
+    EXPECT_CALL(this->Server(), sendMessageDirect(MSG(wire::KexInitMsg, _)))
+      .InSequence(s1, s2, s3);
+    EXPECT_CALL(this->Server(), onMessageDecoded(MSG(wire::KexInitMsg, _))) // server receives the client's kex init
+      .InSequence(s2);
+    EXPECT_CALL(this->Server(), onKexStarted(false))
+      .InSequence(s2);
+    EXPECT_CALL(this->Client(), onMessageDecoded(MSG(wire::KexInitMsg, _))) // client receives the server's kex init
+      .InSequence(s3);
+    EXPECT_CALL(this->Client(), onKexStarted(false))
+      .InSequence(s3);
+  }
+
+  EXPECT_CALL(this->Client(), onKexCompleted(_, false))
+    .WillOnce(Invoke([&](std::shared_ptr<KexResult> result, bool initial) {
+      this->Client().TransportBase::onKexCompleted(result, initial);
+      // this resets the cipher ^
+      auto* const new_cipher = std::to_address(this->Client().cipher_);
+      EXPECT_NE(old_cipher, new_cipher);
+      EXPECT_EQ(16384, this->Client().write_bytes_remaining_);
+      this->Client().Exit();
+      this->Server().Exit();
+    }));
+  this->Client().Post([this](auto& client) {
+    wire::IgnoreMsg msg;
+    // write a message that will trigger the client's write threshold and the server's read threshold
+    // at the same time
+    msg.data->resize(std::max(this->Client().write_bytes_remaining_,
+                              this->Server().read_bytes_remaining_));
+    ASSERT_OK(client.sendMessageToConnection(std::move(msg)).status());
+  });
+
+  this->Join();
+}
+
+TYPED_TEST(TransportBaseTest, TestRekeyOnReadThreshold) {
+  // Only set server rekey threshold; client's remains the default. The client will be sending lots
+  // of messages to the server, but the server won't send messages back.
+  this->ServerConfig().set_rekey_threshold(16384);
+
+  EXPECT_CALL(this->Client(), onKexStarted(true));
+  EXPECT_CALL(this->Server(), onKexStarted(true));
+
+  absl::Notification serverKexCompleted;
+  absl::Notification clientKexCompleted;
+
+  EXPECT_CALL(this->Client(), onKexCompleted(_, true))
+    .WillOnce(Invoke([this, &clientKexCompleted](std::shared_ptr<KexResult> result, bool initial) {
+      this->Client().TransportBase::onKexCompleted(result, initial);
+      clientKexCompleted.Notify();
+    }));
+  EXPECT_CALL(this->Server(), onKexCompleted(_, true))
+    .WillOnce(Invoke([this, &serverKexCompleted](std::shared_ptr<KexResult> result, bool initial) {
+      this->Server().TransportBase::onKexCompleted(result, initial);
+      serverKexCompleted.Notify();
+    }));
+
+  this->Start();
+  this->InitiateVersionExchange();
+
+  if (!serverKexCompleted.WaitForNotificationWithTimeout(defaultTimeout())) {
+    ADD_FAILURE() << "timed out waiting for server key exchange";
+  }
+  if (!clientKexCompleted.WaitForNotificationWithTimeout(defaultTimeout())) {
+    ADD_FAILURE() << "timed out waiting for client key exchange";
+  }
+
+  this->VerifyAndClearExpectations();
+
+  absl::Notification lastMessage;
+  // first 15 messages are dropped
+  testing::Sequence seq;
+  EXPECT_CALL(this->Server(), onMessageDecoded(MSG(wire::IgnoreMsg, _)))
+    .Times(14)
+    .InSequence(seq);
+  EXPECT_CALL(this->Server(), onMessageDecoded(MSG(wire::IgnoreMsg, _)))
+    .InSequence(seq)
+    .WillOnce(InvokeWithoutArgs([this, &lastMessage] {
+      // 15th message
+      // read_bytes_remaining_ is decremented after this to be under the threshold
+      EXPECT_EQ(1808, this->Server().read_bytes_remaining_);
+      lastMessage.Notify();
+      return absl::OkStatus();
+    }));
+
+  for (int i = 0; i < 15; i++) {
+    this->Client().Post([](auto& client) {
+      wire::IgnoreMsg msg;
+      msg.data->resize(1024);
+      auto n = client.sendMessageToConnection(std::move(msg));
+    });
+  }
+  lastMessage.WaitForNotificationWithTimeout(defaultTimeout());
+
+  this->VerifyAndClearExpectations();
+
+  {
+    EXPECT_CALL(this->Client(), sendMessageDirect(AllOf(Not(MSG(wire::IgnoreMsg, _)),
+                                                        Not(MSG(wire::KexInitMsg, _)))))
+      .Times(AnyNumber());
+    EXPECT_CALL(this->Client(), onMessageDecoded(AllOf(Not(MSG(wire::IgnoreMsg, _)),
+                                                       Not(MSG(wire::KexInitMsg, _)))))
+      .Times(AnyNumber());
+    EXPECT_CALL(this->Server(), sendMessageDirect(AllOf(Not(MSG(wire::IgnoreMsg, _)),
+                                                        Not(MSG(wire::KexInitMsg, _)))))
+      .Times(AnyNumber());
+    EXPECT_CALL(this->Server(), onMessageDecoded(AllOf(Not(MSG(wire::IgnoreMsg, _)),
+                                                       Not(MSG(wire::KexInitMsg, _)))))
+      .Times(AnyNumber());
+
+    IN_SEQUENCE;
+    EXPECT_CALL(this->Client(), sendMessageDirect(MSG(wire::IgnoreMsg, _)));  // client sends 16th msg
+    EXPECT_CALL(this->Server(), onMessageDecoded(MSG(wire::IgnoreMsg, _)));   // triggers re-kex by read threshold
+    EXPECT_CALL(this->Server(), onKexInitMsgSent());                          // server starts kex init
+    EXPECT_CALL(this->Server(), sendMessageDirect(MSG(wire::KexInitMsg, _))); //
+    EXPECT_CALL(this->Client(), onMessageDecoded(MSG(wire::KexInitMsg, _)));  // client receives the server's kex init
+    EXPECT_CALL(this->Client(), onKexStarted(false));                         //
+    EXPECT_CALL(this->Client(), onKexInitMsgSent());                          // client starts kex init
+    EXPECT_CALL(this->Client(), sendMessageDirect(MSG(wire::KexInitMsg, _))); //
+    EXPECT_CALL(this->Server(), onMessageDecoded(MSG(wire::KexInitMsg, _)));  // server receives the client's kex init
+    EXPECT_CALL(this->Server(), onKexStarted(false));                         //
+  }
+
+  EXPECT_CALL(this->Server(), onKexCompleted(_, false))
+    .WillOnce(Invoke([&](std::shared_ptr<KexResult> result, bool initial) {
+      this->Server().TransportBase::onKexCompleted(result, initial);
+      EXPECT_EQ(16384, this->Server().read_bytes_remaining_);
+      this->Client().Exit();
+      this->Server().Exit();
+    }));
+  this->Client().Post([](auto& client) {
+    wire::IgnoreMsg msg;
+    msg.data->resize(1024);
+    ASSERT_OK(client.sendMessageToConnection(std::move(msg)).status());
+  });
+
   this->Join();
 }
 
 TYPED_TEST(TransportBaseTest, TestRekeyOnWriteThreshold) {
-}
+  // Only set client rekey threshold; server's remains the default.
+  this->ClientConfig().set_rekey_threshold(16384);
 
-TYPED_TEST(TransportBaseTest, TestRekeyOnReadThreshold) {
+  EXPECT_CALL(this->Client(), onKexStarted(true));
+  EXPECT_CALL(this->Server(), onKexStarted(true));
+
+  absl::Notification serverKexCompleted;
+  absl::Notification clientKexCompleted;
+
+  EXPECT_CALL(this->Client(), onKexCompleted(_, true))
+    .WillOnce(Invoke([this, &clientKexCompleted](std::shared_ptr<KexResult> result, bool initial) {
+      this->Client().TransportBase::onKexCompleted(result, initial);
+      clientKexCompleted.Notify();
+    }));
+  EXPECT_CALL(this->Server(), onKexCompleted(_, true))
+    .WillOnce(Invoke([this, &serverKexCompleted](std::shared_ptr<KexResult> result, bool initial) {
+      this->Server().TransportBase::onKexCompleted(result, initial);
+      serverKexCompleted.Notify();
+    }));
+
+  this->Start();
+  this->InitiateVersionExchange();
+
+  if (!serverKexCompleted.WaitForNotificationWithTimeout(defaultTimeout())) {
+    ADD_FAILURE() << "timed out waiting for server key exchange";
+  }
+  if (!clientKexCompleted.WaitForNotificationWithTimeout(defaultTimeout())) {
+    ADD_FAILURE() << "timed out waiting for client key exchange";
+  }
+
+  this->VerifyAndClearExpectations();
+
+  absl::Notification lastMessage;
+  testing::Sequence seq;
+  EXPECT_CALL(this->Client(), sendMessageToConnection(MSG(wire::IgnoreMsg, _)))
+    .Times(14)
+    .InSequence(seq);
+  EXPECT_CALL(this->Client(), sendMessageToConnection(MSG(wire::IgnoreMsg, _)))
+    .InSequence(seq)
+    .WillOnce(Invoke([this, &lastMessage](wire::Message&& msg) {
+      // 15th message
+      EXPECT_OK(this->Client().TransportBase::sendMessageToConnection(std::move(msg)).status());
+      EXPECT_EQ(724, this->Client().write_bytes_remaining_);
+      lastMessage.Notify();
+      return absl::OkStatus();
+    }));
+
+  for (int i = 0; i < 15; i++) {
+    this->Client().Post([](auto& client) {
+      wire::IgnoreMsg msg;
+      msg.data->resize(1024);
+      auto n = client.sendMessageToConnection(std::move(msg));
+    });
+  }
+  lastMessage.WaitForNotificationWithTimeout(defaultTimeout());
+
+  this->VerifyAndClearExpectations();
+
+  {
+    EXPECT_CALL(this->Client(), sendMessageDirect(AllOf(Not(MSG(wire::IgnoreMsg, _)),
+                                                        Not(MSG(wire::KexInitMsg, _)))))
+      .Times(AnyNumber());
+    EXPECT_CALL(this->Client(), onMessageDecoded(AllOf(Not(MSG(wire::IgnoreMsg, _)),
+                                                       Not(MSG(wire::KexInitMsg, _)))))
+      .Times(AnyNumber());
+    EXPECT_CALL(this->Server(), sendMessageDirect(AllOf(Not(MSG(wire::IgnoreMsg, _)),
+                                                        Not(MSG(wire::KexInitMsg, _)))))
+      .Times(AnyNumber());
+    EXPECT_CALL(this->Server(), onMessageDecoded(AllOf(Not(MSG(wire::IgnoreMsg, _)),
+                                                       Not(MSG(wire::KexInitMsg, _)))))
+      .Times(AnyNumber());
+
+    IN_SEQUENCE;
+    EXPECT_CALL(this->Client(), sendMessageDirect(MSG(wire::IgnoreMsg, _)));  // triggers re-kex by write threshold
+    EXPECT_CALL(this->Client(), onKexInitMsgSent());                          // client starts kex init
+    EXPECT_CALL(this->Client(), sendMessageDirect(MSG(wire::KexInitMsg, _))); // client sends kex init
+    EXPECT_CALL(this->Server(), onMessageDecoded(MSG(wire::IgnoreMsg, _)));   //
+    EXPECT_CALL(this->Server(), onMessageDecoded(MSG(wire::KexInitMsg, _)));  // server receives the client's kex init
+    EXPECT_CALL(this->Server(), onKexStarted(false));                         //
+    EXPECT_CALL(this->Server(), onKexInitMsgSent());                          // server starts kex init
+    EXPECT_CALL(this->Server(), sendMessageDirect(MSG(wire::KexInitMsg, _))); //
+    EXPECT_CALL(this->Client(), onMessageDecoded(MSG(wire::KexInitMsg, _)));  // client receives the server's kex init
+    EXPECT_CALL(this->Client(), onKexStarted(false));                         //
+  }
+
+  EXPECT_CALL(this->Server(), onKexCompleted(_, false))
+    .WillOnce(Invoke([&](std::shared_ptr<KexResult> result, bool initial) {
+      this->Server().TransportBase::onKexCompleted(result, initial);
+      EXPECT_EQ(16384, this->Client().write_bytes_remaining_);
+      this->Client().Exit();
+      this->Server().Exit();
+    }));
+  this->Client().Post([](auto& client) {
+    wire::IgnoreMsg msg;
+    msg.data->resize(1024);
+    ASSERT_OK(client.sendMessageToConnection(std::move(msg)).status());
+  });
+
+  this->Join();
 }
 
 TYPED_TEST(TransportBaseTest, TestInitiateKexFailed) {
