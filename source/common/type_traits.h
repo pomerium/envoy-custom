@@ -19,6 +19,15 @@ struct callable_info<R (T::*)(Arg) const> {
   using arg_type = std::remove_cv_t<arg_type_with_cv>;
 };
 
+template <typename R, typename T>
+struct callable_info<R (T::*)() const> {
+  using return_type = R;
+  using raw_arg_type = void;
+  using arg_type_with_cv_optref = void;
+  using arg_type_with_cv = void;
+  using arg_type = void;
+};
+
 template <typename F>
 using callable_info_t = callable_info<decltype(&std::decay_t<F>::operator())>;
 

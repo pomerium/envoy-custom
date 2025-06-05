@@ -109,11 +109,13 @@ using testing::A;
 using testing::AllOf;
 using testing::AllOfArray;
 using testing::An;
+using testing::AnyNumber;
 using testing::AnyOf;
 using testing::AnyOfArray;
 using testing::Contains;
 using testing::DoAll;
 using testing::Eq;
+using testing::Expectation;
 using testing::Field;
 using testing::HasSubstr;
 using testing::InSequence;
@@ -136,7 +138,7 @@ inline bool isDebuggerAttached() {
   std::string line;
   while (std::getline(status, line)) {
     if (line.starts_with("TracerPid:\t")) {
-      return line[12] != '0';
+      return line[11] != '0';
     }
   }
   return false;

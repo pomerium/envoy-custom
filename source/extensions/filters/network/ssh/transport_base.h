@@ -196,7 +196,8 @@ public:
     }
   }
 
-  void onKexInitMsgSent() final {
+  // If overriding (tests only), be sure to call this function in the implementation
+  void onKexInitMsgSent() override {
     pending_key_exchange_ = true;
   }
 
@@ -311,8 +312,7 @@ protected:
     scheduled_callbacks_[id] = std::make_unique<scheduled_callback>(std::move(cb));
   }
 
-private:
-  absl::StatusOr<size_t> sendMessageDirect(wire::Message&& msg) final {
+  absl::StatusOr<size_t> sendMessageDirect(wire::Message&& msg) override {
     Envoy::Buffer::OwnedImpl dec;
     auto packet_len = wire::encodePacket(dec,
                                          msg,
@@ -345,6 +345,7 @@ private:
     return n;
   }
 
+private:
   struct scheduled_callback : public Envoy::Event::DeferredDeletable {
     explicit scheduled_callback(Envoy::Event::SchedulableCallbackPtr cb)
         : cb(std::move(cb)) {}
