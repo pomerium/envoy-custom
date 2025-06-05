@@ -21,7 +21,6 @@ protected:
   Api::Api& api_;
   openssh::SSHKeyPtr ca_user_key_;
   std::unique_ptr<wire::UserAuthRequestMsg> pending_req_;
-  openssh::SSHKeyPtr pending_user_key_;
   Envoy::OptRef<MessageDispatcher<wire::Message>> msg_dispatcher_;
 };
 
@@ -53,5 +52,9 @@ private:
   bool auth_success_received_{};
   std::optional<wire::ExtInfoMsg> ext_info_;
 };
+
+namespace detail {
+std::pair<std::string_view, std::string_view> splitUsername(std::string_view in);
+} // namespace detail
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

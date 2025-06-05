@@ -44,10 +44,7 @@ absl::Status UserAuthService::requestService() {
   return transport_.sendMessageToConnection(std::move(req)).status();
 }
 
-static std::pair<std::string_view, std::string_view> splitUsername(std::string_view in) {
-  if (in.contains("://")) {
-    return {in, ""};
-  }
+std::pair<std::string_view, std::string_view> detail::splitUsername(std::string_view in) {
   auto lastIndex = in.find_last_of('@');
   if (lastIndex == std::string::npos) {
     return {in, ""};
@@ -58,7 +55,12 @@ static std::pair<std::string_view, std::string_view> splitUsername(std::string_v
 absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
   return msg.visit(
     [&](wire::UserAuthRequestMsg& msg) {
-      auto [username, hostname] = splitUsername(*msg.username);
+      if (!msg.request.has_value()) {
+        ENVOY_LOG(debug, "unsupported user auth request {}", msg.method_name());
+        return absl::UnimplementedError("unknown or unsupported auth method");
+      }
+
+      auto [username, hostname] = detail::splitUsername(*msg.username);
       AuthenticationRequest auth_req;
       auth_req.set_protocol("ssh");
       auth_req.set_service(msg.service_name);
@@ -72,24 +74,6 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
           if (!userPubKey.ok()) {
             return userPubKey.status();
           }
-          // wire::UserAuthBannerMsg banner{};
-          // auto fingerprint = userPubKey->fingerprint();
-          // if (!fingerprint.ok()) {
-          //   return fingerprint.status();
-          // }
-          // banner.message = fmt::format(
-          //   "\n====== TEST BANNER ======"
-          //   "\nmethod:   {}"
-          //   "\nusername: {}"
-          //   "\nhostname: {}"
-          //   "\nkeyalg:   {}"
-          //   "\npubkey:   {}"
-          //   "\nsession:  {}"
-          //   "\n=========================\n",
-          //   msg.method_name, username, hostname,
-          //   pubkey_req.public_key_alg, *fingerprint, transport_.streamId());
-          // auto _ = transport_.sendMessageToConnection(banner);
-
           if ((!pubkey_req.signature->empty()) != pubkey_req.has_signature) {
             return absl::InvalidArgumentError(pubkey_req.has_signature
                                                 ? "invalid message: missing signature"
@@ -105,15 +89,14 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
 
           // verify the signature
           {
-            // RFC4242 § 7
+            // RFC4252 § 7
             Envoy::Buffer::OwnedImpl verifyBuf;
             wire::write_opt<wire::LengthPrefixed>(verifyBuf, transport_.sessionId());
-            constexpr static wire::field<bool> has_signature = true;
             if (auto r = wire::encodeMsg(verifyBuf, msg.type,
                                          msg.username,
                                          msg.service_name,
                                          msg.request.key_field(),
-                                         has_signature,
+                                         pubkey_req.has_signature,
                                          pubkey_req.public_key_alg,
                                          pubkey_req.public_key);
                 !r.ok()) {
@@ -154,16 +137,13 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
           wire::UserAuthFailureMsg failure;
           failure.methods = {"publickey"s};
           return transport_.sendMessageToConnection(std::move(failure)).status();
-        },
-        [&](const auto&) {
-          ENVOY_LOG(debug, "unsupported user auth request {}", msg.method_name());
-          return absl::UnimplementedError("unknown or unsupported auth method");
         });
     },
     [&](opt_ref<wire::UserAuthInfoResponseMsg> opt_msg) {
       if (!opt_msg.has_value()) {
         return absl::InvalidArgumentError("invalid auth response");
       }
+      // SSH_MSG_USERAUTH_INFO_RESPONSE is only sent for the keyboard-interactive method.
       auto& msg = opt_msg->get();
       InfoResponse info_resp;
       info_resp.set_method("keyboard-interactive");
@@ -200,14 +180,17 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
       switch (allow.target_case()) {
       case pomerium::extensions::ssh::AllowResponse::kUpstream:
         state->channel_mode = ChannelMode::Normal;
+#ifdef SSH_EXPERIMENTAL
         state->multiplexing_info = MultiplexingInfo{};
         if (allow.upstream().allow_mirror_connections()) {
           state->multiplexing_info.multiplex_mode = MultiplexMode::Source;
         }
+#endif
         break;
       case pomerium::extensions::ssh::AllowResponse::kInternal:
         state->channel_mode = ChannelMode::Hijacked;
         break;
+#ifdef SSH_EXPERIMENTAL
       case pomerium::extensions::ssh::AllowResponse::kMirrorSession: {
         auto _ = transport_.sendMessageToConnection(wire::UserAuthSuccessMsg());
         const auto& mirror = state->allow_response->mirror_session();
@@ -225,6 +208,7 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
         }
         state->multiplexing_info.source_stream_id = mirror.source_id();
       } break;
+#endif
       default:
         return absl::InternalError("invalid target");
       }
@@ -262,17 +246,19 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
       return absl::InvalidArgumentError("unknown method");
     }
     default:
-      PANIC("server sent invalid response case");
+      return absl::InternalError("server sent invalid response case");
     }
   }
   default:
-    PANIC("server sent invalid message case");
+    return absl::InternalError("server sent invalid message case");
   }
 }
 
 absl::StatusOr<MiddlewareResult> UpstreamUserAuthService::interceptMessage(wire::Message& msg) {
   if (msg.msg_type() != wire::SshMessageType::UserAuthSuccess) {
-    return absl::FailedPreconditionError("received out-of-order ExtInfo message during auth");
+    return absl::FailedPreconditionError(
+      fmt::format("received out-of-order message during auth: expected {}, got {}",
+                  wire::SshMessageType::UserAuthSuccess, msg.msg_type()));
   }
   return Continue | UninstallSelf;
 }
@@ -283,6 +269,9 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
       if (!transport_.authState().allow_response) {
         return absl::InternalError("missing AllowResponse in auth state");
       }
+
+      // TODO: check for server-sig-algs extension to determine a suitable algorithm to use
+
       auto res = openssh::SSHKey::generate(KEY_ED25519, 256);
       if (!res.ok()) {
         return res.status();
@@ -307,44 +296,35 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
       auto req = std::make_unique<wire::UserAuthRequestMsg>();
       req->username = transport_.authState().allow_response->username();
       req->service_name = "ssh-connection";
+      req->request = wire::PubKeyUserAuthRequestMsg{};
 
-      wire::PubKeyUserAuthRequestMsg pubkeyReq;
-      pubkeyReq.has_signature = false;
+      auto& pubkeyReq = req->request.get<wire::PubKeyUserAuthRequestMsg>();
+      pubkeyReq.has_signature = true;
       pubkeyReq.public_key_alg = "ssh-ed25519-cert-v01@openssh.com";
-
       auto blob = userSessionSshKey->toPublicKeyBlob();
       pubkeyReq.public_key = blob;
-      req->request = std::move(pubkeyReq);
-      pending_req_ = std::move(req);
-      pending_user_key_ = std::move(userSessionSshKey);
 
-      return transport_.sendMessageToConnection(auto(*pending_req_)).status();
-    },
-    [&](opt_ref<wire::UserAuthPubKeyOkMsg> opt_msg) {
-      if (!opt_msg.has_value() || !pending_req_) {
-        return absl::FailedPreconditionError("invalid auth response");
-      }
       // compute signature
       Envoy::Buffer::OwnedImpl buf;
       wire::write_opt<wire::LengthPrefixed>(buf, transport_.sessionId());
-      auto& pending_pk_req = pending_req_->request.get<wire::PubKeyUserAuthRequestMsg>();
-      constexpr static wire::field<bool> has_signature = true;
-      if (auto r = wire::encodeMsg(buf, pending_req_->type,
-                                   pending_req_->username,
-                                   pending_req_->service_name,
-                                   pending_req_->request.key_field(),
-                                   has_signature,
-                                   pending_pk_req.public_key_alg,
-                                   pending_pk_req.public_key);
+      if (auto r = wire::encodeMsg(buf, req->type,
+                                   req->username,
+                                   req->service_name,
+                                   req->request.key_field(),
+                                   pubkeyReq.has_signature,
+                                   pubkeyReq.public_key_alg,
+                                   pubkeyReq.public_key);
           !r.ok()) {
         return statusf("error encoding user auth request: {}", r.status());
       }
-      auto sig = pending_user_key_->sign(wire::flushTo<bytes>(buf));
+      auto sig = userSessionSshKey->sign(wire::flushTo<bytes>(buf));
       if (!sig.ok()) {
         return statusf("error signing user auth request: {}", sig.status());
       }
-      pending_pk_req.has_signature = true;
-      pending_pk_req.signature = *sig;
+      pubkeyReq.signature = *sig;
+
+      pending_req_ = std::move(req);
+
       return transport_.sendMessageToConnection(auto(*pending_req_)).status();
     },
     [&](wire::UserAuthBannerMsg& msg) {
@@ -364,6 +344,9 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
     },
     [&](wire::UserAuthSuccessMsg& msg) { // forward upstream success to downstream
       // this comment intentionally placed here for searchability ^
+      if (!pending_req_) {
+        return absl::FailedPreconditionError("unexpected UserAuthSuccessMsg received");
+      }
       ENVOY_LOG(info, "user auth success: {} [{}]", pending_req_->username,
                 pending_req_->method_name());
       if (ext_info_.has_value()) {
