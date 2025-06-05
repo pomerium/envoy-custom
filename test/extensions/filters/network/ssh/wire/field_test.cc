@@ -406,6 +406,7 @@ TEST(SubMessageTest, Decode) {
   EXPECT_TRUE(r.ok()) << r.status().ToString();
   EXPECT_EQ(len, *r);
   EXPECT_EQ(0, buffer.length());
+  EXPECT_TRUE(msg.request.has_value());
   EXPECT_TRUE(msg.request.holds_alternative<TestSubMsg1>());
   EXPECT_EQ(msg1, msg.request.get<TestSubMsg1>());
 
@@ -423,6 +424,7 @@ TEST(SubMessageTest, Decode) {
   EXPECT_TRUE(r.ok()) << r.status().ToString();
   EXPECT_EQ(len, *r);
   EXPECT_EQ(0, buffer.length());
+  EXPECT_TRUE(msg.request.has_value());
   EXPECT_TRUE(msg.request.holds_alternative<TestSubMsg2>());
   EXPECT_EQ(msg2, msg.request.get<TestSubMsg2>());
 }
@@ -443,6 +445,7 @@ TEST(SubMessageTest, Decode_Unknown) {
   EXPECT_TRUE(r.ok()) << r.status().ToString();
   EXPECT_EQ(len, *r);
   EXPECT_EQ(0, buffer.length());
+  EXPECT_FALSE(msg.request.has_value());
   EXPECT_FALSE(msg.request.holds_alternative<TestSubMsg1>());
   EXPECT_FALSE(msg.request.holds_alternative<TestSubMsg2>());
 

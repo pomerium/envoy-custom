@@ -238,6 +238,10 @@ struct sub_message {
   template <size_t I>
   constexpr decltype(auto) get(this auto& self) { return std::get<I>(*self.oneof); }
 
+  constexpr bool has_value() const {
+    return oneof.has_value();
+  }
+
   template <typename T>
   constexpr bool holds_alternative() const {
     return oneof.has_value() && std::holds_alternative<T>(*oneof);
