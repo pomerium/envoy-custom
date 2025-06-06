@@ -656,6 +656,71 @@ TEST_F(UpstreamUserAuthServiceTest, HandleMessageAuthSuccessNoPeerExtInfo) {
   ASSERT_OK(r);
 }
 
+TEST_F(UpstreamUserAuthServiceTest, HandleMessageAuthSuccessExistingPeerExtInfo) {
+  // We need to first send a ServiceAcceptMsg to initialize some internal state.
+  AuthState state;
+  state.allow_response = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
+  state.allow_response->set_username("example-username");
+  EXPECT_CALL(*transport_, authState())
+    .WillRepeatedly(ReturnRef(state));
+  auto streamId = "stream-id"_bytes;
+  EXPECT_CALL(*transport_, sessionId())
+    .WillOnce(ReturnRef(streamId));
+  EXPECT_CALL(*transport_, sendMessageToConnection(_))
+    .WillOnce(Return(123));
+  ASSERT_OK(service_->handleMessage(wire::Message{wire::ServiceAcceptMsg{}}));
+
+  wire::Message msg{wire::UserAuthSuccessMsg{}};
+
+  wire::ExtInfoMsg ext_info{};
+  wire::test::populateFields(ext_info);
+  EXPECT_CALL(*transport_, peerExtInfo())
+    .WillOnce(Return(std::make_optional(ext_info)));
+
+  EXPECT_CALL(*transport_, forward(Eq(msg), Eq(FrameTags::EffectiveHeader)));
+
+  auto r = service_->handleMessage(std::move(msg));
+  ASSERT_OK(r);
+  ASSERT_EQ(ext_info, state.upstream_ext_info);
+}
+
+
+TEST_F(UpstreamUserAuthServiceTest, HandleMessageAuthSuccessNewPeerExtInfo) {
+  TestSshMessageDispatcher d;
+  service_->registerMessageHandlers(d);
+
+  // We need to first send a ServiceAcceptMsg to initialize some internal state.
+  AuthState state;
+  state.allow_response = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
+  state.allow_response->set_username("example-username");
+  EXPECT_CALL(*transport_, authState())
+    .WillRepeatedly(ReturnRef(state));
+  auto streamId = "stream-id"_bytes;
+  EXPECT_CALL(*transport_, sessionId())
+    .WillOnce(ReturnRef(streamId));
+  EXPECT_CALL(*transport_, sendMessageToConnection(_))
+    .WillOnce(Return(123));
+  ASSERT_OK(service_->handleMessage(wire::Message{wire::ServiceAcceptMsg{}}));
+
+  // Then send an ExtInfoMsg as part of the user auth flow.
+  wire::ExtInfoMsg ext_info{};
+  wire::test::populateFields(ext_info);
+  ASSERT_OK(service_->handleMessage(wire::Message{ext_info}));
+
+  // Then receiving a UserAuthSuccessMsg should update the ExtInfo state.
+  wire::Message msg{wire::UserAuthSuccessMsg{}};
+
+  EXPECT_CALL(*transport_, updatePeerExtInfo(Eq(ext_info)));
+  EXPECT_CALL(*transport_, peerExtInfo())
+    .WillOnce(Return(std::make_optional(ext_info)));
+
+  EXPECT_CALL(*transport_, forward(Eq(msg), Eq(FrameTags::EffectiveHeader)));
+
+  auto r = service_->handleMessage(std::move(msg));
+  ASSERT_OK(r);
+  ASSERT_EQ(ext_info, state.upstream_ext_info);
+}
+
 TEST_F(UpstreamUserAuthServiceTest, HandleMessageAuthSuccessOutOfOrder) {
   // We don't expect a UserAuthSuccessMsg first.
   auto r = service_->handleMessage(wire::Message{wire::UserAuthSuccessMsg{}});
