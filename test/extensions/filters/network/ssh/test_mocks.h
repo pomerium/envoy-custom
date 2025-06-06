@@ -17,7 +17,7 @@
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 namespace test {
 
-class MockTransportCallbacks : public TransportCallbacks {
+class MockTransportCallbacks : public virtual TransportCallbacks {
 public:
   MockTransportCallbacks();
   virtual ~MockTransportCallbacks();

@@ -1,9 +1,10 @@
 #include "absl/random/random.h"
 #include "gtest/gtest.h"
+#include "test/test_common/environment.h"
 #include "test/test_common/utility.h"
 
 #include "source/extensions/filters/network/ssh/service_userauth.h"
-#include "test/extensions/filters/network/ssh/test_env_util.h"
+//#include "test/extensions/filters/network/ssh/test_env_util.h"
 #include "test/extensions/filters/network/ssh/test_mocks.h"
 #include "test/extensions/filters/network/ssh/wire/test_field_reflect.h"
 #include "test/mocks/api/mocks.h"
@@ -28,6 +29,18 @@ inline bytes randomBytes(size_t size) {
     b[i] = absl::Uniform<uint8_t>(rng);
   }
   return b;
+}
+
+std::string copyTestdataToWritableTmp(const std::string& path, mode_t mode) {
+  const std::string runfilePath = Envoy::TestEnvironment::runfilesPath(path, "openssh_portable");
+  auto data = Envoy::TestEnvironment::readFileToStringForTest(runfilePath);
+  auto outPath = Envoy::TestEnvironment::temporaryPath(path);
+  auto outPathSplit = Envoy::Filesystem::fileSystemForTest().splitPathFromFilename(outPath);
+  EXPECT_OK(outPathSplit.status());
+  Envoy::TestEnvironment::createPath(std::string(outPathSplit->directory_));
+  Envoy::TestEnvironment::writeStringToFileForTest(outPath, data, true, true);
+  EXPECT_EQ(0, chmod(outPath.c_str(), mode));
+  return outPath;
 }
 
 std::vector<wire::SshMessageType> ExpectedMessageHandlerTypes{
