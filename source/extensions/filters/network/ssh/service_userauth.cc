@@ -265,9 +265,7 @@ absl::Status UpstreamUserAuthService::onServiceAccepted() {
   // TODO: check for server-sig-algs extension to determine which key type to generate
 
   auto res = openssh::SSHKey::generate(KEY_ED25519, 256);
-  if (!res.ok()) {
-    return res.status();
-  }
+  RELEASE_ASSERT(res.ok(), "couldn't generate ephemeral ssh key");
   auto userSessionSshKey = std::move(res).value();
   auto stat = userSessionSshKey->convertToSignedUserCertificate(
     1,
@@ -281,9 +279,7 @@ absl::Status UpstreamUserAuthService::onServiceAccepted() {
     },
     absl::Hours(24),
     *ca_user_key_);
-  if (!stat.ok()) {
-    return statusf("error generating user certificate: {}", stat);
-  }
+  RELEASE_ASSERT(res.ok(), fmt::format("error generating user certificate: {}", stat));
 
   auto req = std::make_unique<wire::UserAuthRequestMsg>();
   req->username = transport_.authState().allow_response->username();
@@ -310,9 +306,7 @@ absl::Status UpstreamUserAuthService::onServiceAccepted() {
     return statusf("error encoding user auth request: {}", r.status());
   }
   auto sig = userSessionSshKey->sign(wire::flushTo<bytes>(buf));
-  if (!sig.ok()) {
-    return statusf("error signing user auth request: {}", sig.status());
-  }
+  RELEASE_ASSERT(sig.ok(), fmt::format("error signing user auth request: {}", sig.status()));
   pubkeyReq.signature = *sig;
 
   pending_req_ = std::move(req);

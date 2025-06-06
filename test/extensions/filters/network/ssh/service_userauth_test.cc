@@ -227,6 +227,31 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyInvalidSignature) {
   ASSERT_FALSE(r.ok());
 }
 
+TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyEncodingFailure) {
+  auto key = openssh::SSHKey::generate(KEY_ED25519, 256);
+  ASSERT_OK(key.status());
+
+  wire::UserAuthRequestMsg req;
+  std::string username_too_long(wire::MaxPacketSize, 'A');
+  req.username = username_too_long;
+  req.service_name = "ssh-connection"s;
+  req.request = wire::PubKeyUserAuthRequestMsg{
+    .has_signature = true,
+    .public_key_alg = "ssh-ed25519"s,
+    .public_key = (*key)->toPublicKeyBlob(),
+    .signature = "AAAA"_bytes,
+  };
+
+  bytes session_id = "SESSION-ID"_bytes;
+
+  EXPECT_CALL(*transport_, sessionId())
+    .WillOnce(ReturnRef(session_id));
+
+  auto r = service_->handleMessage(wire::Message{req});
+  ASSERT_EQ(r.code(), absl::StatusCode::kInternal);
+  ASSERT_EQ(r.message(), "Aborted: message size too large");
+}
+
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyValidSignature) {
   auto privKeyPath = copyTestdataToWritableTmp("regress/unittests/sshkey/testdata/ed25519_1", 0600);
   auto key = openssh::SSHKey::fromPrivateKeyFile(privKeyPath);
@@ -567,6 +592,22 @@ TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedBadAuthState) {
   auto r = service_->onServiceAccepted();
   ASSERT_EQ(r.code(), absl::StatusCode::kInternal);
   ASSERT_EQ(r.message(), "missing AllowResponse in auth state");
+}
+
+TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedEncodingFailure) {
+  AuthState state;
+  state.allow_response = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
+  std::string username_too_long(wire::MaxPacketSize, 'A');
+  state.allow_response->set_username(username_too_long);
+  EXPECT_CALL(*transport_, authState())
+    .WillRepeatedly(ReturnRef(state));
+  auto streamId = "stream-id"_bytes;
+  EXPECT_CALL(*transport_, sessionId())
+    .WillOnce(ReturnRef(streamId));
+
+  auto r = service_->onServiceAccepted();
+  ASSERT_EQ(r.code(), absl::StatusCode::kAborted);
+  ASSERT_EQ(r.message(), "error encoding user auth request: message size too large");
 }
 
 TEST_F(UpstreamUserAuthServiceTest, HandleMessageUserAuthBannerChannelNormal) {
