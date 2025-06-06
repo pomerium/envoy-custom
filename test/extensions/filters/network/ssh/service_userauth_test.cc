@@ -172,6 +172,43 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyNoSignature) {
   ASSERT_EQ(public_key_blob, pubkey_ok_msg.public_key);
 }
 
+TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyUnexpectedSignature) {
+  auto key = openssh::SSHKey::generate(KEY_ED25519, 256);
+  ASSERT_OK(key.status());
+
+  wire::UserAuthRequestMsg req;
+  req.username = "foo@bar"s;
+  req.service_name = "ssh-userauth"s;
+  req.request = wire::PubKeyUserAuthRequestMsg{
+    .has_signature = false,
+    .public_key_alg = "ssh-ed25519"s,
+    .public_key = (*key)->toPublicKeyBlob(),
+    .signature = "AAAA"_bytes,
+  };
+
+  auto r = service_->handleMessage(wire::Message{req});
+  ASSERT_EQ(r.code(), StatusCode::kInvalidArgument);
+  ASSERT_EQ(r.message(), "invalid PubKeyUserAuthRequestMsg: unexpected signature");
+}
+
+TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyEmptySignature) {
+  auto key = openssh::SSHKey::generate(KEY_ED25519, 256);
+  ASSERT_OK(key.status());
+
+  wire::UserAuthRequestMsg req;
+  req.username = "foo@bar"s;
+  req.service_name = "ssh-userauth"s;
+  req.request = wire::PubKeyUserAuthRequestMsg{
+    .has_signature = true,
+    .public_key_alg = "ssh-ed25519"s,
+    .public_key = (*key)->toPublicKeyBlob(),
+  };
+
+  auto r = service_->handleMessage(wire::Message{req});
+  ASSERT_EQ(r.code(), StatusCode::kInvalidArgument);
+  ASSERT_EQ(r.message(), "invalid PubKeyUserAuthRequestMsg: empty signature");
+}
+
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyInvalidSignature) {
   auto key = openssh::SSHKey::generate(KEY_ED25519, 256);
   ASSERT_OK(key.status());
@@ -278,6 +315,18 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshKeyboardInteractiveRespons
   ASSERT_EQ(2, responses.responses_size());
   ASSERT_EQ("response-one", responses.responses()[0]);
   ASSERT_EQ("response-two", responses.responses()[1]);
+}
+
+TEST_F(DownstreamUserAuthServiceTest, HandleMessageInvalidUserAuthInfoResponse) {
+  // Generate a message with the UserAuthInfoResponse tag but no data.
+  Buffer::OwnedImpl buf;
+  buf.writeBEInt(wire::SshMessageType::UserAuthInfoResponse);
+  wire::Message msg;
+  ASSERT_OK(msg.decode(buf, buf.length()).status());
+
+  auto r = service_->handleMessage(std::move(msg));
+  ASSERT_EQ(r.code(), StatusCode::kInvalidArgument);
+  ASSERT_EQ(r.message(), "invalid auth response");
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshUnknownType) {
@@ -516,10 +565,11 @@ TEST_F(UpstreamUserAuthServiceTest, InterceptMessage) {
 }
 
 TEST_F(UpstreamUserAuthServiceTest, InterceptMessageWrongType) {
-    wire::Message msg{wire::DebugMsg{}};
-    auto r = service_->interceptMessage(msg);
-    ASSERT_EQ(r.status().code(), absl::StatusCode::kFailedPrecondition);
-    ASSERT_EQ(r.status().message(), "received out-of-order message during auth: expected UserAuthSuccess (52), got Debug (4)");
+  // XXX: can we test this via handleMessage instead?
+  wire::Message msg{wire::DebugMsg{}};
+  auto r = service_->interceptMessage(msg);
+  ASSERT_EQ(r.status().code(), absl::StatusCode::kFailedPrecondition);
+  ASSERT_EQ(r.status().message(), "received out-of-order ExtInfo message during auth");
 }
 
 TEST_F(UpstreamUserAuthServiceTest, HandleMessageServiceAcceptBadAuthState) {

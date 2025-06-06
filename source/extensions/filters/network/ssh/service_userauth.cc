@@ -76,8 +76,8 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
           }
           if ((!pubkey_req.signature->empty()) != pubkey_req.has_signature) {
             return absl::InvalidArgumentError(pubkey_req.has_signature
-                                                ? "invalid message: missing signature"
-                                                : "invalid message: unexpected signature");
+                                                ? "invalid PubKeyUserAuthRequestMsg: empty signature"
+                                                : "invalid PubKeyUserAuthRequestMsg: unexpected signature");
           }
           if (!pubkey_req.has_signature) {
             // any public key is acceptable
@@ -143,7 +143,7 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
       if (!opt_msg.has_value()) {
         return absl::InvalidArgumentError("invalid auth response");
       }
-      // SSH_MSG_USERAUTH_INFO_RESPONSE is only sent for the keyboard-interactive method.
+      // SSH_MSG_USERAUTH_INFO_RESPONSE is sent only for the keyboard-interactive method.
       auto& msg = opt_msg->get();
       InfoResponse info_resp;
       info_resp.set_method("keyboard-interactive");
@@ -255,10 +255,12 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
 }
 
 absl::StatusOr<MiddlewareResult> UpstreamUserAuthService::interceptMessage(wire::Message& msg) {
+  // If an ExtInfo message is sent from the upstream during user auth, it must immediately
+  // precede the UserAuthSuccess message (see RFC 8308 §2.4). This middleware is installed
+  // upon receipt of an ExtInfo message, to require that the next message receieved is a
+  // UserAuthSuccess message.
   if (msg.msg_type() != wire::SshMessageType::UserAuthSuccess) {
-    return absl::FailedPreconditionError(
-      fmt::format("received out-of-order message during auth: expected {}, got {}",
-                  wire::SshMessageType::UserAuthSuccess, msg.msg_type()));
+    return absl::FailedPreconditionError("received out-of-order ExtInfo message during auth");
   }
   return Continue | UninstallSelf;
 }
