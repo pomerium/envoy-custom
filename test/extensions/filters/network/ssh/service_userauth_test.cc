@@ -43,20 +43,10 @@ std::string copyTestdataToWritableTmp(const std::string& path, mode_t mode) {
   return outPath;
 }
 
-std::vector<wire::SshMessageType> ExpectedMessageHandlerTypes{
-  wire::SshMessageType::UserAuthRequest,
-  wire::SshMessageType::UserAuthSuccess,
-  wire::SshMessageType::UserAuthFailure,
-  wire::SshMessageType::UserAuthPubKeyOk,
-  wire::SshMessageType::UserAuthBanner,
-  wire::SshMessageType::UserAuthInfoResponse,
-  wire::SshMessageType::ExtInfo,
-};
-
 class TestSshMessageDispatcher : public SshMessageDispatcher {
 public:
+  using SshMessageDispatcher::dispatch;
   using SshMessageDispatcher::dispatch_;
-  using SshMessageDispatcher::middlewares_;
 };
 
 class TestStreamMgmtServerMessageDispatcher : public StreamMgmtServerMessageDispatcher {
@@ -93,8 +83,13 @@ TEST_F(DownstreamUserAuthServiceTest, RegisterSsh) {
   TestSshMessageDispatcher d;
   service_->registerMessageHandlers(d);
 
-  ASSERT_EQ(ExpectedMessageHandlerTypes.size(), d.dispatch_.size());
-  for (auto t : ExpectedMessageHandlerTypes) {
+  std::vector<wire::SshMessageType> expected_types{
+    wire::SshMessageType::UserAuthRequest,
+    wire::SshMessageType::UserAuthInfoResponse,
+  };
+
+  ASSERT_EQ(expected_types.size(), d.dispatch_.size());
+  for (auto t : expected_types) {
     ASSERT_EQ(service_.get(), d.dispatch_[t]);
   }
 }
@@ -110,7 +105,7 @@ TEST_F(DownstreamUserAuthServiceTest, RegisterStreamMgmt) {
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshNoneAuth) {
   wire::UserAuthRequestMsg req;
   req.username = "foo@bar"s;
-  req.service_name = "ssh-userauth"s;
+  req.service_name = "ssh-connection"s;
   req.request = wire::NoneAuthRequestMsg{};
 
   wire::Message resp;
@@ -130,7 +125,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshNoneAuth) {
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyInvalidKey) {
   wire::UserAuthRequestMsg req;
   req.username = "foo@bar"s;
-  req.service_name = "ssh-userauth"s;
+  req.service_name = "ssh-connection"s;
   req.request = wire::PubKeyUserAuthRequestMsg{
     .has_signature = false,
     .public_key_alg = "AAAA"s,
@@ -149,7 +144,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyNoSignature) {
 
   wire::UserAuthRequestMsg req;
   req.username = "foo@bar"s;
-  req.service_name = "ssh-userauth"s;
+  req.service_name = "ssh-connection"s;
   req.request = wire::PubKeyUserAuthRequestMsg{
     .has_signature = false,
     .public_key_alg = "ssh-ed25519"s,
@@ -178,7 +173,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyUnexpectedSignature)
 
   wire::UserAuthRequestMsg req;
   req.username = "foo@bar"s;
-  req.service_name = "ssh-userauth"s;
+  req.service_name = "ssh-connection"s;
   req.request = wire::PubKeyUserAuthRequestMsg{
     .has_signature = false,
     .public_key_alg = "ssh-ed25519"s,
@@ -197,7 +192,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyEmptySignature) {
 
   wire::UserAuthRequestMsg req;
   req.username = "foo@bar"s;
-  req.service_name = "ssh-userauth"s;
+  req.service_name = "ssh-connection"s;
   req.request = wire::PubKeyUserAuthRequestMsg{
     .has_signature = true,
     .public_key_alg = "ssh-ed25519"s,
@@ -215,7 +210,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyInvalidSignature) {
 
   wire::UserAuthRequestMsg req;
   req.username = "foo@bar"s;
-  req.service_name = "ssh-userauth"s;
+  req.service_name = "ssh-connection"s;
   req.request = wire::PubKeyUserAuthRequestMsg{
     .has_signature = true,
     .public_key_alg = "ssh-ed25519"s,
@@ -242,12 +237,12 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyValidSignature) {
 
   wire::UserAuthRequestMsg req;
   req.username = "foo@bar"s;
-  req.service_name = "ssh-userauth"s;
+  req.service_name = "ssh-connection"s;
   req.request = wire::PubKeyUserAuthRequestMsg{
     .has_signature = true,
     .public_key_alg = "ssh-ed25519"s,
     .public_key = public_key_blob,
-    .signature = to_bytes(absl::HexStringToBytes("0000000b7373682d6564323535313900000040b99ec9b6262fbf1e2c201c604e0bddf46e9c3c5a44c2e47bf44551d2c30c9b7084612167b4bd08bd0d79532944917fb95004c34f4260a321453616f99b531304")),
+    .signature = to_bytes(absl::HexStringToBytes("0000000b7373682d6564323535313900000040bf1e4e617a3a1b72dd2d5c066d349e95df08b8d1b0f1f338349fc0db45e89fd0050c42f763dab4512d4b1e5cb109eff77a3cb094a3b7c3aa9a8b2f43c1d9f207")),
   };
 
   EXPECT_CALL(*transport_, sessionId())
@@ -273,7 +268,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyValidSignature) {
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshKeyboardInteractive) {
   wire::UserAuthRequestMsg req;
   req.username = "foo@bar"s;
-  req.service_name = "ssh-userauth"s;
+  req.service_name = "ssh-connection"s;
   req.request = wire::KeyboardInteractiveUserAuthRequestMsg{
     .submethods = string_list{"method-one", "method-two"},
   };
@@ -331,7 +326,8 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageInvalidUserAuthInfoResponse) 
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshUnknownType) {
   auto r = service_->handleMessage(wire::Message{wire::DebugMsg{}});
-  ASSERT_OK(r);
+  ASSERT_EQ(r.code(), StatusCode::kInternal);
+  ASSERT_EQ(r.message(), "received unexpected message of type Debug (4)");
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshUnsupportedAuthRequest) {
@@ -339,7 +335,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshUnsupportedAuthRequest) {
   // the sub_message struct this requires decoding from the wire format.
   Buffer::OwnedImpl buf;
   static wire::field<std::string, wire::LengthPrefixed> username = "foo@bar"s;
-  static wire::field<std::string, wire::LengthPrefixed> service_name = "ssh-userauth"s;
+  static wire::field<std::string, wire::LengthPrefixed> service_name = "ssh-connection"s;
   static wire::field<std::string, wire::LengthPrefixed> method_name = "UNKNOWN"s;
   static wire::field<std::string, wire::LengthPrefixed> data = "UNKNOWN-DATA"s;
   ASSERT_OK(wire::encodeMsg(buf, wire::SshMessageType::UserAuthRequest,
@@ -541,8 +537,15 @@ TEST_F(UpstreamUserAuthServiceTest, RegisterSsh) {
   TestSshMessageDispatcher d;
   service_->registerMessageHandlers(d);
 
-  ASSERT_EQ(ExpectedMessageHandlerTypes.size(), d.dispatch_.size());
-  for (auto t : ExpectedMessageHandlerTypes) {
+  std::vector<wire::SshMessageType> expected_types{
+    wire::SshMessageType::UserAuthSuccess,
+    wire::SshMessageType::UserAuthFailure,
+    wire::SshMessageType::UserAuthBanner,
+    wire::SshMessageType::ExtInfo,
+  };
+
+  ASSERT_EQ(expected_types.size(), d.dispatch_.size());
+  for (auto t : expected_types) {
     ASSERT_EQ(service_.get(), d.dispatch_[t]);
   }
 }
@@ -557,26 +560,11 @@ TEST_F(UpstreamUserAuthServiceTest, RequestService) {
     EXPECT_OK(r);
 }
 
-TEST_F(UpstreamUserAuthServiceTest, InterceptMessage) {
-  wire::Message msg{wire::UserAuthSuccessMsg{}};
-  auto r = service_->interceptMessage(msg);
-  ASSERT_OK(r.status());
-  ASSERT_EQ(*r, Continue | UninstallSelf);
-}
-
-TEST_F(UpstreamUserAuthServiceTest, InterceptMessageWrongType) {
-  // XXX: can we test this via handleMessage instead?
-  wire::Message msg{wire::DebugMsg{}};
-  auto r = service_->interceptMessage(msg);
-  ASSERT_EQ(r.status().code(), absl::StatusCode::kFailedPrecondition);
-  ASSERT_EQ(r.status().message(), "received out-of-order ExtInfo message during auth");
-}
-
-TEST_F(UpstreamUserAuthServiceTest, HandleMessageServiceAcceptBadAuthState) {
+TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedBadAuthState) {
   AuthState state;
   EXPECT_CALL(*transport_, authState())
     .WillOnce(ReturnRef(state));
-  auto r = service_->handleMessage(wire::Message{wire::ServiceAcceptMsg{}});
+  auto r = service_->onServiceAccepted();
   ASSERT_EQ(r.code(), absl::StatusCode::kInternal);
   ASSERT_EQ(r.message(), "missing AllowResponse in auth state");
 }
@@ -620,19 +608,22 @@ TEST_F(UpstreamUserAuthServiceTest, HandleMessageExtInfo) {
   wire::ExtInfoMsg ext_info{};
   wire::test::populateFields(ext_info);
 
+  EXPECT_CALL(*transport_, updatePeerExtInfo(Eq(ext_info)));
+
   auto r = service_->handleMessage(wire::Message{ext_info});
   ASSERT_OK(r);
-  ASSERT_EQ(1, d.middlewares_.size());
-  ASSERT_EQ(service_.get(), d.middlewares_.front());
 
-  // We don't expect to receieve more than one ExtInfo message.
+  // It is an error to receive multiple ExtInfo messages during the same auth exchange.
   r = service_->handleMessage(wire::Message{ext_info});
   ASSERT_EQ(r.code(), absl::StatusCode::kFailedPrecondition);
   ASSERT_EQ(r.message(), "unexpected ExtInfoMsg received");
 }
 
 TEST_F(UpstreamUserAuthServiceTest, HandleMessageAuthSuccessNoPeerExtInfo) {
-  // We need to first send a ServiceAcceptMsg to initialize some internal state.
+  TestSshMessageDispatcher d;
+  service_->registerMessageHandlers(d);
+
+  // We need to first call onServiceAccepted() to initialize some internal state.
   AuthState state;
   state.allow_response = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
   state.allow_response->set_username("example-username");
@@ -643,7 +634,7 @@ TEST_F(UpstreamUserAuthServiceTest, HandleMessageAuthSuccessNoPeerExtInfo) {
     .WillOnce(ReturnRef(streamId));
   EXPECT_CALL(*transport_, sendMessageToConnection(_))
     .WillOnce(Return(123));
-  ASSERT_OK(service_->handleMessage(wire::Message{wire::ServiceAcceptMsg{}}));
+  ASSERT_OK(service_->onServiceAccepted());
 
   wire::Message msg{wire::UserAuthSuccessMsg{}};
 
@@ -654,42 +645,15 @@ TEST_F(UpstreamUserAuthServiceTest, HandleMessageAuthSuccessNoPeerExtInfo) {
 
   auto r = service_->handleMessage(std::move(msg));
   ASSERT_OK(r);
+
+  EXPECT_EQ(0, d.dispatch_.size());
 }
 
-TEST_F(UpstreamUserAuthServiceTest, HandleMessageAuthSuccessExistingPeerExtInfo) {
-  // We need to first send a ServiceAcceptMsg to initialize some internal state.
-  AuthState state;
-  state.allow_response = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
-  state.allow_response->set_username("example-username");
-  EXPECT_CALL(*transport_, authState())
-    .WillRepeatedly(ReturnRef(state));
-  auto streamId = "stream-id"_bytes;
-  EXPECT_CALL(*transport_, sessionId())
-    .WillOnce(ReturnRef(streamId));
-  EXPECT_CALL(*transport_, sendMessageToConnection(_))
-    .WillOnce(Return(123));
-  ASSERT_OK(service_->handleMessage(wire::Message{wire::ServiceAcceptMsg{}}));
-
-  wire::Message msg{wire::UserAuthSuccessMsg{}};
-
-  wire::ExtInfoMsg ext_info{};
-  wire::test::populateFields(ext_info);
-  EXPECT_CALL(*transport_, peerExtInfo())
-    .WillOnce(Return(std::make_optional(ext_info)));
-
-  EXPECT_CALL(*transport_, forward(Eq(msg), Eq(FrameTags::EffectiveHeader)));
-
-  auto r = service_->handleMessage(std::move(msg));
-  ASSERT_OK(r);
-  ASSERT_EQ(ext_info, state.upstream_ext_info);
-}
-
-
-TEST_F(UpstreamUserAuthServiceTest, HandleMessageAuthSuccessNewPeerExtInfo) {
+TEST_F(UpstreamUserAuthServiceTest, HandleMessageAuthSuccessWithPeerExtInfo) {
   TestSshMessageDispatcher d;
   service_->registerMessageHandlers(d);
 
-  // We need to first send a ServiceAcceptMsg to initialize some internal state.
+  // We need to first call onServiceAccepted() to initialize some internal state.
   AuthState state;
   state.allow_response = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
   state.allow_response->set_username("example-username");
@@ -700,17 +664,12 @@ TEST_F(UpstreamUserAuthServiceTest, HandleMessageAuthSuccessNewPeerExtInfo) {
     .WillOnce(ReturnRef(streamId));
   EXPECT_CALL(*transport_, sendMessageToConnection(_))
     .WillOnce(Return(123));
-  ASSERT_OK(service_->handleMessage(wire::Message{wire::ServiceAcceptMsg{}}));
+  ASSERT_OK(service_->onServiceAccepted());
 
-  // Then send an ExtInfoMsg as part of the user auth flow.
-  wire::ExtInfoMsg ext_info{};
-  wire::test::populateFields(ext_info);
-  ASSERT_OK(service_->handleMessage(wire::Message{ext_info}));
-
-  // Then receiving a UserAuthSuccessMsg should update the ExtInfo state.
   wire::Message msg{wire::UserAuthSuccessMsg{}};
 
-  EXPECT_CALL(*transport_, updatePeerExtInfo(Eq(ext_info)));
+  wire::ExtInfoMsg ext_info{};
+  wire::test::populateFields(ext_info);
   EXPECT_CALL(*transport_, peerExtInfo())
     .WillOnce(Return(std::make_optional(ext_info)));
 
@@ -719,10 +678,12 @@ TEST_F(UpstreamUserAuthServiceTest, HandleMessageAuthSuccessNewPeerExtInfo) {
   auto r = service_->handleMessage(std::move(msg));
   ASSERT_OK(r);
   ASSERT_EQ(ext_info, state.upstream_ext_info);
+
+  EXPECT_EQ(0, d.dispatch_.size());
 }
 
 TEST_F(UpstreamUserAuthServiceTest, HandleMessageAuthSuccessOutOfOrder) {
-  // We don't expect a UserAuthSuccessMsg first.
+  // We don't expect a UserAuthSuccessMsg before sending an auth request.
   auto r = service_->handleMessage(wire::Message{wire::UserAuthSuccessMsg{}});
   ASSERT_EQ(r.code(), absl::StatusCode::kFailedPrecondition);
   ASSERT_EQ(r.message(), "unexpected UserAuthSuccessMsg received");
@@ -736,7 +697,8 @@ TEST_F(UpstreamUserAuthServiceTest, HandleMessageAuthFailure) {
 
 TEST_F(UpstreamUserAuthServiceTest, HandleMessageUnknownType) {
   auto r = service_->handleMessage(wire::Message{wire::DebugMsg{}});
-  ASSERT_OK(r);
+  ASSERT_EQ(r.code(), StatusCode::kInternal);
+  ASSERT_EQ(r.message(), "received unexpected message of type Debug (4)");
 }
 
 } // namespace test
