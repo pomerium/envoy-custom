@@ -142,6 +142,13 @@ struct fmt::formatter<wire::sub_message<Options...>> : formatter<string_view> {
   }
 };
 
+namespace wire {
+template <typename... Options>
+std::ostream& operator<<(std::ostream& os, const wire::sub_message<Options...>& msg) {
+  return os << fmt::to_string(msg);
+}
+} // namespace wire
+
 template <typename... Args>
 struct fmt::formatter<wire::OverloadSet<Args...>> : formatter<string_view> {
   auto format(const wire::OverloadSet<Args...>&, format_context& ctx) const
@@ -151,6 +158,13 @@ struct fmt::formatter<wire::OverloadSet<Args...>> : formatter<string_view> {
   }
 };
 
+namespace wire {
+template <typename... Args>
+std::ostream& operator<<(std::ostream& os, const OverloadSet<Args...>& msg) {
+  return os << fmt::to_string(msg);
+}
+} // namespace wire
+
 template <>
 struct fmt::formatter<wire::Message> : formatter<decltype(wire::Message::message)> {
   auto format(const wire::Message& f, format_context& ctx) const
@@ -158,6 +172,12 @@ struct fmt::formatter<wire::Message> : formatter<decltype(wire::Message::message
     return formatter<decltype(f.message)>::format(f.message, ctx);
   }
 };
+
+namespace wire {
+std::ostream& operator<<(std::ostream& os, const Message& msg) {
+  return os << fmt::to_string(msg);
+}
+} // namespace wire
 
 TEST_FIELDS(DisconnectMsg,
             reason_code,

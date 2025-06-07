@@ -108,17 +108,24 @@ using testing::A;
 using testing::AllOf;
 using testing::AllOfArray;
 using testing::An;
+using testing::AnyNumber;
 using testing::AnyOf;
 using testing::AnyOfArray;
+using testing::Contains;
 using testing::DoAll;
 using testing::Eq;
+using testing::Expectation;
 using testing::Field;
+using testing::HasSubstr;
 using testing::InSequence;
 using testing::Invoke;
+using testing::InvokeWithoutArgs;
 using testing::NiceMock;
+using testing::Not;
 using testing::NotNull;
 using testing::Property;
 using testing::Return;
+using testing::ReturnRef;
 using testing::SaveArg;
 using testing::Types;
 using testing::VariantWith;
@@ -126,6 +133,17 @@ using testing::WhenDynamicCastTo;
 
 using Envoy::EnvoyException;
 namespace Buffer = Envoy::Buffer;
+
+inline bool isDebuggerAttached() {
+  std::ifstream status{"/proc/self/status"};
+  std::string line;
+  while (std::getline(status, line)) {
+    if (line.starts_with("TracerPid:\t")) {
+      return line[11] != '0';
+    }
+  }
+  return false;
+}
 
 // =================================================================================================
 // code below vendored from envoy test/test_common/utility.h, which pulls in too many dependencies
