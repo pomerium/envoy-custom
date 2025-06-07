@@ -126,6 +126,7 @@ using testing::Not;
 using testing::NotNull;
 using testing::Property;
 using testing::Return;
+using testing::ReturnRef;
 using testing::SaveArg;
 using testing::Types;
 using testing::VariantWith;

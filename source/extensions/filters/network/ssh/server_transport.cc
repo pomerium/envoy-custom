@@ -8,6 +8,8 @@
 #include <sshkey.h>
 #include <unistd.h>
 
+#include "source/common/event/deferred_task.h"
+
 #include "source/common/status.h"
 #include "source/extensions/filters/network/ssh/common.h"
 #include "source/extensions/filters/network/ssh/frame.h"
@@ -251,7 +253,7 @@ void SshServerTransport::initUpstream(AuthStateSharedPtr s) {
       }
       channel_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus code, std::string err) {
         // dynamic_cast<Envoy::Network::TransportSocketCallbacks&>(*callbacks_->connection()).flushWriteBuffer();
-        runInNextIteration([=, this] {
+        Envoy::Event::DeferredTaskUtil::deferredRun(callbacks_->connection()->dispatcher(), [=, this] {
           onDecodingFailure(absl::Status(static_cast<absl::StatusCode>(code), err));
         });
       });

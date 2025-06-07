@@ -50,7 +50,7 @@ struct codec_traits<T> {
 //
 // Note that because we require strict key exchange, the sequence number is used to determine how
 // many packets have been sent/received.
-static constexpr uint32_t seqnum_rekey_limit = 1 << 31;
+static constexpr uint32_t SeqnumRekeyLimit = (static_cast<uint32_t>(1) << 31);
 
 template <typename Codec>
 class TransportBase : public Codec,
@@ -116,12 +116,14 @@ public:
       if (!bytes_read.ok()) {
         onDecodingFailure(statusf("failed to decrypt packet: {}", bytes_read.status()));
         return;
-      } else if (*bytes_read == 0) {
-        // note: sequence number not increased
+      }
+      if (*bytes_read == 0) {
+        // Note: sequence number not increased
         ENVOY_LOG(debug, "received incomplete packet; waiting for more data");
         return;
       }
-      auto next_read_seq = ++seq_read_;
+      // Only increase the sequence number after reading a full packet
+      seq_read_++;
 
       wire::Message msg;
       auto packet_len = wire::decodePacket(dec, msg);
@@ -135,15 +137,20 @@ public:
         return;
       }
 
+      // Check if we need to initiate a key re-exchange
+      //
+      // Note: during key re-exchange, if the message we just decoded was the peer's NewKeys, the
+      // onMessageDecoded callback above will have reset seq_read_, read_bytes_remaining_,
+      // and set pending_key_exchange_ to false.
       read_bytes_remaining_ = sub_sat(read_bytes_remaining_, static_cast<uint64_t>(*bytes_read));
       if (!pending_key_exchange_ &&
-          (read_bytes_remaining_ == 0 || next_read_seq > seqnum_rekey_limit)) {
+          (read_bytes_remaining_ == 0 || seq_read_ > SeqnumRekeyLimit)) {
         ENVOY_LOG(debug, "ssh [{}]: read rekey threshold was reached, initiating key re-exchange (bytes remaining: {}; packets sent: {})",
                   codec_traits<Codec>::name,
-                  read_bytes_remaining_, next_read_seq);
-        auto stat = kex_->initiateKex();
-        if (!stat.ok()) {
+                  read_bytes_remaining_, seq_read_);
+        if (auto stat = kex_->initiateKex(); !stat.ok()) {
           onDecodingFailure(statusf("failed to initiate rekey: {}", stat));
+          return;
         }
       }
     }
@@ -233,6 +240,8 @@ public:
     if (initial_kex) {
       ENVOY_LOG(debug, "ssh [{}]: initial key exchange completed", codec_traits<Codec>::name);
       this->registerMessageHandlers(*static_cast<SshMessageDispatcher*>(this));
+      ENVOY_BUG(pending_messages_.empty(), "extra messages sent before initial key exchange complete");
+      pending_messages_.clear();
     } else {
       ENVOY_LOG(debug, "ssh [{}]: key re-exchange completed", codec_traits<Codec>::name);
 
@@ -295,23 +304,6 @@ protected:
     return std::exchange(seq_write_, 0);
   }
 
-  void runInNextIteration(std::function<void()> fn) {
-    auto id = api_.randomGenerator().uuid();
-    auto* dispatcher = &callbacks_
-                          ->connection()
-                          ->dispatcher();
-    auto cb = dispatcher->createSchedulableCallback(
-      [=, this] {
-        std::unique_ptr<scheduled_callback> ptr;
-        std::swap(scheduled_callbacks_[id], ptr);
-        scheduled_callbacks_.erase(id);
-        dispatcher->deferredDelete(std::move(ptr));
-        fn();
-      });
-    cb->scheduleCallbackNextIteration();
-    scheduled_callbacks_[id] = std::make_unique<scheduled_callback>(std::move(cb));
-  }
-
   absl::StatusOr<size_t> sendMessageDirect(wire::Message&& msg) override {
     Envoy::Buffer::OwnedImpl dec;
     auto packet_len = wire::encodePacket(dec,
@@ -324,21 +316,19 @@ protected:
     Envoy::Buffer::OwnedImpl enc;
 
     auto stat = cipher_->encryptPacket(seq_write_++, enc, dec);
-    if (!stat.ok()) {
-      return statusf("error encrypting packet: {}", stat);
-    }
+    ASSERT(stat.ok()); // this should not normally fail
+
     size_t n = enc.length();
     writeToConnection(enc);
 
     write_bytes_remaining_ = sub_sat(write_bytes_remaining_,
                                      static_cast<uint64_t>(*packet_len));
     if (!pending_key_exchange_ &&
-        (write_bytes_remaining_ == 0 || seq_write_ > seqnum_rekey_limit)) {
+        (write_bytes_remaining_ == 0 || seq_write_ > SeqnumRekeyLimit)) {
       ENVOY_LOG(debug, "ssh [{}]: write rekey threshold was reached, initiating key re-exchange (bytes remaining: {}; packets sent: {})",
                 codec_traits<Codec>::name, write_bytes_remaining_, seq_write_);
-      auto r = kex_->initiateKex();
-      if (!r.ok()) {
-        return r;
+      if (auto stat = kex_->initiateKex(); !stat.ok()) {
+        return statusf("failed to initiate rekey: {}", stat);
       }
     }
 
@@ -346,12 +336,6 @@ protected:
   }
 
 private:
-  struct scheduled_callback : public Envoy::Event::DeferredDeletable {
-    explicit scheduled_callback(Envoy::Event::SchedulableCallbackPtr cb)
-        : cb(std::move(cb)) {}
-    Envoy::Event::SchedulableCallbackPtr cb;
-  };
-  std::unordered_map<std::string, std::unique_ptr<scheduled_callback>> scheduled_callbacks_;
   std::deque<wire::Message> pending_messages_;
 
   void enqueueMessage(wire::Message&& msg) {

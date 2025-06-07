@@ -40,6 +40,7 @@ http_archive(
     patches = [
         "//patches/envoy:0001-revert-deps-drop-BoringSSL-linkstatic-patch-38621.patch",
         "//patches/envoy:0002-bump-dependencies.patch",
+        "//patches/envoy:0003-envoy-copts.patch",
         "//patches/envoy:tmp-fix-upstream-connection-callbacks.patch",
     ],
     sha256 = "d115179d8ea852944cfd166a641af80f622a675d4c553d677f2b7ab91bf02c32",

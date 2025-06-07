@@ -79,6 +79,7 @@ envoy_cc_library(
         "@envoy//source/common/common:logger_lib",
         "@envoy//source/common/common:utility_lib",
         "@envoy//source/common/crypto:utility_lib",
+        "@envoy//source/common/event:deferred_task",
         "@envoy//source/extensions/filters/common/ext_authz:ext_authz_grpc_lib",
         "@envoy//source/extensions/filters/network:well_known_names",
         "@envoy//source/extensions/filters/network/common:factory_base_lib",
