@@ -189,3 +189,17 @@ envoy_cc_test(
         "@envoy//test/mocks/buffer:buffer_mocks",
     ],
 )
+
+envoy_cc_test(
+    name = "kex_test",
+    srcs = [
+        "kex_test.cc",
+    ],
+    repository = "@envoy",
+    deps = [
+        ":test_mocks",
+        "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "//test/extensions/filters/network/ssh/wire:wire_test_util",
+        "@envoy//test/extensions/filters/network/generic_proxy/mocks:codec_mocks",
+    ],
+)
