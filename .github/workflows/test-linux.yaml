@@ -40,7 +40,7 @@ jobs:
           repository-cache: true
 
       - name: test
-        run: bazel coverage //test/...
+        run: bazel coverage --test_output=errors //test/...
 
       - name: upload to coveralls
         uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b

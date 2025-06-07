@@ -32,7 +32,7 @@ public:
   bool versionWritten() { return did_write_version_; }
   bool versionRead() { return did_read_version_; }
 
-  absl::StatusOr<size_t> writeVersion(std::string_view ours);
+  size_t writeVersion(std::string_view ours);
   absl::StatusOr<size_t> readVersion(Envoy::Buffer::Instance& buffer);
 
   absl::Status validateBanner(const bytes& banner) const;

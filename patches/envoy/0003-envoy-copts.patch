@@ -1,0 +1,12 @@
+diff --git a/bazel/envoy_internal.bzl b/bazel/envoy_internal.bzl
+index 866a00f280..81854f43c9 100644
+--- a/bazel/envoy_internal.bzl
++++ b/bazel/envoy_internal.bzl
+@@ -16,6 +16,7 @@ def envoy_copts(repository, test = False):
+         "-Wformat-security",
+         "-Wvla",
+         "-Wno-deprecated-declarations",
++        "-Wno-missing-designated-field-initializers",
+         "-Wreturn-type",
+     ]
+     _repo = repo_label(repository)

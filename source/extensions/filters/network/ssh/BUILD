@@ -36,6 +36,7 @@ envoy_cc_library(
         "packet_cipher_etm.h",
         "service.h",
         "transport.h",
+        "transport_base.h",
         "version_exchange.h",
     ],
     copts = [
@@ -57,6 +58,7 @@ envoy_cc_library(
         "@envoy//source/common/common:logger_lib",
         "@envoy//source/common/common:utility_lib",
         "@envoy//source/common/crypto:utility_lib",
+        "@envoy//source/common/event:deferred_task",
         "@envoy//source/common/grpc:async_client_lib",
         "@envoy//source/common/grpc:typed_async_client_lib",
         "@envoy//source/extensions/filters/network/generic_proxy/interface:codec_interface",
