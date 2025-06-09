@@ -473,7 +473,10 @@ TYPED_TEST(TransportBaseTest, TestVersionExchangeIncomplete) {
 }
 
 TYPED_TEST(TransportBaseTest, TestKexInitFailureAfterVersionExchange) {
-  EXPECT_CALL(this->Client(), onVersionExchangeCompleted);
+  EXPECT_CALL(this->Client(), onVersionExchangeCompleted)
+    .WillOnce(InvokeWithoutArgs([this] {
+      this->Client().Exit();
+    }));
   EXPECT_CALL(this->Server(), onVersionExchangeCompleted)
     .WillOnce(Invoke([this](const bytes& server_version, const bytes& client_version, const bytes& banner) {
       // the next KexInitMsg sent by the server will return an error
@@ -485,7 +488,6 @@ TYPED_TEST(TransportBaseTest, TestKexInitFailureAfterVersionExchange) {
       EXPECT_CALL(this->ServerCallbacks(), onDecodingFailure(HasSubstr("test error"s)))
         .WillOnce(InvokeWithoutArgs([this] {
           this->Server().Exit();
-          this->Client().Exit();
         }));
       // complete the version exchange, triggering the KexInitMsg to be sent
       return this->Server().TransportBase::onVersionExchangeCompleted(server_version, client_version, banner);
@@ -534,25 +536,32 @@ TYPED_TEST(TransportBaseTest, TestReadIncompletePacket) {
       this->Client().TransportBase::onKexCompleted(result, initial);
       IN_SEQUENCE;
       EXPECT_CALL(this->ClientCallbacks(), writeToConnection)
-        .WillOnce(Invoke([&](Envoy::Buffer::Instance& input) {
+        .WillOnce(Invoke([this](Envoy::Buffer::Instance& input) {
+          // Hijack the writeToConnection callback to send two packets: the first containing
+          // half of the full input, and the second containing the full input. The server should
+          // recognize that the first packet is incomplete, then wait for the second one before
+          // decoding the message. Note that it will NOT drain the input buffer for incomplete
+          // packets, so the second packet is not just the second half of the input.
           Buffer::OwnedImpl buffer1;
           buffer1.add(input.linearize(input.length()), input.length() / 2);
           Buffer::OwnedImpl buffer2;
           buffer2.move(input);
           this->Server().Post([buffer = std::move(buffer1)](auto& server) mutable {
+            // first packet (no callbacks expected)
             server.decode(buffer, false);
           });
           this->Server().Post([buffer = std::move(buffer2)](auto& server) mutable {
+            // second packet with the full message, expect the message to be decoded now
+            EXPECT_CALL(server, onMessageDecoded(MSG(wire::IgnoreMsg, Eq(wire::IgnoreMsg{.data = "foo"_bytes}))))
+              .WillOnce(Invoke([&server](wire::Message&&) {
+                server.Exit();
+                return absl::OkStatus();
+              }));
             server.decode(buffer, false);
           });
         }));
-      EXPECT_CALL(this->Server(), onMessageDecoded(MSG(wire::IgnoreMsg, Eq(wire::IgnoreMsg{.data = "foo"_bytes}))))
-        .WillOnce(Invoke([this](wire::Message&&) {
-          this->Server().Exit();
-          this->Client().Exit();
-          return absl::OkStatus();
-        }));
       EXPECT_OK(this->Client().sendMessageToConnection(auto(expectedMsg)).status());
+      this->Client().Exit();
     }));
   this->Start();
   this->InitiateVersionExchange();
@@ -598,18 +607,20 @@ TYPED_TEST(TransportBaseTest, TestDecodeMessageFailure) {
     .WillOnce(Invoke([this, expectedMsg](std::shared_ptr<KexResult> result, bool initial) {
       this->Client().TransportBase::onKexCompleted(result, initial);
 
-      IN_SEQUENCE;
-      EXPECT_CALL(this->Server(), onMessageDecoded(MSG(wire::IgnoreMsg, Eq(wire::IgnoreMsg{.data = "foo"_bytes}))))
-        .WillOnce(Invoke([](wire::Message&&) {
-          // simulate an error in the handler for this message
-          return absl::InternalError("test error");
-        }));
-      // this should call onDecodingFailure
-      EXPECT_CALL(this->ServerCallbacks(), onDecodingFailure(HasSubstr("test error"s)))
-        .WillOnce(InvokeWithoutArgs([this] {
-          this->Server().Exit();
-          this->Client().Exit();
-        }));
+      this->Server().Post([this](auto& server) {
+        IN_SEQUENCE;
+        EXPECT_CALL(server, onMessageDecoded(MSG(wire::IgnoreMsg, Eq(wire::IgnoreMsg{.data = "foo"_bytes}))))
+          .WillOnce(Invoke([](wire::Message&&) {
+            // simulate an error in the handler for this message
+            return absl::InternalError("test error");
+          }));
+        // this should call onDecodingFailure
+        EXPECT_CALL(this->ServerCallbacks(), onDecodingFailure(HasSubstr("test error"s)))
+          .WillOnce(InvokeWithoutArgs([this] {
+            this->Server().Exit();
+            this->Client().Exit();
+          }));
+      });
       EXPECT_OK(this->Client().sendMessageToConnection(auto(expectedMsg)).status());
     }));
   this->Start();
@@ -1092,11 +1103,11 @@ TYPED_TEST(TransportBaseTest, TestSimultaneousRekeyOnSeqNumThreshold) {
   EXPECT_CALL(this->Client(), onKexCompleted(_, false))
     .WillOnce(Invoke([&](std::shared_ptr<KexResult> result, bool initial) {
       this->Client().TransportBase::onKexCompleted(result, initial);
-      EXPECT_EQ(this->Server().seq_read_, 0);
-      EXPECT_EQ(this->Server().seq_write_, 0);
-      EXPECT_EQ(this->Client().seq_read_, 0);
-      EXPECT_EQ(this->Client().seq_write_, 0);
       this->Client().Exit();
+    }));
+  EXPECT_CALL(this->Server(), onKexCompleted(_, false))
+    .WillOnce(Invoke([&](std::shared_ptr<KexResult> result, bool initial) {
+      this->Server().TransportBase::onKexCompleted(result, initial);
       this->Server().Exit();
     }));
   this->Client().Post([](auto& client) {
@@ -1104,6 +1115,10 @@ TYPED_TEST(TransportBaseTest, TestSimultaneousRekeyOnSeqNumThreshold) {
   });
 
   this->Join();
+  EXPECT_EQ(this->Server().seq_read_, 0);
+  EXPECT_EQ(this->Server().seq_write_, 0);
+  EXPECT_EQ(this->Client().seq_read_, 0);
+  EXPECT_EQ(this->Client().seq_write_, 0);
 }
 
 TYPED_TEST(TransportBaseTest, TestInitiateKexFailedOnWriteRekey) {
