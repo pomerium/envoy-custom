@@ -2,6 +2,10 @@
 
 #include <memory>
 
+#ifndef SSH_INCLUDED_EXPERIMENTAL_
+#error "do not #include shared.h directly; #include experimental.h instead"
+#endif
+
 #pragma clang unsafe_buffer_usage begin
 #include "source/common/common/thread.h"
 #include "envoy/thread_local/thread_local_object.h"

@@ -31,7 +31,7 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 SshServerTransport::SshServerTransport(Api::Api& api,
                                        std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
                                        CreateGrpcClientFunc create_grpc_client,
-                                       std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr)
+                                       ThreadLocalDataSlotSharedPtr slot_ptr)
     : TransportBase(api, std::move(config)),
       DownstreamTransportCallbacks(*this),
       tls_(slot_ptr) {
@@ -274,6 +274,7 @@ void SshServerTransport::initUpstream(AuthStateSharedPtr s) {
   case ChannelMode::Mirror:
     break;
   }
+#ifdef SSH_EXPERIMENTAL
   if (auth_state_->multiplexing_info.multiplex_mode != MultiplexMode::None) {
     if (auto stat = connection_service_->onStreamBegin(*auth_state_, callbacks_->connection()->dispatcher()); !stat.ok()) {
       onDecodingFailure(stat);
@@ -281,6 +282,9 @@ void SshServerTransport::initUpstream(AuthStateSharedPtr s) {
     }
     callbacks_->connection()->addConnectionCallbacks(*this);
   }
+#else
+  callbacks_->connection()->addConnectionCallbacks(*this);
+#endif
 }
 
 absl::StatusOr<bytes> SshServerTransport::signWithHostKey(bytes_view in) const {

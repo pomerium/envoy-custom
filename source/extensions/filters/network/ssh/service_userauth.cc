@@ -166,14 +166,17 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
       switch (allow.target_case()) {
       case pomerium::extensions::ssh::AllowResponse::kUpstream:
         state->channel_mode = ChannelMode::Normal;
+#ifdef SSH_EXPERIMENTAL
         state->multiplexing_info = MultiplexingInfo{};
         if (allow.upstream().allow_mirror_connections()) {
           state->multiplexing_info.multiplex_mode = MultiplexMode::Source;
         }
+#endif
         break;
       case pomerium::extensions::ssh::AllowResponse::kInternal:
         state->channel_mode = ChannelMode::Hijacked;
         break;
+#ifdef SSH_EXPERIMENTAL
       case pomerium::extensions::ssh::AllowResponse::kMirrorSession: {
         auto _ = transport_.sendMessageToConnection(wire::UserAuthSuccessMsg());
         const auto& mirror = state->allow_response->mirror_session();
@@ -191,6 +194,7 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
         }
         state->multiplexing_info.source_stream_id = mirror.source_id();
       } break;
+#endif
       default:
         return absl::InternalError("invalid target");
       }

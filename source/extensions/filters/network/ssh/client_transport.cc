@@ -18,7 +18,7 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 SshClientTransport::SshClientTransport(
   Api::Api& api,
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-  std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr)
+  ThreadLocalDataSlotSharedPtr slot_ptr)
     : TransportBase(api, std::move(config)),
       tls_(slot_ptr) {
   wire::ExtInfoMsg extInfo;
@@ -87,9 +87,11 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
         ASSERT(downstream_state_->handoff_info.handoff_in_progress);
         const auto& upstream = downstream_state_->allow_response->upstream();
         if (upstream.direct_tcpip()) {
+#ifdef SSH_EXPERIMENTAL
           if (downstream_state_->multiplexing_info.multiplex_mode != MultiplexMode::None) {
             ENVOY_LOG(warn, "multiplexing not supported with direct-tcpip connections");
           }
+#endif
           upstream_is_direct_tcpip_ = true;
           wire::ChannelOpenConfirmationMsg confirm;
           confirm.recipient_channel = downstream_state_->handoff_info.channel_info->downstream_channel_id();
@@ -103,12 +105,16 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
       channel_id_remap_enabled_ = true;
       installMiddleware(this);
     }
+#ifdef SSH_EXPERIMENTAL
     if (downstream_state_->multiplexing_info.multiplex_mode == MultiplexMode::Source) {
       if (auto stat = connection_svc_->onStreamBegin(*downstream_state_, callbacks_->connection()->dispatcher()); !stat.ok()) {
         return stat;
       }
       callbacks_->connection()->addConnectionCallbacks(*this);
     }
+#else
+    callbacks_->connection()->addConnectionCallbacks(*this);
+#endif
     return version_exchanger_->writeVersion(downstream_state_->server_version);
   }
   case FrameTags::RequestCommon: {

@@ -13,7 +13,7 @@
 #include "source/extensions/filters/network/ssh/message_handler.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/transport_base.h"
-#include "source/extensions/filters/network/ssh/shared.h"
+#include "source/extensions/filters/network/ssh/experimental.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -28,7 +28,7 @@ public:
   SshServerTransport(Api::Api& api,
                      std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
                      CreateGrpcClientFunc create_grpc_client,
-                     std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr);
+                     ThreadLocalDataSlotSharedPtr slot_ptr);
 
   void setCodecCallbacks(GenericProxy::ServerCodecCallbacks& callbacks) override;
 
@@ -67,7 +67,7 @@ private:
   absl::StatusOr<std::unique_ptr<wire::HostKeysProveResponseMsg>>
   handleHostKeysProve(const wire::HostKeysProveRequestMsg& msg);
 
-  std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> tls_;
+  ThreadLocalDataSlotSharedPtr tls_;
   AuthStateSharedPtr auth_state_;
   std::map<std::string, Service*> services_;
   std::unique_ptr<DownstreamUserAuthService> user_auth_service_;

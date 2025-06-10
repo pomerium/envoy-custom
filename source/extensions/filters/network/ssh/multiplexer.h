@@ -1,5 +1,6 @@
 #pragma once
 
+#ifdef SSH_EXPERIMENTAL
 #include <memory>
 
 #pragma clang unsafe_buffer_usage begin
@@ -9,7 +10,7 @@
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/transport.h"
-#include "source/extensions/filters/network/ssh/shared.h"
+#include "source/extensions/filters/network/ssh/experimental.h"
 #include "source/extensions/filters/network/ssh/vt_buffer.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
@@ -23,7 +24,7 @@ public:
   SourceUpstreamSessionMultiplexer(
     Api::Api& api,
     TransportCallbacks& transport,
-    std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> tls,
+    ThreadLocalDataSlotSharedPtr tls,
     Dispatcher& dispatcher);
 
   absl::Status onStreamBegin(const AuthState& auth_state);
@@ -44,7 +45,7 @@ private:
 
   Codec::MultiplexingInfo info_;
   std::optional<uint64_t> current_stream_id_;
-  std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> tls_;
+  ThreadLocalDataSlotSharedPtr tls_;
   Dispatcher& local_dispatcher_;
   bool stream_ending_{false};
   std::set<std::weak_ptr<MirrorCallbacks>, std::owner_less<>> active_mirrors_;
@@ -72,7 +73,7 @@ public:
   MirrorSessionMultiplexer(
     Api::Api& api,
     TransportCallbacks& transport,
-    std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> tls,
+    ThreadLocalDataSlotSharedPtr tls,
     Dispatcher& dispatcher);
 
   absl::Status onStreamBegin(const AuthState& auth_state);
@@ -91,7 +92,7 @@ private:
 
   Codec::MultiplexingInfo info_;
   std::optional<uint64_t> current_stream_id_;
-  std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> tls_;
+  ThreadLocalDataSlotSharedPtr tls_;
   Dispatcher& local_dispatcher_;
   std::weak_ptr<SourceInterface> source_interface_;
   std::optional<uint32_t> sender_channel_;
@@ -99,3 +100,5 @@ private:
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
+
+#endif

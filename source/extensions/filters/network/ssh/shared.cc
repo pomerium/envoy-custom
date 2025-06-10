@@ -1,3 +1,5 @@
+#ifdef SSH_EXPERIMENTAL
+#define SSH_INCLUDED_EXPERIMENTAL_ 1
 #include "source/extensions/filters/network/ssh/shared.h"
 #include "source/common/common/lock_guard.h"
 
@@ -100,3 +102,5 @@ void ThreadLocalData::awaitSession(stream_id_t session_id, std::shared_ptr<Sourc
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
+
+#endif

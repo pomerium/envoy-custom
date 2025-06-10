@@ -3,8 +3,12 @@
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/service.h"
 #include "source/extensions/filters/network/ssh/transport.h"
-#include "source/extensions/filters/network/ssh/multiplexer.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
+#include "source/extensions/filters/network/ssh/experimental.h"
+
+#ifdef SSH_EXPERIMENTAL
+#include "source/extensions/filters/network/ssh/multiplexer.h"
+#endif
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -26,7 +30,7 @@ class DownstreamConnectionService final : public ConnectionService,
 public:
   DownstreamConnectionService(TransportCallbacks& callbacks,
                               Api::Api& api,
-                              std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr)
+                              ThreadLocalDataSlotSharedPtr slot_ptr)
       : ConnectionService(callbacks, api),
         transport_(dynamic_cast<DownstreamTransportCallbacks&>(callbacks)),
         slot_ptr_(slot_ptr) {}
@@ -40,9 +44,11 @@ public:
 
 private:
   DownstreamTransportCallbacks& transport_;
-  std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr_;
+  ThreadLocalDataSlotSharedPtr slot_ptr_;
+#ifdef SSH_EXPERIMENTAL
   std::shared_ptr<SourceDownstreamSessionMultiplexer> source_multiplexer_;
   std::shared_ptr<MirrorSessionMultiplexer> mirror_multiplexer_;
+#endif
 };
 
 class UpstreamConnectionService final : public ConnectionService,
@@ -52,7 +58,7 @@ public:
   UpstreamConnectionService(
     UpstreamTransportCallbacks& callbacks,
     Api::Api& api,
-    std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr)
+    ThreadLocalDataSlotSharedPtr slot_ptr)
       : ConnectionService(callbacks, api),
         slot_ptr_(slot_ptr) {}
   absl::Status requestService() override;
@@ -64,9 +70,10 @@ public:
   void onStreamEnd();
 
 private:
-  std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr_;
+  ThreadLocalDataSlotSharedPtr slot_ptr_;
+#ifdef SSH_EXPERIMENTAL
   std::shared_ptr<SourceUpstreamSessionMultiplexer> source_multiplexer_;
-
+#endif
   MessageDispatcher<wire::Message>* msg_dispatcher_;
 };
 

@@ -12,7 +12,7 @@
 #include "source/extensions/filters/network/ssh/service.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/transport_base.h"
-#include "source/extensions/filters/network/ssh/shared.h"
+#include "source/extensions/filters/network/ssh/experimental.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -26,7 +26,7 @@ class SshClientTransport final : public TransportBase<ClientCodec>,
 public:
   SshClientTransport(Api::Api& api,
                      std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                     std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr);
+                     ThreadLocalDataSlotSharedPtr slot_ptr);
   void setCodecCallbacks(GenericProxy::ClientCodecCallbacks& callbacks) override;
 
   void decode(Envoy::Buffer::Instance& buffer, bool end_stream) final;
@@ -57,7 +57,7 @@ private:
   void registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) override;
   absl::StatusOr<MiddlewareResult> interceptMessage(wire::Message& ssh_msg) override;
 
-  std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> tls_;
+  ThreadLocalDataSlotSharedPtr tls_;
   AuthStateSharedPtr downstream_state_;
   std::unique_ptr<UpstreamUserAuthService> user_auth_svc_;
   std::unique_ptr<UpstreamConnectionService> connection_svc_;

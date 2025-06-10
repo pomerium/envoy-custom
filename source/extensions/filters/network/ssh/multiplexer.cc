@@ -1,3 +1,4 @@
+#ifdef SSH_EXPERIMENTAL
 #include "source/extensions/filters/network/ssh/multiplexer.h"
 #include "source/common/status.h"
 #include "source/extensions/filters/network/ssh/common.h"
@@ -14,7 +15,7 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 SourceUpstreamSessionMultiplexer::SourceUpstreamSessionMultiplexer(
   Api::Api& api,
   TransportCallbacks& transport,
-  std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> tls,
+  ThreadLocalDataSlotSharedPtr tls,
   Dispatcher& dispatcher)
     : api_(api),
       transport_(transport),
@@ -332,3 +333,5 @@ void MirrorSessionMultiplexer::onStreamEnd(const std::string& msg) {
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
+
+#endif

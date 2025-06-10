@@ -34,6 +34,7 @@ envoy_cc_library(
     hdrs = [
         "client_transport.h",
         "config.h",
+        "experimental.h",
         "extension_ping.h",
         "frame.h",
         "grpc_client_impl.h",
@@ -61,6 +62,7 @@ envoy_cc_library(
         "-Wimplicit-int-conversion",
         "-Wunsafe-buffer-usage",
     ],
+    defines = ["SSH_EXPERIMENTAL=1"],
     repository = "@envoy",
     deps = [
         ":ssh_cc_proto",

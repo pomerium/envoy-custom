@@ -20,12 +20,6 @@ enum class ChannelMode {
   Mirror = 4,
 };
 
-enum class MultiplexMode {
-  None = 0,
-  Source = 1,
-  Mirror = 2,
-};
-
 enum class ReadWriteMode {
   ReadOnly = 0,
   ReadWrite = 1,
@@ -37,12 +31,20 @@ struct HandoffInfo {
   std::unique_ptr<pomerium::extensions::ssh::SSHDownstreamPTYInfo> pty_info;
 };
 
+#ifdef SSH_EXPERIMENTAL
+enum class MultiplexMode {
+  None = 0,
+  Source = 1,
+  Mirror = 2,
+};
+
 struct MultiplexingInfo {
   MultiplexMode multiplex_mode{MultiplexMode::None};
   ReadWriteMode rw_mode{ReadWriteMode::ReadOnly};
   stream_id_t source_stream_id{};
   std::optional<uint32_t> downstream_channel_id;
 };
+#endif
 
 struct AuthState {
   std::string server_version;
@@ -50,7 +52,9 @@ struct AuthState {
   ChannelMode channel_mode{};
   std::weak_ptr<Grpc::AsyncStream<pomerium::extensions::ssh::ChannelMessage>> hijacked_stream;
   HandoffInfo handoff_info;
+#ifdef SSH_EXPERIMENTAL
   MultiplexingInfo multiplexing_info;
+#endif
   std::optional<wire::ExtInfoMsg> downstream_ext_info;
   std::optional<wire::ExtInfoMsg> upstream_ext_info;
   std::unique_ptr<pomerium::extensions::ssh::AllowResponse> allow_response;

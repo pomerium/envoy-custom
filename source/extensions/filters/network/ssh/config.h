@@ -8,7 +8,7 @@
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
 #pragma clang unsafe_buffer_usage end
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
-#include "source/extensions/filters/network/ssh/shared.h"
+#include "source/extensions/filters/network/ssh/experimental.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 class SshCodecFactoryConfig : public CodecFactoryConfig {
@@ -27,7 +27,7 @@ class SshCodecFactory : public CodecFactory {
 public:
   SshCodecFactory(Api::Api& api,
                   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                  std::unique_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr,
+                  ThreadLocalDataSlotPtr slot_ptr,
                   CreateGrpcClientFunc create_grpc_client);
   ServerCodecPtr createServerCodec() const override;
   ClientCodecPtr createClientCodec() const override;
@@ -35,7 +35,7 @@ public:
 private:
   Api::Api& api_;
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config_;
-  std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr_;
+  ThreadLocalDataSlotSharedPtr slot_ptr_;
   CreateGrpcClientFunc create_grpc_client_;
 };
 
