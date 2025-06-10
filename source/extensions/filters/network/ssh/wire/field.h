@@ -204,7 +204,7 @@ struct sub_message {
     requires (has_option<std::decay_t<T>>())
   constexpr sub_message(T&& t)
       : oneof(std::forward<T>(t)),
-        key_field_(std::decay_t<T>::submsg_key) {}
+        key_field_(key_type{std::decay_t<T>::submsg_key}) {}
 
   // oneof holds one of the messages in Options, or no value.
   std::optional<std::variant<Options...>> oneof;
@@ -220,7 +220,7 @@ struct sub_message {
     return *this;
   }
 
-  bool operator==(const sub_message& other) const = default;
+  constexpr auto operator<=>(const sub_message& other) const = default;
 
   // Sets or updates the stored sub-message. This also updates the key field in the containing
   // message with the new message's key.

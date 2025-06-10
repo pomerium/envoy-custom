@@ -22,7 +22,7 @@ struct Msg {
   static constexpr SshMessageType submsg_key = MT;
   static constexpr EncodingOptions submsg_key_encoding = None;
 
-  constexpr bool operator==(const Msg&) const = default;
+  constexpr auto operator<=>(const Msg&) const = default;
 };
 
 template <SshMessageType MT, typename T, size_t Id>
@@ -115,6 +115,8 @@ struct SubMsg {
   using submsg_group = detail::SubMsgGroup<MT>;
   static constexpr std::string_view submsg_key = K.to_string();
   static constexpr EncodingOptions submsg_key_encoding = LengthPrefixed;
+
+  constexpr auto operator<=>(const SubMsg&) const = default;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4253#section-7.1
@@ -133,6 +135,7 @@ struct KexInitMsg final : Msg<SshMessageType::KexInit> {
   field<bool> first_kex_packet_follows;
   field<uint32_t> reserved;
 
+  constexpr auto operator<=>(const KexInitMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -141,6 +144,7 @@ struct KexInitMsg final : Msg<SshMessageType::KexInit> {
 struct KexEcdhInitMsg : Msg<SshMessageType::KexECDHInit> {
   field<bytes, LengthPrefixed> client_pub_key;
 
+  constexpr auto operator<=>(const KexEcdhInitMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -151,6 +155,7 @@ struct KexEcdhReplyMsg : Msg<SshMessageType::KexECDHReply> {
   field<bytes, LengthPrefixed> ephemeral_pub_key;
   field<bytes, LengthPrefixed> signature;
 
+  constexpr auto operator<=>(const KexEcdhReplyMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -159,6 +164,7 @@ struct KexEcdhReplyMsg : Msg<SshMessageType::KexECDHReply> {
 struct ServiceRequestMsg final : Msg<SshMessageType::ServiceRequest> {
   field<std::string, LengthPrefixed> service_name;
 
+  constexpr auto operator<=>(const ServiceRequestMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -167,6 +173,7 @@ struct ServiceRequestMsg final : Msg<SshMessageType::ServiceRequest> {
 struct ServiceAcceptMsg final : Msg<SshMessageType::ServiceAccept> {
   field<std::string, LengthPrefixed> service_name;
 
+  constexpr auto operator<=>(const ServiceAcceptMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -175,6 +182,7 @@ template <SshMessageType T>
 struct EmptyMsg : Msg<T> {
   using Msg<T>::type;
 
+  constexpr auto operator<=>(const EmptyMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
     return decodeMsg(buffer, type, payload_size);
   }
@@ -192,6 +200,7 @@ struct ChannelOpenMsg final : Msg<SshMessageType::ChannelOpen> {
   field<uint32_t> max_packet_size;
   field<bytes> extra;
 
+  constexpr auto operator<=>(const ChannelOpenMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -205,12 +214,14 @@ struct PtyReqChannelRequestMsg final : SubMsg<SshMessageType::ChannelRequest, "p
   field<uint32_t> height_px;
   field<std::string, LengthPrefixed> modes;
 
+  constexpr auto operator<=>(const PtyReqChannelRequestMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-6.5
 struct ShellChannelRequestMsg final : SubMsg<SshMessageType::ChannelRequest, "shell"> {
+  constexpr auto operator<=>(const ShellChannelRequestMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
     (void)buffer;
     (void)payload_size;
@@ -229,6 +240,7 @@ struct WindowDimensionChangeChannelRequestMsg final : SubMsg<SshMessageType::Cha
   field<uint32_t> width_px;
   field<uint32_t> height_px;
 
+  constexpr auto operator<=>(const WindowDimensionChangeChannelRequestMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -243,6 +255,7 @@ struct ChannelRequestMsg final : Msg<SshMessageType::ChannelRequest> {
               WindowDimensionChangeChannelRequestMsg>
     request;
 
+  constexpr auto operator<=>(const ChannelRequestMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -255,6 +268,7 @@ struct ChannelOpenConfirmationMsg final : Msg<SshMessageType::ChannelOpenConfirm
   field<uint32_t> max_packet_size;
   field<bytes> extra;
 
+  constexpr auto operator<=>(const ChannelOpenConfirmationMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -266,6 +280,7 @@ struct ChannelOpenFailureMsg final : Msg<SshMessageType::ChannelOpenFailure> {
   field<std::string, LengthPrefixed> description;
   field<std::string, LengthPrefixed> language_tag;
 
+  constexpr auto operator<=>(const ChannelOpenFailureMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -275,6 +290,7 @@ struct ChannelWindowAdjustMsg final : Msg<SshMessageType::ChannelWindowAdjust> {
   mutable field<uint32_t> recipient_channel;
   field<uint32_t> bytes_to_add;
 
+  constexpr auto operator<=>(const ChannelWindowAdjustMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -284,6 +300,7 @@ struct ChannelDataMsg final : Msg<SshMessageType::ChannelData> {
   mutable field<uint32_t> recipient_channel;
   field<bytes, LengthPrefixed> data;
 
+  constexpr auto operator<=>(const ChannelDataMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -294,6 +311,7 @@ struct ChannelExtendedDataMsg final : Msg<SshMessageType::ChannelExtendedData> {
   field<uint32_t> data_type_code;
   field<bytes, LengthPrefixed> data;
 
+  constexpr auto operator<=>(const ChannelExtendedDataMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -302,6 +320,7 @@ struct ChannelExtendedDataMsg final : Msg<SshMessageType::ChannelExtendedData> {
 struct ChannelEOFMsg final : Msg<SshMessageType::ChannelEOF> {
   mutable field<uint32_t> recipient_channel;
 
+  constexpr auto operator<=>(const ChannelEOFMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -310,6 +329,7 @@ struct ChannelEOFMsg final : Msg<SshMessageType::ChannelEOF> {
 struct ChannelCloseMsg final : Msg<SshMessageType::ChannelClose> {
   mutable field<uint32_t> recipient_channel;
 
+  constexpr auto operator<=>(const ChannelCloseMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -318,6 +338,7 @@ struct ChannelCloseMsg final : Msg<SshMessageType::ChannelClose> {
 struct ChannelSuccessMsg final : Msg<SshMessageType::ChannelSuccess> {
   mutable field<uint32_t> recipient_channel;
 
+  constexpr auto operator<=>(const ChannelSuccessMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -326,6 +347,7 @@ struct ChannelSuccessMsg final : Msg<SshMessageType::ChannelSuccess> {
 struct ChannelFailureMsg final : Msg<SshMessageType::ChannelFailure> {
   mutable field<uint32_t> recipient_channel;
 
+  constexpr auto operator<=>(const ChannelFailureMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -333,6 +355,7 @@ struct ChannelFailureMsg final : Msg<SshMessageType::ChannelFailure> {
 struct HostKeysProveRequestMsg final : SubMsg<SshMessageType::GlobalRequest, "hostkeys-prove-00@openssh.com"> {
   field<bytes_list, LengthPrefixed> hostkeys;
 
+  constexpr auto operator<=>(const HostKeysProveRequestMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t len) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -340,6 +363,7 @@ struct HostKeysProveRequestMsg final : SubMsg<SshMessageType::GlobalRequest, "ho
 struct HostKeysMsg final : SubMsg<SshMessageType::GlobalRequest, "hostkeys-00@openssh.com"> {
   field<bytes_list, LengthPrefixed> hostkeys;
 
+  constexpr auto operator<=>(const HostKeysMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t len) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -352,6 +376,7 @@ struct GlobalRequestMsg final : Msg<SshMessageType::GlobalRequest> {
               HostKeysMsg>
     request;
 
+  constexpr auto operator<=>(const GlobalRequestMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -359,6 +384,7 @@ struct GlobalRequestMsg final : Msg<SshMessageType::GlobalRequest> {
 struct HostKeysProveResponseMsg final : SubMsg<SshMessageType::RequestSuccess, "hostkeys-prove-00@openssh.com"> {
   field<bytes_list, LengthPrefixed> signatures;
 
+  constexpr auto operator<=>(const HostKeysProveResponseMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t len) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -367,6 +393,7 @@ struct HostKeysProveResponseMsg final : SubMsg<SshMessageType::RequestSuccess, "
 struct GlobalRequestSuccessMsg final : Msg<SshMessageType::RequestSuccess> {
   sub_message<HostKeysProveResponseMsg> response;
 
+  constexpr auto operator<=>(const GlobalRequestSuccessMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -378,6 +405,7 @@ struct GlobalRequestFailureMsg final : EmptyMsg<SshMessageType::RequestFailure> 
 struct IgnoreMsg final : Msg<SshMessageType::Ignore> {
   field<bytes, LengthPrefixed> data;
 
+  constexpr auto operator<=>(const IgnoreMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -388,6 +416,7 @@ struct DebugMsg final : Msg<SshMessageType::Debug> {
   field<std::string, LengthPrefixed> message;
   field<std::string, LengthPrefixed> language_tag;
 
+  constexpr auto operator<=>(const DebugMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -397,6 +426,7 @@ struct UnimplementedMsg final : Msg<SshMessageType::Unimplemented> {
   // FIXME: the sequence numbers in this message are likely going to be wrong, need to adjust them
   field<uint32_t> sequence_number;
 
+  constexpr auto operator<=>(const UnimplementedMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -408,6 +438,7 @@ struct PubKeyUserAuthRequestMsg final : SubMsg<SshMessageType::UserAuthRequest, 
   field<bytes, LengthPrefixed> public_key;
   field<bytes, LengthPrefixed> signature;
 
+  constexpr auto operator<=>(const PubKeyUserAuthRequestMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -417,12 +448,14 @@ struct KeyboardInteractiveUserAuthRequestMsg final : SubMsg<SshMessageType::User
   field<std::string, LengthPrefixed> language_tag;
   field<string_list, NameListFormat> submethods;
 
+  constexpr auto operator<=>(const KeyboardInteractiveUserAuthRequestMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4252#section-5.2
 struct NoneAuthRequestMsg final : SubMsg<SshMessageType::UserAuthRequest, "none"> {
+  constexpr auto operator<=>(const NoneAuthRequestMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance&, size_t) noexcept {
     return 0;
   }
@@ -441,6 +474,7 @@ struct UserAuthRequestMsg final : Msg<SshMessageType::UserAuthRequest> {
               NoneAuthRequestMsg>
     request;
 
+  constexpr auto operator<=>(const UserAuthRequestMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -449,6 +483,7 @@ struct UserAuthInfoPrompt {
   field<std::string, LengthPrefixed> prompt;
   field<bool> echo;
 
+  constexpr auto operator<=>(const UserAuthInfoPrompt&) const = default;
   // implements Reader
   friend size_t read(Envoy::Buffer::Instance& buffer, UserAuthInfoPrompt& prompt, size_t payload_size);
   // implements Writer
@@ -462,6 +497,7 @@ struct UserAuthInfoRequestMsg : Msg<SshMessageType::UserAuthInfoRequest> {
   field<std::string, LengthPrefixed> language_tag;
   field<std::vector<UserAuthInfoPrompt>, ListSizePrefixed> prompts;
 
+  constexpr auto operator<=>(const UserAuthInfoRequestMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -470,6 +506,7 @@ struct UserAuthInfoRequestMsg : Msg<SshMessageType::UserAuthInfoRequest> {
 struct UserAuthInfoResponseMsg : Msg<SshMessageType::UserAuthInfoResponse> {
   field<string_list, LengthPrefixed | ListSizePrefixed> responses;
 
+  constexpr auto operator<=>(const UserAuthInfoResponseMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -479,6 +516,7 @@ struct UserAuthBannerMsg final : Msg<SshMessageType::UserAuthBanner> {
   field<std::string, LengthPrefixed> message;
   field<std::string, LengthPrefixed> language_tag;
 
+  constexpr auto operator<=>(const UserAuthBannerMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -488,6 +526,7 @@ struct UserAuthFailureMsg final : Msg<SshMessageType::UserAuthFailure> {
   field<string_list, NameListFormat> methods;
   field<bool> partial;
 
+  constexpr auto operator<=>(const UserAuthFailureMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -498,21 +537,27 @@ struct DisconnectMsg final : Msg<SshMessageType::Disconnect> {
   field<std::string, LengthPrefixed> description;
   field<std::string, LengthPrefixed> language_tag;
 
+  constexpr auto operator<=>(const DisconnectMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4252#section-5.1
-struct UserAuthSuccessMsg final : EmptyMsg<SshMessageType::UserAuthSuccess> {};
+struct UserAuthSuccessMsg final : EmptyMsg<SshMessageType::UserAuthSuccess> {
+  constexpr auto operator<=>(const UserAuthSuccessMsg&) const = default;
+};
 
 // // https://datatracker.ietf.org/doc/html/rfc4253#section-7.3
-struct NewKeysMsg final : EmptyMsg<SshMessageType::NewKeys> {};
+struct NewKeysMsg final : EmptyMsg<SshMessageType::NewKeys> {
+  constexpr auto operator<=>(const NewKeysMsg&) const = default;
+};
 
 // https://datatracker.ietf.org/doc/html/rfc4252#section-7
 struct UserAuthPubKeyOkMsg : Msg<SshMessageType::UserAuthPubKeyOk> {
   field<std::string, LengthPrefixed> public_key_alg;
   field<bytes, LengthPrefixed> public_key;
 
+  constexpr auto operator<=>(const UserAuthPubKeyOkMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -521,6 +566,7 @@ struct UserAuthPubKeyOkMsg : Msg<SshMessageType::UserAuthPubKeyOk> {
 struct ServerSigAlgsExtension final : SubMsg<SshMessageType::ExtInfo, "server-sig-algs"> {
   field<string_list, NameListFormat> public_key_algorithms_accepted;
 
+  constexpr auto operator<=>(const ServerSigAlgsExtension&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -528,6 +574,7 @@ struct ServerSigAlgsExtension final : SubMsg<SshMessageType::ExtInfo, "server-si
 struct PingExtension final : SubMsg<SshMessageType::ExtInfo, "ping@openssh.com"> {
   field<std::string, LengthPrefixed> version;
 
+  constexpr auto operator<=>(const PingExtension&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -548,6 +595,7 @@ struct Extension {
     extension.reset(std::forward<T>(ext));
   }
 
+  constexpr auto operator<=>(const Extension&) const = default;
   // implements Reader
   friend size_t read(Envoy::Buffer::Instance& buffer, Extension& ext, size_t payload_size);
   // implements Writer
@@ -567,6 +615,7 @@ struct ExtInfoMsg final : Msg<SshMessageType::ExtInfo> {
     return false;
   }
 
+  constexpr auto operator<=>(const ExtInfoMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -574,6 +623,7 @@ struct ExtInfoMsg final : Msg<SshMessageType::ExtInfo> {
 struct PingMsg final : Msg<SshMessageType::Ping> {
   field<std::string, LengthPrefixed> data;
 
+  constexpr auto operator<=>(const PingMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -581,6 +631,7 @@ struct PingMsg final : Msg<SshMessageType::Ping> {
 struct PongMsg final : Msg<SshMessageType::Pong> {
   field<std::string, LengthPrefixed> data;
 
+  constexpr auto operator<=>(const PongMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -689,10 +740,6 @@ struct Message final {
 
   constexpr SshMessageType msg_type() const { return *message.key_field(); }
 
-  bool operator==(const Message& other) const {
-    return message == other.message;
-  }
-
   template <typename Self>
   [[nodiscard]] constexpr decltype(auto) visit(this Self&& self, auto... args) {
     if (self.message.oneof.has_value()) {
@@ -704,6 +751,7 @@ struct Message final {
     }
   }
 
+  constexpr auto operator<=>(const Message&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
