@@ -10,7 +10,6 @@
 #include "test/extensions/filters/network/ssh/wire/test_field_reflect.h"
 
 #pragma clang unsafe_buffer_usage begin
-#include "absl/random/random.h"
 #include "absl/strings/str_split.h"
 #pragma clang unsafe_buffer_usage end
 
@@ -587,17 +586,6 @@ static const auto cipherInfo = std::unordered_map<std::string, std::tuple<uint32
 };
 
 class SSHCipherTestSuite : public testing::TestWithParam<std::tuple<std::string, bytes, bytes>> {};
-
-static absl::BitGen rng;
-
-inline bytes randomBytes(size_t size) {
-  bytes b;
-  b.resize(size);
-  for (size_t i = 0; i < b.size(); i++) {
-    b[i] = absl::Uniform<uint8_t>(rng);
-  }
-  return b;
-}
 
 TEST_P(SSHCipherTestSuite, Init) {
   for (auto mode : {CipherMode::Read, CipherMode::Write}) {

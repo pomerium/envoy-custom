@@ -1,4 +1,3 @@
-#include "absl/random/random.h"
 #include "gtest/gtest.h"
 #include "test/test_common/utility.h"
 
@@ -17,17 +16,6 @@ TEST(UserAuthServiceTest, SplitUsername) {
   ASSERT_EQ((std::pair{"foo", "bar"}), detail::splitUsername("foo@bar"));
   ASSERT_EQ((std::pair{"foo@bar", "baz"}), detail::splitUsername("foo@bar@baz"));
   ASSERT_EQ((std::pair{"foo\0@bar\0"s, "baz"s}), detail::splitUsername("foo\0@bar\0@baz"s));
-}
-
-static absl::BitGen rng;
-
-inline bytes randomBytes(size_t size) {
-  bytes b;
-  b.resize(size);
-  for (size_t i = 0; i < b.size(); i++) {
-    b[i] = absl::Uniform<uint8_t>(rng);
-  }
-  return b;
 }
 
 class TestSshMessageDispatcher : public SshMessageDispatcher {

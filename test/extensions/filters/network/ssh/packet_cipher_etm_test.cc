@@ -7,19 +7,8 @@
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 namespace test {
 
-static absl::BitGen rng;
-
-inline bytes randomBytes(size_t size) {
-  bytes b;
-  b.resize(size);
-  for (size_t i = 0; i < b.size(); i++) {
-    b[i] = absl::Uniform<uint8_t>(rng);
-  }
-  return b;
-}
-
 struct CipherParameters {
-  const char *const alg;
+  const char* const alg;
   size_t keySize;
 };
 
@@ -105,8 +94,8 @@ TEST_P(ETMPacketCipherTest, DecryptIncompletePacket) {
 TEST_P(ETMPacketCipherTest, DecryptBadCiphertext) {
   Buffer::OwnedImpl buffer;
   buffer.writeBEInt(uint32_t(64));
-  buffer.add( "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
-  buffer.add( "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+  buffer.add("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+  buffer.add("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
 
   Buffer::OwnedImpl decrypted;
   auto r = read_cipher_->decryptPacket(0, decrypted, buffer);
@@ -115,31 +104,31 @@ TEST_P(ETMPacketCipherTest, DecryptBadCiphertext) {
 }
 
 std::vector<CipherParameters> AllETMCipherParameters{
-  { .alg = CipherAES128CTR,
-    .keySize = 16 },
-  { .alg = CipherAES192CTR,
-    .keySize = 24 },
-  { .alg = CipherAES256CTR,
-    .keySize = 32 },
+  {.alg = CipherAES128CTR,
+   .keySize = 16},
+  {.alg = CipherAES192CTR,
+   .keySize = 24},
+  {.alg = CipherAES256CTR,
+   .keySize = 32},
 };
 
 INSTANTIATE_TEST_SUITE_P(ETMPacketCipherTestSuite, ETMPacketCipherTest,
-  testing::Combine(testing::ValuesIn(AllETMCipherParameters),
-                   testing::ValuesIn(SupportedMACs)));
+                         testing::Combine(testing::ValuesIn(AllETMCipherParameters),
+                                          testing::ValuesIn(SupportedMACs)));
 
 TEST(ETMPacketCipherTest, NonETM) {
-    DerivedKeys keys{
-      .iv = bytes(16),
-      .key = bytes(16),
-      .mac = bytes(32),
-    };
-    DirectionAlgorithms algs{
-      .cipher = "aes128-ctr",
-      .mac = "hmac-sha2-256", // non-ETM MAC algorithm
-      .compression = "",
-    };
+  DerivedKeys keys{
+    .iv = bytes(16),
+    .key = bytes(16),
+    .mac = bytes(32),
+  };
+  DirectionAlgorithms algs{
+    .cipher = "aes128-ctr",
+    .mac = "hmac-sha2-256", // non-ETM MAC algorithm
+    .compression = "",
+  };
   EXPECT_THROW_WITH_MESSAGE(
-    ETMPacketCipher(keys, algs, openssh::CipherMode::Read);,
+    ETMPacketCipher(keys, algs, openssh::CipherMode::Read),
     EnvoyException,
     "unsupported mac algorithm (hmac-sha2-256): only etm mac algorithms are supported");
 }
@@ -165,7 +154,6 @@ TEST(ETMPacketCipherFactoryTest, Factory) {
 
   ASSERT_THAT(factories.factoryForName("aes256-ctr").get(),
               WhenDynamicCastTo<AES256CTRCipherFactory*>(NotNull()));
-
 
   for (auto params : AllETMCipherParameters) {
     auto factory = factories.factoryForName(params.alg);

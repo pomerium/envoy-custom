@@ -1,10 +1,12 @@
 #pragma once
 
 #include "source/common/optref.h"
+#include "source/common/types.h"
 #include "source/common/type_traits.h"
 #pragma clang unsafe_buffer_usage begin
 #include "source/common/buffer/buffer_impl.h" // IWYU pragma: keep
-#include "absl/status/statusor.h"             // IWYU pragma: keep
+#include "absl/random/random.h"
+#include "absl/status/statusor.h" // IWYU pragma: keep
 
 #if defined(NDEBUG) || defined(ENVOY_CONFIG_COVERAGE)
 #include "test/test_common/logging.h"
@@ -102,6 +104,17 @@ WhenResolvedAs(const testing::Matcher<T>& inner_matcher) {
 // constexpr code with coverage.
 #define EXPECT_STATIC_ASSERT(...) \
   EXPECT_STATIC_ASSERT_IMPL_((__VA_ARGS__))
+
+static absl::BitGen rng;
+
+inline bytes randomBytes(size_t size) {
+  bytes b;
+  b.resize(size);
+  for (size_t i = 0; i < b.size(); i++) {
+    b[i] = absl::Uniform<uint8_t>(rng);
+  }
+  return b;
+}
 
 using testing::_; // NOLINT(bugprone-reserved-identifier)
 using testing::A;
