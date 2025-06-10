@@ -548,7 +548,9 @@ TYPED_TEST(TransportBaseTest, TestReadIncompletePacket) {
           buffer2.move(input);
           this->Server().Post([buffer = std::move(buffer1)](auto& server) mutable {
             // first packet (no callbacks expected)
+            auto bufferLen = buffer.length();
             server.decode(buffer, false);
+            EXPECT_EQ(bufferLen, buffer.length()); // the buffer should not be drained
           });
           this->Server().Post([buffer = std::move(buffer2)](auto& server) mutable {
             // second packet with the full message, expect the message to be decoded now
@@ -558,6 +560,7 @@ TYPED_TEST(TransportBaseTest, TestReadIncompletePacket) {
                 return absl::OkStatus();
               }));
             server.decode(buffer, false);
+            EXPECT_EQ(0, buffer.length());
           });
         }));
       EXPECT_OK(this->Client().sendMessageToConnection(auto(expectedMsg)).status());

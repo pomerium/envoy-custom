@@ -227,13 +227,12 @@ public:
     if (config_->has_rekey_threshold()) {
       read_bytes_remaining_ = std::max<uint64_t>(256, config_->rekey_threshold());
       write_bytes_remaining_ = std::max<uint64_t>(256, config_->rekey_threshold());
-      ENVOY_LOG(debug, "ssh [{}]: new read bytes remaining: {}", codec_traits<Codec>::name, read_bytes_remaining_);
-      ENVOY_LOG(debug, "ssh [{}]: new write bytes remaining: {}", codec_traits<Codec>::name, write_bytes_remaining_);
-
     } else {
       read_bytes_remaining_ = cipher_->rekeyAfterBytes(openssh::CipherMode::Read);
       write_bytes_remaining_ = cipher_->rekeyAfterBytes(openssh::CipherMode::Write);
     }
+    ENVOY_LOG(debug, "ssh [{}]: new read bytes remaining: {}", codec_traits<Codec>::name, read_bytes_remaining_);
+    ENVOY_LOG(debug, "ssh [{}]: new write bytes remaining: {}", codec_traits<Codec>::name, write_bytes_remaining_);
 
     pending_key_exchange_ = false;
 
