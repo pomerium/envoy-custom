@@ -142,12 +142,16 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyNoSignature) {
   auto r = service_->handleMessage(wire::Message{req});
   ASSERT_EQ(absl::UnknownError("sentinel"), r);
 
-  ASSERT_EQ(wire::SshMessageType::UserAuthPubKeyOk, resp.msg_type());
-  const auto& pubkey_ok_msg =
-    resp.message.get<wire::detail::overload_set_for_t<wire::UserAuthPubKeyOkMsg>>()
-      .resolve<wire::UserAuthPubKeyOkMsg>()->get();
-  ASSERT_EQ("ssh-ed25519", pubkey_ok_msg.public_key_alg);
-  ASSERT_EQ(public_key_blob, pubkey_ok_msg.public_key);
+  resp.visit(
+    [&](opt_ref<wire::UserAuthPubKeyOkMsg> opt_msg) {
+      ASSERT_TRUE(opt_msg.has_value());
+      auto& pubkey_ok_msg = opt_msg.value().get();
+      ASSERT_EQ("ssh-ed25519", pubkey_ok_msg.public_key_alg);
+      ASSERT_EQ(public_key_blob, pubkey_ok_msg.public_key);
+    },
+    [](auto&) {
+      FAIL() << "expected UserAuthPubKeyOkMsg";
+    });
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyUnexpectedSignature) {
