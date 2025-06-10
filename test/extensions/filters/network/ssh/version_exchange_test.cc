@@ -43,8 +43,6 @@ public:
     if (order == ReadFirst) {
       if (status.ok()) {
         ASSERT_TRUE(vex_.versionRead());
-        Buffer::OwnedImpl tmp;
-        ASSERT_EQ(absl::FailedPreconditionError("version already read"), vex_.readVersion(tmp).status());
       } else {
         ASSERT_FALSE(vex_.versionRead());
       }
@@ -54,8 +52,6 @@ public:
     } else {
       if (status.ok()) {
         ASSERT_TRUE(vex_.versionRead());
-        Buffer::OwnedImpl tmp;
-        ASSERT_EQ(absl::FailedPreconditionError("version already read"), vex_.readVersion(tmp).status());
       } else {
         ASSERT_FALSE(vex_.versionRead());
       }
@@ -78,7 +74,7 @@ public:
     case VersionExchangeMode::Server:
       EXPECT_CALL(transport_, writeToConnection(BufferStringEqual("ignored\r\n"s)));
       if (order == WriteFirst) {
-        ASSERT_OK(vex_.writeVersion("ignored").status());
+        ASSERT_EQ(9, vex_.writeVersion("ignored"));
         if (status.ok()) {
           EXPECT_CALL(vex_callbacks_, onVersionExchangeCompleted("ignored\r\n"_bytes, versionWithTerm, bytes{}));
         }
@@ -86,13 +82,13 @@ public:
         if (status.ok()) {
           EXPECT_CALL(vex_callbacks_, onVersionExchangeCompleted("ignored\r\n"_bytes, versionWithTerm, bytes{}));
         }
-        ASSERT_OK(vex_.writeVersion("ignored").status());
+        ASSERT_EQ(9, vex_.writeVersion("ignored"));
       }
       break;
     case VersionExchangeMode::Client:
       EXPECT_CALL(transport_, writeToConnection(BufferStringEqual("ignored\r\n"s)));
       if (order == WriteFirst) {
-        ASSERT_OK(vex_.writeVersion("ignored").status());
+        ASSERT_EQ(9, vex_.writeVersion("ignored"));
         if (status.ok()) {
           EXPECT_CALL(vex_callbacks_, onVersionExchangeCompleted(versionWithTerm, "ignored\r\n"_bytes, banner));
         }
@@ -100,7 +96,7 @@ public:
         if (status.ok()) {
           EXPECT_CALL(vex_callbacks_, onVersionExchangeCompleted(versionWithTerm, "ignored\r\n"_bytes, banner));
         }
-        ASSERT_OK(vex_.writeVersion("ignored").status());
+        ASSERT_EQ(9, vex_.writeVersion("ignored"));
       }
       break;
     case VersionExchangeMode::None:
@@ -538,15 +534,22 @@ TEST(VersionExchangerTest, ServerReadBannerTextError) {
   EXPECT_EQ(absl::InvalidArgumentError("invalid version string"), r.status());
 }
 
-TEST(VersionExchangerTest, WriteVersionTwice) {
+TEST(VersionExchangerTest, WriteVersionTwiceDeath) {
   MockTransportCallbacks transport;
   EXPECT_CALL(transport, writeToConnection(BufferStringEqual("foo\r\n"s)));
   MockVersionExchangeCallbacks vex_callbacks;
   VersionExchanger vex(transport, vex_callbacks, VersionExchangeMode::Server);
-  auto r = vex.writeVersion("foo");
-  EXPECT_OK(r.status());
-  r = vex.writeVersion("foo");
-  EXPECT_EQ(absl::FailedPreconditionError("version already written"), r.status());
+  ASSERT_EQ(5, vex.writeVersion("foo"));
+  EXPECT_DEATH(vex.writeVersion("foo"), "version already written");
+}
+
+TEST(VersionExchangerTest, ReadVersionTwiceDeath) {
+  MockTransportCallbacks transport;
+  MockVersionExchangeCallbacks vex_callbacks;
+  VersionExchanger vex(transport, vex_callbacks, VersionExchangeMode::Server);
+  Buffer::OwnedImpl tmp("SSH-2.0-test\r\n");
+  ASSERT_OK(vex.readVersion(tmp).status());
+  EXPECT_DEATH(vex.readVersion(tmp).IgnoreError(), "version already read");
 }
 
 } // namespace test

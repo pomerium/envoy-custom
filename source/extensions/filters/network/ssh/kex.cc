@@ -148,8 +148,12 @@ absl::Status Kex::handleMessage(wire::Message&& msg) noexcept {
   return msg.visit(
     [&](wire::KexInitMsg& msg) {
       if (pending_state_) {
-        // The only way to get here is if we initiated the key exchange but have not received a
-        // response yet. It shouldn't be possible to receive two KexInit messages *here* since
+        // The only way to get here is if either:
+        // a) we initiated the key exchange but have not received a response yet.
+        // b) we failed to send our KexInit message, but did not propagate the error correctly,
+        //    causing an in-flight message containing the peer KexInit to be incorrectly delivered.
+        //
+        // It shouldn't be possible to receive two KexInit messages *here* since
         // a second KexInit message would be caught by one of the middlewares.
         RELEASE_ASSERT(pending_state_->kex_init_sent && !pending_state_->kex_init_received,
                        "bug: unexpected KexInitMsg received");
@@ -252,6 +256,8 @@ absl::Status Kex::sendKexInitMsg(bool initial_kex) noexcept {
   if (auto r = transport_.sendMessageDirect(auto(*kexInit)); !r.ok()) {
     return r.status();
   }
+  // Important: kex_init_sent must be set after sendMessageDirect, in case it fails. This state
+  // is checked when receiving the peer's KexInit.
   pending_state_->kex_init_sent = true;
 
   return absl::OkStatus();

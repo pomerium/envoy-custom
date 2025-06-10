@@ -5,7 +5,6 @@
 #pragma clang unsafe_buffer_usage end
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "source/extensions/filters/network/ssh/frame.h"
-#include "source/extensions/filters/network/ssh/packet_cipher.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/common.h"
 
@@ -13,17 +12,6 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 static constexpr DirectionTags clientKeys{'A', 'C', 'E'};
 static constexpr DirectionTags serverKeys{'B', 'D', 'F'};
-
-class PacketCipher;
-
-struct CipherState {
-  bool pending_key_exchange{};
-  std::unique_ptr<PacketCipher> cipher;
-  uint32_t seq_read{};
-  uint32_t seq_write{};
-  uint64_t read_bytes_remaining{};
-  uint64_t write_bytes_remaining{};
-};
 
 enum class ChannelMode {
   // Normal mode: the channel is being proxied directly to the upstream.
@@ -80,7 +68,7 @@ struct AuthState {
 
 using AuthStateSharedPtr = std::shared_ptr<AuthState>;
 
-class TransportCallbacks : public virtual Logger::Loggable<Logger::Id::filter> {
+class TransportCallbacks {
   friend class Kex;              // uses reset{Read|Write}SequenceNumber and sendMessageDirect
   friend class VersionExchanger; // uses writeToConnection
 
@@ -117,14 +105,10 @@ protected:
 
 class DownstreamTransportCallbacks : public virtual TransportCallbacks {
 public:
-  using TransportCallbacks::TransportCallbacks;
   virtual void initUpstream(AuthStateSharedPtr downstream_state) PURE;
   virtual void sendMgmtClientMessage(const ClientMessage& msg) PURE;
 };
 
-class UpstreamTransportCallbacks : public virtual TransportCallbacks {
-public:
-  using TransportCallbacks::TransportCallbacks;
-};
+class UpstreamTransportCallbacks : public virtual TransportCallbacks {};
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
