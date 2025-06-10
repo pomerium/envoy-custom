@@ -48,6 +48,7 @@ public:
   virtual ~MockDownstreamTransportCallbacks();
 
   MOCK_METHOD(void, initUpstream, (AuthStateSharedPtr));
+  MOCK_METHOD(void, onServiceAuthenticated, (const std::string&));
   MOCK_METHOD(void, sendMgmtClientMessage, (const ClientMessage&));
 };
 

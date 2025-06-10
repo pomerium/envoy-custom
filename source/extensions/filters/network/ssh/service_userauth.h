@@ -13,7 +13,7 @@ class UserAuthService : public virtual Service,
 public:
   std::string name() override { return "ssh-userauth"; };
   UserAuthService(TransportCallbacks& callbacks, Api::Api& api)
-    : transport_(callbacks), api_(api) {};
+      : transport_(callbacks), api_(api) {};
 
 protected:
   TransportCallbacks& transport_;
@@ -36,6 +36,7 @@ public:
 
 private:
   DownstreamTransportCallbacks& transport_;
+  std::optional<std::string> pending_service_auth_;
 };
 
 class UpstreamUserAuthService final : public UserAuthService,

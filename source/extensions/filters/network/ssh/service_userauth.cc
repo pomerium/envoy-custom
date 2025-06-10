@@ -39,6 +39,12 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
         ENVOY_LOG(debug, "unsupported user auth request {}", msg.method_name());
         return absl::UnimplementedError("unknown or unsupported auth method");
       }
+      if (!pending_service_auth_.has_value()) {
+        ENVOY_LOG(debug, "starting user auth for service: {}", msg.service_name);
+        pending_service_auth_ = msg.service_name;
+      } else if (pending_service_auth_ != msg.service_name) {
+        return absl::FailedPreconditionError("inconsistent service names sent in user auth request");
+      }
 
       auto [username, hostname] = detail::splitUsername(*msg.username);
       AuthenticationRequest auth_req;
@@ -192,6 +198,8 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
       default:
         return absl::InternalError("invalid target");
       }
+      RELEASE_ASSERT(pending_service_auth_.has_value(), "no service is pending auth");
+      transport_.onServiceAuthenticated(*std::move(pending_service_auth_));
       transport_.initUpstream(std::move(state));
       return absl::OkStatus();
     }
@@ -297,12 +305,12 @@ absl::Status UpstreamUserAuthService::onServiceAccepted() {
   constexpr static wire::field<std::string, wire::LengthPrefixed> method_name =
     std::string(wire::PubKeyUserAuthRequestMsg::submsg_key);
   if (auto r = wire::encodeMsg(buf, req->type,
-                                req->username,
-                                req->service_name,
-                                method_name,
-                                pubkeyReq.has_signature,
-                                pubkeyReq.public_key_alg,
-                                pubkeyReq.public_key);
+                               req->username,
+                               req->service_name,
+                               method_name,
+                               pubkeyReq.has_signature,
+                               pubkeyReq.public_key_alg,
+                               pubkeyReq.public_key);
       !r.ok()) {
     return statusf("error encoding user auth request: {}", r.status());
   }
