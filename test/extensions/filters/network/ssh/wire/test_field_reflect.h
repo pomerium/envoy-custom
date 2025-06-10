@@ -71,15 +71,7 @@ concept FieldReflectable = requires(T t) {
             EXPAND_CALL_3, EXPAND_CALL_2, EXPAND_CALL_1)    \
   (__VA_ARGS__)
 
-#define TEST_FIELDS(msg, ...)                                                                        \
-  template <>                                                                                        \
-  struct wire::test_field_reflect<wire::msg> {                                                       \
-    template <typename T>                                                                            \
-      requires std::same_as<std::decay_t<T>, wire::msg>                                              \
-    static constexpr void visit_fields([[maybe_unused]] T& m, [[maybe_unused]] auto visitor) {       \
-      __VA_OPT__(EXPAND_CALLS(__VA_ARGS__))                                                          \
-    };                                                                                               \
-  };                                                                                                 \
+#define FORMAT_FIELDS(msg, ...)                                                                      \
   template <>                                                                                        \
   struct fmt::formatter<wire::msg> : formatter<string_view> {                                        \
     auto format(const ::wire::msg& m, format_context& ctx) const -> format_context::iterator {       \
@@ -96,6 +88,17 @@ concept FieldReflectable = requires(T t) {
     }                                                                                                \
   };                                                                                                 \
   static_assert(FieldReflectable<wire::msg>);
+
+#define TEST_FIELDS(msg, ...)                                                                  \
+  template <>                                                                                  \
+  struct wire::test_field_reflect<wire::msg> {                                                 \
+    template <typename T>                                                                      \
+      requires std::same_as<std::decay_t<T>, wire::msg>                                        \
+    static constexpr void visit_fields([[maybe_unused]] T& m, [[maybe_unused]] auto visitor) { \
+      __VA_OPT__(EXPAND_CALLS(__VA_ARGS__))                                                    \
+    };                                                                                         \
+  };                                                                                           \
+  FORMAT_FIELDS(msg, __VA_ARGS__)
 
 template <typename... Overloads>
 struct wire::test_field_reflect<wire::OverloadSet<Overloads...>> {
@@ -278,11 +281,29 @@ TEST_FIELDS(UserAuthInfoResponseMsg,
             responses);
 
 // sub-messages
-TEST_FIELDS(PubKeyUserAuthRequestMsg,
-            has_signature,
-            public_key_alg,
-            public_key,
-            signature);
+
+// This message is special: its decode method does not read the signature field at all if
+// has_signature=false. Encoding a message with has_signature=false and a non-empty signature,
+// then decoding it, will not result in the same message. Therefore we will only generate valid
+// messages, i.e. where has_signature is "correct".
+template <>
+struct wire::test_field_reflect<wire::PubKeyUserAuthRequestMsg> {
+  template <typename T>
+    requires std::same_as<std::decay_t<T>, wire::PubKeyUserAuthRequestMsg>
+  static constexpr void visit_fields(T& m, auto visitor) {
+    visitor("has_signature", m.has_signature);
+    visitor("public_key_alg", m.public_key_alg);
+    visitor("public_key", m.public_key);
+    if (m.has_signature) {
+      visitor("signature", m.signature);
+    }
+  };
+};
+FORMAT_FIELDS(PubKeyUserAuthRequestMsg,
+              has_signature,
+              public_key_alg,
+              public_key,
+              signature);
 TEST_FIELDS(HostKeysProveRequestMsg,
             hostkeys);
 TEST_FIELDS(HostKeysProveResponseMsg,
