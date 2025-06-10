@@ -215,6 +215,7 @@ TEST(MessagesTest, Message_RoundTrip) {
   auto encoded1 = tmp.toString();
 
   wire::Message decoded;
+  EXPECT_NE(decoded, msg);
   auto n2 = decoded.decode(tmp, *n);
   EXPECT_TRUE(n2.ok());
   EXPECT_EQ(*n, *n2);
@@ -298,7 +299,6 @@ TYPED_TEST(TopLevelMessagesTestSuite, RoundTrip) {
     TypeParam decoded;
     r = decoded.decode(buffer, buffer.length());
     EXPECT_TRUE(r.ok()) << r.status().ToString();
-    EXPECT_EQ(decoded, msg);
 
     if constexpr (wire::detail::is_overload_set_v<TypeParam>) {
       decoded.messageForTest().key_field() = overload_index;
@@ -310,12 +310,41 @@ TYPED_TEST(TopLevelMessagesTestSuite, RoundTrip) {
       auto r = decoded.response.decodeUnknown();
       EXPECT_TRUE(r.ok()) << r.status().ToString();
     }
+
+    EXPECT_EQ(decoded, msg);
   }
 }
 
 TYPED_TEST(TopLevelMessagesTestSuite, MessageType) {
   TypeParam msg;
   EXPECT_EQ(TypeParam::type, msg.msg_type());
+}
+
+TEST(NonstandardMessagesTest, GlobalRequestSuccessMsg) {
+  GlobalRequestSuccessMsg msg{
+    .response = HostKeysProveResponseMsg{
+      .signatures = {{"foo"_bytes, "bar"_bytes}},
+    },
+  };
+
+  Buffer::OwnedImpl buffer;
+  ASSERT_OK(msg.encode(buffer).status());
+
+  auto str1 = buffer.toString();
+
+  GlobalRequestSuccessMsg msg2;
+  ASSERT_OK(msg2.decode(buffer, buffer.length()).status());
+
+  EXPECT_NE(msg, msg2);
+  msg2.response.key_field() = std::string(HostKeysProveResponseMsg::submsg_key);
+  ASSERT_OK(msg2.response.decodeUnknown().status());
+  EXPECT_EQ(msg, msg2);
+
+  Buffer::OwnedImpl buffer2;
+  ASSERT_OK(msg2.encode(buffer2).status());
+
+  auto str2 = buffer2.toString();
+  EXPECT_EQ(str1, str2);
 }
 
 TEST(NonstandardMessagesTest, GlobalRequestSuccessMsg_DecodeErrors) {
