@@ -6,19 +6,13 @@
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 
-#ifdef SSH_EXPERIMENTAL
-#include "source/extensions/filters/network/ssh/multiplexer.h"
-#endif
-
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 ConnectionService::ConnectionService(
   TransportCallbacks& callbacks,
   Api::Api& api)
     : transport_(callbacks),
-      api_(api) {
-  (void)api_;
-}
+      api_(api) {}
 
 void DownstreamConnectionService::registerMessageHandlers(SshMessageDispatcher& dispatcher) {
   dispatcher.registerHandler(wire::SshMessageType::ChannelOpen, this);
@@ -51,21 +45,6 @@ absl::Status DownstreamConnectionService::handleMessage(wire::Message&& msg) {
     }
     return absl::OkStatus();
   }
-
-#ifdef SSH_EXPERIMENTAL
-  switch (authState.multiplexing_info.multiplex_mode) {
-  case MultiplexMode::Mirror:
-    return mirror_multiplexer_->handleDownstreamToUpstreamMessage(msg);
-  case MultiplexMode::Source:
-    if (auto r = source_multiplexer_->handleDownstreamToUpstreamMessage(msg); !r.ok()) {
-      return r;
-    }
-    // keep going
-    break;
-  default:
-    break;
-  }
-#endif
 
   return msg.visit(
     [&](wire::ChannelOpenMsg& msg) {
@@ -110,11 +89,6 @@ absl::Status DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<Cha
       case pomerium::extensions::ssh::AllowResponse::kUpstream: {
         newState->handoff_info.handoff_in_progress = true;
         newState->channel_mode = ChannelMode::Handoff;
-#ifdef SSH_EXPERIMENTAL
-        if (handOffMsg->upstream_auth().upstream().allow_mirror_connections()) {
-          newState->multiplexing_info.multiplex_mode = MultiplexMode::Source;
-        }
-#endif
         if (handOffMsg->has_downstream_channel_info()) {
           newState->handoff_info.channel_info.reset(handOffMsg->release_downstream_channel_info());
         }
@@ -128,33 +102,7 @@ absl::Status DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<Cha
         return absl::OkStatus();
       }
       case pomerium::extensions::ssh::AllowResponse::kMirrorSession: {
-#ifdef SSH_EXPERIMENTAL
-        const auto& allowResp = handOffMsg->upstream_auth();
-        const auto& mirror = allowResp.mirror_session();
-        newState->multiplexing_info.multiplex_mode = MultiplexMode::Mirror;
-        newState->channel_mode = ChannelMode::Mirror;
-        if (handOffMsg->has_downstream_channel_info()) {
-          newState->multiplexing_info.downstream_channel_id = handOffMsg->downstream_channel_info().downstream_channel_id();
-        } else {
-          return absl::InternalError("received invalid channel message: missing downstream_channel_info");
-        }
-        switch (mirror.mode()) {
-        case pomerium::extensions::ssh::MirrorSessionTarget::READ_ONLY:
-          newState->multiplexing_info.rw_mode = ReadWriteMode::ReadOnly;
-          break;
-        case pomerium::extensions::ssh::MirrorSessionTarget::READ_WRITE:
-          newState->multiplexing_info.rw_mode = ReadWriteMode::ReadWrite;
-          break;
-        default:
-          return absl::InternalError(fmt::format("received invalid channel message: unknown mode: {}",
-                                                 static_cast<int>(mirror.mode())));
-        }
-        newState->multiplexing_info.source_stream_id = mirror.source_id();
-        transport_.initUpstream(std::move(newState));
-        return absl::OkStatus();
-#else
         return absl::UnavailableError("session mirroring feature not available");
-#endif
       }
       default:
         return absl::InternalError(fmt::format("received invalid channel message: unknown target: {}",
@@ -179,41 +127,10 @@ absl::Status DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<Cha
 absl::Status DownstreamConnectionService::onStreamBegin(
   [[maybe_unused]] const AuthState& auth_state,
   [[maybe_unused]] Dispatcher& dispatcher) {
-#ifdef SSH_EXPERIMENTAL
-  switch (auth_state.multiplexing_info.multiplex_mode) {
-  case Codec::MultiplexMode::Mirror:
-    if (!mirror_multiplexer_) {
-      mirror_multiplexer_ = std::make_shared<MirrorSessionMultiplexer>(api_, transport_, slot_ptr_, dispatcher);
-      if (auto stat = mirror_multiplexer_->onStreamBegin(auth_state); !stat.ok()) {
-        return stat;
-      }
-    }
-    break;
-  case Codec::MultiplexMode::Source:
-    if (!source_multiplexer_) {
-      source_multiplexer_ = std::make_shared<SourceDownstreamSessionMultiplexer>();
-      (*slot_ptr_)->awaitSession(auth_state.stream_id, source_multiplexer_);
-    }
-    break;
-  default:
-    break;
-  }
-#endif
   return absl::OkStatus();
 }
 
-void DownstreamConnectionService::onStreamEnd() {
-#ifdef SSH_EXPERIMENTAL
-  if (source_multiplexer_) {
-    source_multiplexer_->onStreamEnd();
-    source_multiplexer_ = nullptr;
-  }
-  if (mirror_multiplexer_) {
-    mirror_multiplexer_->onStreamEnd("session ended");
-    mirror_multiplexer_ = nullptr;
-  }
-#endif
-}
+void DownstreamConnectionService::onStreamEnd() {}
 
 absl::Status UpstreamConnectionService::requestService() {
   wire::ServiceRequestMsg req;
@@ -240,15 +157,6 @@ void UpstreamConnectionService::registerMessageHandlers(SshMessageDispatcher& di
 }
 
 absl::Status UpstreamConnectionService::handleMessage(wire::Message&& msg) {
-#ifdef SSH_EXPERIMENTAL
-  const auto& authState = transport_.authState();
-  if (authState.multiplexing_info.multiplex_mode == MultiplexMode::Source) {
-    if (auto stat = source_multiplexer_->handleUpstreamToDownstreamMessage(msg); !stat.ok()) {
-      return stat;
-    }
-  }
-#endif
-
   return msg.visit(
     [&](wire::ChannelMsg auto& msg) {
       transport_.forward(std::move(msg));
@@ -263,24 +171,9 @@ absl::Status UpstreamConnectionService::handleMessage(wire::Message&& msg) {
 absl::Status UpstreamConnectionService::onStreamBegin(
   [[maybe_unused]] const AuthState& auth_state,
   [[maybe_unused]] Dispatcher& dispatcher) {
-#ifdef SSH_EXPERIMENTAL
-  if (!source_multiplexer_) {
-    source_multiplexer_ = std::make_shared<SourceUpstreamSessionMultiplexer>(api_, transport_, slot_ptr_, dispatcher);
-  }
-  if (auto stat = source_multiplexer_->onStreamBegin(auth_state); !stat.ok()) {
-    return stat;
-  }
-#endif
   return absl::OkStatus();
 }
 
-void UpstreamConnectionService::onStreamEnd() {
-#ifdef SSH_EXPERIMENTAL
-  if (source_multiplexer_) {
-    source_multiplexer_->onStreamEnd();
-    source_multiplexer_ = nullptr;
-  }
-#endif
-}
+void UpstreamConnectionService::onStreamEnd() {}
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
