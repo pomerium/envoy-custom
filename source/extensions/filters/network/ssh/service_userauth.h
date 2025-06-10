@@ -8,20 +8,16 @@
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-class UserAuthService : public Service,
+class UserAuthService : public virtual Service,
                         public Logger::Loggable<Logger::Id::filter> {
 public:
-  constexpr std::string name() override { return "ssh-userauth"; };
-  UserAuthService(TransportCallbacks& callbacks, Api::Api& api);
-  void registerMessageHandlers(SshMessageDispatcher& dispatcher) override;
-  absl::Status requestService() override;
+  std::string name() override { return "ssh-userauth"; };
+  UserAuthService(TransportCallbacks& callbacks, Api::Api& api)
+    : transport_(callbacks), api_(api) {};
 
 protected:
   TransportCallbacks& transport_;
   Api::Api& api_;
-  openssh::SSHKeyPtr ca_user_key_;
-  std::unique_ptr<wire::UserAuthRequestMsg> pending_req_;
-  openssh::SSHKeyPtr pending_user_key_;
   Envoy::OptRef<MessageDispatcher<wire::Message>> msg_dispatcher_;
 };
 
@@ -32,7 +28,7 @@ public:
       : UserAuthService(callbacks, api),
         transport_(dynamic_cast<DownstreamTransportCallbacks&>(callbacks)) {}
 
-  using UserAuthService::registerMessageHandlers;
+  void registerMessageHandlers(SshMessageDispatcher& dispatcher) override;
   absl::Status handleMessage(wire::Message&& msg) override;
 
   void registerMessageHandlers(StreamMgmtServerMessageDispatcher& dispatcher) override;
@@ -43,15 +39,22 @@ private:
 };
 
 class UpstreamUserAuthService final : public UserAuthService,
-                                      public SshMessageMiddleware {
+                                      public UpstreamService {
 public:
-  using UserAuthService::UserAuthService;
+  UpstreamUserAuthService(TransportCallbacks& callbacks, Api::Api& api);
+  void registerMessageHandlers(SshMessageDispatcher& dispatcher) override;
   absl::Status handleMessage(wire::Message&& msg) override;
-  absl::StatusOr<MiddlewareResult> interceptMessage(wire::Message& msg) override;
+  absl::Status requestService() override;
+  absl::Status onServiceAccepted() override;
 
 private:
-  bool auth_success_received_{};
-  std::optional<wire::ExtInfoMsg> ext_info_;
+  openssh::SSHKeyPtr ca_user_key_;
+  std::unique_ptr<wire::UserAuthRequestMsg> pending_req_;
+  bool ext_info_received_{};
 };
+
+namespace detail {
+std::pair<std::string_view, std::string_view> splitUsername(std::string_view in);
+} // namespace detail
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
