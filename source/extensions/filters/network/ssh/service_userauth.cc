@@ -284,21 +284,22 @@ absl::Status UpstreamUserAuthService::onServiceAccepted() {
   auto req = std::make_unique<wire::UserAuthRequestMsg>();
   req->username = transport_.authState().allow_response->username();
   req->service_name = "ssh-connection";
-  req->request = wire::PubKeyUserAuthRequestMsg{};
 
-  auto& pubkeyReq = req->request.get<wire::PubKeyUserAuthRequestMsg>();
-  pubkeyReq.has_signature = true;
-  pubkeyReq.public_key_alg = "ssh-ed25519-cert-v01@openssh.com";
-  auto blob = userSessionSshKey->toPublicKeyBlob();
-  pubkeyReq.public_key = blob;
+  wire::PubKeyUserAuthRequestMsg pubkeyReq{
+    .has_signature = true,
+    .public_key_alg = "ssh-ed25519-cert-v01@openssh.com"s,
+    .public_key = userSessionSshKey->toPublicKeyBlob(),
+  };
 
   // compute signature
   Envoy::Buffer::OwnedImpl buf;
   wire::write_opt<wire::LengthPrefixed>(buf, transport_.sessionId());
+  constexpr static wire::field<std::string, wire::LengthPrefixed> method_name =
+    std::string(wire::PubKeyUserAuthRequestMsg::submsg_key);
   if (auto r = wire::encodeMsg(buf, req->type,
                                 req->username,
                                 req->service_name,
-                                req->request.key_field(),
+                                method_name,
                                 pubkeyReq.has_signature,
                                 pubkeyReq.public_key_alg,
                                 pubkeyReq.public_key);
@@ -309,6 +310,7 @@ absl::Status UpstreamUserAuthService::onServiceAccepted() {
   RELEASE_ASSERT(sig.ok(), fmt::format("error signing user auth request: {}", sig.status()));
   pubkeyReq.signature = *sig;
 
+  req->request = std::move(pubkeyReq);
   pending_req_ = std::move(req);
 
   return transport_.sendMessageToConnection(auto(*pending_req_)).status();
@@ -327,8 +329,8 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
       if (ext_info_received_) {
         return absl::FailedPreconditionError("unexpected ExtInfoMsg received");
       }
-      transport_.updatePeerExtInfo(std::move(msg));
       ext_info_received_ = true;
+      transport_.updatePeerExtInfo(std::move(msg));
       return absl::OkStatus();
     },
     [&](wire::UserAuthSuccessMsg& msg) { // forward upstream success to downstream

@@ -45,7 +45,7 @@ class DownstreamUserAuthServiceTest : public testing::Test {
 public:
   DownstreamUserAuthServiceTest() {
     auto privKeyPath = copyTestdataToWritableTmp("regress/unittests/sshkey/testdata/ed25519_1", 0600);
-    *codecCfg.mutable_user_ca_key() = privKeyPath;
+    codecCfg.set_user_ca_key(privKeyPath);
 
     transport_ = std::make_unique<testing::StrictMock<MockDownstreamTransportCallbacks>>();
     EXPECT_CALL(*transport_, codecConfig())
@@ -96,17 +96,14 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshNoneAuth) {
   req.request = wire::NoneAuthRequestMsg{};
 
   wire::Message resp;
-  EXPECT_CALL(*transport_, sendMessageToConnection(_))
-    .WillOnce(DoAll(SaveArg<0>(&resp),
-                    Return(absl::UnknownError("sentinel"))));
+  EXPECT_CALL(*transport_, sendMessageToConnection(
+                             MSG(wire::UserAuthFailureMsg,
+                                 AllOf(FIELD_EQ(methods, string_list{"publickey"}),
+                                       FIELD_EQ(partial, false)))))
+    .WillOnce(Return(absl::UnknownError("sentinel")));
 
   auto r = service_->handleMessage(wire::Message{req});
-  ASSERT_EQ(r, absl::UnknownError("sentinel"));
-
-  ASSERT_EQ(wire::SshMessageType::UserAuthFailure, resp.msg_type());
-  wire::UserAuthFailureMsg failure = resp.message.get<wire::UserAuthFailureMsg>();
-  ASSERT_EQ((string_list{"publickey"}), failure.methods);
-  ASSERT_FALSE(failure.partial);
+  ASSERT_EQ(absl::UnknownError("sentinel"), r);
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyInvalidKey) {
@@ -120,8 +117,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyInvalidKey) {
   };
 
   auto r = service_->handleMessage(wire::Message{req});
-  ASSERT_EQ(r.code(), absl::StatusCode::kInvalidArgument);
-  ASSERT_EQ(r.message(), "invalid format");
+  ASSERT_EQ(absl::InvalidArgumentError("invalid format"), r);
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyNoSignature) {
@@ -144,10 +140,10 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyNoSignature) {
                     Return(absl::UnknownError("sentinel"))));
 
   auto r = service_->handleMessage(wire::Message{req});
-  ASSERT_EQ(r, absl::UnknownError("sentinel"));
+  ASSERT_EQ(absl::UnknownError("sentinel"), r);
 
   ASSERT_EQ(wire::SshMessageType::UserAuthPubKeyOk, resp.msg_type());
-  wire::UserAuthPubKeyOkMsg pubkey_ok_msg =
+  const auto& pubkey_ok_msg =
     resp.message.get<wire::detail::overload_set_for_t<wire::UserAuthPubKeyOkMsg>>()
       .resolve<wire::UserAuthPubKeyOkMsg>()->get();
   ASSERT_EQ("ssh-ed25519", pubkey_ok_msg.public_key_alg);
@@ -169,8 +165,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyUnexpectedSignature)
   };
 
   auto r = service_->handleMessage(wire::Message{req});
-  ASSERT_EQ(r.code(), StatusCode::kInvalidArgument);
-  ASSERT_EQ(r.message(), "invalid PubKeyUserAuthRequestMsg: unexpected signature");
+  ASSERT_EQ(absl::InvalidArgumentError("invalid PubKeyUserAuthRequestMsg: unexpected signature"), r);
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyEmptySignature) {
@@ -187,8 +182,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyEmptySignature) {
   };
 
   auto r = service_->handleMessage(wire::Message{req});
-  ASSERT_EQ(r.code(), StatusCode::kInvalidArgument);
-  ASSERT_EQ(r.message(), "invalid PubKeyUserAuthRequestMsg: empty signature");
+  ASSERT_EQ(absl::InvalidArgumentError("invalid PubKeyUserAuthRequestMsg: empty signature"), r);
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyInvalidSignature) {
@@ -235,8 +229,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyEncodingFailure) {
     .WillOnce(ReturnRef(session_id));
 
   auto r = service_->handleMessage(wire::Message{req});
-  ASSERT_EQ(r.code(), absl::StatusCode::kInternal);
-  ASSERT_EQ(r.message(), "Aborted: message size too large");
+  ASSERT_EQ(absl::InternalError("Aborted: message size too large"), r);
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyValidSignature) {
@@ -332,42 +325,34 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageInvalidUserAuthInfoResponse) 
   ASSERT_OK(msg.decode(buf, buf.length()).status());
 
   auto r = service_->handleMessage(std::move(msg));
-  ASSERT_EQ(r.code(), StatusCode::kInvalidArgument);
-  ASSERT_EQ(r.message(), "invalid auth response");
+  ASSERT_EQ(absl::InvalidArgumentError("invalid auth response"), r);
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshUnknownType) {
   auto r = service_->handleMessage(wire::Message{wire::DebugMsg{}});
-  ASSERT_EQ(r.code(), StatusCode::kInternal);
-  ASSERT_EQ(r.message(), "received unexpected message of type Debug (4)");
+  ASSERT_EQ(absl::InternalError("received unexpected message of type Debug (4)"), r);
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshUnsupportedAuthRequest) {
-  // Construct a UserAuthRequestMsg with an unknown request type. Due to the design of
-  // the sub_message struct this requires decoding from the wire format.
-  Buffer::OwnedImpl buf;
-  static wire::field<std::string, wire::LengthPrefixed> username = "foo@bar"s;
-  static wire::field<std::string, wire::LengthPrefixed> service_name = "ssh-connection"s;
-  static wire::field<std::string, wire::LengthPrefixed> method_name = "UNKNOWN"s;
-  static wire::field<std::string, wire::LengthPrefixed> data = "UNKNOWN-DATA"s;
-  ASSERT_OK(wire::encodeMsg(buf, wire::SshMessageType::UserAuthRequest,
-                                 username,
-                                 service_name,
-                                 method_name,
-                                 data).status());
+  // Construct a UserAuthRequestMsg with an unknown request type.
   wire::UserAuthRequestMsg user_auth;
-  ASSERT_OK(user_auth.decode(buf, buf.length()).status());
+  user_auth.username = "foo@bar"s;
+  user_auth.service_name = "ssh-connection"s;
+  user_auth.method_name() = "UNKNOWN";
+  Envoy::Buffer::OwnedImpl tmp("UNKNOWN_DATA");
+  ASSERT_OK(user_auth.request.decode(tmp, tmp.length()).status());
 
   auto r = service_->handleMessage(wire::Message{user_auth});
-  ASSERT_EQ(r.code(), absl::StatusCode::kUnimplemented);
-  ASSERT_EQ(r.message(), "unknown or unsupported auth method");
+  ASSERT_EQ(absl::UnimplementedError("unknown or unsupported auth method"), r);
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowUpstream) {
   auto msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
-  auto allow = msg->mutable_auth_response()->mutable_allow();
-  auto upstream = allow->mutable_upstream();
-  upstream->set_hostname("example-hostname");
+  auto* allow = msg->mutable_auth_response()->mutable_allow();
+  allow->mutable_upstream()->set_hostname("example-hostname");
+
+  auto allowCopy = *allow;
+
   EXPECT_CALL(*transport_, streamId())
     .WillOnce(Return(42));
   wire::ExtInfoMsg ext_info;
@@ -382,7 +367,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowUpstream) {
   auto r = service_->handleMessage(std::move(msg));
   ASSERT_OK(r);
 
-  ASSERT_THAT(*state->allow_response, Envoy::ProtoEq(*allow));
+  ASSERT_THAT(*state->allow_response, Envoy::ProtoEq(allowCopy));
   ASSERT_EQ(42, state->stream_id);
   ASSERT_EQ(*state->downstream_ext_info, ext_info);
   ASSERT_EQ(ChannelMode::Normal, state->channel_mode);
@@ -390,14 +375,15 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowUpstream) {
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowInternal) {
   auto msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
-  auto allow = msg->mutable_auth_response()->mutable_allow();
-  auto internal = allow->mutable_internal();
+  auto* allow = msg->mutable_auth_response()->mutable_allow();
+  auto* filter_metadata = allow->mutable_internal()->mutable_set_metadata()->mutable_filter_metadata();
   ProtobufWkt::Value v;
   v.set_string_value("example-metadata-value");
   ProtobufWkt::Struct metadata_struct{};
   (*metadata_struct.mutable_fields())["example-metadata-key"] = v;
-  auto filter_metadata = *internal->mutable_set_metadata()->mutable_filter_metadata();
-  filter_metadata["example-filter-name"] = metadata_struct;
+  (*filter_metadata)["example-filter-name"] = metadata_struct;
+
+  auto allowCopy = *allow;
 
   EXPECT_CALL(*transport_, streamId())
     .WillOnce(Return(42));
@@ -413,7 +399,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowInternal) {
   auto r = service_->handleMessage(std::move(msg));
   ASSERT_OK(r);
 
-  ASSERT_THAT(*state->allow_response, Envoy::ProtoEq(*allow));
+  ASSERT_THAT(*state->allow_response, Envoy::ProtoEq(allowCopy));
   ASSERT_EQ(42, state->stream_id);
   ASSERT_EQ(*state->downstream_ext_info, ext_info);
   ASSERT_EQ(ChannelMode::Hijacked, state->channel_mode);
@@ -427,42 +413,36 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowUnsupportedTarget)
   EXPECT_CALL(*transport_, peerExtInfo())
     .WillOnce(Return(wire::ExtInfoMsg{}));
   auto r = service_->handleMessage(std::move(msg));
-  ASSERT_EQ(r.code(), absl::StatusCode::kInternal);
-  ASSERT_EQ(r.message(), "invalid target");
+  ASSERT_EQ(absl::InternalError("invalid target"), r);
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerDeny) {
   auto server_msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
-  auto deny = server_msg->mutable_auth_response()->mutable_deny();
+  auto* deny = server_msg->mutable_auth_response()->mutable_deny();
   deny->set_partial(true);
   deny->add_methods("publickey");
   deny->add_methods("keyboard-interactive");
 
-  wire::Message ssh_msg;
-  EXPECT_CALL(*transport_, sendMessageToConnection(_))
-    .WillOnce(DoAll(SaveArg<0>(&ssh_msg),
-                Return(absl::UnknownError("sentinel"))));
+  EXPECT_CALL(*transport_, sendMessageToConnection(
+                             MSG(wire::UserAuthFailureMsg,
+                                 AllOf(FIELD_EQ(methods, string_list{"publickey", "keyboard-interactive"}),
+                                       FIELD_EQ(partial, true)))))
+    .WillOnce(Return(absl::UnknownError("sentinel")));
 
   auto r = service_->handleMessage(std::move(server_msg));
   ASSERT_EQ(r, absl::UnknownError("sentinel"));
-
-  ASSERT_EQ(wire::SshMessageType::UserAuthFailure, ssh_msg.msg_type());
-  auto failure_msg = ssh_msg.message.get<wire::UserAuthFailureMsg>();
-  ASSERT_TRUE(failure_msg.partial);
-  ASSERT_EQ((string_list{"publickey", "keyboard-interactive"}), failure_msg.methods);
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerDenyNoMethods) {
   auto msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
   msg->mutable_auth_response()->mutable_deny();
   auto r = service_->handleMessage(std::move(msg));
-  ASSERT_EQ(r.code(), absl::StatusCode::kPermissionDenied);
-  ASSERT_EQ(r.message(), "");
+  ASSERT_EQ(absl::PermissionDeniedError(""), r);
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerInfoRequest) {
   auto server_msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
-  auto req = server_msg->mutable_auth_response()->mutable_info_request();
+  auto* req = server_msg->mutable_auth_response()->mutable_info_request();
   req->set_method("keyboard-interactive");
   pomerium::extensions::ssh::KeyboardInteractiveInfoPrompts prompts{};
   prompts.set_name("prompts-name");
@@ -474,57 +454,47 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerInfoRequest) {
   prompt2->set_prompt("password");
   req->mutable_request()->PackFrom(prompts);
 
-  wire::Message ssh_msg;
-  EXPECT_CALL(*transport_, sendMessageToConnection(_))
-    .WillOnce(DoAll(SaveArg<0>(&ssh_msg),
-                Return(absl::UnknownError("sentinel"))));
+  auto matcher = MSG(wire::UserAuthInfoRequestMsg,
+                     AllOf(FIELD_EQ(name, "prompts-name"),
+                           FIELD_EQ(instruction, "prompts-instruction"),
+                           FIELD_EQ(prompts,
+                                    std::vector{
+                                      wire::UserAuthInfoPrompt{.prompt = "username"s, .echo = true},
+                                      wire::UserAuthInfoPrompt{.prompt = "password"s, .echo = false}})));
+  EXPECT_CALL(*transport_, sendMessageToConnection(matcher))
+    .WillOnce(Return(absl::UnknownError("sentinel")));
 
   auto r = service_->handleMessage(std::move(server_msg));
   ASSERT_EQ(r, absl::UnknownError("sentinel"));
-
-  ASSERT_EQ(wire::SshMessageType::UserAuthInfoRequest, ssh_msg.msg_type());
-  auto request_msg =
-    ssh_msg.message.get<wire::detail::overload_set_for_t<wire::UserAuthInfoRequestMsg>>()
-      .resolve<wire::UserAuthInfoRequestMsg>()->get();
-  ASSERT_EQ("prompts-name", request_msg.name);
-  ASSERT_EQ("prompts-instruction", request_msg.instruction);
-  ASSERT_EQ(2, request_msg.prompts->size());
-  ASSERT_TRUE(request_msg.prompts[0].echo);
-  ASSERT_EQ("username", request_msg.prompts[0].prompt);
-  ASSERT_FALSE(request_msg.prompts[1].echo);
-  ASSERT_EQ("password", request_msg.prompts[1].prompt);
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerInfoRequestUnsupportedMethod) {
   auto server_msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
-  auto req = server_msg->mutable_auth_response()->mutable_info_request();
+  auto* req = server_msg->mutable_auth_response()->mutable_info_request();
   req->set_method("unsupported-method");
 
   auto r = service_->handleMessage(std::move(server_msg));
-  ASSERT_EQ(r.code(), absl::StatusCode::kInvalidArgument);
-  ASSERT_EQ(r.message(), "unknown method");
+  ASSERT_EQ(absl::InvalidArgumentError("unknown method"), r);
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerUnsupportedAuthResponse) {
   auto msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
   msg->mutable_auth_response();
   auto r = service_->handleMessage(std::move(msg));
-  ASSERT_EQ(r.code(), absl::StatusCode::kInternal);
-  ASSERT_EQ(r.message(), "server sent invalid response case");
+  ASSERT_EQ(absl::InternalError("server sent invalid response case"), r);
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerUnsupportedMessage) {
   auto msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
   auto r = service_->handleMessage(std::move(msg));
-  ASSERT_EQ(r.code(), absl::StatusCode::kInternal);
-  ASSERT_EQ(r.message(), "server sent invalid message case");
+  ASSERT_EQ(absl::InternalError("server sent invalid message case"), r);
 }
 
 class UpstreamUserAuthServiceTest : public testing::Test {
 public:
   UpstreamUserAuthServiceTest() {
     auto privKeyPath = copyTestdataToWritableTmp("regress/unittests/sshkey/testdata/ed25519_1", 0600);
-    *codecCfg.mutable_user_ca_key() = privKeyPath;
+    codecCfg.set_user_ca_key(privKeyPath);
 
     transport_ = std::make_unique<testing::StrictMock<MockTransportCallbacks>>();
     EXPECT_CALL(*transport_, codecConfig())
@@ -577,8 +547,7 @@ TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedBadAuthState) {
   EXPECT_CALL(*transport_, authState())
     .WillOnce(ReturnRef(state));
   auto r = service_->onServiceAccepted();
-  ASSERT_EQ(r.code(), absl::StatusCode::kInternal);
-  ASSERT_EQ(r.message(), "missing AllowResponse in auth state");
+  ASSERT_EQ(absl::InternalError("missing AllowResponse in auth state"), r);
 }
 
 TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedEncodingFailure) {
@@ -593,8 +562,40 @@ TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedEncodingFailure) {
     .WillOnce(ReturnRef(streamId));
 
   auto r = service_->onServiceAccepted();
-  ASSERT_EQ(r.code(), absl::StatusCode::kAborted);
-  ASSERT_EQ(r.message(), "error encoding user auth request: message size too large");
+  ASSERT_EQ(absl::AbortedError("error encoding user auth request: message size too large"), r);
+}
+
+TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedValidSignature) {
+  AuthState state;
+  state.allow_response = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
+  state.allow_response->set_username("example-username");
+  EXPECT_CALL(*transport_, authState())
+    .WillRepeatedly(ReturnRef(state));
+  auto session_id = "SESSION-ID"_bytes;
+  EXPECT_CALL(*transport_, sessionId())
+    .WillOnce(ReturnRef(session_id));
+
+  wire::Message req;
+  EXPECT_CALL(*transport_, sendMessageToConnection(MSG(wire::UserAuthRequestMsg, _)))
+    .WillOnce(DoAll(SaveArg<0>(&req),
+                    Return(absl::UnknownError("sentinel"))));
+
+  auto r = service_->onServiceAccepted();
+  ASSERT_EQ(absl::UnknownError("sentinel"), r);
+
+  // Verify that the signature is valid for the public key presented.
+  const auto& pubkey_req = req.message.get<wire::UserAuthRequestMsg>()
+    .request.get<wire::PubKeyUserAuthRequestMsg>();
+  auto key = openssh::SSHKey::fromPublicKeyBlob(pubkey_req.public_key);
+  ASSERT_OK(key.status());
+
+  Envoy::Buffer::OwnedImpl verifyBuf;
+  wire::write_opt<wire::LengthPrefixed>(verifyBuf, session_id);
+  auto e = req.encode(verifyBuf);
+  ASSERT_OK(e.status());
+  auto span = linearizeToSpan(verifyBuf);
+  auto payload = span.first(span.size() - 4 - pubkey_req.signature->size());
+  ASSERT_OK((*key)->verify(*pubkey_req.signature, payload));
 }
 
 TEST_F(UpstreamUserAuthServiceTest, HandleMessageUserAuthBannerChannelNormal) {
@@ -643,8 +644,7 @@ TEST_F(UpstreamUserAuthServiceTest, HandleMessageExtInfo) {
 
   // It is an error to receive multiple ExtInfo messages during the same auth exchange.
   r = service_->handleMessage(wire::Message{ext_info});
-  ASSERT_EQ(r.code(), absl::StatusCode::kFailedPrecondition);
-  ASSERT_EQ(r.message(), "unexpected ExtInfoMsg received");
+  ASSERT_EQ(absl::FailedPreconditionError("unexpected ExtInfoMsg received"), r);
 }
 
 TEST_F(UpstreamUserAuthServiceTest, HandleMessageAuthSuccessNoPeerExtInfo) {
@@ -660,7 +660,7 @@ TEST_F(UpstreamUserAuthServiceTest, HandleMessageAuthSuccessNoPeerExtInfo) {
   auto streamId = "stream-id"_bytes;
   EXPECT_CALL(*transport_, sessionId())
     .WillOnce(ReturnRef(streamId));
-  EXPECT_CALL(*transport_, sendMessageToConnection(_))
+  EXPECT_CALL(*transport_, sendMessageToConnection(MSG(wire::UserAuthRequestMsg, _)))
     .WillOnce(Return(123));
   ASSERT_OK(service_->onServiceAccepted());
 
@@ -713,20 +713,18 @@ TEST_F(UpstreamUserAuthServiceTest, HandleMessageAuthSuccessWithPeerExtInfo) {
 TEST_F(UpstreamUserAuthServiceTest, HandleMessageAuthSuccessOutOfOrder) {
   // We don't expect a UserAuthSuccessMsg before sending an auth request.
   auto r = service_->handleMessage(wire::Message{wire::UserAuthSuccessMsg{}});
-  ASSERT_EQ(r.code(), absl::StatusCode::kFailedPrecondition);
-  ASSERT_EQ(r.message(), "unexpected UserAuthSuccessMsg received");
+  ASSERT_EQ(absl::FailedPreconditionError("unexpected UserAuthSuccessMsg received"), r);
 }
 
 TEST_F(UpstreamUserAuthServiceTest, HandleMessageAuthFailure) {
   wire::UserAuthFailureMsg msg{};
   auto r = service_->handleMessage(wire::Message{msg});
-  ASSERT_EQ(r.code(), StatusCode::kPermissionDenied);
+  ASSERT_EQ(absl::PermissionDeniedError(""), r);
 }
 
 TEST_F(UpstreamUserAuthServiceTest, HandleMessageUnknownType) {
   auto r = service_->handleMessage(wire::Message{wire::DebugMsg{}});
-  ASSERT_EQ(r.code(), StatusCode::kInternal);
-  ASSERT_EQ(r.message(), "received unexpected message of type Debug (4)");
+  ASSERT_EQ(absl::InternalError("received unexpected message of type Debug (4)"), r);
 }
 
 } // namespace test
