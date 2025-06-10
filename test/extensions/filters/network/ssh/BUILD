@@ -51,19 +51,6 @@ envoy_cc_test(
     ],
 )
 
-# envoy_cc_test(
-#     name = "client_transport_test",
-#     srcs = [
-#         "client_transport_test.cc",
-#     ],
-#     repository = "@envoy",
-#     deps = [
-#         "//source/extensions/filters/network/ssh:pomerium_ssh",
-#         "@envoy//test/extensions/filters/network/generic_proxy/mocks:codec_mocks",
-#         "@envoy//test/mocks/server:factory_context_mocks",
-#     ],
-# )
-
 envoy_cc_test(
     name = "kex_test",
     srcs = [
