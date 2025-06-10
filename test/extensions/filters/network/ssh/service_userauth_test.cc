@@ -1,4 +1,3 @@
-#include "absl/random/random.h"
 #include "gtest/gtest.h"
 #include "test/test_common/utility.h"
 
@@ -17,17 +16,6 @@ TEST(UserAuthServiceTest, SplitUsername) {
   ASSERT_EQ((std::pair{"foo", "bar"}), detail::splitUsername("foo@bar"));
   ASSERT_EQ((std::pair{"foo@bar", "baz"}), detail::splitUsername("foo@bar@baz"));
   ASSERT_EQ((std::pair{"foo\0@bar\0"s, "baz"s}), detail::splitUsername("foo\0@bar\0@baz"s));
-}
-
-static absl::BitGen rng;
-
-inline bytes randomBytes(size_t size) {
-  bytes b;
-  b.resize(size);
-  for (size_t i = 0; i < b.size(); i++) {
-    b[i] = absl::Uniform<uint8_t>(rng);
-  }
-  return b;
 }
 
 class TestSshMessageDispatcher : public SshMessageDispatcher {
@@ -49,7 +37,7 @@ public:
 
     transport_ = std::make_unique<testing::StrictMock<MockDownstreamTransportCallbacks>>();
     EXPECT_CALL(*transport_, codecConfig())
-        .WillRepeatedly(ReturnRef(codecCfg));
+      .WillRepeatedly(ReturnRef(codecCfg));
 
     api_ = std::make_unique<testing::StrictMock<Api::MockApi>>();
     service_ = std::make_unique<DownstreamUserAuthService>(*transport_, *api_);
@@ -301,7 +289,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshKeyboardInteractive) {
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshKeyboardInteractiveResponse) {
-  wire::UserAuthInfoResponseMsg resp {
+  wire::UserAuthInfoResponseMsg resp{
     .responses = string_list{"response-one", "response-two"},
   };
 
@@ -502,7 +490,7 @@ public:
 
     transport_ = std::make_unique<testing::StrictMock<MockTransportCallbacks>>();
     EXPECT_CALL(*transport_, codecConfig())
-        .WillRepeatedly(ReturnRef(codecCfg));
+      .WillRepeatedly(ReturnRef(codecCfg));
 
     api_ = std::make_unique<testing::StrictMock<Api::MockApi>>();
     service_ = std::make_unique<UpstreamUserAuthService>(*transport_, *api_);
@@ -537,13 +525,13 @@ TEST_F(UpstreamUserAuthServiceTest, RegisterSsh) {
 }
 
 TEST_F(UpstreamUserAuthServiceTest, RequestService) {
-    wire::ServiceRequestMsg expectedRequest{ .service_name = "ssh-userauth"s };
-    wire::Message msg{expectedRequest};
-    EXPECT_CALL(*transport_, sendMessageToConnection(Eq(msg)))
-      .WillOnce(Return(0));
+  wire::ServiceRequestMsg expectedRequest{.service_name = "ssh-userauth"s};
+  wire::Message msg{expectedRequest};
+  EXPECT_CALL(*transport_, sendMessageToConnection(Eq(msg)))
+    .WillOnce(Return(0));
 
-    auto r = service_->requestService();
-    EXPECT_OK(r);
+  auto r = service_->requestService();
+  EXPECT_OK(r);
 }
 
 TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedBadAuthState) {
@@ -589,7 +577,7 @@ TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedValidSignature) {
 
   // Verify that the signature is valid for the public key presented.
   const auto& pubkey_req = req.message.get<wire::UserAuthRequestMsg>()
-    .request.get<wire::PubKeyUserAuthRequestMsg>();
+                             .request.get<wire::PubKeyUserAuthRequestMsg>();
   auto key = openssh::SSHKey::fromPublicKeyBlob(pubkey_req.public_key);
   ASSERT_OK(key.status());
 

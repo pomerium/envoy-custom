@@ -35,17 +35,6 @@ public:
   Algorithms algs_;
 };
 
-static absl::BitGen rng;
-
-inline bytes randomBytes(size_t size) {
-  bytes b;
-  b.resize(size);
-  for (size_t i = 0; i < b.size(); i++) {
-    b[i] = absl::Uniform<uint8_t>(rng);
-  }
-  return b;
-}
-
 TEST_F(KexAlgCurve25519TestSuite, ClientInitMessageTypes) {
   EXPECT_EQ(KexAlgorithm::MessageTypeList{wire::SshMessageType::KexECDHInit}, alg_->clientInitMessageTypes());
 }

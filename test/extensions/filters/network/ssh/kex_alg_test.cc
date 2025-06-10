@@ -1,6 +1,5 @@
 #include "source/extensions/filters/network/ssh/kex_alg.h"
 #include "test/extensions/filters/network/ssh/wire/test_field_reflect.h"
-#include "test/extensions/filters/network/ssh/wire/test_util.h"
 #include "test/test_common/test_common.h"
 #include "gtest/gtest.h"
 
@@ -80,17 +79,6 @@ public:
   using KexAlgorithm::computeExchangeHash;
   using KexAlgorithm::computeServerResult;
 };
-
-static absl::BitGen rng;
-
-inline bytes randomBytes(size_t size) {
-  bytes b;
-  b.resize(size);
-  for (size_t i = 0; i < b.size(); i++) {
-    b[i] = absl::Uniform<uint8_t>(rng);
-  }
-  return b;
-}
 
 /*
 From https://datatracker.ietf.org/doc/html/rfc5656#section-4:
