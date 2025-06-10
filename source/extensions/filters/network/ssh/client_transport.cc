@@ -151,7 +151,7 @@ absl::Status SshClientTransport::handleMessage(wire::Message&& msg) {
   return msg.visit(
     [&](wire::ServiceAcceptMsg& msg) {
       if (services_.contains(msg.service_name)) {
-        return services_[msg.service_name]->handleMessage(std::move(msg));
+        return services_[msg.service_name]->onServiceAccepted();
       }
       ENVOY_LOG(error, "received ServiceAccept message for unknown service {}", msg.msg_type());
       return absl::InternalError(

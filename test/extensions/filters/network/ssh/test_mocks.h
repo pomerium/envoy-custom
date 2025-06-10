@@ -54,6 +54,17 @@ public:
   MOCK_METHOD(uint64_t, resetWriteSequenceNumber, ());
 };
 
+class MockDownstreamTransportCallbacks : public DownstreamTransportCallbacks,
+                                         public MockTransportCallbacks {
+public:
+  MockDownstreamTransportCallbacks();
+  virtual ~MockDownstreamTransportCallbacks();
+
+  MOCK_METHOD(void, initUpstream, (AuthStateSharedPtr));
+  MOCK_METHOD(void, onServiceAuthenticated, (const std::string&));
+  MOCK_METHOD(void, sendMgmtClientMessage, (const ClientMessage&));
+};
+
 class MockVersionExchangeCallbacks : public VersionExchangeCallbacks {
 public:
   MOCK_METHOD(void, onVersionExchangeCompleted, (const bytes&, const bytes&, const bytes&));

@@ -17,12 +17,6 @@ ConnectionService::ConnectionService(
   (void)api_;
 }
 
-absl::Status ConnectionService::requestService() {
-  wire::ServiceRequestMsg req;
-  req.service_name = name();
-  return transport_.sendMessageToConnection(std::move(req)).status();
-}
-
 void DownstreamConnectionService::registerMessageHandlers(SshMessageDispatcher& dispatcher) {
   dispatcher.registerHandler(wire::SshMessageType::ChannelOpen, this);
   dispatcher.registerHandler(wire::SshMessageType::ChannelWindowAdjust, this);
@@ -203,7 +197,18 @@ void DownstreamConnectionService::onStreamEnd() {
   }
 }
 
+absl::Status UpstreamConnectionService::requestService() {
+  wire::ServiceRequestMsg req;
+  req.service_name = name();
+  return transport_.sendMessageToConnection(std::move(req)).status();
+}
+
+absl::Status UpstreamConnectionService::onServiceAccepted() {
+  return absl::OkStatus();
+}
+
 void UpstreamConnectionService::registerMessageHandlers(SshMessageDispatcher& dispatcher) {
+  msg_dispatcher_ = &dispatcher;
   dispatcher.registerHandler(wire::SshMessageType::ChannelOpenConfirmation, this);
   dispatcher.registerHandler(wire::SshMessageType::ChannelOpenFailure, this);
   dispatcher.registerHandler(wire::SshMessageType::ChannelWindowAdjust, this);

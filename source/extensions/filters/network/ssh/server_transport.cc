@@ -60,10 +60,7 @@ void SshServerTransport::registerMessageHandlers(MessageDispatcher<wire::Message
   dispatcher.registerHandler(wire::SshMessageType::Unimplemented, this);
   dispatcher.registerHandler(wire::SshMessageType::Disconnect, this);
 
-  user_auth_service_->registerMessageHandlers(*this);
   ping_handler_->registerMessageHandlers(*this);
-  connection_service_->registerMessageHandlers(*this);
-
   user_auth_service_->registerMessageHandlers(*mgmt_client_);
   this->registerMessageHandlers(*mgmt_client_);
 }
@@ -93,8 +90,8 @@ void SshServerTransport::initServices() {
   connection_service_ = std::make_unique<DownstreamConnectionService>(*this, api_, tls_);
   ping_handler_ = std::make_unique<PingExtensionHandler>(*this);
 
-  service_names_.insert(user_auth_service_->name());
-  service_names_.insert(connection_service_->name());
+  services_[user_auth_service_->name()] = user_auth_service_.get();
+  services_[connection_service_->name()] = connection_service_.get();
 }
 
 GenericProxy::EncodingResult SshServerTransport::encode(const GenericProxy::StreamFrame& frame,
@@ -162,18 +159,21 @@ GenericProxy::ResponsePtr SshServerTransport::respond(absl::Status status,
 absl::Status SshServerTransport::handleMessage(wire::Message&& msg) {
   return msg.visit(
     [&](wire::ServiceRequestMsg& msg) {
-      if (service_names_.contains(msg.service_name)) {
-        wire::ServiceAcceptMsg accept;
-        accept.service_name = msg.service_name;
-        return sendMessageToConnection(std::move(accept)).status();
-      } else {
-        return absl::UnavailableError("service not available");
+      if (msg.service_name != "ssh-userauth") {
+        return absl::InvalidArgumentError("invalid service name");
       }
-      ENVOY_LOG(debug, "received SshMessageType::ServiceRequest");
-      return absl::OkStatus();
+      onServiceAuthenticated(msg.service_name);
+      wire::ServiceAcceptMsg accept;
+      accept.service_name = msg.service_name;
+      return sendMessageToConnection(std::move(accept)).status();
     },
     [&](wire::GlobalRequestMsg& msg) {
-      auto stat = msg.request.visit(
+      if (!msg.request.has_value()) {
+        ENVOY_LOG(debug, "forwarding global request: {}", msg.request_name());
+        forward(std::move(msg));
+        return absl::OkStatus();
+      }
+      return msg.request.visit(
         [&](wire::HostKeysProveRequestMsg& msg) {
           auto resp = handleHostKeysProve(msg);
           if (!resp.ok()) {
@@ -184,20 +184,9 @@ absl::Status SshServerTransport::handleMessage(wire::Message&& msg) {
           return sendMessageToConnection(std::move(success)).status();
         },
         [](wire::HostKeysMsg&) {
-          ENVOY_LOG(warn, "received hostkeys-00@openssh.com (ignoring)");
-          // ignore this for now
-          return absl::OkStatus();
-        },
-        [&msg](auto&) {
-          ENVOY_LOG(warn, "ignoring global request {}", msg.request_name());
-          return absl::OkStatus();
+          // server->client only
+          return absl::InvalidArgumentError("unexpected global request");
         });
-      if (!stat.ok()) {
-        return stat;
-      }
-      forward(std::move(msg));
-
-      return absl::OkStatus();
     },
     [&](any_of<wire::GlobalRequestSuccessMsg,
                wire::GlobalRequestFailureMsg,
@@ -211,9 +200,8 @@ absl::Status SshServerTransport::handleMessage(wire::Message&& msg) {
       ENVOY_LOG(info, "received disconnect: {}", msg.description);
       return absl::CancelledError(fmt::format("received disconnect: {}", msg.description));
     },
-    [](auto&) {
-      ENVOY_LOG(warn, "unknown message");
-      return absl::OkStatus();
+    [](auto& msg) {
+      return absl::InternalError(fmt::format("received invalid message: {}", msg.msg_type()));
     });
 }
 
@@ -230,6 +218,12 @@ absl::Status SshServerTransport::handleMessage(Grpc::ResponsePtr<ServerMessage>&
   default:
     PANIC("unknown message case");
   }
+}
+
+void SshServerTransport::onServiceAuthenticated(const std::string& service_name) {
+  RELEASE_ASSERT(services_.contains(service_name), fmt::format("unknown service: {}", service_name));
+  ENVOY_LOG(debug, "service authenticated: {}", service_name);
+  services_[service_name]->registerMessageHandlers(*this);
 }
 
 void SshServerTransport::initUpstream(AuthStateSharedPtr s) {

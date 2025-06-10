@@ -63,7 +63,7 @@ private:
   std::unique_ptr<UpstreamConnectionService> connection_svc_;
   std::unique_ptr<PingExtensionHandler> ping_handler_;
 
-  std::map<std::string, Service*> services_;
+  std::map<std::string, UpstreamService*> services_;
 
   bool channel_id_remap_enabled_{false};
   bool upstream_is_direct_tcpip_{false};

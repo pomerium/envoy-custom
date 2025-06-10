@@ -10,11 +10,10 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 using Envoy::Event::Dispatcher;
 
-class ConnectionService : public Service {
+class ConnectionService : public virtual Service {
 public:
-  constexpr std::string name() override { return "ssh-connection"; };
+  std::string name() override { return "ssh-connection"; };
   ConnectionService(TransportCallbacks& callbacks, Api::Api& api);
-  absl::Status requestService() override;
 
 protected:
   TransportCallbacks& transport_;
@@ -47,6 +46,7 @@ private:
 };
 
 class UpstreamConnectionService final : public ConnectionService,
+                                        public UpstreamService,
                                         public Logger::Loggable<Logger::Id::filter> {
 public:
   UpstreamConnectionService(
@@ -55,6 +55,9 @@ public:
     std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr)
       : ConnectionService(callbacks, api),
         slot_ptr_(slot_ptr) {}
+  absl::Status requestService() override;
+  absl::Status onServiceAccepted() override;
+
   absl::Status handleMessage(wire::Message&& msg) override;
   void registerMessageHandlers(SshMessageDispatcher& dispatcher) override;
   absl::Status onStreamBegin(const AuthState& auth_state, Dispatcher& dispatcher);
@@ -63,6 +66,8 @@ public:
 private:
   std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> slot_ptr_;
   std::shared_ptr<SourceUpstreamSessionMultiplexer> source_multiplexer_;
+
+  MessageDispatcher<wire::Message>* msg_dispatcher_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

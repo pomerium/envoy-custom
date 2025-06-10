@@ -6,6 +6,7 @@
 #pragma clang unsafe_buffer_usage end
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
 
+#include "source/extensions/filters/network/ssh/service.h"
 #include "source/extensions/filters/network/ssh/extension_ping.h"
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
@@ -36,6 +37,7 @@ public:
   GenericProxy::ResponsePtr respond(absl::Status, absl::string_view,
                                     const GenericProxy::Request&) override;
 
+  void onServiceAuthenticated(const std::string& service_name) override;
   void initUpstream(AuthStateSharedPtr downstream_state) override;
   absl::StatusOr<bytes> signWithHostKey(bytes_view in) const override;
   const AuthState& authState() const override;
@@ -67,7 +69,7 @@ private:
 
   std::shared_ptr<ThreadLocal::TypedSlot<ThreadLocalData>> tls_;
   AuthStateSharedPtr auth_state_;
-  std::set<std::string> service_names_;
+  std::map<std::string, Service*> services_;
   std::unique_ptr<DownstreamUserAuthService> user_auth_service_;
   std::unique_ptr<DownstreamConnectionService> connection_service_;
   std::unique_ptr<PingExtensionHandler> ping_handler_;
