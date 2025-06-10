@@ -12,7 +12,9 @@ ConnectionService::ConnectionService(
   TransportCallbacks& callbacks,
   Api::Api& api)
     : transport_(callbacks),
-      api_(api) {}
+      api_(api) {
+  (void)api_;
+}
 
 void DownstreamConnectionService::registerMessageHandlers(SshMessageDispatcher& dispatcher) {
   dispatcher.registerHandler(wire::SshMessageType::ChannelOpen, this);
@@ -56,8 +58,7 @@ absl::Status DownstreamConnectionService::handleMessage(wire::Message&& msg) {
       return absl::OkStatus();
     },
     [](auto&) {
-      ENVOY_LOG(error, "unknown message");
-      return absl::OkStatus();
+      return absl::InternalError("unknown message");
     });
 }
 
@@ -86,24 +87,20 @@ absl::Status DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<Cha
       newState->channel_mode = transport_.authState().channel_mode;
       newState->hijacked_stream = transport_.authState().hijacked_stream;
       switch (handOffMsg->upstream_auth().target_case()) {
-      case pomerium::extensions::ssh::AllowResponse::kUpstream: {
+      case pomerium::extensions::ssh::AllowResponse::kUpstream:
         newState->handoff_info.handoff_in_progress = true;
         newState->channel_mode = ChannelMode::Handoff;
+        newState->allow_response.reset(handOffMsg->release_upstream_auth());
         if (handOffMsg->has_downstream_channel_info()) {
           newState->handoff_info.channel_info.reset(handOffMsg->release_downstream_channel_info());
         }
         if (handOffMsg->has_downstream_pty_info()) {
           newState->handoff_info.pty_info.reset(handOffMsg->release_downstream_pty_info());
         }
-        if (handOffMsg->has_upstream_auth()) {
-          newState->allow_response.reset(handOffMsg->release_upstream_auth());
-        }
         transport_.initUpstream(std::move(newState));
         return absl::OkStatus();
-      }
-      case pomerium::extensions::ssh::AllowResponse::kMirrorSession: {
+      case pomerium::extensions::ssh::AllowResponse::kMirrorSession:
         return absl::UnavailableError("session mirroring feature not available");
-      }
       default:
         return absl::InternalError(fmt::format("received invalid channel message: unknown target: {}",
                                                static_cast<int>(handOffMsg->upstream_auth().target_case())));
@@ -163,8 +160,7 @@ absl::Status UpstreamConnectionService::handleMessage(wire::Message&& msg) {
       return absl::OkStatus();
     },
     [](auto&) {
-      ENVOY_LOG(error, "unknown message");
-      return absl::OkStatus();
+      return absl::InternalError("unknown message");
     });
 }
 
