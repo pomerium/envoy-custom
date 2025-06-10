@@ -106,6 +106,7 @@ protected:
 class DownstreamTransportCallbacks : public virtual TransportCallbacks {
 public:
   virtual void initUpstream(AuthStateSharedPtr downstream_state) PURE;
+  virtual void onServiceAuthenticated(const std::string& service_name) PURE;
   virtual void sendMgmtClientMessage(const ClientMessage& msg) PURE;
 };
 

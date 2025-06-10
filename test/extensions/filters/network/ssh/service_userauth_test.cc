@@ -49,10 +49,43 @@ public:
 
     transport_ = std::make_unique<testing::StrictMock<MockDownstreamTransportCallbacks>>();
     EXPECT_CALL(*transport_, codecConfig())
-        .WillRepeatedly(ReturnRef(codecCfg));
+      .WillRepeatedly(ReturnRef(codecCfg));
 
     api_ = std::make_unique<testing::StrictMock<Api::MockApi>>();
     service_ = std::make_unique<DownstreamUserAuthService>(*transport_, *api_);
+  }
+
+  void SendValidPubKeyRequest(pomerium::extensions::ssh::ClientMessage* out_mgmt_request = nullptr, bytes* out_public_key_blob = nullptr) { // NOLINT
+    auto privKeyPath = copyTestdataToWritableTmp("regress/unittests/sshkey/testdata/ed25519_1", 0600);
+    auto key = openssh::SSHKey::fromPrivateKeyFile(privKeyPath);
+    ASSERT_OK(key.status());
+
+    auto publicKeyBlob = (*key)->toPublicKeyBlob();
+    if (out_public_key_blob != nullptr) {
+      *out_public_key_blob = publicKeyBlob;
+    }
+    bytes session_id = "SESSION-ID"_bytes;
+
+    wire::UserAuthRequestMsg req;
+    req.username = "foo@bar"s;
+    req.service_name = "ssh-connection"s;
+    req.request = wire::PubKeyUserAuthRequestMsg{
+      .has_signature = true,
+      .public_key_alg = "ssh-ed25519"s,
+      .public_key = publicKeyBlob,
+      .signature = to_bytes(absl::HexStringToBytes("0000000b7373682d6564323535313900000040bf1e4e617a3a1b72dd2d5c066d349e95df08b8d1b0f1f338349fc0db45e89fd0050c42f763dab4512d4b1e5cb109eff77a3cb094a3b7c3aa9a8b2f43c1d9f207")),
+    };
+    EXPECT_CALL(*transport_, sessionId())
+      .WillOnce(ReturnRef(session_id));
+    if (out_mgmt_request != nullptr) {
+      EXPECT_CALL(*transport_, sendMgmtClientMessage(_))
+        .WillOnce(SaveArg<0>(out_mgmt_request));
+    } else {
+      EXPECT_CALL(*transport_, sendMgmtClientMessage(_));
+    }
+
+    auto r = service_->handleMessage(wire::Message{std::move(req)});
+    ASSERT_OK(r);
   }
 
 protected:
@@ -237,32 +270,9 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyEncodingFailure) {
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyValidSignature) {
-  auto privKeyPath = copyTestdataToWritableTmp("regress/unittests/sshkey/testdata/ed25519_1", 0600);
-  auto key = openssh::SSHKey::fromPrivateKeyFile(privKeyPath);
-  ASSERT_OK(key.status());
-
-  auto public_key_blob = (*key)->toPublicKeyBlob();
-  bytes session_id = "SESSION-ID"_bytes;
-
-  wire::UserAuthRequestMsg req;
-  req.username = "foo@bar"s;
-  req.service_name = "ssh-connection"s;
-  req.request = wire::PubKeyUserAuthRequestMsg{
-    .has_signature = true,
-    .public_key_alg = "ssh-ed25519"s,
-    .public_key = public_key_blob,
-    .signature = to_bytes(absl::HexStringToBytes("0000000b7373682d6564323535313900000040bf1e4e617a3a1b72dd2d5c066d349e95df08b8d1b0f1f338349fc0db45e89fd0050c42f763dab4512d4b1e5cb109eff77a3cb094a3b7c3aa9a8b2f43c1d9f207")),
-  };
-
-  EXPECT_CALL(*transport_, sessionId())
-    .WillOnce(ReturnRef(session_id));
-
   pomerium::extensions::ssh::ClientMessage client_msg;
-  EXPECT_CALL(*transport_, sendMgmtClientMessage(_))
-    .WillOnce(SaveArg<0>(&client_msg));
-
-  auto r = service_->handleMessage(wire::Message{req});
-  ASSERT_OK(r);
+  bytes public_key_blob;
+  SendValidPubKeyRequest(&client_msg, &public_key_blob);
 
   ASSERT_TRUE(client_msg.has_auth_request());
   auto auth_request = client_msg.auth_request();
@@ -301,7 +311,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshKeyboardInteractive) {
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshKeyboardInteractiveResponse) {
-  wire::UserAuthInfoResponseMsg resp {
+  wire::UserAuthInfoResponseMsg resp{
     .responses = string_list{"response-one", "response-two"},
   };
 
@@ -351,6 +361,8 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshUnsupportedAuthRequest) {
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowUpstream) {
+  SendValidPubKeyRequest();
+
   auto msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
   auto* allow = msg->mutable_auth_response()->mutable_allow();
   allow->mutable_upstream()->set_hostname("example-hostname");
@@ -364,6 +376,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowUpstream) {
   EXPECT_CALL(*transport_, peerExtInfo())
     .WillOnce(Return(ext_info));
 
+  EXPECT_CALL(*transport_, onServiceAuthenticated("ssh-connection"s));
   AuthStateSharedPtr state;
   EXPECT_CALL(*transport_, initUpstream(_))
     .WillOnce(SaveArg<0>(&state));
@@ -378,6 +391,8 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowUpstream) {
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowInternal) {
+  SendValidPubKeyRequest();
+
   auto msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
   auto* allow = msg->mutable_auth_response()->mutable_allow();
   auto* filter_metadata = allow->mutable_internal()->mutable_set_metadata()->mutable_filter_metadata();
@@ -400,6 +415,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowInternal) {
   EXPECT_CALL(*transport_, initUpstream(_))
     .WillOnce(SaveArg<0>(&state));
 
+  EXPECT_CALL(*transport_, onServiceAuthenticated("ssh-connection"s));
   auto r = service_->handleMessage(std::move(msg));
   ASSERT_OK(r);
 
@@ -494,6 +510,29 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerUnsupportedMessage) {
   ASSERT_EQ(absl::InternalError("server sent invalid message case"), r);
 }
 
+TEST_F(DownstreamUserAuthServiceTest, HandleInconsistentServiceNames) {
+  auto key = openssh::SSHKey::generate(KEY_ED25519, 256);
+  ASSERT_OK(key.status());
+
+  wire::UserAuthRequestMsg req{
+    .username = "foo"s,
+    .service_name = "ssh-connection"s,
+    .request = wire::NoneAuthRequestMsg{},
+  };
+  EXPECT_CALL(*transport_, sendMessageToConnection)
+    .WillOnce(Return(0));
+  auto r = service_->handleMessage(wire::Message{req});
+  ASSERT_OK(r);
+
+  wire::UserAuthRequestMsg req2{
+    .username = "foo"s,
+    .service_name = "not-ssh-connection"s,
+    .request = wire::PubKeyUserAuthRequestMsg{.public_key_alg = "foo"s},
+  };
+  ASSERT_EQ(absl::FailedPreconditionError("inconsistent service names sent in user auth request"),
+            service_->handleMessage(wire::Message{req2}));
+}
+
 class UpstreamUserAuthServiceTest : public testing::Test {
 public:
   UpstreamUserAuthServiceTest() {
@@ -502,7 +541,7 @@ public:
 
     transport_ = std::make_unique<testing::StrictMock<MockTransportCallbacks>>();
     EXPECT_CALL(*transport_, codecConfig())
-        .WillRepeatedly(ReturnRef(codecCfg));
+      .WillRepeatedly(ReturnRef(codecCfg));
 
     api_ = std::make_unique<testing::StrictMock<Api::MockApi>>();
     service_ = std::make_unique<UpstreamUserAuthService>(*transport_, *api_);
@@ -537,13 +576,13 @@ TEST_F(UpstreamUserAuthServiceTest, RegisterSsh) {
 }
 
 TEST_F(UpstreamUserAuthServiceTest, RequestService) {
-    wire::ServiceRequestMsg expectedRequest{ .service_name = "ssh-userauth"s };
-    wire::Message msg{expectedRequest};
-    EXPECT_CALL(*transport_, sendMessageToConnection(Eq(msg)))
-      .WillOnce(Return(0));
+  wire::ServiceRequestMsg expectedRequest{.service_name = "ssh-userauth"s};
+  wire::Message msg{expectedRequest};
+  EXPECT_CALL(*transport_, sendMessageToConnection(Eq(msg)))
+    .WillOnce(Return(0));
 
-    auto r = service_->requestService();
-    EXPECT_OK(r);
+  auto r = service_->requestService();
+  EXPECT_OK(r);
 }
 
 TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedBadAuthState) {
@@ -589,7 +628,7 @@ TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedValidSignature) {
 
   // Verify that the signature is valid for the public key presented.
   const auto& pubkey_req = req.message.get<wire::UserAuthRequestMsg>()
-    .request.get<wire::PubKeyUserAuthRequestMsg>();
+                             .request.get<wire::PubKeyUserAuthRequestMsg>();
   auto key = openssh::SSHKey::fromPublicKeyBlob(pubkey_req.public_key);
   ASSERT_OK(key.status());
 
