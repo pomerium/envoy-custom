@@ -13,6 +13,7 @@
 #pragma clang unsafe_buffer_usage begin
 #include "absl/random/random.h"
 #include "absl/strings/str_split.h"
+#include "absl/strings/str_replace.h"
 #pragma clang unsafe_buffer_usage end
 
 extern "C" {
@@ -46,6 +47,50 @@ TEST(OpensshTest, StatusFromErr) {
     EXPECT_EQ(stat.message(), std::string_view(ssh_err(i)));
   }
   EXPECT_EQ(absl::UnknownError("unknown error"), statusFromErr(-61));
+}
+
+TEST(OpensshTest, DisconnectCodeToString) {
+#define CHECK_FORMAT_(NAME) EXPECT_EQ(disconnectCodeToString(NAME), absl::AsciiStrToLower(absl::StrReplaceAll(absl::StripPrefix(#NAME, "SSH2_DISCONNECT_"), {{"_", " "}})));
+  CHECK_FORMAT_(SSH2_DISCONNECT_HOST_NOT_ALLOWED_TO_CONNECT);
+  CHECK_FORMAT_(SSH2_DISCONNECT_PROTOCOL_ERROR);
+  CHECK_FORMAT_(SSH2_DISCONNECT_KEY_EXCHANGE_FAILED);
+  CHECK_FORMAT_(SSH2_DISCONNECT_HOST_AUTHENTICATION_FAILED);
+  CHECK_FORMAT_(SSH2_DISCONNECT_MAC_ERROR);
+  CHECK_FORMAT_(SSH2_DISCONNECT_COMPRESSION_ERROR);
+  CHECK_FORMAT_(SSH2_DISCONNECT_SERVICE_NOT_AVAILABLE);
+  CHECK_FORMAT_(SSH2_DISCONNECT_PROTOCOL_VERSION_NOT_SUPPORTED);
+  CHECK_FORMAT_(SSH2_DISCONNECT_HOST_KEY_NOT_VERIFIABLE);
+  CHECK_FORMAT_(SSH2_DISCONNECT_CONNECTION_LOST);
+  CHECK_FORMAT_(SSH2_DISCONNECT_BY_APPLICATION);
+  CHECK_FORMAT_(SSH2_DISCONNECT_TOO_MANY_CONNECTIONS);
+  CHECK_FORMAT_(SSH2_DISCONNECT_AUTH_CANCELLED_BY_USER);
+  CHECK_FORMAT_(SSH2_DISCONNECT_NO_MORE_AUTH_METHODS_AVAILABLE);
+  CHECK_FORMAT_(SSH2_DISCONNECT_ILLEGAL_USER_NAME);
+  EXPECT_EQ("(unknown)", disconnectCodeToString(123456));
+#undef CHECK_FORMAT_
+}
+TEST(OpensshTest, StatusCodeToDisconnectCode) {
+  EXPECT_EQ(SSH2_DISCONNECT_PROTOCOL_ERROR, statusCodeToDisconnectCode(absl::StatusCode::kInvalidArgument));
+  EXPECT_EQ(SSH2_DISCONNECT_PROTOCOL_ERROR, statusCodeToDisconnectCode(absl::StatusCode::kNotFound));
+  EXPECT_EQ(SSH2_DISCONNECT_PROTOCOL_ERROR, statusCodeToDisconnectCode(absl::StatusCode::kAlreadyExists));
+  EXPECT_EQ(SSH2_DISCONNECT_PROTOCOL_ERROR, statusCodeToDisconnectCode(absl::StatusCode::kPermissionDenied));
+  EXPECT_EQ(SSH2_DISCONNECT_PROTOCOL_ERROR, statusCodeToDisconnectCode(absl::StatusCode::kFailedPrecondition));
+  EXPECT_EQ(SSH2_DISCONNECT_PROTOCOL_ERROR, statusCodeToDisconnectCode(absl::StatusCode::kAborted));
+  EXPECT_EQ(SSH2_DISCONNECT_PROTOCOL_ERROR, statusCodeToDisconnectCode(absl::StatusCode::kOutOfRange));
+  EXPECT_EQ(SSH2_DISCONNECT_PROTOCOL_ERROR, statusCodeToDisconnectCode(absl::StatusCode::kUnauthenticated));
+  EXPECT_EQ(SSH2_DISCONNECT_SERVICE_NOT_AVAILABLE, statusCodeToDisconnectCode(absl::StatusCode::kResourceExhausted));
+  EXPECT_EQ(SSH2_DISCONNECT_SERVICE_NOT_AVAILABLE, statusCodeToDisconnectCode(absl::StatusCode::kUnimplemented));
+  EXPECT_EQ(SSH2_DISCONNECT_SERVICE_NOT_AVAILABLE, statusCodeToDisconnectCode(absl::StatusCode::kInternal));
+  EXPECT_EQ(SSH2_DISCONNECT_SERVICE_NOT_AVAILABLE, statusCodeToDisconnectCode(absl::StatusCode::kUnavailable));
+  EXPECT_EQ(SSH2_DISCONNECT_SERVICE_NOT_AVAILABLE, statusCodeToDisconnectCode(absl::StatusCode::kDataLoss));
+  EXPECT_EQ(SSH2_DISCONNECT_BY_APPLICATION, statusCodeToDisconnectCode(absl::StatusCode::kCancelled));
+  EXPECT_EQ(SSH2_DISCONNECT_BY_APPLICATION, statusCodeToDisconnectCode(absl::StatusCode::kDeadlineExceeded));
+
+  EXPECT_EQ(SSH2_DISCONNECT_BY_APPLICATION, statusCodeToDisconnectCode(absl::OkStatus().code()));
+  EXPECT_EQ(SSH2_DISCONNECT_BY_APPLICATION, statusCodeToDisconnectCode(absl::UnknownError("").code()));
+#if !__has_feature(address_sanitizer)
+  EXPECT_EQ(SSH2_DISCONNECT_BY_APPLICATION, statusCodeToDisconnectCode(absl::StatusCode(-10)));
+#endif
 }
 
 TEST(SSHKeyTest, FromPrivateKeyFilePath) {
