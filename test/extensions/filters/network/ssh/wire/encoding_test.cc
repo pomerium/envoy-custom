@@ -799,6 +799,58 @@ TEST(ReadOptTest, List_OptListSizePrefixed_DecodedWrongListSize) {
                             "decoded list size 3 does not match expected size 4");
 }
 
+TEST(ReadOptTest, List_OptLengthPrefixed_Read) {
+  Buffer::OwnedImpl buffer;
+  buffer.writeBEInt<uint32_t>(4);
+  buffer.writeBEInt<uint32_t>(1);
+  buffer.writeBEInt<uint32_t>(4);
+  buffer.writeBEInt<uint32_t>(2);
+  buffer.writeBEInt<uint32_t>(4);
+  buffer.writeBEInt<uint32_t>(3);
+  std::vector<uint32_t> out;
+  auto expected = std::vector<uint32_t>{1, 2, 3};
+  EXPECT_NO_THROW({
+    auto r = read_opt<LengthPrefixed>(buffer, out, buffer.length());
+    EXPECT_EQ(24, r);
+    EXPECT_EQ(expected, out);
+  });
+}
+
+TEST(ReadOptTest, List_OptLengthPrefixed_ZeroLimit) {
+  Buffer::OwnedImpl buffer;
+  buffer.writeBEInt<uint32_t>(4);
+  buffer.writeBEInt<uint32_t>(1);
+  std::vector<uint32_t> out;
+  auto expected = std::vector<uint32_t>{};
+  EXPECT_NO_THROW({
+    auto r = read_opt<LengthPrefixed>(buffer, out, 0);
+    EXPECT_EQ(0, r);
+    EXPECT_EQ(expected, out);
+    EXPECT_EQ(8, buffer.length());
+  });
+}
+
+TEST(ReadOptTest, List_OptLengthPrefixed_ReadEmptyList) {
+  Buffer::OwnedImpl buffer;
+  std::vector<uint32_t> out;
+  auto expected = std::vector<uint32_t>{};
+  EXPECT_NO_THROW({
+    auto r = read_opt<LengthPrefixed>(buffer, out, buffer.length());
+    EXPECT_EQ(0, r);
+    EXPECT_EQ(expected, out);
+  });
+}
+
+TEST(ReadOptTest, List_OptLengthPrefixed_ShortRead) {
+  Buffer::OwnedImpl buffer;
+  std::vector<uint32_t> out;
+  auto expected = std::vector<uint32_t>{};
+  buffer.writeBEInt<uint32_t>(4);
+  buffer.writeBEInt<uint32_t>(1);
+  buffer.writeBEInt<uint32_t>(4);
+  EXPECT_SHORT_READ(read_opt<LengthPrefixed>(buffer, out, buffer.length()));
+}
+
 TEST(ReadOptTest, List_OptListLengthPrefixed_Read) {
   Buffer::OwnedImpl buffer;
   buffer.writeBEInt<uint32_t>(12);
@@ -1313,6 +1365,26 @@ TEST(WriteOptTest, List_OptListLengthAndElemLengthPrefixed_Write) {
   EXPECT_EQ(2, buffer.peekBEInt<uint32_t>(16));
   EXPECT_EQ(4, buffer.peekBEInt<uint32_t>(20));
   EXPECT_EQ(3, buffer.peekBEInt<uint32_t>(24));
+}
+
+TEST(WriteOptTest, List_OptLengthPrefixed_Write) {
+  Buffer::OwnedImpl buffer;
+  auto r = write_opt<LengthPrefixed>(buffer, std::vector<uint32_t>{1, 2, 3});
+  EXPECT_EQ(24, r);
+  EXPECT_EQ(24, buffer.length());
+  EXPECT_EQ(4, buffer.peekBEInt<uint32_t>(0));
+  EXPECT_EQ(1, buffer.peekBEInt<uint32_t>(4));
+  EXPECT_EQ(4, buffer.peekBEInt<uint32_t>(8));
+  EXPECT_EQ(2, buffer.peekBEInt<uint32_t>(12));
+  EXPECT_EQ(4, buffer.peekBEInt<uint32_t>(16));
+  EXPECT_EQ(3, buffer.peekBEInt<uint32_t>(20));
+}
+
+TEST(WriteOptTest, List_OptLengthPrefixed_WriteEmptyList) {
+  Buffer::OwnedImpl buffer;
+  auto r = write_opt<LengthPrefixed>(buffer, std::vector<uint32_t>{});
+  EXPECT_EQ(0, r);
+  EXPECT_EQ(0, buffer.length());
 }
 
 TEST(WriteOptTest, List_OptCommaDelimited_Write) {
