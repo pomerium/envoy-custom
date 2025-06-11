@@ -510,6 +510,14 @@ absl::StatusOr<size_t> PingExtension::encode(Envoy::Buffer::Instance& buffer) co
   return version.encode(buffer);
 }
 
+// ExtInfoInAuthExtension
+absl::StatusOr<size_t> ExtInfoInAuthExtension::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
+  return version.decode(buffer, payload_size);
+}
+absl::StatusOr<size_t> ExtInfoInAuthExtension::encode(Envoy::Buffer::Instance& buffer) const noexcept {
+  return version.encode(buffer);
+}
+
 // Extension
 size_t read(Envoy::Buffer::Instance& buffer, Extension& ext, size_t payload_size) {
   size_t n = 0;

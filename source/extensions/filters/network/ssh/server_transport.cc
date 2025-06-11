@@ -41,9 +41,8 @@ SshServerTransport::SshServerTransport(Api::Api& api,
   channel_client_ = std::make_unique<ChannelStreamServiceClient>(*grpcClient);
 
   wire::ExtInfoMsg extInfo;
-  wire::PingExtension pingExt;
-  pingExt.version = "0";
-  extInfo.extensions->emplace_back(std::move(pingExt));
+  extInfo.extensions->emplace_back(wire::PingExtension{.version = "0"s});
+  extInfo.extensions->emplace_back(wire::ExtInfoInAuthExtension{.version = "0"s});
   outgoing_ext_info_ = std::move(extInfo);
 };
 

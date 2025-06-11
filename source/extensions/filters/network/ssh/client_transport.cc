@@ -22,9 +22,7 @@ SshClientTransport::SshClientTransport(
     : TransportBase(api, std::move(config)),
       tls_(slot_ptr) {
   wire::ExtInfoMsg extInfo;
-  wire::PingExtension pingExt;
-  pingExt.version = "0";
-  extInfo.extensions->emplace_back(std::move(pingExt));
+  extInfo.extensions->emplace_back(wire::PingExtension{.version = "0"s});
   outgoing_ext_info_ = std::move(extInfo);
 }
 
