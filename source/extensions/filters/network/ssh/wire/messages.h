@@ -579,13 +579,22 @@ struct PingExtension final : SubMsg<SshMessageType::ExtInfo, "ping@openssh.com">
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+struct ExtInfoInAuthExtension final : SubMsg<SshMessageType::ExtInfo, "ext-info-in-auth@openssh.com"> {
+  field<std::string, LengthPrefixed> version;
+
+  constexpr auto operator<=>(const ExtInfoInAuthExtension&) const = default;
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
+};
+
 // The Extension struct itself is a Reader/Writer, since it is used as the value type of a field.
 // Sub-messages can't appear more than once, as they do not encode their own size information.
 // Extension is implemented in terms of a sub_message, but that is only an implementation detail.
 struct Extension {
   constexpr std::string& extension_name() { return *extension.key_field(); }
   sub_message<ServerSigAlgsExtension,
-              PingExtension>
+              PingExtension,
+              ExtInfoInAuthExtension>
     extension;
 
   Extension() = default;
