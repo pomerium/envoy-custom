@@ -570,6 +570,9 @@ absl::StatusOr<size_t> PongMsg::encode(Envoy::Buffer::Instance& buffer) const no
 
 // Message
 absl::StatusOr<size_t> Message::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
+  if (payload_size == 0) {
+    return 0;
+  }
   message.key_field() = buffer.peekInt<SshMessageType>();
   return message.decode(buffer, payload_size);
 }
