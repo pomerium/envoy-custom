@@ -263,6 +263,22 @@ TEST(MessagesTest, Message_CopyMove) {
   EXPECT_EQ(m3.message.get<wire::ChannelDataMsg>().data, m2.message.get<wire::ChannelDataMsg>().data);
 }
 
+TEST(MessagesTest, DecodeEmpty) {
+  wire::Message msg{};
+  Buffer::OwnedImpl buf;
+  auto s = msg.decode(buf, buf.length());
+  ASSERT_OK(s.status());
+  ASSERT_EQ(0, *s);
+}
+
+TEST(MessagesTest, DecodeShort) {
+  wire::Message msg{};
+  Buffer::OwnedImpl buf;
+  buf.writeByte(SshMessageType::KexInit);
+  auto s = msg.decode(buf, buf.length());
+  ASSERT_EQ(absl::InvalidArgumentError("short read"), s.status());
+}
+
 template <typename T>
 class TopLevelMessagesTestSuite : public testing::Test {
 public:
