@@ -279,6 +279,15 @@ TEST(MessagesTest, DecodeShort) {
   ASSERT_EQ(absl::InvalidArgumentError("short read"), s.status());
 }
 
+TEST(MessagesTest, EncodeEmpty) {
+  wire::Message msg{};
+  Buffer::OwnedImpl buf;
+  auto s = msg.encode(buf);
+  ASSERT_OK(s.status());
+  ASSERT_EQ(0, *s);
+  ASSERT_EQ(0, buf.length());
+}
+
 template <typename T>
 class TopLevelMessagesTestSuite : public testing::Test {
 public:
