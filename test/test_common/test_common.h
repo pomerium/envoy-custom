@@ -128,6 +128,7 @@ using testing::Property;
 using testing::Return;
 using testing::ReturnRef;
 using testing::SaveArg;
+using testing::Truly;
 using testing::Types;
 using testing::VariantWith;
 using testing::WhenDynamicCastTo;

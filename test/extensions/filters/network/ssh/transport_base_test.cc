@@ -78,6 +78,7 @@ public:
   using TransportBase<T>::cipher_;
   using TransportBase<T>::read_bytes_remaining_;
   using TransportBase<T>::write_bytes_remaining_;
+  using TransportBase<T>::pending_key_exchange_;
 
   MOCK_METHOD(void, updatePeerExtInfo, (std::optional<wire::ExtInfoMsg>), (override));                   // delegates to the base class
   MOCK_METHOD(void, onKexStarted, (bool), (override));                                                   // delegates to the base class
@@ -804,6 +805,40 @@ TYPED_TEST(TransportBaseTest, TestRekeyWithQueuedMessages) {
   this->Join();
 }
 
+TYPED_TEST(TransportBaseTest, TestDisconnectAlwaysSentDuringRekey) {
+  if (!this->StartAndWaitForInitialKeyExchange()) {
+    return;
+  }
+
+  EXPECT_CALL(this->Client(), onKexInitMsgSent())
+    .WillOnce(InvokeWithoutArgs([this] {
+      ASSERT_FALSE(this->Client().pending_key_exchange_); // sanity check
+      this->Client().TransportBase::onKexInitMsgSent();
+      ASSERT_TRUE(this->Client().pending_key_exchange_); // sanity check
+
+      // the disconnect should be sent immediately, even though we are calling
+      // sendMessageToConnection during a key exchange.
+      ASSERT_OK(this->Client().sendMessageToConnection(wire::DisconnectMsg{}).status());
+    }));
+  EXPECT_CALL(this->Client(), sendMessageDirect(MSG(wire::KexInitMsg, _)));
+  EXPECT_CALL(this->Client(), sendMessageDirect(MSG(wire::DisconnectMsg, _)));
+
+  // If the disconnect message were queued, the server would instead receive the KexInitMsg first.
+  // Note that onKexInitMsgSent occurs before the client actually sends the KexInitMsg.
+  EXPECT_CALL(this->Server(), onMessageDecoded(MSG(wire::DisconnectMsg, _)))
+    .WillOnce(InvokeWithoutArgs([this] {
+      this->Client().Exit();
+      this->Server().Exit();
+      return absl::OkStatus();
+    }));
+
+  this->Client().Post([](auto& self) {
+    EXPECT_OK(self.InitiateRekey());
+  });
+
+  this->Join();
+}
+
 TYPED_TEST(TransportBaseTest, TestSimultaneousRekeyOnRWThresholds) {
   this->ClientConfig().set_rekey_threshold(16384);
   this->ServerConfig().set_rekey_threshold(16384);
@@ -1341,6 +1376,35 @@ TYPED_TEST(TransportBaseTest, TestErrorEncodingPacket) {
     this->Client().Exit();
     this->Server().Exit();
   });
+  this->Join();
+}
+
+TYPED_TEST(TransportBaseTest, TestUnimplementedMsg) {
+  if (!this->StartAndWaitForInitialKeyExchange()) {
+    return;
+  }
+
+  EXPECT_CALL(this->Server(), onMessageDecoded(Truly([](const wire::Message& msg) {
+                return !msg.has_value();
+              })));
+  EXPECT_CALL(this->Client(), onMessageDecoded(MSG(wire::UnimplementedMsg, _)))
+    .WillOnce(Invoke([this](wire::Message&& msg) {
+      auto expected_seqnum = this->Client().seq_write_ - 1;
+      auto actual_seqnum = msg.message.get<wire::UnimplementedMsg>().sequence_number;
+      EXPECT_EQ(expected_seqnum, actual_seqnum);
+      this->Client().Exit();
+      this->Server().Exit();
+      return absl::OkStatus();
+    }));
+
+  this->Client().Post([](auto& client) {
+    Buffer::OwnedImpl buffer;
+    wire::write(buffer, wire::SshMessageType(200));
+    wire::Message msg;
+    EXPECT_OK(msg.decode(buffer, buffer.length()).status());
+    ASSERT_OK(client.sendMessageToConnection(std::move(msg)).status());
+  });
+
   this->Join();
 }
 
