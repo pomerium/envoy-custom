@@ -512,15 +512,17 @@ void generateKeyMaterial(bytes& out, char tag, KexResult* kex_result) {
 }
 } // namespace
 
-std::unique_ptr<PacketCipher> Kex::makePacketCipher(DirectionTags d_read,
-                                                    DirectionTags d_write,
-                                                    KexMode mode,
-                                                    KexResult* kex_result) const {
+std::unique_ptr<PacketCipher>
+makePacketCipherFromKexResult(DirectionalPacketCipherFactoryRegistry& cipher_factories,
+                              DirectionTags d_read,
+                              DirectionTags d_write,
+                              KexMode mode,
+                              KexResult* kex_result) {
   ASSERT(!kex_result->session_id.empty());
   const auto& readAlgs = readDirectionAlgsForMode(kex_result->algorithms, mode);
   const auto& writeAlgs = writeDirectionAlgsForMode(kex_result->algorithms, mode);
-  auto readFactory = cipher_factories_.factoryForName(readAlgs.cipher);
-  auto writeFactory = cipher_factories_.factoryForName(writeAlgs.cipher);
+  auto readFactory = cipher_factories.factoryForName(readAlgs.cipher);
+  auto writeFactory = cipher_factories.factoryForName(writeAlgs.cipher);
 
   DerivedKeys read;
   read.iv.reserve(readFactory->ivSize());
@@ -545,4 +547,5 @@ std::unique_ptr<PacketCipher> Kex::makePacketCipher(DirectionTags d_read,
   return std::make_unique<PacketCipher>(readFactory->create(read, readAlgs, openssh::CipherMode::Read),
                                         writeFactory->create(write, writeAlgs, openssh::CipherMode::Write));
 }
+
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

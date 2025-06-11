@@ -1132,8 +1132,10 @@ TEST_P(MakePacketCipherTest, MakePacketCipher) {
   sequence.client_kex_init_ = GetParam()();
   ContinueUntilEnd();
 
-  auto serverCipher = kex_->makePacketCipher(clientKeys, serverKeys, KexMode::Server, sequence.server_kex_result_.get());
-  auto clientCipher = kex_->makePacketCipher(serverKeys, clientKeys, KexMode::Client, sequence.client_kex_result_.get());
+  auto serverCipher = makePacketCipherFromKexResult(
+    cipher_factories_, clientKeys, serverKeys, KexMode::Server, sequence.server_kex_result_.get());
+  auto clientCipher = makePacketCipherFromKexResult(
+    cipher_factories_, serverKeys, clientKeys, KexMode::Client, sequence.client_kex_result_.get());
 
   seqnum_t seqnum = 0;
   for (auto [send, recv] : {std::pair{serverCipher.get(), clientCipher.get()},
