@@ -269,7 +269,9 @@ size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NO
   detail::check_incompatible_options<(ListSizePrefixed | ListLengthPrefixed), Opt>();
 
   if (limit == 0) {
-    if constexpr (Opt & (LengthPrefixed | ListSizePrefixed | ListLengthPrefixed)) {
+    // A list with LengthPrefixed elements can read 0 bytes (an empty list), but if the list itself
+    // needs a length or size prefix, it is required.
+    if constexpr (Opt & (ListSizePrefixed | ListLengthPrefixed)) {
       throw Envoy::EnvoyException("short read");
     } else {
       return 0;
