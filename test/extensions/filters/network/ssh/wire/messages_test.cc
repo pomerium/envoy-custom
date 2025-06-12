@@ -288,6 +288,24 @@ TEST(MessagesTest, EncodeEmpty) {
   ASSERT_EQ(0, buf.length());
 }
 
+TEST(ExtInfoMsgTest, GetExtension) {
+  wire::ExtInfoMsg extInfo{};
+  EXPECT_FALSE(extInfo.getExtension<ServerSigAlgsExtension>().has_value());
+  EXPECT_FALSE(extInfo.getExtension<PingExtension>().has_value());
+
+  wire::PingExtension pingExt{};
+  wire::test::populateFields(pingExt);
+  extInfo.extensions->emplace_back(auto(pingExt));
+  EXPECT_FALSE(extInfo.getExtension<ServerSigAlgsExtension>().has_value());
+  EXPECT_EQ(std::optional{pingExt}, extInfo.getExtension<PingExtension>());
+
+  wire::ServerSigAlgsExtension serverSigAlgs;
+  wire::test::populateFields(serverSigAlgs);
+  extInfo.extensions->emplace_back(auto(serverSigAlgs));
+  EXPECT_EQ(std::optional{serverSigAlgs}, extInfo.getExtension<ServerSigAlgsExtension>());
+  EXPECT_EQ(std::optional{pingExt}, extInfo.getExtension<PingExtension>());
+}
+
 template <typename T>
 class TopLevelMessagesTestSuite : public testing::Test {
 public:

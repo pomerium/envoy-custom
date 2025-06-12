@@ -580,21 +580,45 @@ class UpstreamUserAuthServiceTest : public testing::Test {
 public:
   UpstreamUserAuthServiceTest() {
     auto privKeyPath = copyTestdataToWritableTmp("regress/unittests/sshkey/testdata/ed25519_1", 0600);
-    codecCfg.set_user_ca_key(privKeyPath);
+    codec_cfg_.set_user_ca_key(privKeyPath);
 
     transport_ = std::make_unique<testing::StrictMock<MockTransportCallbacks>>();
     EXPECT_CALL(*transport_, codecConfig())
-      .WillRepeatedly(ReturnRef(codecCfg));
+      .WillRepeatedly(ReturnRef(codec_cfg_));
+    EXPECT_CALL(*transport_, peerExtInfo())
+      .WillRepeatedly([&] { return peer_ext_info_; });
 
     api_ = std::make_unique<testing::StrictMock<Api::MockApi>>();
     service_ = std::make_unique<UpstreamUserAuthService>(*transport_, *api_);
   }
 
 protected:
-  pomerium::extensions::ssh::CodecConfig codecCfg;
+  pomerium::extensions::ssh::CodecConfig codec_cfg_;
+  std::optional<wire::ExtInfoMsg> peer_ext_info_;
   std::unique_ptr<testing::StrictMock<MockTransportCallbacks>> transport_;
   std::unique_ptr<testing::StrictMock<Api::MockApi>> api_;
   std::unique_ptr<UpstreamUserAuthService> service_;
+
+  // Simulates a call to onServiceAccepted() in a valid auth state, triggering a
+  // UserAuthRequestMsg to be sent.
+  void triggerUserAuthRequestMsg(wire::Message* out_req = nullptr) {
+    AuthState state;
+    state.allow_response = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
+    state.allow_response->set_username("example-username");
+    EXPECT_CALL(*transport_, authState())
+      .WillRepeatedly(ReturnRef(state));
+
+    wire::Message req;
+    EXPECT_CALL(*transport_, sendMessageToConnection(MSG(wire::UserAuthRequestMsg, _)))
+      .WillOnce(DoAll(SaveArg<0>(&req),
+                      Return(absl::UnknownError("sentinel"))));
+
+    auto r = service_->onServiceAccepted();
+    ASSERT_EQ(absl::UnknownError("sentinel"), r);
+    if (out_req != nullptr) {
+      *out_req = std::move(req);
+    }
+  }
 };
 
 TEST_F(UpstreamUserAuthServiceTest, Name) {
@@ -651,29 +675,14 @@ TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedEncodingFailure) {
   ASSERT_EQ(absl::AbortedError("error encoding user auth request: message size too large"), r);
 }
 
-TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedValidSignature) {
-  AuthState state;
-  state.allow_response = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
-  state.allow_response->set_username("example-username");
-  EXPECT_CALL(*transport_, authState())
-    .WillRepeatedly(ReturnRef(state));
-  auto session_id = "SESSION-ID"_bytes;
-  EXPECT_CALL(*transport_, sessionId())
-    .WillOnce(ReturnRef(session_id));
-
-  wire::Message req;
-  EXPECT_CALL(*transport_, sendMessageToConnection(MSG(wire::UserAuthRequestMsg, _)))
-    .WillOnce(DoAll(SaveArg<0>(&req),
-                    Return(absl::UnknownError("sentinel"))));
-
-  auto r = service_->onServiceAccepted();
-  ASSERT_EQ(absl::UnknownError("sentinel"), r);
-
-  // Verify that the signature is valid for the public key presented.
+void verifySignature(bytes session_id, wire::Message& req, std::string expected_alg) {
   const auto& pubkey_req = req.message.get<wire::UserAuthRequestMsg>()
                              .request.get<wire::PubKeyUserAuthRequestMsg>();
+  ASSERT_EQ(expected_alg, *pubkey_req.public_key_alg);
   auto key = openssh::SSHKey::fromPublicKeyBlob(pubkey_req.public_key);
   ASSERT_OK(key.status());
+  auto expected_key_type = openssh::SSHKey::keyTypeFromName(expected_alg);
+  ASSERT_EQ(expected_key_type, (*key)->keyType());
 
   Envoy::Buffer::OwnedImpl verifyBuf;
   wire::write_opt<wire::LengthPrefixed>(verifyBuf, session_id);
@@ -681,7 +690,161 @@ TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedValidSignature) {
   ASSERT_OK(e.status());
   auto span = linearizeToSpan(verifyBuf);
   auto payload = span.first(span.size() - 4 - pubkey_req.signature->size());
-  ASSERT_OK((*key)->verify(*pubkey_req.signature, payload));
+  ASSERT_OK((*key)->verify(*pubkey_req.signature, payload, expected_alg));
+}
+
+TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedValidSignature) {
+  auto session_id = "SESSION-ID"_bytes;
+  EXPECT_CALL(*transport_, sessionId()).WillOnce(ReturnRef(session_id));
+
+  wire::Message req;
+  triggerUserAuthRequestMsg(&req);
+
+  verifySignature(session_id, req, "ssh-ed25519-cert-v01@openssh.com");
+}
+
+TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedServerSigAlgsEd25519) {
+  peer_ext_info_ = wire::ExtInfoMsg{};
+  peer_ext_info_->extensions->emplace_back(wire::ServerSigAlgsExtension{
+    .public_key_algorithms_accepted = string_list{
+      "ssh-ed25519",
+      "ecdsa-sha2-nistp256",
+      "ecdsa-sha2-nistp384",
+      "ecdsa-sha2-nistp521",
+      "rsa-sha2-512",
+      "rsa-sha2-256",
+    },
+  });
+
+  auto session_id = "SESSION-ID"_bytes;
+  EXPECT_CALL(*transport_, sessionId()).WillOnce(ReturnRef(session_id));
+
+  wire::Message req;
+  triggerUserAuthRequestMsg(&req);
+
+  verifySignature(session_id, req, "ssh-ed25519-cert-v01@openssh.com");
+}
+
+TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedServerSigAlgsEcdsaP256) {
+  peer_ext_info_ = wire::ExtInfoMsg{};
+  peer_ext_info_->extensions->emplace_back(wire::ServerSigAlgsExtension{
+    .public_key_algorithms_accepted = string_list{
+      "ecdsa-sha2-nistp256",
+      "ecdsa-sha2-nistp384",
+      "ecdsa-sha2-nistp521",
+      "rsa-sha2-512",
+      "rsa-sha2-256",
+    },
+  });
+
+  auto session_id = "SESSION-ID"_bytes;
+  EXPECT_CALL(*transport_, sessionId()).WillOnce(ReturnRef(session_id));
+
+  wire::Message req;
+  triggerUserAuthRequestMsg(&req);
+
+  verifySignature(session_id, req, "ecdsa-sha2-nistp256-cert-v01@openssh.com");
+}
+
+TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedServerSigAlgsEcdsaP384) {
+  peer_ext_info_ = wire::ExtInfoMsg{};
+  peer_ext_info_->extensions->emplace_back(wire::ServerSigAlgsExtension{
+    .public_key_algorithms_accepted = string_list{
+      "ecdsa-sha2-nistp384",
+      "ecdsa-sha2-nistp521",
+      "rsa-sha2-512",
+      "rsa-sha2-256",
+    },
+  });
+
+  auto session_id = "SESSION-ID"_bytes;
+  EXPECT_CALL(*transport_, sessionId()).WillOnce(ReturnRef(session_id));
+
+  wire::Message req;
+  triggerUserAuthRequestMsg(&req);
+
+  verifySignature(session_id, req, "ecdsa-sha2-nistp384-cert-v01@openssh.com");
+}
+
+TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedServerSigAlgsEcdsaP521) {
+  peer_ext_info_ = wire::ExtInfoMsg{};
+  peer_ext_info_->extensions->emplace_back(wire::ServerSigAlgsExtension{
+    .public_key_algorithms_accepted = string_list{
+      "ecdsa-sha2-nistp521",
+      "rsa-sha2-512",
+      "rsa-sha2-256",
+    },
+  });
+
+  auto session_id = "SESSION-ID"_bytes;
+  EXPECT_CALL(*transport_, sessionId()).WillOnce(ReturnRef(session_id));
+
+  wire::Message req;
+  triggerUserAuthRequestMsg(&req);
+
+  verifySignature(session_id, req, "ecdsa-sha2-nistp521-cert-v01@openssh.com");
+}
+
+TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedServerSigAlgsRsaSha512) {
+  peer_ext_info_ = wire::ExtInfoMsg{};
+  peer_ext_info_->extensions->emplace_back(wire::ServerSigAlgsExtension{
+    .public_key_algorithms_accepted = string_list{
+      "rsa-sha2-512",
+      "rsa-sha2-256",
+    },
+  });
+
+  auto session_id = "SESSION-ID"_bytes;
+  EXPECT_CALL(*transport_, sessionId()).WillOnce(ReturnRef(session_id));
+
+  wire::Message req;
+  triggerUserAuthRequestMsg(&req);
+
+  verifySignature(session_id, req, "rsa-sha2-512-cert-v01@openssh.com");
+}
+
+TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedServerSigAlgsRsaSha256) {
+  peer_ext_info_ = wire::ExtInfoMsg{};
+  peer_ext_info_->extensions->emplace_back(wire::ServerSigAlgsExtension{
+    .public_key_algorithms_accepted = string_list{
+      "rsa-sha2-256",
+    },
+  });
+
+  auto session_id = "SESSION-ID"_bytes;
+  EXPECT_CALL(*transport_, sessionId()).WillOnce(ReturnRef(session_id));
+
+  wire::Message req;
+  triggerUserAuthRequestMsg(&req);
+
+  verifySignature(session_id, req, "rsa-sha2-256-cert-v01@openssh.com");
+}
+
+TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedServerSigAlgsUnsupported) {
+  // If the server-sig-algs extension is present but there is no overlap with
+  // our supported key types, we'll still attempt to authenticate with the
+  // default key type.
+  peer_ext_info_ = wire::ExtInfoMsg{};
+  peer_ext_info_->extensions->emplace_back(wire::ServerSigAlgsExtension{
+    .public_key_algorithms_accepted = string_list{
+      "sk-ssh-ed25519@openssh.com",
+      "sk-ssh-ed25519-cert-v01@openssh.com",
+      "sk-ecdsa-sha2-nistp256@openssh.com",
+      "sk-ecdsa-sha2-nistp256-cert-v01@openssh.com",
+      "webauthn-sk-ecdsa-sha2-nistp256@openssh.com",
+      "ssh-dss",
+      "ssh-dss-cert-v01@openssh.com",
+      "ssh-rsa",
+    },
+  });
+
+  auto session_id = "SESSION-ID"_bytes;
+  EXPECT_CALL(*transport_, sessionId()).WillOnce(ReturnRef(session_id));
+
+  wire::Message req;
+  triggerUserAuthRequestMsg(&req);
+
+  verifySignature(session_id, req, "ssh-ed25519-cert-v01@openssh.com");
 }
 
 TEST_F(UpstreamUserAuthServiceTest, HandleMessageUserAuthBannerChannelNormal) {

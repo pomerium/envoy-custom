@@ -632,6 +632,16 @@ struct ExtInfoMsg final : Msg<SshMessageType::ExtInfo> {
     return false;
   }
 
+  template <typename T>
+  std::optional<T> getExtension() const {
+    for (const auto& ext : *extensions) {
+      if (ext.extension.holds_alternative<T>()) {
+        return {ext.extension.get<T>()};
+      }
+    }
+    return std::nullopt;
+  }
+
   constexpr auto operator<=>(const ExtInfoMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;

@@ -277,6 +277,59 @@ INSTANTIATE_TEST_SUITE_P(SSHKeyTest, SSHKeyTestSuite,
                            {KEY_ED25519, 256},
                          }));
 
+TEST(SSHKeyTest, SignWithDifferentAlgorithms) {
+  auto key = *SSHKey::generate(KEY_RSA, 2048);
+  auto key_pub = key->toPublicKey();
+
+  bytes payload = "foobarbaz"_bytes;
+  {
+    auto sig = key->sign(payload, "rsa-sha2-256");
+    ASSERT_OK(sig.status());
+    ASSERT_OK(key->verify(*sig, payload));
+    ASSERT_OK(key_pub->verify(*sig, payload));
+    ASSERT_EQ(absl::PermissionDeniedError("incorrect signature"),
+              key->verify(*sig, payload, "rsa-sha2-512"));
+    ASSERT_EQ(absl::PermissionDeniedError("incorrect signature"),
+              key_pub->verify(*sig, payload, "rsa-sha2-512"));
+  }
+
+  {
+    auto sig = key->sign(payload, "rsa-sha2-512");
+    ASSERT_OK(sig.status());
+    ASSERT_OK(key->verify(*sig, payload));
+    ASSERT_OK(key_pub->verify(*sig, payload));
+    ASSERT_EQ(absl::PermissionDeniedError("incorrect signature"),
+              key->verify(*sig, payload, "rsa-sha2-256"));
+    ASSERT_EQ(absl::PermissionDeniedError("incorrect signature"),
+              key_pub->verify(*sig, payload, "rsa-sha2-256"));
+  }
+}
+
+TEST(SSHKeyTest, CertSigningAlgorithmToPlain) {
+  ASSERT_EQ(std::optional{"ssh-ed25519"},
+            certSigningAlgorithmToPlain("ssh-ed25519-cert-v01@openssh.com"));
+  ASSERT_EQ(std::optional{"sk-ssh-ed25519@openssh.com"},
+            certSigningAlgorithmToPlain("sk-ssh-ed25519-cert-v01@openssh.com"));
+  ASSERT_EQ(std::optional{"ecdsa-sha2-nistp256"},
+            certSigningAlgorithmToPlain("ecdsa-sha2-nistp256-cert-v01@openssh.com"));
+  ASSERT_EQ(std::optional{"ecdsa-sha2-nistp384"},
+            certSigningAlgorithmToPlain("ecdsa-sha2-nistp384-cert-v01@openssh.com"));
+  ASSERT_EQ(std::optional{"ecdsa-sha2-nistp521"},
+            certSigningAlgorithmToPlain("ecdsa-sha2-nistp521-cert-v01@openssh.com"));
+  ASSERT_EQ(std::optional{"sk-ecdsa-sha2-nistp256@openssh.com"},
+            certSigningAlgorithmToPlain("sk-ecdsa-sha2-nistp256-cert-v01@openssh.com"));
+  ASSERT_EQ(std::optional{"rsa-sha2-512"},
+            certSigningAlgorithmToPlain("rsa-sha2-512-cert-v01@openssh.com"));
+  ASSERT_EQ(std::optional{"rsa-sha2-256"},
+            certSigningAlgorithmToPlain("rsa-sha2-256-cert-v01@openssh.com"));
+
+  // not supported
+  ASSERT_EQ(std::nullopt, certSigningAlgorithmToPlain("ssh-dss-cert-v01@openssh.com"));
+
+  // unknown
+  ASSERT_EQ(std::nullopt, certSigningAlgorithmToPlain(""));
+}
+
 class SSHKeyCertTestSuite : public SSHKeyTestSuite {
 public:
   void SetUp() override {
