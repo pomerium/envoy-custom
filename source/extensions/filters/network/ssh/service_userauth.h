@@ -1,5 +1,7 @@
 #pragma once
 
+#include <tuple>
+
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "source/extensions/filters/network/ssh/service.h"
@@ -39,6 +41,9 @@ private:
   std::optional<std::string> pending_service_auth_;
 };
 
+// (algorithm, key type, key size in bits)
+using key_params_t = std::tuple<std::string, sshkey_types, uint32_t>;
+
 class UpstreamUserAuthService final : public UserAuthService,
                                       public UpstreamService {
 public:
@@ -49,6 +54,8 @@ public:
   absl::Status onServiceAccepted() override;
 
 private:
+  key_params_t getUpstreamKeyParams();
+
   openssh::SSHKeyPtr ca_user_key_;
   std::unique_ptr<wire::UserAuthRequestMsg> pending_req_;
   bool ext_info_received_{};

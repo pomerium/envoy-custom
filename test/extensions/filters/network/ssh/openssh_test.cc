@@ -238,6 +238,34 @@ INSTANTIATE_TEST_SUITE_P(SSHKeyTest, SSHKeyTestSuite,
                            {KEY_ED25519, 256},
                          }));
 
+TEST(SSHKeyTest, SignWithDifferentAlgorithms) {
+  auto key = *SSHKey::generate(KEY_RSA, 2048);
+  auto key_pub = key->toPublicKey();
+
+  bytes payload = "foobarbaz"_bytes;
+  {
+    auto sig = key->sign(payload, "rsa-sha2-256");
+    ASSERT_OK(sig.status());
+    ASSERT_OK(key->verify(*sig, payload));
+    ASSERT_OK(key_pub->verify(*sig, payload));
+    ASSERT_EQ(absl::PermissionDeniedError("incorrect signature"),
+              key->verify(*sig, payload, "rsa-sha2-512"));
+    ASSERT_EQ(absl::PermissionDeniedError("incorrect signature"),
+              key_pub->verify(*sig, payload, "rsa-sha2-512"));
+  }
+
+  {
+    auto sig = key->sign(payload, "rsa-sha2-512");
+    ASSERT_OK(sig.status());
+    ASSERT_OK(key->verify(*sig, payload));
+    ASSERT_OK(key_pub->verify(*sig, payload));
+    ASSERT_EQ(absl::PermissionDeniedError("incorrect signature"),
+              key->verify(*sig, payload, "rsa-sha2-256"));
+    ASSERT_EQ(absl::PermissionDeniedError("incorrect signature"),
+              key_pub->verify(*sig, payload, "rsa-sha2-256"));
+  }
+}
+
 class SSHKeyCertTestSuite : public SSHKeyTestSuite {
 public:
   void SetUp() override {

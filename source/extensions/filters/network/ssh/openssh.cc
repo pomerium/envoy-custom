@@ -278,22 +278,30 @@ std::string SSHKey::formatPublicKey() const {
   return std::string(view.begin(), view.end());
 }
 
-absl::StatusOr<bytes> SSHKey::sign(bytes_view payload) const {
+absl::StatusOr<bytes> SSHKey::sign(bytes_view payload, std::string alg) const {
   CBytesPtr sig;
   size_t len = 0;
+  const char* c_alg = nullptr;
+  if (alg != "") {
+    c_alg = alg.c_str();
+  }
   auto err = sshkey_sign(key_.get(), std::out_ptr(sig), &len, payload.data(), payload.size(),
-                         nullptr, nullptr, nullptr, 0);
+                         c_alg, nullptr, nullptr, 0);
   if (err != 0) {
     return statusFromErr(err);
   }
   return to_bytes(unsafe_forge_span(sig.get(), len));
 }
 
-absl::Status SSHKey::verify(bytes_view signature, bytes_view payload) {
+absl::Status SSHKey::verify(bytes_view signature, bytes_view payload, std::string alg) {
+  const char* c_alg = nullptr;
+  if (alg != "") {
+    c_alg = alg.c_str();
+  }
   auto err = sshkey_verify(key_.get(),
                            signature.data(), signature.size(),
                            payload.data(), payload.size(),
-                           namePtr(),
+                           c_alg,
                            0,        // bug compatibility
                            nullptr); // TODO: handle u2f signature info
   if (err != 0) {
