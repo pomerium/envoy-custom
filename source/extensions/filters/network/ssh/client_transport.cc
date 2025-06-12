@@ -186,13 +186,6 @@ absl::Status SshClientTransport::handleMessage(wire::Message&& msg) {
     });
 }
 
-absl::StatusOr<bytes> SshClientTransport::signWithHostKey(bytes_view in) const {
-  if (auto k = kex_->getHostKey(openssh::SSHKey::keyTypeFromName(kex_result_->algorithms.host_key)); k) {
-    return k->sign(in);
-  }
-  return absl::InternalError("no such host key");
-}
-
 const AuthState& SshClientTransport::authState() const {
   return *downstream_state_;
 };

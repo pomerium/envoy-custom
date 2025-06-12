@@ -164,10 +164,15 @@ absl::Status SshServerTransport::handleMessage(wire::Message&& msg) {
       onServiceAuthenticated(msg.service_name);
       wire::ServiceAcceptMsg accept;
       accept.service_name = msg.service_name;
+      // don't allow any further ServiceRequestMsgs
+      unregisterHandler(msg.msg_type());
       return sendMessageToConnection(std::move(accept)).status();
     },
     [&](wire::GlobalRequestMsg& msg) {
-      if (!msg.request.has_value()) {
+      if (!msg.request.has_value()) { // unknown request
+        if (!upstreamReady()) {
+          return absl::InvalidArgumentError(fmt::format("unexpected message received: {}", msg.msg_type()));
+        }
         ENVOY_LOG(debug, "forwarding global request: {}", msg.request_name());
         forward(std::move(msg));
         return absl::OkStatus();
@@ -184,20 +189,44 @@ absl::Status SshServerTransport::handleMessage(wire::Message&& msg) {
         },
         [](wire::HostKeysMsg&) {
           // server->client only
-          return absl::InvalidArgumentError("unexpected global request");
+          return absl::InvalidArgumentError(fmt::format("unexpected global request: {}",
+                                                        wire::HostKeysMsg::submsg_key));
         });
     },
-    [&](any_of<wire::GlobalRequestSuccessMsg,
-               wire::GlobalRequestFailureMsg,
-               wire::IgnoreMsg,
-               wire::DebugMsg,
-               wire::UnimplementedMsg> auto& msg) {
+    [&](wire::GlobalRequestSuccessMsg& msg) {
+      // we currently don't send any global requests that require a response, so this would be
+      // the result of an upstream request
+      if (!upstreamReady()) {
+        return absl::InvalidArgumentError(fmt::format("unexpected message received: {}", msg.msg_type()));
+      }
       forward(std::move(msg));
       return absl::OkStatus();
     },
+    [&](wire::GlobalRequestFailureMsg& msg) {
+      if (!upstreamReady()) {
+        return absl::InvalidArgumentError(fmt::format("unexpected message received: {}", msg.msg_type()));
+      }
+      forward(std::move(msg));
+      return absl::OkStatus();
+    },
+    [&](wire::IgnoreMsg&) {
+      return absl::OkStatus();
+    },
+    [&](wire::DebugMsg& msg) {
+      ENVOY_LOG(debug, "received DebugMsg: \"{}\"", msg.message);
+      return absl::OkStatus();
+    },
+    [&](wire::UnimplementedMsg& msg) {
+      ENVOY_LOG(debug, "received UnimplementedMsg for sequence number {} (ignoring)", msg.sequence_number);
+      return absl::OkStatus();
+    },
     [&](wire::DisconnectMsg& msg) {
-      ENVOY_LOG(info, "received disconnect: {}", msg.description);
-      return absl::CancelledError(fmt::format("received disconnect: {}", msg.description));
+      auto desc = *msg.description;
+      auto logMsg = fmt::format("received disconnect: {}{}{}",
+                                openssh::disconnectCodeToString(*msg.reason_code),
+                                desc.empty() ? "" : " ", desc);
+      ENVOY_LOG(info, logMsg);
+      return absl::CancelledError(logMsg);
     },
     [](auto& msg) {
       return absl::InternalError(fmt::format("received invalid message: {}", msg.msg_type()));
@@ -286,23 +315,18 @@ void SshServerTransport::initUpstream(AuthStateSharedPtr s) {
 #endif
 }
 
-absl::StatusOr<bytes> SshServerTransport::signWithHostKey(bytes_view in) const {
-  auto hostKey = kex_result_->algorithms.host_key;
-  if (auto k = kex_->getHostKey(openssh::SSHKey::keyTypeFromName(hostKey)); k) {
-    return k->sign(in);
-  }
-  return absl::InternalError("no such host key");
-}
-
 const AuthState& SshServerTransport::authState() const {
+  ASSERT(upstreamReady());
   return *auth_state_;
 }
 
 AuthState& SshServerTransport::authState() {
+  ASSERT(upstreamReady());
   return *auth_state_;
 }
 
 void SshServerTransport::forward(wire::Message&& message, [[maybe_unused]] FrameTags tags) {
+  ASSERT(upstreamReady());
   auto frame = std::make_unique<SSHRequestCommonFrame>(std::move(message));
   frame->setStreamId(streamId());
   callbacks_->onDecodingSuccess(std::move(frame));
@@ -341,10 +365,8 @@ SshServerTransport::handleHostKeysProve(const wire::HostKeysProveRequestMsg& msg
     wire::write_opt<wire::LengthPrefixed>(tmp, "hostkeys-prove-00@openssh.com"s);
     wire::write_opt<wire::LengthPrefixed>(tmp, kex_result_->session_id);
     wire::write_opt<wire::LengthPrefixed>(tmp, keyBlob);
-    auto sig = (*key)->sign(wire::flushTo<bytes>(tmp));
-    if (!sig.ok()) {
-      return statusf("sshkey_sign failed: {}", sig.status());
-    }
+    auto sig = hostKey->sign(wire::flushTo<bytes>(tmp));
+    RELEASE_ASSERT(sig.ok(), fmt::format("sshkey_sign failed: {}", sig.status()));
     signatures.push_back(std::move(*sig));
   }
   auto resp = std::make_unique<wire::HostKeysProveResponseMsg>();
@@ -364,7 +386,7 @@ void SshServerTransport::onEvent(Network::ConnectionEvent event) {
 
 void SshServerTransport::onDecodingFailure(absl::Status status) {
   wire::DisconnectMsg msg;
-  msg.reason_code = SSH2_DISCONNECT_BY_APPLICATION;
+  msg.reason_code = openssh::statusCodeToDisconnectCode(status.code());
   if (!status.ok()) {
     msg.description = statusToString(status);
   }

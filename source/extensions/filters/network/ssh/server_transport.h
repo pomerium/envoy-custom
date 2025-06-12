@@ -39,7 +39,6 @@ public:
 
   void onServiceAuthenticated(const std::string& service_name) override;
   void initUpstream(AuthStateSharedPtr downstream_state) override;
-  absl::StatusOr<bytes> signWithHostKey(bytes_view in) const override;
   const AuthState& authState() const override;
   AuthState& authState() override;
   void forward(wire::Message&& message, FrameTags tags = EffectiveCommon) override;
@@ -63,6 +62,7 @@ private:
   void registerMessageHandlers(MessageDispatcher<Grpc::ResponsePtr<ServerMessage>>& dispatcher) override;
 
   void sendMgmtClientMessage(const ClientMessage& msg) override;
+  bool upstreamReady() const { return auth_state_ != nullptr; };
 
   absl::StatusOr<std::unique_ptr<wire::HostKeysProveResponseMsg>>
   handleHostKeysProve(const wire::HostKeysProveRequestMsg& msg);
