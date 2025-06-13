@@ -254,7 +254,7 @@ TEST_F(DownstreamConnectionServiceTest, OnReceiveMessageChannelControlHandoffInt
   channel_msg->mutable_channel_control()->mutable_control_action()->PackFrom(action);
 
   auto r = service_->onReceiveMessage(std::move(channel_msg));
-  ASSERT_EQ(absl::InternalError("received invalid channel message: unknown target: 3"), r);
+  ASSERT_EQ(absl::InternalError("received invalid channel message: unexpected target: 3"), r);
 }
 
 TEST_F(DownstreamConnectionServiceTest, OnReceiveMessageChannelControlDisconnect) {

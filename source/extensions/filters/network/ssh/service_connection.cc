@@ -102,7 +102,7 @@ absl::Status DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<Cha
       case pomerium::extensions::ssh::AllowResponse::kMirrorSession:
         return absl::UnavailableError("session mirroring feature not available");
       default:
-        return absl::InternalError(fmt::format("received invalid channel message: unknown target: {}",
+        return absl::InternalError(fmt::format("received invalid channel message: unexpected target: {}",
                                                static_cast<int>(handOffMsg->upstream_auth().target_case())));
       }
     }
