@@ -202,6 +202,8 @@ TEST_FIELDS(ServerSigAlgsExtension,
             public_key_algorithms_accepted);
 TEST_FIELDS(PingExtension,
             version);
+TEST_FIELDS(ExtInfoInAuthExtension,
+            version);
 TEST_FIELDS(Extension,
             extension);
 TEST_FIELDS(ExtInfoMsg,
