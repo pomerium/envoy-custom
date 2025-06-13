@@ -52,6 +52,13 @@ public:
   MOCK_METHOD(void, sendMgmtClientMessage, (const ClientMessage&));
 };
 
+class MockUpstreamTransportCallbacks : public UpstreamTransportCallbacks,
+                                       public MockTransportCallbacks {
+public:
+  MockUpstreamTransportCallbacks();
+  virtual ~MockUpstreamTransportCallbacks();
+};
+
 class MockVersionExchangeCallbacks : public VersionExchangeCallbacks {
 public:
   MOCK_METHOD(void, onVersionExchangeCompleted, (const bytes&, const bytes&, const bytes&));

@@ -177,6 +177,25 @@ envoy_cc_test(
 )
 
 envoy_cc_test(
+    name = "service_connection_test",
+    srcs = [
+        "service_connection_test.cc",
+    ],
+    repository = "@envoy",
+    deps = [
+        ":test_mocks",
+        "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "//source/extensions/filters/network/ssh/wire:wire_lib",
+        "//test/extensions/filters/network/ssh/wire:wire_test_util",
+        "//test/test_common:test_common_lib",
+        "@envoy//test/mocks/api:api_mocks",
+        "@envoy//test/mocks/event:event_mocks",
+        "@envoy//test/mocks/grpc:grpc_mocks",
+        "@envoy//test/test_common:utility_lib",
+    ],
+)
+
+envoy_cc_test(
     name = "service_userauth_test",
     srcs = [
         "service_userauth_test.cc",
