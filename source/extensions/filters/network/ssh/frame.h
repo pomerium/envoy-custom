@@ -179,7 +179,7 @@ inline wire::Message&& extractFrameMessage(const GenericProxy::StreamFrame& fram
     return std::move(static_cast<const SSHRequestCommonFrame&>(frame).msg_);
   case FrameTags::ResponseHeader:
     return std::move(static_cast<const SSHResponseHeaderFrame&>(frame).msg_);
-  [[unlikely]] default:
+  default:
     throw Envoy::EnvoyException("bug: extractFrameMessage called with RequestHeader frame");
   }
 }

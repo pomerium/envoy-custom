@@ -62,7 +62,7 @@ envoy_cc_library(
         "-Wimplicit-int-conversion",
         "-Wunsafe-buffer-usage",
     ],
-    defines = ["SSH_EXPERIMENTAL=1"],
+    defines = [],
     repository = "@envoy",
     deps = [
         ":ssh_cc_proto",

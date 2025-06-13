@@ -186,10 +186,6 @@ absl::Status SshClientTransport::handleMessage(wire::Message&& msg) {
     });
 }
 
-const AuthState& SshClientTransport::authState() const {
-  return *downstream_state_;
-};
-
 AuthState& SshClientTransport::authState() {
   return *downstream_state_;
 }

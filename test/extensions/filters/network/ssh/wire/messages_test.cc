@@ -329,8 +329,7 @@ TEST(NonstandardMessagesTest, GlobalRequestSuccessMsg) {
   ASSERT_OK(msg2.decode(buffer, buffer.length()).status());
 
   EXPECT_NE(msg, msg2);
-  msg2.response.key_field() = std::string(HostKeysProveResponseMsg::submsg_key);
-  ASSERT_OK(msg2.response.decodeUnknown().status());
+  ASSERT_OK(msg2.resolve<HostKeysProveResponseMsg>());
   EXPECT_EQ(msg, msg2);
 
   Buffer::OwnedImpl buffer2;

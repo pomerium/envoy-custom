@@ -39,7 +39,6 @@ public:
 
   void onServiceAuthenticated(const std::string& service_name) override;
   void initUpstream(AuthStateSharedPtr downstream_state) override;
-  const AuthState& authState() const override;
   AuthState& authState() override;
   void forward(wire::Message&& message, FrameTags tags = EffectiveCommon) override;
   void onKexCompleted(std::shared_ptr<KexResult> kex_result, bool initial_kex) override;
@@ -47,21 +46,20 @@ public:
   void onAboveWriteBufferHighWatermark() override {}
   void onBelowWriteBufferLowWatermark() override {}
 
-  stream_id_t streamId() const override {
-    return stream_id_;
-  }
+  void registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) override;
+  void registerMessageHandlers(MessageDispatcher<Grpc::ResponsePtr<ServerMessage>>& dispatcher) override;
+  absl::Status handleMessage(wire::Message&& msg) override;
+  absl::Status handleMessage(Grpc::ResponsePtr<ServerMessage>&& msg) override;
+  void sendMgmtClientMessage(const ClientMessage& msg) override;
+
+  stream_id_t streamId() const override { return stream_id_; }
 
 protected:
   void onDecodingFailure(absl::Status status) override;
 
 private:
   void initServices();
-  absl::Status handleMessage(wire::Message&& msg) override;
-  absl::Status handleMessage(Grpc::ResponsePtr<ServerMessage>&& msg) override;
-  void registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) override;
-  void registerMessageHandlers(MessageDispatcher<Grpc::ResponsePtr<ServerMessage>>& dispatcher) override;
 
-  void sendMgmtClientMessage(const ClientMessage& msg) override;
   bool upstreamReady() const { return auth_state_ != nullptr; };
 
   absl::StatusOr<std::unique_ptr<wire::HostKeysProveResponseMsg>>

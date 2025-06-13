@@ -96,63 +96,57 @@ void SshServerTransport::initServices() {
 GenericProxy::EncodingResult SshServerTransport::encode(const GenericProxy::StreamFrame& frame,
                                                         GenericProxy::EncodingContext& /*ctx*/) {
   auto tags = frame.frameFlags().frameTags();
-  switch (tags & FrameTags::FrameEffectiveTypeMask) {
-  [[likely]]
-  case FrameTags::EffectiveCommon:
+  if ((tags & FrameTags::FrameEffectiveTypeMask) == FrameTags::EffectiveCommon) [[likely]] {
     return sendMessageToConnection(extractFrameMessage(frame));
-  case FrameTags::EffectiveHeader: {
-    if (authState().handoff_info.handoff_in_progress) {
-      authState().handoff_info.handoff_in_progress = false;
-      callbacks_->connection()->readDisable(false);
-    }
-    if ((tags & FrameTags::Sentinel) != 0) {
-      return 0;
-    }
-    if (authState().upstream_ext_info.has_value() &&
-        authState().upstream_ext_info->hasExtension<wire::PingExtension>()) {
-      // if the upstream supports the ping extension, we should forward pings to the upstream
-      // instead of handling them ourselves
-      ping_handler_->enableForward(true);
-    }
-
-    return sendMessageToConnection(extractFrameMessage(frame));
-  } break;
   }
-  PANIC("invalid frame tags");
+  ASSERT((tags & FrameTags::FrameEffectiveTypeMask) == FrameTags::EffectiveHeader); // 1-bit mask
+  if (authState().handoff_info.handoff_in_progress) {
+    authState().handoff_info.handoff_in_progress = false;
+    callbacks_->connection()->readDisable(false);
+  }
+  if ((tags & FrameTags::Sentinel) != 0) {
+    return 0;
+  }
+  if (authState().upstream_ext_info.has_value() &&
+      authState().upstream_ext_info->hasExtension<wire::PingExtension>()) {
+    // if the upstream supports the ping extension, we should forward pings to the upstream
+    // instead of handling them ourselves
+    ping_handler_->enableForward(true);
+  }
+
+  return sendMessageToConnection(extractFrameMessage(frame));
 }
 
 GenericProxy::ResponsePtr SshServerTransport::respond(absl::Status status,
                                                       absl::string_view data,
                                                       const Request& req) {
-  if (!status.ok()) {
-    // something went wrong, send a disconnect message
+  RELEASE_ASSERT(!status.ok(), "respond() called with OK status");
 
-    int code{};
-    // check envoy well-known messages
-    // TODO: possible to access core response flags from here?
-    auto msg = status.message();
-    if (msg == "cluster_not_found" || msg == "route_not_found") {
-      code = SSH2_DISCONNECT_HOST_NOT_ALLOWED_TO_CONNECT;
-    } else if (msg == "cluster_maintain_mode" || msg == "no_healthy_upstream" || msg == "connection_failure" || msg == "overflow") {
-      code = SSH2_DISCONNECT_SERVICE_NOT_AVAILABLE;
-    } else if (msg == "timeout" || msg == "local_reset" || msg == "connection_termination") {
-      code = SSH2_DISCONNECT_CONNECTION_LOST;
-    } else if (msg == "protocol_error") {
-      code = SSH2_DISCONNECT_PROTOCOL_ERROR;
-    } else {
-      code = SSH2_DISCONNECT_BY_APPLICATION;
-    }
-    wire::DisconnectMsg dc;
-    dc.reason_code = static_cast<uint32_t>(code);
-    dc.description = statusToString(status);
-    if (!data.empty()) {
-      dc.description->append(fmt::format(" [{}]", data));
-    }
-    auto frame = std::make_unique<SSHResponseHeaderFrame>(std::move(dc), EffectiveCommon);
-    frame->setStreamId(req.frameFlags().streamId());
-    return frame;
+  int code{};
+  // check envoy well-known messages
+  // TODO: possible to access core response flags from here?
+  auto msg = status.message();
+  if (msg == "cluster_not_found" || msg == "route_not_found") {
+    code = SSH2_DISCONNECT_HOST_NOT_ALLOWED_TO_CONNECT;
+  } else if (msg == "cluster_maintain_mode" || msg == "no_healthy_upstream" || msg == "connection_failure" || msg == "overflow") {
+    code = SSH2_DISCONNECT_SERVICE_NOT_AVAILABLE;
+  } else if (msg == "timeout" || msg == "local_reset" || msg == "connection_termination") {
+    code = SSH2_DISCONNECT_CONNECTION_LOST;
+  } else if (msg == "protocol_error") {
+    code = SSH2_DISCONNECT_PROTOCOL_ERROR;
+  } else {
+    code = SSH2_DISCONNECT_BY_APPLICATION;
   }
-  PANIC("unimplemented");
+  wire::DisconnectMsg dc;
+  dc.reason_code = static_cast<uint32_t>(code);
+  dc.description = statusToString(status);
+  if (!data.empty()) {
+    dc.description->append(fmt::format(": [{}]", data));
+  }
+  auto frame = std::make_unique<SSHResponseHeaderFrame>(std::move(dc),
+                                                        FrameTags(EffectiveCommon | Error));
+  frame->setStreamId(req.frameFlags().streamId());
+  return frame;
 }
 
 absl::Status SshServerTransport::handleMessage(wire::Message&& msg) {
@@ -237,14 +231,13 @@ absl::Status SshServerTransport::handleMessage(Grpc::ResponsePtr<ServerMessage>&
   switch (msg->message_case()) {
   case ServerMessage::kStreamControl:
     switch (msg->stream_control().action_case()) {
-    case pomerium::extensions::ssh::StreamControl::kCloseStream: {
+    case pomerium::extensions::ssh::StreamControl::kCloseStream:
       return absl::CancelledError(msg->stream_control().close_stream().reason());
-    }
     default:
-      PANIC("unknown action case");
+      throw Envoy::EnvoyException("unknown action case");
     }
   default:
-    PANIC("unknown message case");
+    throw Envoy::EnvoyException("unknown message case");
   }
 }
 
@@ -267,24 +260,22 @@ void SshServerTransport::initUpstream(AuthStateSharedPtr s) {
     sendMgmtClientMessage(upstream_connect_msg);
   } break;
   case ChannelMode::Hijacked: {
-    if (auth_state_->allow_response->target_case() == pomerium::extensions::ssh::AllowResponse::kInternal) {
-      const auto& internal = auth_state_->allow_response->internal();
-      std::optional<envoy::config::core::v3::Metadata> optional_metadata;
-      if (internal.has_set_metadata()) {
-        optional_metadata = internal.set_metadata();
-      }
-      channel_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus code, std::string err) {
-        // dynamic_cast<Envoy::Network::TransportSocketCallbacks&>(*callbacks_->connection()).flushWriteBuffer();
-        Envoy::Event::DeferredTaskUtil::deferredRun(callbacks_->connection()->dispatcher(), [=, this] {
-          onDecodingFailure(absl::Status(static_cast<absl::StatusCode>(code), err));
-        });
-      });
-      auth_state_->hijacked_stream = channel_client_->start(connection_service_.get(), std::move(optional_metadata));
-      auto _ = sendMessageToConnection(wire::UserAuthSuccessMsg{});
-    } else {
-      ENVOY_LOG(error, "wrong target mode in AllowResponse for internal session");
-      auto _ = sendMessageToConnection(wire::UserAuthFailureMsg{});
+    RELEASE_ASSERT(auth_state_->allow_response->target_case() == pomerium::extensions::ssh::AllowResponse::kInternal,
+                   "wrong target mode in AllowResponse for internal session");
+
+    const auto& internal = auth_state_->allow_response->internal();
+    std::optional<envoy::config::core::v3::Metadata> optional_metadata;
+    if (internal.has_set_metadata()) {
+      optional_metadata = internal.set_metadata();
     }
+    channel_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus code, std::string err) {
+      Envoy::Event::DeferredTaskUtil::deferredRun(callbacks_->connection()->dispatcher(), [=, this] {
+        onDecodingFailure(absl::Status(static_cast<absl::StatusCode>(code), err));
+      });
+    });
+    auth_state_->hijacked_stream = channel_client_->start(connection_service_.get(), std::move(optional_metadata));
+    sendMessageToConnection(wire::UserAuthSuccessMsg{})
+      .IgnoreError();
   } break;
   case ChannelMode::Handoff: {
     channel_client_->setOnRemoteCloseCallback(nullptr);
@@ -300,7 +291,11 @@ void SshServerTransport::initUpstream(AuthStateSharedPtr s) {
     sendMgmtClientMessage(upstream_connect_msg);
   } break;
   case ChannelMode::Mirror:
+#ifndef SSH_EXPERIMENTAL
+    throw EnvoyException("mirroring not supported");
+#else
     break;
+#endif
   }
 #ifdef SSH_EXPERIMENTAL
   if (auth_state_->multiplexing_info.multiplex_mode != MultiplexMode::None) {
@@ -310,14 +305,7 @@ void SshServerTransport::initUpstream(AuthStateSharedPtr s) {
     }
     callbacks_->connection()->addConnectionCallbacks(*this);
   }
-#else
-  callbacks_->connection()->addConnectionCallbacks(*this);
 #endif
-}
-
-const AuthState& SshServerTransport::authState() const {
-  ASSERT(upstreamReady());
-  return *auth_state_;
 }
 
 AuthState& SshServerTransport::authState() {
@@ -342,7 +330,8 @@ void SshServerTransport::onKexCompleted(std::shared_ptr<KexResult> kex_result, b
   if (kex_result_->client_supports_ext_info) {
     auto extInfo = outgoingExtInfo();
     if (extInfo.has_value()) {
-      (void)sendMessageToConnection(std::move(extInfo).value());
+      sendMessageToConnection(std::move(extInfo).value())
+        .IgnoreError();
     }
   }
 }
@@ -378,10 +367,12 @@ void SshServerTransport::sendMgmtClientMessage(const ClientMessage& msg) {
   mgmt_client_->stream().sendMessage(msg, false);
 }
 
-void SshServerTransport::onEvent(Network::ConnectionEvent event) {
+void SshServerTransport::onEvent([[maybe_unused]] Network::ConnectionEvent event) {
+#ifdef SSH_EXPERIMENTAL
   if (event == Network::ConnectionEvent::LocalClose || event == Network::ConnectionEvent::RemoteClose) {
     connection_service_->onStreamEnd();
   }
+#endif
 }
 
 void SshServerTransport::onDecodingFailure(absl::Status status) {
@@ -390,7 +381,8 @@ void SshServerTransport::onDecodingFailure(absl::Status status) {
   if (!status.ok()) {
     msg.description = statusToString(status);
   }
-  (void)sendMessageToConnection(std::move(msg));
+  sendMessageToConnection(std::move(msg))
+    .IgnoreError();
 
   TransportBase::onDecodingFailure(status);
 }

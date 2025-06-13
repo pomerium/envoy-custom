@@ -76,7 +76,6 @@ public:
   };
 
   virtual const bytes& sessionId() const PURE;
-  virtual const AuthState& authState() const PURE;
   virtual AuthState& authState() PURE;
   virtual const pomerium::extensions::ssh::CodecConfig& codecConfig() const PURE;
   virtual stream_id_t streamId() const PURE;

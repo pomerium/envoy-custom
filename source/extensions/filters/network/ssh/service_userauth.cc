@@ -178,7 +178,8 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
         break;
 #ifdef SSH_EXPERIMENTAL
       case pomerium::extensions::ssh::AllowResponse::kMirrorSession: {
-        auto _ = transport_.sendMessageToConnection(wire::UserAuthSuccessMsg());
+        transport_.sendMessageToConnection(wire::UserAuthSuccessMsg())
+          .IgnoreError();
         const auto& mirror = state->allow_response->mirror_session();
         state->multiplexing_info.multiplex_mode = MultiplexMode::Mirror;
         state->channel_mode = ChannelMode::Mirror;
@@ -201,6 +202,8 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
       RELEASE_ASSERT(pending_service_auth_.has_value(), "no service is pending auth");
       transport_.onServiceAuthenticated(*std::move(pending_service_auth_));
       transport_.initUpstream(std::move(state));
+      msg_dispatcher_->unregisterHandler(this);
+
       return absl::OkStatus();
     }
     case AuthenticationResponse::kDeny: {

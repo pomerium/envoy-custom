@@ -34,7 +34,6 @@ public:
                                       GenericProxy::EncodingContext& ctx) final;
 
   absl::Status handleMessage(wire::Message&& msg) override;
-  const AuthState& authState() const override;
   AuthState& authState() override;
   void forward(wire::Message&& msg, FrameTags tags = EffectiveCommon) override;
   void forwardHeader(wire::Message&& msg, FrameTags tags = {}) override;
