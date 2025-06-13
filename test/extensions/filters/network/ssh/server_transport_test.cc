@@ -314,6 +314,17 @@ TEST_F(ServerTransportTest, InitialExtInfo) {
       [](const wire::ExtInfoInAuthExtension& ext) {
         ASSERT_EQ("0", ext.version);
       },
+      [](const wire::ServerSigAlgsExtension& ext) {
+        ASSERT_EQ((string_list{
+                    "ssh-ed25519",
+                    "ecdsa-sha2-nistp256",
+                    "ecdsa-sha2-nistp384",
+                    "ecdsa-sha2-nistp521",
+                    "rsa-sha2-512",
+                    "rsa-sha2-256",
+                  }),
+                  ext.public_key_algorithms_accepted);
+      },
       []<typename T>(const T&) {
         FAIL() << "unexpected extension: " << T::submsg_key << " (this test likely needs to be updated)";
       });

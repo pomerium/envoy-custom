@@ -41,6 +41,9 @@ SshServerTransport::SshServerTransport(Api::Api& api,
   wire::ExtInfoMsg extInfo;
   extInfo.extensions->emplace_back(wire::PingExtension{.version = "0"s});
   extInfo.extensions->emplace_back(wire::ExtInfoInAuthExtension{.version = "0"s});
+  extInfo.extensions->emplace_back(wire::ServerSigAlgsExtension{
+    .public_key_algorithms_accepted = DownstreamUserAuthService::SupportedSigningAlgorithms,
+  });
   outgoing_ext_info_ = std::move(extInfo);
 };
 

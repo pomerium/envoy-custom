@@ -245,6 +245,15 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
   }
 }
 
+const string_list DownstreamUserAuthService::SupportedSigningAlgorithms = {
+  "ssh-ed25519",
+  "ecdsa-sha2-nistp256",
+  "ecdsa-sha2-nistp384",
+  "ecdsa-sha2-nistp521",
+  "rsa-sha2-512",
+  "rsa-sha2-256",
+};
+
 UpstreamUserAuthService::UpstreamUserAuthService(TransportCallbacks& callbacks, Api::Api& api)
     : UserAuthService(callbacks, api) {
   {
