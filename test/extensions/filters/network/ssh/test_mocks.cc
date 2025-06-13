@@ -9,6 +9,9 @@ MockTransportCallbacks::~MockTransportCallbacks() {}
 MockDownstreamTransportCallbacks::MockDownstreamTransportCallbacks() {}
 MockDownstreamTransportCallbacks::~MockDownstreamTransportCallbacks() {}
 
+MockUpstreamTransportCallbacks::MockUpstreamTransportCallbacks() {}
+MockUpstreamTransportCallbacks::~MockUpstreamTransportCallbacks() {}
+
 MockKexCallbacks::MockKexCallbacks() {}
 MockKexCallbacks::~MockKexCallbacks() {}
 
