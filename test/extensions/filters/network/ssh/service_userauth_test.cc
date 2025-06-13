@@ -1,4 +1,3 @@
-#include "absl/random/random.h"
 #include "gtest/gtest.h"
 #include "test/test_common/utility.h"
 
@@ -17,17 +16,6 @@ TEST(UserAuthServiceTest, SplitUsername) {
   ASSERT_EQ((std::pair{"foo", "bar"}), detail::splitUsername("foo@bar"));
   ASSERT_EQ((std::pair{"foo@bar", "baz"}), detail::splitUsername("foo@bar@baz"));
   ASSERT_EQ((std::pair{"foo\0@bar\0"s, "baz"s}), detail::splitUsername("foo\0@bar\0@baz"s));
-}
-
-static absl::BitGen rng;
-
-inline bytes randomBytes(size_t size) {
-  bytes b;
-  b.resize(size);
-  for (size_t i = 0; i < b.size(); i++) {
-    b[i] = absl::Uniform<uint8_t>(rng);
-  }
-  return b;
 }
 
 class TestSshMessageDispatcher : public SshMessageDispatcher {
@@ -361,6 +349,9 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshUnsupportedAuthRequest) {
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowUpstream) {
+  TestSshMessageDispatcher d;
+  service_->registerMessageHandlers(d);
+
   SendValidPubKeyRequest();
 
   auto msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
@@ -388,9 +379,15 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowUpstream) {
   ASSERT_EQ(42, state->stream_id);
   ASSERT_EQ(*state->downstream_ext_info, ext_info);
   ASSERT_EQ(ChannelMode::Normal, state->channel_mode);
+
+  // check that the service unregistered itself from the message handler
+  ASSERT_TRUE(d.dispatch_.empty());
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowInternal) {
+  TestSshMessageDispatcher d;
+  service_->registerMessageHandlers(d);
+
   SendValidPubKeyRequest();
 
   auto msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
@@ -423,6 +420,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowInternal) {
   ASSERT_EQ(42, state->stream_id);
   ASSERT_EQ(*state->downstream_ext_info, ext_info);
   ASSERT_EQ(ChannelMode::Hijacked, state->channel_mode);
+  ASSERT_TRUE(d.dispatch_.empty());
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowUnsupportedTarget) {
@@ -508,6 +506,29 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerUnsupportedMessage) {
   auto msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
   auto r = service_->handleMessage(std::move(msg));
   ASSERT_EQ(absl::InternalError("server sent invalid message case"), r);
+}
+
+TEST_F(DownstreamUserAuthServiceTest, HandleInconsistentServiceNames) {
+  auto key = openssh::SSHKey::generate(KEY_ED25519, 256);
+  ASSERT_OK(key.status());
+
+  wire::UserAuthRequestMsg req{
+    .username = "foo"s,
+    .service_name = "ssh-connection"s,
+    .request = wire::NoneAuthRequestMsg{},
+  };
+  EXPECT_CALL(*transport_, sendMessageToConnection)
+    .WillOnce(Return(0));
+  auto r = service_->handleMessage(wire::Message{req});
+  ASSERT_OK(r);
+
+  wire::UserAuthRequestMsg req2{
+    .username = "foo"s,
+    .service_name = "not-ssh-connection"s,
+    .request = wire::PubKeyUserAuthRequestMsg{.public_key_alg = "foo"s},
+  };
+  ASSERT_EQ(absl::FailedPreconditionError("inconsistent service names sent in user auth request"),
+            service_->handleMessage(wire::Message{req2}));
 }
 
 class UpstreamUserAuthServiceTest : public testing::Test {

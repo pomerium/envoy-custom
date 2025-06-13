@@ -32,7 +32,7 @@ void StreamManagementServiceClient::onReceiveMessage(Grpc::ResponsePtr<ServerMes
     stream_->waitForRemoteCloseAndDelete();
     stream_ = nullptr;
     if (on_remote_close_) {
-      on_remote_close_(Grpc::Status::Canceled, std::string(stat.message()));
+      on_remote_close_(static_cast<Grpc::Status::GrpcStatus>(stat.code()), std::string(stat.message()));
     }
   }
 }
@@ -74,7 +74,7 @@ void ChannelStreamServiceClient::onReceiveMessage(Grpc::ResponsePtr<ChannelMessa
     stream_->waitForRemoteCloseAndDelete();
     stream_ = nullptr;
     if (on_remote_close_) {
-      on_remote_close_(Grpc::Status::Canceled, std::string(stat.message()));
+      on_remote_close_(static_cast<Grpc::Status::GrpcStatus>(stat.code()), std::string(stat.message()));
     }
   }
 }
