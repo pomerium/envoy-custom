@@ -101,6 +101,47 @@ absl::StatusCode statusCodeFromErr(int n) {
   return absl::StatusCode::kUnknown;
 }
 
+std::string disconnectCodeToString(uint32_t n) {
+  switch (n) {
+  case SSH2_DISCONNECT_HOST_NOT_ALLOWED_TO_CONNECT:    return "host not allowed to connect";
+  case SSH2_DISCONNECT_PROTOCOL_ERROR:                 return "protocol error";
+  case SSH2_DISCONNECT_KEY_EXCHANGE_FAILED:            return "key exchange failed";
+  case SSH2_DISCONNECT_HOST_AUTHENTICATION_FAILED:     return "host authentication failed";
+  case SSH2_DISCONNECT_MAC_ERROR:                      return "mac error";
+  case SSH2_DISCONNECT_COMPRESSION_ERROR:              return "compression error";
+  case SSH2_DISCONNECT_SERVICE_NOT_AVAILABLE:          return "service not available";
+  case SSH2_DISCONNECT_PROTOCOL_VERSION_NOT_SUPPORTED: return "protocol version not supported";
+  case SSH2_DISCONNECT_HOST_KEY_NOT_VERIFIABLE:        return "host key not verifiable";
+  case SSH2_DISCONNECT_CONNECTION_LOST:                return "connection lost";
+  case SSH2_DISCONNECT_BY_APPLICATION:                 return "by application";
+  case SSH2_DISCONNECT_TOO_MANY_CONNECTIONS:           return "too many connections";
+  case SSH2_DISCONNECT_AUTH_CANCELLED_BY_USER:         return "auth cancelled by user";
+  case SSH2_DISCONNECT_NO_MORE_AUTH_METHODS_AVAILABLE: return "no more auth methods available";
+  case SSH2_DISCONNECT_ILLEGAL_USER_NAME:              return "illegal user name";
+  default:                                             return "(unknown)";
+  }
+}
+
+uint32_t statusCodeToDisconnectCode(absl::StatusCode code) {
+  switch (code) {
+  case absl::StatusCode::kInvalidArgument:    return SSH2_DISCONNECT_PROTOCOL_ERROR;
+  case absl::StatusCode::kNotFound:           return SSH2_DISCONNECT_PROTOCOL_ERROR;
+  case absl::StatusCode::kAlreadyExists:      return SSH2_DISCONNECT_PROTOCOL_ERROR;
+  case absl::StatusCode::kPermissionDenied:   return SSH2_DISCONNECT_PROTOCOL_ERROR;
+  case absl::StatusCode::kFailedPrecondition: return SSH2_DISCONNECT_PROTOCOL_ERROR;
+  case absl::StatusCode::kAborted:            return SSH2_DISCONNECT_PROTOCOL_ERROR;
+  case absl::StatusCode::kOutOfRange:         return SSH2_DISCONNECT_PROTOCOL_ERROR;
+  case absl::StatusCode::kUnauthenticated:    return SSH2_DISCONNECT_PROTOCOL_ERROR;
+  case absl::StatusCode::kResourceExhausted:  return SSH2_DISCONNECT_SERVICE_NOT_AVAILABLE;
+  case absl::StatusCode::kUnimplemented:      return SSH2_DISCONNECT_SERVICE_NOT_AVAILABLE;
+  case absl::StatusCode::kInternal:           return SSH2_DISCONNECT_SERVICE_NOT_AVAILABLE;
+  case absl::StatusCode::kUnavailable:        return SSH2_DISCONNECT_SERVICE_NOT_AVAILABLE;
+  case absl::StatusCode::kDataLoss:           return SSH2_DISCONNECT_SERVICE_NOT_AVAILABLE;
+  case absl::StatusCode::kCancelled:          return SSH2_DISCONNECT_BY_APPLICATION;
+  case absl::StatusCode::kDeadlineExceeded:   return SSH2_DISCONNECT_BY_APPLICATION;
+  default:                                    return SSH2_DISCONNECT_BY_APPLICATION;
+  }
+}
 std::string statusMessageFromErr(int n) {
   return ssh_err(n);
 }

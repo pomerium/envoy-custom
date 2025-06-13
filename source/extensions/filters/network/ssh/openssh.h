@@ -37,6 +37,8 @@ using key_bytes = bytes;
 absl::StatusCode statusCodeFromErr(int n);
 absl::Status statusFromErr(int n);
 std::string statusMessageFromErr(int n);
+std::string disconnectCodeToString(uint32_t n);
+uint32_t statusCodeToDisconnectCode(absl::StatusCode code);
 
 static constexpr auto ExtensionNoTouchRequired = "no-touch-required";
 static constexpr auto ExtensionPermitX11Forwarding = "permit-X11-forwarding";
