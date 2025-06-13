@@ -34,6 +34,8 @@ public:
   void registerMessageHandlers(StreamMgmtServerMessageDispatcher& dispatcher) override;
   absl::Status handleMessage(Grpc::ResponsePtr<ServerMessage>&& message) override;
 
+  static const string_list SupportedSigningAlgorithms;
+
 private:
   DownstreamTransportCallbacks& transport_;
   std::optional<std::string> pending_service_auth_;
