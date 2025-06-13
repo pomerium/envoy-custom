@@ -163,11 +163,14 @@ public:
   absl::StatusOr<size_t> sendMessageToConnection(wire::Message&& msg) override {
     if (!pending_key_exchange_) [[likely]] {
       return sendMessageDirect(std::move(msg));
-    } else {
-      ENVOY_LOG(debug, "queueing message due to pending key exchange: {}", msg.msg_type());
-      enqueueMessage(std::move(msg));
-      return 0uz;
     }
+    if (msg.msg_type() == wire::SshMessageType::Disconnect) {
+      // disconnect messages are always sent immediately
+      return sendMessageDirect(std::move(msg));
+    }
+    ENVOY_LOG(debug, "queueing message due to pending key exchange: {}", msg.msg_type());
+    enqueueMessage(std::move(msg));
+    return 0uz;
   }
 
   void updatePeerExtInfo(std::optional<wire::ExtInfoMsg> msg) override {
@@ -188,6 +191,11 @@ public:
   }
 
   virtual absl::Status onMessageDecoded(wire::Message&& msg) {
+    if (!msg.has_value()) [[unlikely]] {
+      // https://datatracker.ietf.org/doc/html/rfc4253#section-11.4
+      auto seqnum = sub_sat(seq_read_, static_cast<uint32_t>(1)); // sequence number we just read
+      return sendMessageToConnection(wire::UnimplementedMsg{.sequence_number = seqnum}).status();
+    }
     return dispatch(std::move(msg));
   }
 
