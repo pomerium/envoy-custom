@@ -69,6 +69,26 @@ inline const DirectionAlgorithms& writeDirectionAlgsForMode(Algorithms& algorith
   }
 }
 
+std::unique_ptr<PacketCipher>
+makePacketCipherFromKexResult(DirectionalPacketCipherFactoryRegistry& cipher_factories,
+                              DirectionTags d_read,
+                              DirectionTags d_write,
+                              KexMode mode,
+                              KexResult* kex_result);
+
+template <typename T>
+struct codec_traits;
+
+template <typename Codec>
+auto makePacketCipherFromKexResult(DirectionalPacketCipherFactoryRegistry& cipher_factories,
+                                   KexResult* kex_result) {
+  return makePacketCipherFromKexResult(cipher_factories,
+                                       codec_traits<Codec>::direction_read,
+                                       codec_traits<Codec>::direction_write,
+                                       codec_traits<Codec>::kex_mode,
+                                       kex_result);
+}
+
 class Kex final : public VersionExchangeCallbacks,
                   public SshMessageHandler,
                   public Logger::Loggable<Logger::Id::filter> {
@@ -93,11 +113,6 @@ public:
                                   const bytes& banner) override;
 
   void setHostKeys(std::vector<openssh::SSHKeyPtr> host_keys);
-
-  std::unique_ptr<PacketCipher> makePacketCipher(DirectionTags d_read,
-                                                 DirectionTags d_write,
-                                                 KexMode mode,
-                                                 KexResult* kex_result) const;
 
   KexState& getPendingStateForTest() const { return *pending_state_; }
 

@@ -18,9 +18,6 @@
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 template <typename T>
-struct codec_traits;
-
-template <typename T>
   requires std::derived_from<T, ServerCodec>
 struct codec_traits<T> {
   using callbacks_type = ServerCodecCallbacks;
@@ -228,10 +225,7 @@ public:
     ASSERT(pending_key_exchange_);
     kex_result_ = kex_result;
 
-    cipher_ = kex_->makePacketCipher(codec_traits<Codec>::direction_read,
-                                     codec_traits<Codec>::direction_write,
-                                     codec_traits<Codec>::kex_mode,
-                                     kex_result.get());
+    cipher_ = makePacketCipherFromKexResult<Codec>(cipher_factories_, kex_result.get());
     if (config_->has_rekey_threshold()) {
       read_bytes_remaining_ = std::max<uint64_t>(256, config_->rekey_threshold());
       write_bytes_remaining_ = std::max<uint64_t>(256, config_->rekey_threshold());
