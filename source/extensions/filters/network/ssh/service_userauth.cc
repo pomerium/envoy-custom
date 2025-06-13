@@ -22,8 +22,7 @@ const std::vector<key_params_t> SupportedUpstreamKeyParams = {
   {"rsa-sha2-512-cert-v01@openssh.com", KEY_RSA, 2048},
   {"rsa-sha2-256-cert-v01@openssh.com", KEY_RSA, 2048},
 };
-const key_params_t DefaultUpstreamKeyParams =
-  {"ssh-ed25519-cert-v01@openssh.com", KEY_ED25519, 256};
+const key_params_t DefaultUpstreamKeyParams = SupportedUpstreamKeyParams[0];
 
 void DownstreamUserAuthService::registerMessageHandlers(SshMessageDispatcher& dispatcher) {
   dispatcher.registerHandler(wire::SshMessageType::UserAuthRequest, this);
@@ -286,7 +285,10 @@ key_params_t UpstreamUserAuthService::getUpstreamKeyParams() {
       auto v = *server_sig_algs->public_key_algorithms_accepted;
       absl::flat_hash_set<std::string> server_algs(v.begin(), v.end());
       for (const auto& p : SupportedUpstreamKeyParams) {
-        if (server_algs.contains(std::get<0>(p))) {
+        auto alg = std::get<0>(p);
+        auto plain_alg = openssh::certSigningAlgorithmToPlain(alg);
+        if (server_algs.contains(alg) ||
+            (plain_alg.has_value() && server_algs.contains(*plain_alg))) {
           key_params = p;
           break;
         }

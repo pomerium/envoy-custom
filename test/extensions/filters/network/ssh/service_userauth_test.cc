@@ -649,15 +649,15 @@ TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedValidSignature) {
 }
 
 TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedServerSigAlgsEd25519) {
-  peer_ext_info_.emplace(wire::ExtInfoMsg{});
+  peer_ext_info_ = wire::ExtInfoMsg{};
   peer_ext_info_->extensions->emplace_back(wire::ServerSigAlgsExtension{
     .public_key_algorithms_accepted = string_list{
-      "ssh-ed25519-cert-v01@openssh.com",
-      "ecdsa-sha2-nistp256-cert-v01@openssh.com",
-      "ecdsa-sha2-nistp384-cert-v01@openssh.com",
-      "ecdsa-sha2-nistp521-cert-v01@openssh.com",
-      "rsa-sha2-512-cert-v01@openssh.com",
-      "rsa-sha2-256-cert-v01@openssh.com",
+      "ssh-ed25519",
+      "ecdsa-sha2-nistp256",
+      "ecdsa-sha2-nistp384",
+      "ecdsa-sha2-nistp521",
+      "rsa-sha2-512",
+      "rsa-sha2-256",
     },
   });
 
@@ -671,14 +671,14 @@ TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedServerSigAlgsEd25519) {
 }
 
 TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedServerSigAlgsEcdsaP256) {
-  peer_ext_info_.emplace(wire::ExtInfoMsg{});
+  peer_ext_info_ = wire::ExtInfoMsg{};
   peer_ext_info_->extensions->emplace_back(wire::ServerSigAlgsExtension{
     .public_key_algorithms_accepted = string_list{
-      "ecdsa-sha2-nistp256-cert-v01@openssh.com",
-      "ecdsa-sha2-nistp384-cert-v01@openssh.com",
-      "ecdsa-sha2-nistp521-cert-v01@openssh.com",
-      "rsa-sha2-512-cert-v01@openssh.com",
-      "rsa-sha2-256-cert-v01@openssh.com",
+      "ecdsa-sha2-nistp256",
+      "ecdsa-sha2-nistp384",
+      "ecdsa-sha2-nistp521",
+      "rsa-sha2-512",
+      "rsa-sha2-256",
     },
   });
 
@@ -692,13 +692,13 @@ TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedServerSigAlgsEcdsaP256) {
 }
 
 TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedServerSigAlgsEcdsaP384) {
-  peer_ext_info_.emplace(wire::ExtInfoMsg{});
+  peer_ext_info_ = wire::ExtInfoMsg{};
   peer_ext_info_->extensions->emplace_back(wire::ServerSigAlgsExtension{
     .public_key_algorithms_accepted = string_list{
-      "ecdsa-sha2-nistp384-cert-v01@openssh.com",
-      "ecdsa-sha2-nistp521-cert-v01@openssh.com",
-      "rsa-sha2-512-cert-v01@openssh.com",
-      "rsa-sha2-256-cert-v01@openssh.com",
+      "ecdsa-sha2-nistp384",
+      "ecdsa-sha2-nistp521",
+      "rsa-sha2-512",
+      "rsa-sha2-256",
     },
   });
 
@@ -712,12 +712,12 @@ TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedServerSigAlgsEcdsaP384) {
 }
 
 TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedServerSigAlgsEcdsaP521) {
-  peer_ext_info_.emplace(wire::ExtInfoMsg{});
+  peer_ext_info_ = wire::ExtInfoMsg{};
   peer_ext_info_->extensions->emplace_back(wire::ServerSigAlgsExtension{
     .public_key_algorithms_accepted = string_list{
-      "ecdsa-sha2-nistp521-cert-v01@openssh.com",
-      "rsa-sha2-512-cert-v01@openssh.com",
-      "rsa-sha2-256-cert-v01@openssh.com",
+      "ecdsa-sha2-nistp521",
+      "rsa-sha2-512",
+      "rsa-sha2-256",
     },
   });
 
@@ -731,11 +731,11 @@ TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedServerSigAlgsEcdsaP521) {
 }
 
 TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedServerSigAlgsRsaSha512) {
-  peer_ext_info_.emplace(wire::ExtInfoMsg{});
+  peer_ext_info_ = wire::ExtInfoMsg{};
   peer_ext_info_->extensions->emplace_back(wire::ServerSigAlgsExtension{
     .public_key_algorithms_accepted = string_list{
-      "rsa-sha2-512-cert-v01@openssh.com",
-      "rsa-sha2-256-cert-v01@openssh.com",
+      "rsa-sha2-512",
+      "rsa-sha2-256",
     },
   });
 
@@ -749,10 +749,10 @@ TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedServerSigAlgsRsaSha512) {
 }
 
 TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedServerSigAlgsRsaSha256) {
-  peer_ext_info_.emplace(wire::ExtInfoMsg{});
+  peer_ext_info_ = wire::ExtInfoMsg{};
   peer_ext_info_->extensions->emplace_back(wire::ServerSigAlgsExtension{
     .public_key_algorithms_accepted = string_list{
-      "rsa-sha2-256-cert-v01@openssh.com",
+      "rsa-sha2-256",
     },
   });
 
@@ -769,23 +769,17 @@ TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedServerSigAlgsUnsupported) {
   // If the server-sig-algs extension is present but there is no overlap with
   // our supported key types, we'll still attempt to authenticate with the
   // default key type.
-  peer_ext_info_.emplace(wire::ExtInfoMsg{});
+  peer_ext_info_ = wire::ExtInfoMsg{};
   peer_ext_info_->extensions->emplace_back(wire::ServerSigAlgsExtension{
     .public_key_algorithms_accepted = string_list{
-      "ssh-ed25519",
       "sk-ssh-ed25519@openssh.com",
       "sk-ssh-ed25519-cert-v01@openssh.com",
-      "ecdsa-sha2-nistp256",
-      "ecdsa-sha2-nistp384",
-      "ecdsa-sha2-nistp521",
       "sk-ecdsa-sha2-nistp256@openssh.com",
       "sk-ecdsa-sha2-nistp256-cert-v01@openssh.com",
       "webauthn-sk-ecdsa-sha2-nistp256@openssh.com",
       "ssh-dss",
       "ssh-dss-cert-v01@openssh.com",
       "ssh-rsa",
-      "rsa-sha2-256",
-      "rsa-sha2-512",
     },
   });
 

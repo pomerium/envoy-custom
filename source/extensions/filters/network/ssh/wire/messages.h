@@ -622,7 +622,7 @@ struct ExtInfoMsg final : Msg<SshMessageType::ExtInfo> {
         return {ext.extension.get<T>()};
       }
     }
-    return {};
+    return std::nullopt;
   }
 
   constexpr auto operator<=>(const ExtInfoMsg&) const = default;

@@ -297,13 +297,13 @@ TEST(ExtInfoMsgTest, GetExtension) {
   wire::test::populateFields(pingExt);
   extInfo.extensions->emplace_back(auto(pingExt));
   EXPECT_FALSE(extInfo.getExtension<ServerSigAlgsExtension>().has_value());
-  EXPECT_EQ(std::make_optional(pingExt), extInfo.getExtension<PingExtension>());
+  EXPECT_EQ(std::optional{pingExt}, extInfo.getExtension<PingExtension>());
 
   wire::ServerSigAlgsExtension serverSigAlgs;
   wire::test::populateFields(serverSigAlgs);
   extInfo.extensions->emplace_back(auto(serverSigAlgs));
-  EXPECT_EQ(std::make_optional(serverSigAlgs), extInfo.getExtension<ServerSigAlgsExtension>());
-  EXPECT_EQ(std::make_optional(pingExt), extInfo.getExtension<PingExtension>());
+  EXPECT_EQ(std::optional{serverSigAlgs}, extInfo.getExtension<ServerSigAlgsExtension>());
+  EXPECT_EQ(std::optional{pingExt}, extInfo.getExtension<PingExtension>());
 }
 
 template <typename T>
