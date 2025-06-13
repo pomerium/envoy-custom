@@ -26,8 +26,6 @@ public:
   MOCK_METHOD(absl::StatusOr<size_t>, sendMessageToConnection, (wire::Message&&));
   MOCK_METHOD(void, forward, (wire::Message&&, FrameTags));
   MOCK_METHOD(const bytes&, sessionId, (), (const));
-  MOCK_METHOD(absl::StatusOr<bytes>, signWithHostKey, (bytes_view), (const));
-  MOCK_METHOD(const AuthState&, authState, (), (const));
   MOCK_METHOD(AuthState&, authState, ());
   MOCK_METHOD(const pomerium::extensions::ssh::CodecConfig&, codecConfig, (), (const));
   MOCK_METHOD(stream_id_t, streamId, (), (const));

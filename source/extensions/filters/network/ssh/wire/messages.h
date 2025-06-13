@@ -393,6 +393,14 @@ struct HostKeysProveResponseMsg final : SubMsg<SshMessageType::RequestSuccess, "
 struct GlobalRequestSuccessMsg final : Msg<SshMessageType::RequestSuccess> {
   sub_message<HostKeysProveResponseMsg> response;
 
+  template <typename T>
+    requires (decltype(response)::has_option<T>())
+  absl::Status resolve() {
+    using key_type = decltype(response)::key_type;
+    response.key_field() = key_type{T::submsg_key};
+    return response.decodeUnknown().status();
+  }
+
   constexpr auto operator<=>(const GlobalRequestSuccessMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;

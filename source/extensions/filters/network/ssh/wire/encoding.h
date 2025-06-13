@@ -217,12 +217,12 @@ size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, explicit_size_t auto 
       return 0;
     }
   }
-  if (buffer.length() < limit) [[unlikely]] {
+  if (buffer.length() < limit) {
     throw Envoy::EnvoyException("short read");
   }
   if constexpr (Opt & LengthPrefixed) {
     uint32_t entry_len = buffer.drainBEInt<uint32_t>();
-    if (sub_sat(limit, sizeof(uint32_t)) < entry_len) [[unlikely]] {
+    if (sub_sat(limit, sizeof(uint32_t)) < entry_len) {
       throw Envoy::EnvoyException("short read");
     }
     // Invariant: read<SshStringType>(buffer, value, N) always returns N (or throws an exception)
@@ -418,7 +418,7 @@ size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT(re
   if constexpr (Opt & CommaDelimited) {
     for (size_t i = 0; i < value.size(); i++) {
       auto n = write(buffer, value.at(i));
-      if (n == 0) [[unlikely]] {
+      if (n == 0) {
         throw Envoy::EnvoyException("invalid empty string in comma-separated list");
       }
       total += n;

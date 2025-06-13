@@ -1,6 +1,4 @@
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
-#include "envoy/http/header_map.h"
-#include "source/common/config/metadata.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 using namespace pomerium::extensions::ssh;
@@ -31,16 +29,21 @@ void StreamManagementServiceClient::onReceiveMessage(Grpc::ResponsePtr<ServerMes
   if (!stat.ok()) {
     ENVOY_LOG(error, stat.message());
     stream_.closeStream();
+    stream_->waitForRemoteCloseAndDelete();
+    stream_ = nullptr;
+    if (on_remote_close_) {
+      on_remote_close_(static_cast<Grpc::Status::GrpcStatus>(stat.code()), std::string(stat.message()));
+    }
   }
 }
 
 void StreamManagementServiceClient::onRemoteClose(Grpc::Status::GrpcStatus status, const std::string& err) {
-  if (on_remote_close_) {
-    on_remote_close_(status, err);
-  }
   ASSERT(stream_ != nullptr);
   stream_.resetStream();
   stream_ = nullptr;
+  if (on_remote_close_) {
+    on_remote_close_(status, err);
+  }
 }
 
 ChannelStreamServiceClient::ChannelStreamServiceClient(Grpc::RawAsyncClientSharedPtr client)
@@ -66,20 +69,24 @@ std::weak_ptr<Grpc::AsyncStream<ChannelMessage>> ChannelStreamServiceClient::sta
 void ChannelStreamServiceClient::onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) {
   auto stat = callbacks_->onReceiveMessage(std::move(message));
   if (!stat.ok()) {
-    // TODO: propagate this error through to downstream disconnect
     ENVOY_LOG(error, stat.message());
     stream_->closeStream();
+    stream_->waitForRemoteCloseAndDelete();
+    stream_ = nullptr;
+    if (on_remote_close_) {
+      on_remote_close_(static_cast<Grpc::Status::GrpcStatus>(stat.code()), std::string(stat.message()));
+    }
   }
 }
 
 void ChannelStreamServiceClient::onRemoteClose(Grpc::Status::GrpcStatus status, const std::string& err) {
-  if (on_remote_close_) {
-    on_remote_close_(status, err);
-  }
   ASSERT(stream_ != nullptr);
   stream_->resetStream();
   stream_ = nullptr;
   callbacks_ = nullptr;
+  if (on_remote_close_) {
+    on_remote_close_(status, err);
+  }
 }
 
 void ChannelStreamServiceClient::setOnRemoteCloseCallback(std::function<void(Grpc::Status::GrpcStatus, std::string)> cb) {

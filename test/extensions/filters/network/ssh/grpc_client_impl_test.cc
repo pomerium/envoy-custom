@@ -78,8 +78,40 @@ TEST_F(StreamManagementServiceClientTest, OnReceiveMessage_HandlerReturnsError) 
   client.connect(1);
 
   EXPECT_CALL(stream_, closeStream);
+  EXPECT_CALL(stream_, waitForRemoteCloseAndDelete);
 
   client.onReceiveMessage(std::make_unique<ServerMessage>(msg1));
+}
+
+TEST_F(StreamManagementServiceClientTest, OnReceiveMessage_HandlerReturnsError_OnRemoteClose) {
+  IN_SEQUENCE;
+  EXPECT_CALL(*client_, startRaw("pomerium.extensions.ssh.StreamManagement", "ManageStream", _, _))
+    .WillOnce(Return(&stream_));
+
+  MockStreamMgmtServerMessageHandler handler;
+  StreamManagementServiceClient client(client_);
+  client.registerHandler(ServerMessage::kStreamControl, &handler);
+
+  ServerMessage msg1;
+  msg1.mutable_stream_control();
+
+  EXPECT_CALL(stream_, sendMessageRaw_);
+  EXPECT_CALL(handler, handleMessage(_))
+    .WillOnce(Return(absl::InvalidArgumentError("test error")));
+  client.connect(1);
+
+  bool called = false;
+  client.setOnRemoteCloseCallback([&](Grpc::Status::GrpcStatus status, std::string err) {
+    EXPECT_EQ(Grpc::Status::InvalidArgument, status);
+    EXPECT_EQ("test error", err);
+    called = true;
+  });
+
+  EXPECT_CALL(stream_, closeStream);
+  EXPECT_CALL(stream_, waitForRemoteCloseAndDelete);
+
+  client.onReceiveMessage(std::make_unique<ServerMessage>(msg1));
+  EXPECT_TRUE(called);
 }
 
 TEST_F(StreamManagementServiceClientTest, OnReceiveMessage_NoRegisteredHandler) {
@@ -96,6 +128,8 @@ TEST_F(StreamManagementServiceClientTest, OnReceiveMessage_NoRegisteredHandler) 
 
   client.connect(1);
   EXPECT_CALL(stream_, closeStream);
+  EXPECT_CALL(stream_, waitForRemoteCloseAndDelete);
+
   client.onReceiveMessage(std::make_unique<ServerMessage>(msg1));
 }
 
@@ -251,7 +285,41 @@ TEST_F(ChannelStreamServiceClientTest, OnReceiveMessage_HandlerReturnsError) {
   client.start(&callbacks_, std::nullopt);
 
   EXPECT_CALL(stream_, closeStream);
+  EXPECT_CALL(stream_, waitForRemoteCloseAndDelete);
+
   client.onReceiveMessage(std::make_unique<ChannelMessage>(msg1));
+}
+
+TEST_F(ChannelStreamServiceClientTest, OnReceiveMessage_HandlerReturnsError_OnRemoteClose) {
+  IN_SEQUENCE;
+  EXPECT_CALL(*client_, startRaw("pomerium.extensions.ssh.StreamManagement", "ServeChannel", _, _))
+    .WillOnce(Return(&stream_));
+
+  ChannelMessage expectedMetadataMsg;
+  expectedMetadataMsg.mutable_metadata(); // empty metadata
+  EXPECT_CALL(stream_, sendMessageRaw_(Grpc::ProtoBufferEq(expectedMetadataMsg), false));
+
+  ChannelMessage msg1;
+  *msg1.mutable_channel_control()->mutable_protocol() = "ssh";
+  EXPECT_CALL(callbacks_, onReceiveMessage(testing::Pointee(ProtoEq(msg1))))
+    .WillOnce(Return(absl::InvalidArgumentError("test error")));
+
+  ChannelStreamServiceClient client(client_);
+
+  bool called = false;
+  client.setOnRemoteCloseCallback([&](Grpc::Status::GrpcStatus status, std::string err) {
+    EXPECT_EQ(Grpc::Status::InvalidArgument, status);
+    EXPECT_EQ("test error", err);
+    called = true;
+  });
+
+  client.start(&callbacks_, std::nullopt);
+
+  EXPECT_CALL(stream_, closeStream);
+  EXPECT_CALL(stream_, waitForRemoteCloseAndDelete);
+
+  client.onReceiveMessage(std::make_unique<ChannelMessage>(msg1));
+  EXPECT_TRUE(called);
 }
 
 TEST_F(ChannelStreamServiceClientTest, OnRemoteClose) {
