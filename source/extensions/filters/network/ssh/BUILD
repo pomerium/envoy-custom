@@ -11,6 +11,7 @@ envoy_cc_library(
     name = "pomerium_ssh",
     srcs = [
         "client_transport.cc",
+        "config.cc",
         "extension_ping.cc",
         "frame.cc",
         "grpc_client_impl.cc",
@@ -28,6 +29,7 @@ envoy_cc_library(
     ],
     hdrs = [
         "client_transport.h",
+        "config.h",
         "extension_ping.h",
         "frame.h",
         "grpc_client_impl.h",
