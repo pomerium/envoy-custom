@@ -26,12 +26,11 @@ if [[ ! -e "${LLVM_CONFIG}" ]]; then
   exit 1
 fi
 
-LLVM_VERSION="$("${LLVM_CONFIG}" --version)"
 LLVM_LIBDIR="$("${LLVM_CONFIG}" --libdir)"
-LLVM_TARGET="$("${LLVM_CONFIG}" --host-target)"
 PATH="$("${LLVM_CONFIG}" --bindir):${PATH}"
 
-RT_LIBRARY_PATH="${LLVM_LIBDIR}/clang/${LLVM_VERSION}/lib/${LLVM_TARGET}"
+RT_LIBRARY_FILE="$("${LLVM_PREFIX}/bin/clang" --rtlib=compiler-rt --print-libgcc-file-name)"
+RT_LIBRARY_PATH="$(dirname "${RT_LIBRARY_FILE}")"
 
 cat <<EOF >"${BAZELRC_FILE}"
 # Generated file, do not edit. If you want to disable clang, just delete this file.
