@@ -157,9 +157,9 @@ absl::Status SshClientTransport::handleMessage(wire::Message&& msg) {
       if (services_.contains(msg.service_name)) {
         return services_[msg.service_name]->onServiceAccepted();
       }
-      ENVOY_LOG(error, "received ServiceAccept message for unknown service {}", msg.msg_type());
-      return absl::InternalError(
-        fmt::format("received ServiceAccept message for unknown service {}", msg.msg_type()));
+      ENVOY_LOG(error, "received ServiceAccept message for unknown service {}", msg.service_name);
+      return absl::InvalidArgumentError(
+        fmt::format("received ServiceAccept message for unknown service {}", msg.service_name));
     },
     [&](wire::GlobalRequestMsg& msg) {
       if (msg.request_name() == "hostkeys-00@openssh.com") {
@@ -173,16 +173,24 @@ absl::Status SshClientTransport::handleMessage(wire::Message&& msg) {
     },
     [&](any_of<wire::GlobalRequestSuccessMsg,
                wire::GlobalRequestFailureMsg,
-               wire::IgnoreMsg,
-               wire::DebugMsg,
-               wire::UnimplementedMsg,
                wire::DisconnectMsg> auto& msg) {
       forward(std::move(msg));
       return absl::OkStatus();
     },
-    [](auto&) {
-      ENVOY_LOG(error, "unknown message");
+    [](wire::UnimplementedMsg&) {
+      ENVOY_LOG(debug, "received UnimplementedMsg");
       return absl::OkStatus();
+    },
+    [](wire::IgnoreMsg&) {
+      ENVOY_LOG(debug, "received IgnoreMsg");
+      return absl::OkStatus();
+    },
+    [](wire::DebugMsg&) {
+      ENVOY_LOG(debug, "received DebugMsg");
+      return absl::OkStatus();
+    },
+    [](auto& msg) {
+      return absl::InternalError(fmt::format("received invalid message: {}", msg.msg_type()));
     });
 }
 
@@ -215,7 +223,7 @@ absl::StatusOr<MiddlewareResult> SshClientTransport::interceptMessage(wire::Mess
   return ssh_msg.visit(
     [&](wire::ChannelOpenConfirmationMsg& msg) -> absl::StatusOr<MiddlewareResult> {
       const auto& info = downstream_state_->handoff_info;
-      if (info.handoff_in_progress && msg.recipient_channel == info.channel_info->downstream_channel_id()) {
+      if (info.handoff_in_progress) {
         channel_id_mappings_[info.channel_info->internal_upstream_channel_id()] = msg.sender_channel;
         // channel is open, now request a pty
         wire::ChannelRequestMsg channelReq;
@@ -239,7 +247,8 @@ absl::StatusOr<MiddlewareResult> SshClientTransport::interceptMessage(wire::Mess
       return Continue;
     },
     [&](wire::ChannelOpenFailureMsg& msg) -> absl::StatusOr<MiddlewareResult> {
-      if (msg.recipient_channel == downstream_state_->handoff_info.channel_info->downstream_channel_id()) {
+      const auto& info = downstream_state_->handoff_info;
+      if (info.handoff_in_progress) {
 
         // couldn't connect to the upstream, bail out
         // still can't forward the message, the downstream thinks
@@ -255,9 +264,8 @@ absl::StatusOr<MiddlewareResult> SshClientTransport::interceptMessage(wire::Mess
       openMsg.sender_channel = downstream_state_->handoff_info.channel_info->downstream_channel_id();
       openMsg.initial_window_size = downstream_state_->handoff_info.channel_info->initial_window_size();
       openMsg.max_packet_size = downstream_state_->handoff_info.channel_info->max_packet_size();
-      if (auto r = sendMessageToConnection(std::move(openMsg)); !r.ok()) {
-        return statusf("error opening channel: {}", r.status());
-      }
+      auto r = sendMessageToConnection(std::move(openMsg));
+      RELEASE_ASSERT(r.ok(), "failed to send ChannelOpenMsg");
       return Break;
     },
     [&](wire::UserAuthFailureMsg&) -> absl::StatusOr<MiddlewareResult> {
@@ -271,9 +279,8 @@ absl::StatusOr<MiddlewareResult> SshClientTransport::interceptMessage(wire::Mess
         shellReq.recipient_channel = channel_id_mappings_[downstream_state_->handoff_info.channel_info->internal_upstream_channel_id()];
         shellReq.request = wire::ShellChannelRequestMsg{};
         shellReq.want_reply = false;
-        if (auto r = sendMessageToConnection(std::move(shellReq)); !r.ok()) {
-          return statusf("error requesting shell: {}", r.status());
-        }
+        auto r = sendMessageToConnection(std::move(shellReq));
+        RELEASE_ASSERT(r.ok(), "failed to send ShellChannelRequestMsg");
 
         // handoff is complete, send an empty message to signal the downstream codec
         forwardHeader(wire::IgnoreMsg{}, Sentinel);
@@ -308,16 +315,13 @@ void SshClientTransport::onKexCompleted(std::shared_ptr<KexResult> kex_result, b
   if (kex_result_->server_supports_ext_info) {
     auto extInfo = outgoingExtInfo();
     if (extInfo.has_value()) {
-      if (auto r = sendMessageToConnection(std::move(extInfo).value()); !r.ok()) {
-        onDecodingFailure(statusf("error sending ExtInfo: {}", r.status()));
-      }
+      auto r = sendMessageToConnection(std::move(extInfo).value());
+      RELEASE_ASSERT(r.ok(), fmt::format("failed to send ExtInfo: {}", r.status()));
     }
   }
 
-  if (auto stat = user_auth_svc_->requestService(); !stat.ok()) {
-    onDecodingFailure(statusf("error requesting user auth: {}", stat));
-    return;
-  }
+  auto stat = user_auth_svc_->requestService();
+  RELEASE_ASSERT(stat.ok(), fmt::format("failed to request service: {}", stat));
 }
 
 void SshClientTransport::onEvent(Network::ConnectionEvent event) {
@@ -331,25 +335,11 @@ stream_id_t SshClientTransport::streamId() const {
 }
 
 void SshClientTransport::onDecodingFailure(absl::Status err) {
-  if (err.ok()) {
-    ENVOY_LOG(info, "ssh: stream {} closing", streamId(), err.message());
-  } else {
-    ENVOY_LOG(error, "ssh: stream {} closing with error: {}", streamId(), err.message());
-  }
-
-  int code{};
-  switch (err.code()) {
-  case absl::StatusCode::kPermissionDenied:   code = SSH2_DISCONNECT_NO_MORE_AUTH_METHODS_AVAILABLE; break;
-  case absl::StatusCode::kInvalidArgument:    code = SSH2_DISCONNECT_PROTOCOL_ERROR; break;
-  case absl::StatusCode::kFailedPrecondition: code = SSH2_DISCONNECT_PROTOCOL_ERROR; break;
-  default:                                    code = SSH2_DISCONNECT_BY_APPLICATION; break;
-  }
+  ENVOY_LOG(error, "ssh: stream {} closing with error: {}", streamId(), err.message());
 
   wire::DisconnectMsg msg;
-  msg.reason_code = code;
-  if (!err.ok()) {
-    msg.description = statusToString(err);
-  }
+  msg.reason_code = openssh::statusCodeToDisconnectCode(err.code());
+  msg.description = statusToString(err);
   forwardHeader(std::move(msg), Error);
 }
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
