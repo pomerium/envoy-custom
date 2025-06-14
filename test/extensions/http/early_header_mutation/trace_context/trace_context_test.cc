@@ -102,7 +102,7 @@ TEST(TraceContextTest, Mutate) {
     for (int i = 0; i < 64; i++) {
       random_bytes[i] = absl::Uniform<char>(bitgen, -128, 127);
     }
-    const auto state = absl::StrCat("foo|bar|", encoded_traceid, "|", static_cast<char*>(random_bytes));
+    const auto state = absl::StrCat("foo|bar|", encoded_traceid, "|", std::string(random_bytes, 64));
     auto state_encoded = Base64Url::encode(state.c_str(), state.size());
     Base64::completePadding(state_encoded); // match go base64url encoding
     Envoy::Http::TestRequestHeaderMapImpl request_headers{

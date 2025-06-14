@@ -11,6 +11,7 @@ TEST(SpanTest, UnsafeForgeSpan) {
   ASSERT_EQ(10, span.size());
   ASSERT_EQ(10, span.size_bytes());
   ASSERT_EQ(x, span.data());
+  delete[] x;
 }
 
 TEST(SpanTest, LinearizeToSpan) {
