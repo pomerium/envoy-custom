@@ -519,7 +519,7 @@ makePacketCipherFromKexResult(DirectionalPacketCipherFactoryRegistry& cipher_fac
                               DirectionTags d_write,
                               KexMode mode,
                               KexResult* kex_result) {
-  ASSERT(!kex_result->session_id.empty());
+  RELEASE_ASSERT(!kex_result->session_id.empty(), "session id unset");
   const auto& readAlgs = readDirectionAlgsForMode(kex_result->algorithms, mode);
   const auto& writeAlgs = writeDirectionAlgsForMode(kex_result->algorithms, mode);
   auto readFactory = cipher_factories.factoryForName(readAlgs.cipher);
