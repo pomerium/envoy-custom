@@ -48,6 +48,15 @@ static const string_list RsaSha2512HostKeyAlgs = {
   "rsa-sha2-512-cert-v01@openssh.com",
 };
 
+static const string_list SupportedSigningAlgorithms = {
+  "ssh-ed25519",
+  "ecdsa-sha2-nistp256",
+  "ecdsa-sha2-nistp384",
+  "ecdsa-sha2-nistp521",
+  "rsa-sha2-512",
+  "rsa-sha2-256",
+};
+
 static const string_list SupportedMACs{
   "hmac-sha2-256-etm@openssh.com",
   "hmac-sha2-512-etm@openssh.com",
