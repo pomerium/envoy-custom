@@ -120,6 +120,11 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
           return absl::OkStatus();
         },
         [&](const wire::NoneAuthRequestMsg&) {
+          if (none_auth_handled_) {
+            // "none" auth is only allowed once
+            return absl::InvalidArgumentError("invalid auth request");
+          }
+          none_auth_handled_ = true;
           wire::UserAuthFailureMsg failure;
           failure.methods = {"publickey"s};
           return transport_.sendMessageToConnection(std::move(failure)).status();
@@ -211,6 +216,13 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
       auto methods = deny.methods();
       if (methods.empty()) {
         return absl::PermissionDeniedError("");
+      }
+      if (!deny.partial()) {
+        auth_failure_count_++;
+        if (auth_failure_count_ >= MaxFailedAuthAttempts) {
+          ENVOY_LOG(warn, "max auth attempts exceeded, disconnecting");
+          return absl::PermissionDeniedError("too many authentication failures");
+        }
       }
       wire::UserAuthFailureMsg failure;
       failure.partial = deny.partial();
