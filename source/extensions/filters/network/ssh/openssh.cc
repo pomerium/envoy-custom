@@ -319,22 +319,30 @@ std::string SSHKey::formatPublicKey() const {
   return std::string(view.begin(), view.end());
 }
 
-absl::StatusOr<bytes> SSHKey::sign(bytes_view payload) const {
+absl::StatusOr<bytes> SSHKey::sign(bytes_view payload, std::string alg) const {
   CBytesPtr sig;
   size_t len = 0;
+  const char* c_alg = nullptr;
+  if (alg != "") {
+    c_alg = alg.c_str();
+  }
   auto err = sshkey_sign(key_.get(), std::out_ptr(sig), &len, payload.data(), payload.size(),
-                         nullptr, nullptr, nullptr, 0);
+                         c_alg, nullptr, nullptr, 0);
   if (err != 0) {
     return statusFromErr(err);
   }
   return to_bytes(unsafe_forge_span(sig.get(), len));
 }
 
-absl::Status SSHKey::verify(bytes_view signature, bytes_view payload) {
+absl::Status SSHKey::verify(bytes_view signature, bytes_view payload, std::string alg) {
+  const char* c_alg = nullptr;
+  if (alg != "") {
+    c_alg = alg.c_str();
+  }
   auto err = sshkey_verify(key_.get(),
                            signature.data(), signature.size(),
                            payload.data(), payload.size(),
-                           namePtr(),
+                           c_alg,
                            0,        // bug compatibility
                            nullptr); // TODO: handle u2f signature info
   if (err != 0) {
@@ -366,6 +374,24 @@ std::vector<std::string> SSHKey::signatureAlgorithmsForKeyType() const {
   default:
     return {std::string(keyTypeName())};
   }
+}
+
+std::optional<std::string> certSigningAlgorithmToPlain(const std::string& alg) {
+  static const absl::flat_hash_map<const std::string, const std::string> names = {
+    {"ssh-ed25519-cert-v01@openssh.com", "ssh-ed25519"},
+    {"sk-ssh-ed25519-cert-v01@openssh.com", "sk-ssh-ed25519@openssh.com"},
+    {"ecdsa-sha2-nistp256-cert-v01@openssh.com", "ecdsa-sha2-nistp256"},
+    {"ecdsa-sha2-nistp384-cert-v01@openssh.com", "ecdsa-sha2-nistp384"},
+    {"ecdsa-sha2-nistp521-cert-v01@openssh.com", "ecdsa-sha2-nistp521"},
+    {"sk-ecdsa-sha2-nistp256-cert-v01@openssh.com", "sk-ecdsa-sha2-nistp256@openssh.com"},
+    {"rsa-sha2-512-cert-v01@openssh.com", "rsa-sha2-512"},
+    {"rsa-sha2-256-cert-v01@openssh.com", "rsa-sha2-256"},
+  };
+  auto n = names.find(alg);
+  if (n != names.end()) {
+    return n->second;
+  }
+  return std::nullopt;
 }
 
 // SSHCipher

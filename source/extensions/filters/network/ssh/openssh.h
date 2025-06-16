@@ -46,6 +46,8 @@ static constexpr auto ExtensionPermitPortForwarding = "permit-port-forwarding";
 static constexpr auto ExtensionPermitPty = "permit-pty";
 static constexpr auto ExtensionPermitUserRc = "permit-user-rc";
 
+static constexpr uint32_t DefaultRSAKeySize = 3072;
+
 class SSHKey {
 public:
   SSHKey(const SSHKey&) = delete;
@@ -82,8 +84,8 @@ public:
   std::unique_ptr<SSHKey> toPublicKey() const;
   absl::StatusOr<std::string> formatPrivateKey(sshkey_private_format format = SSHKEY_PRIVATE_OPENSSH) const;
   std::string formatPublicKey() const;
-  absl::StatusOr<bytes> sign(bytes_view payload) const;
-  absl::Status verify(bytes_view signature, bytes_view payload);
+  absl::StatusOr<bytes> sign(bytes_view payload, std::string alg = "") const;
+  absl::Status verify(bytes_view signature, bytes_view payload, std::string alg = "");
 
   const struct sshkey* sshkeyForTest() const { return key_.get(); };
 
@@ -97,6 +99,9 @@ private:
 };
 
 using SSHKeyPtr = std::unique_ptr<SSHKey>;
+
+// Returns the corresponding "plain" signing algorithm, or nullopt if unknown or unsupported.
+std::optional<std::string> certSigningAlgorithmToPlain(const std::string& alg);
 
 absl::StatusOr<std::vector<openssh::SSHKeyPtr>> loadHostKeys(std::ranges::range auto const& filenames) {
   std::vector<openssh::SSHKeyPtr> out;

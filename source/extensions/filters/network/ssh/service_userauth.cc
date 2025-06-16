@@ -14,6 +14,16 @@
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 using namespace pomerium::extensions::ssh;
 
+const std::vector<key_params_t> SupportedUpstreamKeyParams = {
+  {"ssh-ed25519-cert-v01@openssh.com", KEY_ED25519, 256},
+  {"ecdsa-sha2-nistp256-cert-v01@openssh.com", KEY_ECDSA, 256},
+  {"ecdsa-sha2-nistp384-cert-v01@openssh.com", KEY_ECDSA, 384},
+  {"ecdsa-sha2-nistp521-cert-v01@openssh.com", KEY_ECDSA, 521},
+  {"rsa-sha2-512-cert-v01@openssh.com", KEY_RSA, 2048},
+  {"rsa-sha2-256-cert-v01@openssh.com", KEY_RSA, 2048},
+};
+const key_params_t DefaultUpstreamKeyParams = SupportedUpstreamKeyParams[0];
+
 void DownstreamUserAuthService::registerMessageHandlers(SshMessageDispatcher& dispatcher) {
   dispatcher.registerHandler(wire::SshMessageType::UserAuthRequest, this);
   dispatcher.registerHandler(wire::SshMessageType::UserAuthInfoResponse, this);
@@ -89,7 +99,7 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
               return absl::InternalError(statusToString(r.status()));
             }
             auto verifyBytes = wire::flushTo<bytes>(verifyBuf);
-            if (auto stat = (*userPubKey)->verify(*pubkey_req.signature, verifyBytes); !stat.ok()) {
+            if (auto stat = (*userPubKey)->verify(*pubkey_req.signature, verifyBytes, *pubkey_req.public_key_alg); !stat.ok()) {
               return stat;
             }
           }
@@ -280,15 +290,39 @@ absl::Status UpstreamUserAuthService::requestService() {
   return transport_.sendMessageToConnection(std::move(req)).status();
 }
 
+key_params_t UpstreamUserAuthService::getUpstreamKeyParams() {
+  auto key_params = DefaultUpstreamKeyParams;
+
+  auto ext_info = transport_.peerExtInfo();
+  if (ext_info) {
+    auto server_sig_algs = ext_info->getExtension<wire::ServerSigAlgsExtension>();
+    if (server_sig_algs) {
+      auto v = *server_sig_algs->public_key_algorithms_accepted;
+      absl::flat_hash_set<std::string> server_algs(v.begin(), v.end());
+      for (const auto& p : SupportedUpstreamKeyParams) {
+        auto alg = std::get<0>(p);
+        auto plain_alg = openssh::certSigningAlgorithmToPlain(alg);
+        if (server_algs.contains(alg) ||
+            (plain_alg.has_value() && server_algs.contains(*plain_alg))) {
+          key_params = p;
+          break;
+        }
+      }
+    }
+  }
+
+  return key_params;
+}
+
 absl::Status UpstreamUserAuthService::onServiceAccepted() {
   if (!transport_.authState().allow_response) {
     return absl::InternalError("missing AllowResponse in auth state");
   }
 
-  // TODO: check for server-sig-algs extension to determine which key type to generate
+  auto [alg, key_type, key_bits] = getUpstreamKeyParams();
 
-  auto res = openssh::SSHKey::generate(KEY_ED25519, 256);
-  RELEASE_ASSERT(res.ok(), "couldn't generate ephemeral ssh key");
+  auto res = openssh::SSHKey::generate(key_type, key_bits);
+  RELEASE_ASSERT(res.ok(), fmt::format("couldn't generate ephemeral ssh key: {}", res.status()));
   auto userSessionSshKey = std::move(res).value();
   auto stat = userSessionSshKey->convertToSignedUserCertificate(
     1,
@@ -310,7 +344,7 @@ absl::Status UpstreamUserAuthService::onServiceAccepted() {
 
   wire::PubKeyUserAuthRequestMsg pubkeyReq{
     .has_signature = true,
-    .public_key_alg = "ssh-ed25519-cert-v01@openssh.com"s,
+    .public_key_alg = alg,
     .public_key = userSessionSshKey->toPublicKeyBlob(),
   };
 
@@ -329,7 +363,7 @@ absl::Status UpstreamUserAuthService::onServiceAccepted() {
       !r.ok()) {
     return statusf("error encoding user auth request: {}", r.status());
   }
-  auto sig = userSessionSshKey->sign(wire::flushTo<bytes>(buf));
+  auto sig = userSessionSshKey->sign(wire::flushTo<bytes>(buf), alg);
   RELEASE_ASSERT(sig.ok(), fmt::format("error signing user auth request: {}", sig.status()));
   pubkeyReq.signature = *sig;
 
