@@ -1,4 +1,3 @@
-
 #include "source/extensions/filters/network/ssh/server_transport.h"
 #include "test/extensions/filters/network/generic_proxy/mocks/codec.h"
 #include "test/extensions/filters/network/ssh/test_env_util.h"
@@ -531,6 +530,8 @@ TEST_F(ServerTransportTest, SuccessfulUserAuth_HijackedMode) {
   // no decoding success or upstream connect
   ExpectServeChannelStart();
 
+  // The allow response can contain metadata which will be sent back at the start of the
+  // ServeChannel RPC, to help identify the stream or pass arbitrary data between the rpc handlers.
   ChannelMessage metadataReq;
   (*metadataReq.mutable_metadata()->mutable_filter_metadata())["foo"] = ProtobufWkt::Struct{};
   ExpectSendOnServeChannelStream(metadataReq);
