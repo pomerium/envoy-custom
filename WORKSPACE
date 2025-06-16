@@ -47,6 +47,7 @@ http_archive(
         "//patches/envoy:0001-revert-deps-drop-BoringSSL-linkstatic-patch-38621.patch",
         "//patches/envoy:0002-bump-dependencies.patch",
         "//patches/envoy:0003-envoy-copts.patch",
+        "//patches/envoy:tmp-fix-upstream-connection-callbacks.patch",
     ],
     sha256 = "3a8254aae4b775e3cc362c753b25a285b9cd248efe6d4efcc492f0ad045a33be",
     strip_prefix = "envoy-" + envoy_version,

@@ -1,0 +1,16 @@
+diff --git a/source/extensions/filters/network/generic_proxy/router/upstream.cc b/source/extensions/filters/network/generic_proxy/router/upstream.cc
+index 0cbef86bdd..e93d7ee4fd 100644
+--- a/source/extensions/filters/network/generic_proxy/router/upstream.cc
++++ b/source/extensions/filters/network/generic_proxy/router/upstream.cc
+@@ -222,6 +222,11 @@ void BoundGenericUpstream::onEvent(Network::ConnectionEvent event) {
+       encoder_decoder_->onConnectionClose(event);
+     }
+ 
++    // The upstream is already closed, so remove the callback on the downstream conn closing that
++    // triggers the upstream to close. Otherwise this can race with the deferred deletion of the
++    // filter chain and outlive the EncoderDecoder.
++    downstream_conn_.removeConnectionCallbacks(connection_event_watcher_);
++
+     // If the downstream connection is not closed, close it.
+     downstream_conn_.close(Network::ConnectionCloseType::FlushWrite);
+   }
