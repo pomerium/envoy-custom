@@ -1,0 +1,15 @@
+diff --git a/configure.ac b/configure.ac
+index ee77a0484..00730cfb0 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -3219,7 +3219,9 @@ if test "x$openssl" = "xyes" ; then
+ 			]],[[
+ 			EC_KEY *e = EC_KEY_new_by_curve_name(NID_secp521r1);
+ 			const EVP_MD *m = EVP_sha512(); /* We need this too */
+-			exit(e == NULL || m == NULL);
++			int status = e == NULL || m == NULL;
++			EC_KEY_free(e);
++			exit(status);
+ 			]])],
+ 			[ AC_MSG_RESULT([yes])
+ 			  enable_nistp521=1 ],

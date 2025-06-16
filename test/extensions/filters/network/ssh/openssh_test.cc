@@ -193,13 +193,9 @@ TEST(SSHKeyTest, Generate) {
   EXPECT_OK(r.status());
   EXPECT_EQ(KEY_ECDSA, (*r)->keyType());
 
-  // XXX: this detection fails in openssh for asan builds, so the nistp-521 curves are disabled.
-  // non-asan builds detect this fine though.
-#ifdef OPENSSL_HAS_NISTP521
   r = SSHKey::generate(KEY_ECDSA, 521);
   EXPECT_OK(r.status());
   EXPECT_EQ(KEY_ECDSA, (*r)->keyType());
-#endif
 
   r = SSHKey::generate(KEY_ED25519, 256);
   EXPECT_OK(r.status());
@@ -277,9 +273,7 @@ INSTANTIATE_TEST_SUITE_P(SSHKeyTest, SSHKeyTestSuite,
                            {KEY_RSA, 2048},
                            {KEY_ECDSA, 256},
                            {KEY_ECDSA, 384},
-#ifdef OPENSSL_HAS_NISTP521
                            {KEY_ECDSA, 521},
-#endif
                            {KEY_ED25519, 256},
                          }));
 
@@ -381,9 +375,7 @@ INSTANTIATE_TEST_SUITE_P(SSHKeyCertTest, SSHKeyCertTestSuite,
                            {KEY_RSA, 2048},
                            {KEY_ECDSA, 256},
                            {KEY_ECDSA, 384},
-#ifdef OPENSSL_HAS_NISTP521
                            {KEY_ECDSA, 521},
-#endif
                            {KEY_ED25519, 256},
                          }));
 
@@ -582,10 +574,8 @@ INSTANTIATE_TEST_SUITE_P(SSHKeyPropertiesTest, SSHKeyPropertiesTestSuite,
                            {KEY_ECDSA_CERT, 256},
                            {KEY_ECDSA, 384},
                            {KEY_ECDSA_CERT, 384},
-#ifdef OPENSSL_HAS_NISTP521
                            {KEY_ECDSA, 521},
                            {KEY_ECDSA_CERT, 521},
-#endif
                            {KEY_ED25519, 256},
                            {KEY_ED25519_CERT, 256},
                          }));
