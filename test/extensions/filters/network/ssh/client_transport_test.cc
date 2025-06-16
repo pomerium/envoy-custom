@@ -149,12 +149,27 @@ public:
   }
 
   void StartTransportHandoff() {
-    // start the client transport by simulating a SSHRequestHeaderFrame forwarded from the
-    // server transport
     GenericProxy::MockEncodingContext ctx;
     SSHRequestHeaderFrame reqHeaderFrame(BuildHandoffAuthState());
     ASSERT_OK(transport_.encode(reqHeaderFrame, ctx).status());
     DoKeyExchange();
+  }
+
+  void StartTransportDirectTcpip() {
+    GenericProxy::MockEncodingContext ctx;
+    auto state = BuildHandoffAuthState();
+    state->handoff_info.channel_info->set_channel_type("direct-tcpip");
+    state->allow_response->mutable_upstream()->set_direct_tcpip(true);
+    SSHRequestHeaderFrame reqHeaderFrame(state);
+    wire::ChannelOpenConfirmationMsg expectedMsg;
+    expectedMsg.recipient_channel = 100;
+    expectedMsg.sender_channel = 200;
+    expectedMsg.initial_window_size = 64 * wire::MaxPacketSize;
+    expectedMsg.max_packet_size = wire::MaxPacketSize;
+    EXPECT_CALL(client_codec_callbacks_, onDecodingSuccess(FrameContainingMsg(wire::Message{expectedMsg}), _));
+    auto r = transport_.encode(reqHeaderFrame, ctx);
+    ASSERT_OK(r.status());
+    ASSERT_EQ(0, *r); // nothing sent to the upstream
   }
 
   void DoKeyExchange() {
@@ -272,6 +287,46 @@ public:
       [](auto&) {
         ADD_FAILURE() << "[test error] unexpected request type, expected PubKeyUserAuthRequestMsg";
       });
+    return HasFailure()
+             ? absl::InternalError("test failed")
+             : absl::OkStatus();
+  }
+
+  absl::Status DoRekey() {
+    [this] {
+      ASSERT_EQ(0, input_buffer_.length());
+      ASSERT_EQ(0, output_buffer_.length());
+
+      ASSERT_OK(WriteMsg(auto(kex_init_)));
+
+      wire::KexInitMsg clientKexInit;
+      ASSERT_OK(ReadMsg(clientKexInit));
+      HandshakeMagics magics{
+        .client_version = "SSH-2.0-Envoy\r\n"_bytes,
+        .server_version = "SSH-2.0-TestServer\r\n"_bytes,
+        .client_kex_init = *wire::encodeTo<bytes>(clientKexInit),
+        .server_kex_init = *wire::encodeTo<bytes>(kex_init_),
+      };
+      DirectionalPacketCipherFactoryRegistry reg;
+      reg.registerType<Chacha20Poly1305CipherFactory>();
+      Curve25519Sha256KexAlgorithmFactory f;
+      auto kexAlg = f.create(&magics, &kex_algs_, server_host_key_.get());
+      wire::Message clientEcdhInit;
+      ASSERT_OK(ReadMsg(clientEcdhInit));
+      auto r = kexAlg->handleServerRecv(clientEcdhInit);
+      ASSERT_OK(r.status());
+      ASSERT_TRUE(r->has_value());
+      (**r)->session_id = *current_session_id_;
+      ASSERT_OK(WriteMsg(kexAlg->buildServerReply(***r)));
+      ASSERT_OK(WriteMsg(wire::NewKeysMsg{}));
+      write_seqnum_ = 0;
+      wire::NewKeysMsg clientNewKeys;
+      ASSERT_OK(ReadMsg(clientNewKeys));
+      read_seqnum_ = 0;
+      ASSERT_EQ(0, input_buffer_.length()); // there should be no ExtInfo sent
+
+      server_cipher_ = makePacketCipherFromKexResult<ServerCodec>(reg, (**r).get());
+    }();
     return HasFailure()
              ? absl::InternalError("test failed")
              : absl::OkStatus();
@@ -749,6 +804,190 @@ TEST_F(ClientTransportTest, EncodeInvalidFrameType) {
     "bug: unknown frame kind");
 }
 
-} // namespace test
+TEST_F(ClientTransportTest, HandleRekey) {
+  StartTransportNormal();
+  ASSERT_OK(ExchangeExtInfo());
+  ASSERT_OK(HandleUserAuth());
 
+  ASSERT_OK(DoRekey());
+
+  wire::PingMsg ping{.data = "test"s};
+  EXPECT_CALL(client_codec_callbacks_, onDecodingSuccess(FrameContainingMsg(wire::Message{ping})));
+  ASSERT_OK(WriteMsg(wire::Message{ping}));
+}
+
+TEST_F(ClientTransportTest, HandleRekeyDuringHandoff) {
+  StartTransportHandoff();
+  ASSERT_OK(ExchangeExtInfo());
+
+  wire::ServiceRequestMsg clientUserAuthServiceRequest;
+  EXPECT_OK(ReadMsg(clientUserAuthServiceRequest));
+
+  ASSERT_OK(DoRekey());
+
+  EXPECT_OK(WriteMsg(wire::Message{wire::ServiceAcceptMsg{.service_name = "ssh-userauth"s}}));
+
+  wire::UserAuthRequestMsg clientUserAuthRequest;
+  EXPECT_OK(ReadMsg(clientUserAuthRequest));
+  EXPECT_OK(WriteMsg(wire::UserAuthSuccessMsg{}));
+
+  wire::ChannelOpenMsg req;
+  ASSERT_OK(ReadMsg(req));
+
+  ASSERT_OK(DoRekey());
+
+  ASSERT_OK(WriteMsg(wire::ChannelOpenConfirmationMsg{
+    .recipient_channel = 100,
+    .sender_channel = 300,
+    .initial_window_size = 64 * wire::MaxPacketSize,
+    .max_packet_size = wire::MaxPacketSize,
+  }));
+
+  wire::ChannelRequestMsg ptyChannelRequest;
+  ASSERT_OK(ReadMsg(ptyChannelRequest));
+  ptyChannelRequest.request.visit(
+    [](wire::PtyReqChannelRequestMsg&) {},
+    [](auto&) {
+      FAIL() << "unexpected message";
+    });
+
+  ASSERT_FALSE(HasFailure());
+
+  ASSERT_OK(DoRekey());
+
+  EXPECT_CALL(client_codec_callbacks_, onDecodingSuccess(
+                                         AllOf(FrameContainingMsg(wire::Message{wire::IgnoreMsg{}}),
+                                               SentinelFrame()),
+                                         _))
+    .WillOnce([this] {
+      transport_.authState().handoff_info.handoff_in_progress = false;
+    });
+
+  ASSERT_OK(WriteMsg(wire::ChannelSuccessMsg{.recipient_channel = 100}));
+
+  wire::ChannelRequestMsg shellChannelRequest;
+  ASSERT_OK(ReadMsg(shellChannelRequest));
+  shellChannelRequest.request.visit(
+    [](wire::ShellChannelRequestMsg&) {},
+    [](auto&) {
+      FAIL() << "unexpected message";
+    });
+}
+
+TEST_F(ClientTransportTest, HandleRekeyAfterHandoff) {
+  StartTransportHandoff();
+  ASSERT_OK(ExchangeExtInfo());
+
+  wire::ServiceRequestMsg clientUserAuthServiceRequest;
+  EXPECT_OK(ReadMsg(clientUserAuthServiceRequest));
+  EXPECT_OK(WriteMsg(wire::Message{wire::ServiceAcceptMsg{.service_name = "ssh-userauth"s}}));
+
+  wire::UserAuthRequestMsg clientUserAuthRequest;
+  EXPECT_OK(ReadMsg(clientUserAuthRequest));
+  EXPECT_OK(WriteMsg(wire::UserAuthSuccessMsg{}));
+
+  wire::ChannelOpenMsg req;
+  ASSERT_OK(ReadMsg(req));
+
+  ASSERT_OK(WriteMsg(wire::ChannelOpenConfirmationMsg{
+    .recipient_channel = 100,
+    .sender_channel = 300,
+    .initial_window_size = 64 * wire::MaxPacketSize,
+    .max_packet_size = wire::MaxPacketSize,
+  }));
+
+  wire::ChannelRequestMsg ptyChannelRequest;
+  ASSERT_OK(ReadMsg(ptyChannelRequest));
+  ptyChannelRequest.request.visit(
+    [](wire::PtyReqChannelRequestMsg&) {},
+    [](auto&) {
+      FAIL() << "unexpected message";
+    });
+
+  ASSERT_FALSE(HasFailure());
+
+  EXPECT_CALL(client_codec_callbacks_, onDecodingSuccess(
+                                         AllOf(FrameContainingMsg(wire::Message{wire::IgnoreMsg{}}),
+                                               SentinelFrame()),
+                                         _))
+    .WillOnce([this] {
+      transport_.authState().handoff_info.handoff_in_progress = false;
+    });
+
+  ASSERT_OK(WriteMsg(wire::ChannelSuccessMsg{.recipient_channel = 100}));
+
+  wire::ChannelRequestMsg shellChannelRequest;
+  ASSERT_OK(ReadMsg(shellChannelRequest));
+  shellChannelRequest.request.visit(
+    [](wire::ShellChannelRequestMsg&) {},
+    [](auto&) {
+      FAIL() << "unexpected message";
+    });
+  ASSERT_OK(DoRekey());
+
+  // checking that this is forwarded to the downstream is important - it means we correctly
+  // updated the upstream's ext info when intercepting the user auth success message, which
+  // enables ping forwarding
+  wire::PingMsg ping{.data = "test"s};
+  EXPECT_CALL(client_codec_callbacks_, onDecodingSuccess(FrameContainingMsg(wire::Message{ping})));
+  ASSERT_OK(WriteMsg(wire::Message{ping}));
+}
+
+TEST_F(ClientTransportTest, DirectTcpipMode) {
+  server_cipher_ = std::make_unique<PacketCipher>(std::make_unique<NoCipher>(),
+                                                  std::make_unique<NoCipher>());
+  StartTransportDirectTcpip();
+
+  // downstream->upstream
+  {
+    wire::KexInitMsg send{.reserved = 1234};
+    Buffer::OwnedImpl packet;
+    ASSERT_OK(wire::encodePacket(packet, send, 8, 0).status());
+    wire::ChannelDataMsg data{
+      .recipient_channel = 200,
+      .data = wire::flushTo<bytes>(packet),
+    };
+    SSHRequestCommonFrame frame(wire::Message{data});
+    GenericProxy::MockEncodingContext ctx;
+    ASSERT_OK(transport_.encode(frame, ctx).status());
+
+    wire::KexInitMsg recv;
+    ASSERT_OK(ReadMsg(recv));
+    ASSERT_EQ(1234, *recv.reserved);
+  }
+  // upstream->downstream
+  {
+    wire::KexInitMsg send{.reserved = 2345};
+    Buffer::OwnedImpl packet;
+    // disable random padding so that we can match the expected packet contents exactly
+    ASSERT_OK(wire::encodePacket(packet, send, 8, 0, false).status());
+    wire::ChannelDataMsg expected{
+      .recipient_channel = 100,
+      .data = wire::flushTo<bytes>(packet),
+    };
+
+    EXPECT_CALL(client_codec_callbacks_, onDecodingSuccess(FrameContainingMsg(wire::Message{expected})));
+    Buffer::OwnedImpl buf;
+    ASSERT_OK(wire::encodePacket(buf, send,
+                                 server_cipher_->blockSize(openssh::CipherMode::Write),
+                                 server_cipher_->aadSize(openssh::CipherMode::Write),
+                                 false) // disable random padding
+                .status());
+    ASSERT_OK(server_cipher_->encryptPacket(write_seqnum_++, input_buffer_, buf));
+    transport_.decode(input_buffer_, false);
+  }
+}
+
+TEST_F(ClientTransportTest, DirectTcpipMode_WrongMessageTypeReceived) {
+  server_cipher_ = std::make_unique<PacketCipher>(std::make_unique<NoCipher>(),
+                                                  std::make_unique<NoCipher>());
+  StartTransportDirectTcpip();
+
+  SSHRequestCommonFrame frame(wire::Message{wire::DebugMsg{}});
+  GenericProxy::MockEncodingContext ctx;
+  ASSERT_EQ(absl::InvalidArgumentError("unexpected message of type Debug (4) on direct-tcpip channel"),
+            transport_.encode(frame, ctx).status());
+}
+
+} // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

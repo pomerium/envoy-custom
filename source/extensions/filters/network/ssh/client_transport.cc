@@ -266,6 +266,17 @@ absl::StatusOr<MiddlewareResult> SshClientTransport::interceptMessage(wire::Mess
       openMsg.max_packet_size = downstream_state_->handoff_info.channel_info->max_packet_size();
       auto r = sendMessageToConnection(std::move(openMsg));
       RELEASE_ASSERT(r.ok(), "failed to send ChannelOpenMsg");
+
+      // this message won't be dispatched to the upstream userauth service, so we need to handle a
+      // couple of post-auth-success actions that it would normally do
+
+      // set the upstream ext info if available
+      if (auto info = peerExtInfo(); info.has_value()) {
+        authState().upstream_ext_info = std::move(info);
+      }
+      // unregister the user auth service
+      unregisterHandler(user_auth_svc_.get());
+
       return Break;
     },
     [&](wire::UserAuthFailureMsg&) -> absl::StatusOr<MiddlewareResult> {
