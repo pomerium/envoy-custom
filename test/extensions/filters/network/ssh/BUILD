@@ -251,3 +251,18 @@ envoy_cc_test(
         "@envoy//test/mocks/network:connection_mocks",
     ],
 )
+
+envoy_cc_test(
+    name = "config_test",
+    srcs = [
+        "config_test.cc",
+    ],
+    repository = "@envoy",
+    deps = [
+        ":test_env_util_lib",
+        ":test_mocks",
+        "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "//test/test_common:test_common_lib",
+        "@envoy//test/extensions/filters/network/generic_proxy/mocks:codec_mocks",
+    ],
+)
