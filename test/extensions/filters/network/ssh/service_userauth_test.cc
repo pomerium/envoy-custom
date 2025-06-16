@@ -349,6 +349,9 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshUnsupportedAuthRequest) {
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowUpstream) {
+  TestSshMessageDispatcher d;
+  service_->registerMessageHandlers(d);
+
   SendValidPubKeyRequest();
 
   auto msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
@@ -376,9 +379,15 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowUpstream) {
   ASSERT_EQ(42, state->stream_id);
   ASSERT_EQ(*state->downstream_ext_info, ext_info);
   ASSERT_EQ(ChannelMode::Normal, state->channel_mode);
+
+  // check that the service unregistered itself from the message handler
+  ASSERT_TRUE(d.dispatch_.empty());
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowInternal) {
+  TestSshMessageDispatcher d;
+  service_->registerMessageHandlers(d);
+
   SendValidPubKeyRequest();
 
   auto msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
@@ -411,6 +420,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowInternal) {
   ASSERT_EQ(42, state->stream_id);
   ASSERT_EQ(*state->downstream_ext_info, ext_info);
   ASSERT_EQ(ChannelMode::Hijacked, state->channel_mode);
+  ASSERT_TRUE(d.dispatch_.empty());
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowUnsupportedTarget) {
