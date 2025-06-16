@@ -262,9 +262,7 @@ public:
     client_host_keys_.push_back(*openssh::SSHKey::generate(KEY_ED25519, 256));
     client_host_keys_.push_back(*openssh::SSHKey::generate(KEY_ECDSA, 256));
     client_host_keys_.push_back(*openssh::SSHKey::generate(KEY_ECDSA, 384));
-#ifdef OPENSSL_HAS_NISTP521
     client_host_keys_.push_back(*openssh::SSHKey::generate(KEY_ECDSA, 521));
-#endif
     client_host_keys_.push_back(*openssh::SSHKey::generate(KEY_RSA, 2048));
 
     algorithm_factories_.registerType<Curve25519Sha256KexAlgorithmFactory>();
@@ -285,9 +283,7 @@ public:
     hostKeys.push_back(*openssh::SSHKey::generate(KEY_ED25519, 256));
     hostKeys.push_back(*openssh::SSHKey::generate(KEY_ECDSA, 256));
     hostKeys.push_back(*openssh::SSHKey::generate(KEY_ECDSA, 384));
-#ifdef OPENSSL_HAS_NISTP521
     hostKeys.push_back(*openssh::SSHKey::generate(KEY_ECDSA, 521));
-#endif
     hostKeys.push_back(*openssh::SSHKey::generate(KEY_RSA, 2048));
 
     std::unordered_map<std::string, bytes> hostKeyBlobs;
@@ -413,9 +409,7 @@ protected:
         "ssh-ed25519",
         "ecdsa-sha2-nistp256",
         "ecdsa-sha2-nistp384",
-#ifdef OPENSSL_HAS_NISTP521
         "ecdsa-sha2-nistp521",
-#endif
         "rsa-sha2-256",
         "rsa-sha2-512",
       };
@@ -689,9 +683,7 @@ TEST_F(AlgorithmNegotiationTest, NoCommonHostKey) {
                   "ssh-ed25519",
                   "ecdsa-sha2-nistp256",
                   "ecdsa-sha2-nistp384",
-#ifdef OPENSSL_HAS_NISTP521
                   "ecdsa-sha2-nistp521",
-#endif
                   "rsa-sha2-256",
                   "rsa-sha2-512",
                 })));

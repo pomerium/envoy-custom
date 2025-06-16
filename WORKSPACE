@@ -119,6 +119,9 @@ filegroup(
         # Links in the no-op security key implementation used in some openssh tests. We use libssh
         # standalone, but disable the security key feature, so the symbols are left undefined.
         "//patches/openssh:0003-ssh-sk-null.patch",
+        # Avoid a memory leak in a test program in the configure script that would otherwise
+        # disable P-521 elliptic key support in asan builds.
+        "//patches/openssh:0004-configure-asan.patch",
     ],
 )
 
