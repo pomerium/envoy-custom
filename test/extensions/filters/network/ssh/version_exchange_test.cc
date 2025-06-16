@@ -68,19 +68,19 @@ public:
 
     const auto& [params, terminator, mode, order, split] = GetParam();
     const auto& [banner, version, status] = params;
-    bytes versionWithTerm = version;
-    replaceTerm(versionWithTerm, terminator);
+    bytes versionWithoutTerm = version;
+    replaceTerm(versionWithoutTerm, {});
     switch (mode) {
     case VersionExchangeMode::Server:
       EXPECT_CALL(transport_, writeToConnection(BufferStringEqual("ignored\r\n"s)));
       if (order == WriteFirst) {
         ASSERT_EQ(9, vex_.writeVersion("ignored"));
         if (status.ok()) {
-          EXPECT_CALL(vex_callbacks_, onVersionExchangeCompleted("ignored\r\n"_bytes, versionWithTerm, bytes{}));
+          EXPECT_CALL(vex_callbacks_, onVersionExchangeCompleted("ignored"_bytes, versionWithoutTerm, bytes{}));
         }
       } else {
         if (status.ok()) {
-          EXPECT_CALL(vex_callbacks_, onVersionExchangeCompleted("ignored\r\n"_bytes, versionWithTerm, bytes{}));
+          EXPECT_CALL(vex_callbacks_, onVersionExchangeCompleted("ignored"_bytes, versionWithoutTerm, bytes{}));
         }
         ASSERT_EQ(9, vex_.writeVersion("ignored"));
       }
@@ -90,11 +90,11 @@ public:
       if (order == WriteFirst) {
         ASSERT_EQ(9, vex_.writeVersion("ignored"));
         if (status.ok()) {
-          EXPECT_CALL(vex_callbacks_, onVersionExchangeCompleted(versionWithTerm, "ignored\r\n"_bytes, banner));
+          EXPECT_CALL(vex_callbacks_, onVersionExchangeCompleted(versionWithoutTerm, "ignored"_bytes, banner));
         }
       } else {
         if (status.ok()) {
-          EXPECT_CALL(vex_callbacks_, onVersionExchangeCompleted(versionWithTerm, "ignored\r\n"_bytes, banner));
+          EXPECT_CALL(vex_callbacks_, onVersionExchangeCompleted(versionWithoutTerm, "ignored"_bytes, banner));
         }
         ASSERT_EQ(9, vex_.writeVersion("ignored"));
       }
