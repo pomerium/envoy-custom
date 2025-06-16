@@ -8,6 +8,9 @@
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
+// TODO: configurable?
+static constexpr int MaxFailedAuthAttempts = 6; // DEFAULT_AUTH_FAIL_MAX (openssh/servconf.h)
+
 class UserAuthService : public virtual Service,
                         public Logger::Loggable<Logger::Id::filter> {
 public:
@@ -37,6 +40,8 @@ public:
 private:
   DownstreamTransportCallbacks& transport_;
   std::optional<std::string> pending_service_auth_;
+  int auth_failure_count_{};
+  bool none_auth_handled_{};
 };
 
 class UpstreamUserAuthService final : public UserAuthService,
