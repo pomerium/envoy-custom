@@ -91,6 +91,14 @@ absl::StatusOr<size_t> VersionExchanger::readVersion(Envoy::Buffer::Instance& bu
 
   did_read_version_ = true;
   banner_text_ = std::move(banner);
+
+  // remove trailing \r\n from version before sending it to the callback
+  size_t suffix_len = 1;                             // \n is always present
+  if (version.at(version.size() - 2) == '\r'_byte) { // \r may be present
+    suffix_len++;
+  }
+  version.resize(version.size() - suffix_len);
+
   their_version_ = std::move(version);
   invokeCallbacksIfDone();
 
@@ -102,10 +110,9 @@ size_t VersionExchanger::writeVersion(std::string_view ours) {
   did_write_version_ = true;
 
   our_version_ = to_bytes(ours);
-  our_version_.push_back('\r');
-  our_version_.push_back('\n');
   Envoy::Buffer::OwnedImpl w;
   wire::write(w, our_version_);
+  w.add("\r\n");
   auto n = w.length();
   transport_.writeToConnection(w);
   invokeCallbacksIfDone();

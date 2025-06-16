@@ -185,8 +185,8 @@ public:
     ASSERT_OK(wire::encodePacket(input_buffer_, kex_init_, 8, 0).status());
     transport_.decode(input_buffer_, false);
     HandshakeMagics magics{
-      .client_version = "SSH-2.0-Envoy\r\n"_bytes,
-      .server_version = "SSH-2.0-TestServer\r\n"_bytes,
+      .client_version = "SSH-2.0-Envoy"_bytes,
+      .server_version = "SSH-2.0-TestServer"_bytes,
       .client_kex_init = *wire::encodeTo<bytes>(clientKexInit),
       .server_kex_init = *wire::encodeTo<bytes>(kex_init_),
     };
@@ -302,8 +302,8 @@ public:
       wire::KexInitMsg clientKexInit;
       ASSERT_OK(ReadMsg(clientKexInit));
       HandshakeMagics magics{
-        .client_version = "SSH-2.0-Envoy\r\n"_bytes,
-        .server_version = "SSH-2.0-TestServer\r\n"_bytes,
+        .client_version = "SSH-2.0-Envoy"_bytes,
+        .server_version = "SSH-2.0-TestServer"_bytes,
         .client_kex_init = *wire::encodeTo<bytes>(clientKexInit),
         .server_kex_init = *wire::encodeTo<bytes>(kex_init_),
       };
