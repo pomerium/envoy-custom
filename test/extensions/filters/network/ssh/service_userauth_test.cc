@@ -127,6 +127,27 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshNoneAuth) {
   ASSERT_EQ(absl::UnknownError("sentinel"), r);
 }
 
+TEST_F(DownstreamUserAuthServiceTest, NoneAuthOnlyAllowedOnce) {
+  wire::UserAuthRequestMsg req;
+  req.username = "foo@bar"s;
+  req.service_name = "ssh-connection"s;
+  req.request = wire::NoneAuthRequestMsg{};
+
+  wire::Message resp;
+  EXPECT_CALL(*transport_, sendMessageToConnection(
+                             MSG(wire::UserAuthFailureMsg,
+                                 AllOf(FIELD_EQ(methods, string_list{"publickey"}),
+                                       FIELD_EQ(partial, false)))))
+    .WillOnce(Return(0));
+
+  // first request
+  ASSERT_OK(service_->handleMessage(wire::Message{req}));
+
+  // second request
+  ASSERT_EQ(absl::InvalidArgumentError("invalid auth request"),
+            service_->handleMessage(wire::Message{req}));
+}
+
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyInvalidKey) {
   wire::UserAuthRequestMsg req;
   req.username = "foo@bar"s;
@@ -446,6 +467,30 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerDenyNoMethods) {
   msg->mutable_auth_response()->mutable_deny();
   auto r = service_->handleMessage(std::move(msg));
   ASSERT_EQ(absl::PermissionDeniedError(""), r);
+}
+
+TEST_F(DownstreamUserAuthServiceTest, AuthFailureLimit) {
+  // test that the server will disconnect after a number of failed attempts
+  EXPECT_CALL(*transport_, sendMessageToConnection(
+                             MSG(wire::UserAuthFailureMsg,
+                                 AllOf(FIELD_EQ(methods, string_list{"publickey"}),
+                                       FIELD_EQ(partial, false)))))
+    .Times(MaxFailedAuthAttempts - 1)
+    .WillRepeatedly(Return(0));
+  for (int i = 0; i < MaxFailedAuthAttempts - 1; i++) {
+    auto msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
+    msg->mutable_auth_response()->mutable_deny()->set_partial(false);
+    msg->mutable_auth_response()->mutable_deny()->add_methods("publickey");
+
+    ASSERT_OK(service_->handleMessage(std::move(msg)));
+  }
+
+  // the next deny should return an error
+  auto msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
+  msg->mutable_auth_response()->mutable_deny()->set_partial(false);
+  msg->mutable_auth_response()->mutable_deny()->add_methods("publickey");
+  ASSERT_EQ(absl::PermissionDeniedError("too many authentication failures"),
+            service_->handleMessage(std::move(msg)));
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerInfoRequest) {
