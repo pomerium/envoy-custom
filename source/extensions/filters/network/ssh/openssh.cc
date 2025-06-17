@@ -6,6 +6,10 @@
 #include "source/common/common/assert.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 
+#pragma clang unsafe_buffer_usage begin
+#include "envoy/config/core/v3/base.pb.h"
+#pragma clang unsafe_buffer_usage end
+
 extern "C" {
 #include "openssh/ssh2.h"
 #include "openssh/authfile.h"
@@ -162,6 +166,34 @@ absl::StatusOr<SSHKeyPtr> SSHKey::fromPrivateKeyFile(const std::string& filepath
     return statusFromErr(err);
   }
   return std::unique_ptr<SSHKey>(new SSHKey(std::move(key), std::move(comment)));
+}
+
+absl::StatusOr<std::unique_ptr<SSHKey>> SSHKey::fromPrivateKeyBytes(const std::string& bytes) {
+  detail::sshbuf_ptr buffer{sshbuf_from(bytes.data(), bytes.size())};
+  ASSERT(buffer != nullptr);
+  detail::sshkey_ptr key;
+  CStringPtr<char> comment;
+  if (auto err = sshkey_parse_private_fileblob_type(
+        buffer.get(), KEY_UNSPEC, nullptr, std::out_ptr(key), std::out_ptr(comment));
+      err != 0) {
+    return statusFromErr(err);
+  }
+  return std::unique_ptr<SSHKey>(new SSHKey(std::move(key), std::move(comment)));
+}
+
+absl::StatusOr<std::unique_ptr<SSHKey>> SSHKey::fromPrivateKeyDataSource(const ::corev3::DataSource& ds) {
+  switch (ds.specifier_case()) {
+  case corev3::DataSource::kFilename:
+    return SSHKey::fromPrivateKeyFile(ds.filename());
+  case corev3::DataSource::kInlineBytes:
+    return SSHKey::fromPrivateKeyBytes(ds.inline_bytes());
+  case corev3::DataSource::kInlineString:
+    return SSHKey::fromPrivateKeyBytes(ds.inline_string());
+  case corev3::DataSource::kEnvironmentVariable:
+    return absl::UnimplementedError("environment variable data source not supported");
+  default:
+    return absl::InvalidArgumentError("data source is empty");
+  }
 }
 
 absl::StatusOr<SSHKeyPtr> SSHKey::fromPublicKeyBlob(const bytes& public_key) {

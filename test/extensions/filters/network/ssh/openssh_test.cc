@@ -8,6 +8,7 @@
 #include "test/test_common/environment.h"
 #include "test/extensions/filters/network/ssh/test_env_util.h"
 #include "test/extensions/filters/network/ssh/wire/test_field_reflect.h"
+#include "test/test_common/logging.h"
 
 #pragma clang unsafe_buffer_usage begin
 #include "absl/strings/str_split.h"
@@ -107,6 +108,75 @@ TEST(SSHKeyTest, FromPrivateKeyFilePath_BadPermissions) {
       ASSERT_EQ(absl::InvalidArgumentError("bad permissions"), r.status());
     }
   }
+}
+
+TEST(SSHKeyTest, FromPrivateKeyBytes) {
+  for (auto keyName : {"rsa_1", "ecdsa_1", "ed25519_1"}) {
+    auto privKeyPath = copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600);
+    auto fromFile = SSHKey::fromPrivateKeyFile(privKeyPath);
+    ASSERT_OK(fromFile.status());
+    auto fromBytes = SSHKey::fromPrivateKeyBytes(Envoy::TestEnvironment::readFileToStringForTest(privKeyPath));
+    ASSERT_OK(fromBytes.status());
+    ASSERT_EQ(**fromFile, **fromBytes);
+    if (keyName != "ed25519_1"sv) {
+      // ed25519 keys can only be formatted as SSHKEY_PRIVATE_OPENSSH, which is non-deterministic
+      auto formattedFromFile = (*fromFile)->formatPrivateKey(SSHKEY_PRIVATE_PEM);
+      auto formattedFromBytes = (*fromBytes)->formatPrivateKey(SSHKEY_PRIVATE_PEM);
+      ASSERT_OK(formattedFromFile.status());
+      ASSERT_OK(formattedFromBytes.status());
+      ASSERT_EQ(*formattedFromFile, *formattedFromBytes);
+    }
+  }
+}
+
+TEST(SSHKeyTest, FromPrivateKeyBytes_InvalidData) {
+  auto fromBytes = SSHKey::fromPrivateKeyBytes("not a ssh private key"s);
+  ASSERT_EQ(absl::InvalidArgumentError("invalid format"), fromBytes.status());
+}
+
+TEST(SSHKeyTest, FromPrivateKeyBytes_InvalidPublicKeyData) {
+  auto key = *SSHKey::generate(KEY_RSA, 2048);
+  ASSERT_EQ(absl::InvalidArgumentError("invalid format"), SSHKey::fromPrivateKeyBytes(key->formatPublicKey()).status());
+}
+
+TEST(SSHKeyTest, FromPrivateKeyDataSource) {
+  for (auto keyName : {"rsa_1", "ecdsa_1", "ed25519_1"}) {
+    auto privKeyPath = copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600);
+    auto privKeyBytes = Envoy::TestEnvironment::readFileToStringForTest(privKeyPath);
+    auto expected = *SSHKey::fromPrivateKeyFile(privKeyPath);
+
+    corev3::DataSource filepathDataSource;
+    *filepathDataSource.mutable_filename() = privKeyPath;
+
+    corev3::DataSource inlineBytesDataSource;
+    *inlineBytesDataSource.mutable_inline_bytes() = privKeyBytes;
+
+    corev3::DataSource inlineStringDataSource;
+    *inlineStringDataSource.mutable_inline_string() = privKeyBytes;
+
+    for (const auto& dataSource : {
+           filepathDataSource,
+           inlineBytesDataSource,
+           inlineStringDataSource,
+         }) {
+      auto key = SSHKey::fromPrivateKeyDataSource(dataSource);
+      ASSERT_OK(key.status());
+      ASSERT_EQ(*expected, **key);
+    }
+  }
+}
+
+TEST(SSHKeyTest, FromPrivateKeyDataSource_UnsupportedEnv) {
+  corev3::DataSource envDataSource;
+  *envDataSource.mutable_environment_variable() = "foo";
+  auto key = SSHKey::fromPrivateKeyDataSource(envDataSource);
+  ASSERT_EQ(absl::UnimplementedError("environment variable data source not supported"), key.status());
+}
+
+TEST(SSHKeyTest, FromPrivateKeyDataSource_Empty) {
+  corev3::DataSource emptyDataSource;
+  auto key = SSHKey::fromPrivateKeyDataSource(emptyDataSource);
+  ASSERT_EQ(absl::InvalidArgumentError("data source is empty"), key.status());
 }
 
 TEST(SSHKeyTest, FromToPublicKeyBlob) {
@@ -634,32 +704,61 @@ INSTANTIATE_TEST_SUITE_P(SSHKeyPropertiesTest, SSHKeyPropertiesTestSuite,
                          }));
 
 TEST(OpensshTest, LoadHostKeys) {
-  std::vector<std::string> filenames;
+  std::vector<corev3::DataSource> sources;
   for (auto keyName : {"rsa_1", "ecdsa_1", "ed25519_1"}) {
-    filenames.push_back(copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600));
+    auto filename = copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600);
+    corev3::DataSource src;
+    *src.mutable_filename() = filename;
+    sources.push_back(std::move(src));
   }
-  auto r = loadHostKeys(filenames);
+  auto r = loadHostKeys(sources);
   ASSERT_OK(r.status());
   ASSERT_EQ(3, r->size());
 }
 
 TEST(OpensshTest, LoadHostKeys_DuplicateAlgorithm) {
-  std::vector<std::string> filenames;
+  std::vector<corev3::DataSource> sources;
   for (auto keyName : {"rsa_1", "ecdsa_1", "ed25519_1", "rsa_2"}) {
-    filenames.push_back(copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600));
+    auto filename = copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600);
+    corev3::DataSource src;
+    *src.mutable_filename() = filename;
+    sources.push_back(std::move(src));
   }
-  auto stat = loadHostKeys(filenames);
-  ASSERT_EQ(absl::InvalidArgumentError("host keys must have unique algorithms"), stat.status());
+  auto note = fmt::format("note: keys with algorithm ssh-rsa: {}, {}",
+                          sources[0].filename(),
+                          sources[3].filename());
+  EXPECT_LOG_CONTAINS("error", note, {
+    auto stat = loadHostKeys(sources);
+    ASSERT_EQ(absl::InvalidArgumentError("host keys must have unique algorithms"), stat.status());
+  });
+}
+
+TEST(OpensshTest, LoadHostKeysFromBytes_DuplicateAlgorithm) {
+  EXPECT_LOG_CONTAINS("error", "note: keys with algorithm ssh-rsa: (key 0), (key 1)", {
+    std::vector<corev3::DataSource> keys;
+    corev3::DataSource ds1;
+    *ds1.mutable_inline_string() = *(*openssh::SSHKey::generate(KEY_RSA, 2048))->formatPrivateKey();
+    keys.push_back(std::move(ds1));
+    corev3::DataSource ds2;
+    *ds2.mutable_inline_string() = *(*openssh::SSHKey::generate(KEY_RSA, 2048))->formatPrivateKey();
+    keys.push_back(std::move(ds2));
+
+    auto stat = loadHostKeys(keys);
+    ASSERT_EQ(absl::InvalidArgumentError("host keys must have unique algorithms"), stat.status());
+  });
 }
 
 TEST(OpensshTest, LoadHostKeys_InvalidMode) {
-  std::vector<std::string> filenames;
+  std::vector<corev3::DataSource> sources;
   for (auto keyName : {"rsa_1", "ecdsa_1", "ed25519_1", "rsa_2"}) {
     // set invalid permissions on only one of the keys
-    filenames.push_back(copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName),
-                                                  std::string_view(keyName) == "ecdsa_1" ? 0644 : 0600));
+    auto filename = copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName),
+                                              std::string_view(keyName) == "ecdsa_1" ? 0644 : 0600);
+    corev3::DataSource src;
+    *src.mutable_filename() = filename;
+    sources.push_back(std::move(src));
   }
-  auto stat = loadHostKeys(filenames);
+  auto stat = loadHostKeys(sources);
   ASSERT_EQ(absl::InvalidArgumentError("bad permissions"), stat.status());
 }
 

@@ -33,7 +33,7 @@ class DownstreamUserAuthServiceTest : public testing::Test {
 public:
   DownstreamUserAuthServiceTest() {
     auto privKeyPath = copyTestdataToWritableTmp("regress/unittests/sshkey/testdata/ed25519_1", 0600);
-    codecCfg.set_user_ca_key(privKeyPath);
+    codecCfg.mutable_user_ca_key()->set_filename(privKeyPath);
 
     transport_ = std::make_unique<testing::StrictMock<MockDownstreamTransportCallbacks>>();
     EXPECT_CALL(*transport_, codecConfig())
@@ -580,7 +580,7 @@ class UpstreamUserAuthServiceTest : public testing::Test {
 public:
   UpstreamUserAuthServiceTest() {
     auto privKeyPath = copyTestdataToWritableTmp("regress/unittests/sshkey/testdata/ed25519_1", 0600);
-    codec_cfg_.set_user_ca_key(privKeyPath);
+    codec_cfg_.mutable_user_ca_key()->set_filename(privKeyPath);
 
     transport_ = std::make_unique<testing::StrictMock<MockTransportCallbacks>>();
     EXPECT_CALL(*transport_, codecConfig())

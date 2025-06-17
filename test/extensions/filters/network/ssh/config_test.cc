@@ -17,10 +17,10 @@ std::shared_ptr<pomerium::extensions::ssh::CodecConfig> newTestConfig() {
   auto cfg = std::make_shared<pomerium::extensions::ssh::CodecConfig>();
   for (auto keyName : {"rsa_1", "ed25519_1"}) {
     auto hostKeyFile = copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600);
-    cfg->add_host_keys(hostKeyFile);
+    cfg->add_host_keys()->set_filename(hostKeyFile);
   }
   auto userCaKeyFile = copyTestdataToWritableTmp("regress/unittests/sshkey/testdata/ed25519_2", 0600);
-  cfg->set_user_ca_key(userCaKeyFile);
+  cfg->mutable_user_ca_key()->set_filename(userCaKeyFile);
   return cfg;
 }
 

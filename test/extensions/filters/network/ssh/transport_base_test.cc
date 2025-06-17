@@ -191,13 +191,13 @@ public:
         client_config_(std::make_shared<pomerium::extensions::ssh::CodecConfig>()),
         server_transport_(*api_, [this] {
           for (auto keyName : {"rsa_1", "ed25519_1"}) {
-            server_config_->add_host_keys(copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600));
+            server_config_->add_host_keys()->set_filename(copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600));
           }
           return server_config_;
         }()),
         client_transport_(*api_, [this] {
           for (auto keyName : {"rsa_2", "ed25519_2"}) {
-            client_config_->add_host_keys(copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600));
+            client_config_->add_host_keys()->set_filename(copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600));
           }
           return client_config_;
         }()) {}
