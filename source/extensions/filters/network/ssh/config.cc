@@ -1,6 +1,5 @@
 #include "source/extensions/filters/network/ssh/config.h"
 
-#include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "source/extensions/filters/network/ssh/client_transport.h"   // IWYU pragma: keep
 #include "source/extensions/filters/network/ssh/server_transport.h"   // IWYU pragma: keep
 #include "source/extensions/filters/network/ssh/service_connection.h" // IWYU pragma: keep
@@ -11,6 +10,7 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 CodecFactoryPtr SshCodecFactoryConfig::createCodecFactory(
   const Protobuf::Message& config, Envoy::Server::Configuration::ServerFactoryContext& context) {
   const auto& typed_config = dynamic_cast<const pomerium::extensions::ssh::CodecConfig&>(config);
+  MessageUtil::validate(typed_config, context.messageValidationVisitor());
   auto conf = std::make_shared<pomerium::extensions::ssh::CodecConfig>();
   conf->CopyFrom(typed_config);
   auto createClient = [&context, conf]() {

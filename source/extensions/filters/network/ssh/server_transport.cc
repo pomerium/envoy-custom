@@ -219,7 +219,7 @@ absl::Status SshServerTransport::handleMessage(wire::Message&& msg) {
       auto desc = *msg.description;
       auto logMsg = fmt::format("received disconnect: {}{}{}",
                                 openssh::disconnectCodeToString(*msg.reason_code),
-                                desc.empty() ? "" : " ", desc);
+                                desc.empty() ? "" : ": ", desc);
       ENVOY_LOG(info, logMsg);
       return absl::CancelledError(logMsg);
     },

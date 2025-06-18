@@ -843,8 +843,8 @@ TYPED_TEST(TransportBaseTest, TestDisconnectAlwaysSentDuringRekey) {
 }
 
 TYPED_TEST(TransportBaseTest, TestSimultaneousRekeyOnRWThresholds) {
-  this->ClientConfig().set_rekey_threshold(16384);
-  this->ServerConfig().set_rekey_threshold(16384);
+  this->ClientConfig().mutable_rekey_threshold()->set_value(16384);
+  this->ServerConfig().mutable_rekey_threshold()->set_value(16384);
 
   if (!this->StartAndWaitForInitialKeyExchange()) {
     return;
@@ -927,7 +927,7 @@ TYPED_TEST(TransportBaseTest, TestSimultaneousRekeyOnRWThresholds) {
 TYPED_TEST(TransportBaseTest, TestRekeyOnReadThreshold) {
   // Only set server rekey threshold; client's remains the default. The client will be sending lots
   // of messages to the server, but the server won't send messages back.
-  this->ServerConfig().set_rekey_threshold(16384);
+  this->ServerConfig().mutable_rekey_threshold()->set_value(16384);
 
   if (!this->StartAndWaitForInitialKeyExchange()) {
     return;
@@ -1010,7 +1010,7 @@ TYPED_TEST(TransportBaseTest, TestRekeyOnReadThreshold) {
 
 TYPED_TEST(TransportBaseTest, TestRekeyOnWriteThreshold) {
   // Only set client rekey threshold; server's remains the default.
-  this->ClientConfig().set_rekey_threshold(16384);
+  this->ClientConfig().mutable_rekey_threshold()->set_value(16384);
 
   if (!this->StartAndWaitForInitialKeyExchange()) {
     return;
@@ -1314,7 +1314,7 @@ TYPED_TEST(TransportBaseTest, TestRekeyTriggeredDuringQueueReplay) {
   // left off replaying the queued messages.
 
   // One way to test this is by setting the rekey limit very low.
-  this->ClientConfig().set_rekey_threshold(256); // this is the minimum
+  this->ClientConfig().mutable_rekey_threshold()->set_value(256); // this is the minimum
 
   if (!this->StartAndWaitForInitialKeyExchange()) {
     return;
