@@ -227,8 +227,8 @@ public:
 
     cipher_ = makePacketCipherFromKexResult<Codec>(cipher_factories_, kex_result.get());
     if (config_->has_rekey_threshold()) {
-      read_bytes_remaining_ = std::max<uint64_t>(256, config_->rekey_threshold());
-      write_bytes_remaining_ = std::max<uint64_t>(256, config_->rekey_threshold());
+      read_bytes_remaining_ = std::max<uint64_t>(256, config_->rekey_threshold().value());
+      write_bytes_remaining_ = std::max<uint64_t>(256, config_->rekey_threshold().value());
     } else {
       read_bytes_remaining_ = cipher_->rekeyAfterBytes(openssh::CipherMode::Read);
       write_bytes_remaining_ = cipher_->rekeyAfterBytes(openssh::CipherMode::Write);

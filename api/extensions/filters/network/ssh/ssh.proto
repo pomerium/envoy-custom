@@ -9,15 +9,38 @@ import "google/protobuf/any.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/wrappers.proto";
+import "validate/validate.proto";
 
 option go_package = "github.com/pomerium/envoy-custom/api/extensions/filters/network/ssh";
 
 message CodecConfig {
-  repeated envoy.config.core.v3.DataSource host_keys       = 1;
-  envoy.config.core.v3.DataSource          user_ca_key     = 2;
-  optional uint64                          rekey_threshold = 3;
+  // List of host keys for the SSH server. Filename or inline string/bytes are supported,
+  // environment variables are not supported. If multiple keys are given, they must each have
+  // unique algorithms.
+  repeated envoy.config.core.v3.DataSource host_keys = 1 [(validate.rules).repeated = {
+    min_items: 1,
+    items: {
+      message: {required: true},
+    },
+  }];
 
-  envoy.config.core.v3.GrpcService grpc_service = 4;
+  // SSH key used to sign ephemeral certificate keys for upstream authentication. This key
+  // should not itself be a certificate key.
+  envoy.config.core.v3.DataSource user_ca_key = 2 [(validate.rules).message.required = true];
+
+  // Maximum number of bytes encrypted or decrypted (per direction) before initiating a key
+  // re-exchange. If unset, defaults to the recommended values for the encryption algorithms
+  // currently in use.
+  //
+  // Note: the maximum value configurable here is the smallest safe value that can be used for any
+  // algorithm, but the default values for some algorithms are larger.
+  google.protobuf.UInt64Value rekey_threshold = 3 [(validate.rules).uint64 = {
+    gte: 256,
+    lte: 1073741824, // 1 << 30
+  }];
+
+  // Pomerium StreamManagement grpc service.
+  envoy.config.core.v3.GrpcService grpc_service = 4 [(validate.rules).message.required = true];
 }
 
 // The StreamManagement service is implemented by the Pomerium Authorize
@@ -195,7 +218,7 @@ message InfoRequest {
 // StreamControl contains a request for the peer to take some action on the stream.
 message StreamControl {
   message CloseStream {
-    optional string reason = 1;
+    string reason = 1;
   }
 
   oneof action {
@@ -291,8 +314,8 @@ message Permissions {
   repeated string permit_open   = 8;
   repeated string permit_listen = 9;
 
-  optional string     force_command         = 10;
+  string              force_command         = 10;
   map<string, string> force_env             = 11;
-  optional bool       require_user_presence = 12;
-  optional bool       require_verify        = 13;
+  bool                require_user_presence = 12;
+  bool                require_verify        = 13;
 }

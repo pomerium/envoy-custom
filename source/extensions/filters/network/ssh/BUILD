@@ -56,9 +56,9 @@ envoy_cc_library(
     ],
     repository = "@envoy",
     deps = [
-        ":ssh_cc_proto",
         ":ssh_common_lib",
         "//:openssh",
+        "//api/extensions/filters/network/ssh:pkg_cc_proto",
         "//source/common:common_lib",
         "//source/extensions/filters/network/ssh/wire:wire_lib",
         "@envoy//envoy/buffer:buffer_interface",
@@ -86,9 +86,4 @@ envoy_cc_library(
         "@envoy//source/common/common:fmt_lib",
         "@envoy//source/common/common:statusor_lib",
     ],
-)
-
-cc_proto_library(
-    name = "ssh_cc_proto",
-    deps = ["//api/extensions/filters/network/ssh:ssh_proto"],
 )
