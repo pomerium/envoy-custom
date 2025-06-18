@@ -374,10 +374,10 @@ private:
     config_ = std::make_shared<pomerium::extensions::ssh::CodecConfig>();
     for (auto keyName : {"rsa_1", "ed25519_1"}) {
       auto hostKeyFile = copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600);
-      config_->add_host_keys(hostKeyFile);
+      config_->add_host_keys()->set_filename(hostKeyFile);
     }
     auto userCaKeyFile = copyTestdataToWritableTmp("regress/unittests/sshkey/testdata/ed25519_2", 0600);
-    config_->set_user_ca_key(userCaKeyFile);
+    config_->mutable_user_ca_key()->set_filename(userCaKeyFile);
     return config_;
   }
 };
@@ -831,7 +831,8 @@ public:
 
 TEST_F(ClientTransportLoadHostKeysTest, LoadHostKeysError) {
   for (auto hostKey : config_->host_keys()) {
-    chmod(hostKey.c_str(), 0644);
+    ASSERT_TRUE(hostKey.has_filename()); // sanity check
+    chmod(hostKey.filename().c_str(), 0644);
   }
   EXPECT_THROW_WITH_MESSAGE(transport_.setCodecCallbacks(client_codec_callbacks_),
                             EnvoyException,

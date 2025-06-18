@@ -270,7 +270,7 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
 UpstreamUserAuthService::UpstreamUserAuthService(TransportCallbacks& callbacks, Api::Api& api)
     : UserAuthService(callbacks, api) {
   {
-    auto privKey = openssh::SSHKey::fromPrivateKeyFile(transport_.codecConfig().user_ca_key());
+    auto privKey = openssh::SSHKey::fromPrivateKeyDataSource(transport_.codecConfig().user_ca_key());
     THROW_IF_NOT_OK_REF(privKey.status());
     ca_user_key_ = std::move(*privKey);
   }

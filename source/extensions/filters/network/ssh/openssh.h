@@ -17,6 +17,11 @@ extern "C" {
 #include "openssh/digest.h"
 }
 
+namespace envoy::config::core::v3 {
+class DataSource;
+} // namespace envoy::config::core::v3
+namespace corev3 = envoy::config::core::v3;
+
 namespace openssh {
 
 namespace detail {
@@ -59,6 +64,8 @@ public:
   bool operator!=(const SSHKey& other) const;
 
   static absl::StatusOr<std::unique_ptr<SSHKey>> fromPrivateKeyFile(const std::string& filepath);
+  static absl::StatusOr<std::unique_ptr<SSHKey>> fromPrivateKeyBytes(const std::string& bytes);
+  static absl::StatusOr<std::unique_ptr<SSHKey>> fromPrivateKeyDataSource(const ::corev3::DataSource& ds);
   static absl::StatusOr<std::unique_ptr<SSHKey>> fromPublicKeyBlob(const bytes& public_key);
   static absl::StatusOr<std::unique_ptr<SSHKey>> generate(sshkey_types type, uint32_t bits);
 
@@ -103,20 +110,26 @@ using SSHKeyPtr = std::unique_ptr<SSHKey>;
 // Returns the corresponding "plain" signing algorithm, or nullopt if unknown or unsupported.
 std::optional<std::string> certSigningAlgorithmToPlain(const std::string& alg);
 
-absl::StatusOr<std::vector<openssh::SSHKeyPtr>> loadHostKeys(std::ranges::range auto const& filenames) {
+template <std::ranges::range R>
+  requires std::same_as<typename R::value_type, corev3::DataSource>
+absl::StatusOr<std::vector<openssh::SSHKeyPtr>> loadHostKeys(const R& data_sources) {
   std::vector<openssh::SSHKeyPtr> out;
   std::unordered_map<sshkey_types, std::string> keyTypes;
-  for (const auto& hostKey : filenames) {
-    auto key = openssh::SSHKey::fromPrivateKeyFile(hostKey);
+  for (typename R::size_type i = 0; i < std::size(data_sources); i++) {
+    const auto& dataSource = data_sources[i];
+    auto key = openssh::SSHKey::fromPrivateKeyDataSource(dataSource);
     if (!key.ok()) {
       return key.status();
     }
+    std::string keyName = dataSource.has_filename()
+                            ? dataSource.filename()
+                            : fmt::format("(key {})", i);
     if (auto keyType = (*key)->keyTypePlain(); keyTypes.contains(keyType)) {
       ENVOY_LOG_MISC(error, "note: keys with algorithm {}: {}, {}", (*key)->keyTypeName(),
-                     keyTypes.at(keyType), hostKey);
+                     keyTypes.at(keyType), keyName);
       return absl::InvalidArgumentError("host keys must have unique algorithms");
     } else {
-      keyTypes[keyType] = hostKey;
+      keyTypes[keyType] = keyName;
     }
     out.push_back(std::move(*key));
   }
