@@ -70,11 +70,31 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
           if (!userPubKey.ok()) {
             return userPubKey.status();
           }
+          auto pkType = openssh::SSHKey::keyTypeFromName(*pubkey_req.public_key_alg);
+          if (pkType == KEY_UNSPEC) {
+            return absl::InvalidArgumentError(fmt::format("unsupported public key algorithm: {}", *pubkey_req.public_key_alg));
+          }
+          if ((*userPubKey)->keyType() != pkType) {
+            return absl::InvalidArgumentError(fmt::format(
+              "requested public key algorithm ({}) does not match the algorithm of the provided key ({})",
+              *pubkey_req.public_key_alg, (*userPubKey)->keyTypeName()));
+          }
           if ((!pubkey_req.signature->empty()) != pubkey_req.has_signature) {
             return absl::InvalidArgumentError(pubkey_req.has_signature
                                                 ? "invalid PubKeyUserAuthRequestMsg: empty signature"
                                                 : "invalid PubKeyUserAuthRequestMsg: unexpected signature");
           }
+          auto fp = (*userPubKey)->fingerprint();
+          ASSERT(fp.ok());
+          if (previous_attempted_keys_.contains(*fp)) {
+            return absl::InvalidArgumentError("key already used");
+          }
+          // allow 10 public key attempts (11th attempt fails)
+          if (previous_attempted_keys_.size() >= 10) {
+            return absl::InvalidArgumentError("too many attempts");
+          }
+          previous_attempted_keys_.insert(*fp);
+
           if (!pubkey_req.has_signature) {
             // any public key is acceptable
             wire::UserAuthPubKeyOkMsg pubkey_ok;
