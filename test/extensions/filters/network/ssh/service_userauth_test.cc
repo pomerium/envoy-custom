@@ -196,6 +196,124 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyNoSignature) {
     });
 }
 
+TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyAlgorithmDoesNotMatch) {
+  auto key = openssh::SSHKey::generate(KEY_ED25519, 256);
+  ASSERT_OK(key.status());
+
+  wire::UserAuthRequestMsg req;
+  req.username = "foo@bar"s;
+  req.service_name = "ssh-connection"s;
+  req.request = wire::PubKeyUserAuthRequestMsg{
+    .has_signature = false,
+    .public_key_alg = "rsa-sha2-512"s,
+    .public_key = (*key)->toPublicKeyBlob(),
+  };
+
+  auto r = service_->handleMessage(wire::Message{req});
+  ASSERT_EQ(absl::InvalidArgumentError("requested public key algorithm (rsa-sha2-512) does not match the algorithm of the provided key (ssh-ed25519)"), r);
+}
+
+TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyAlgorithmUnknown) {
+  auto key = openssh::SSHKey::generate(KEY_ED25519, 256);
+  ASSERT_OK(key.status());
+
+  wire::UserAuthRequestMsg req;
+  req.username = "foo@bar"s;
+  req.service_name = "ssh-connection"s;
+  req.request = wire::PubKeyUserAuthRequestMsg{
+    .has_signature = false,
+    .public_key_alg = "not-a-real-algorithm"s,
+    .public_key = (*key)->toPublicKeyBlob(),
+  };
+
+  auto r = service_->handleMessage(wire::Message{req});
+  ASSERT_EQ(absl::InvalidArgumentError("unsupported public key algorithm: not-a-real-algorithm"), r);
+}
+
+TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyAlgorithmRsa) {
+  for (auto alg : {"rsa-sha2-256"s, "rsa-sha2-512"s}) {
+    wire::UserAuthRequestMsg req;
+    req.username = "foo@bar"s;
+    req.service_name = "ssh-connection"s;
+    req.request = wire::PubKeyUserAuthRequestMsg{
+      .has_signature = false,
+      .public_key_alg = alg,
+      .public_key = (*openssh::SSHKey::generate(KEY_RSA, 2048))->toPublicKeyBlob(),
+    };
+
+    wire::Message resp;
+    EXPECT_CALL(*transport_, sendMessageToConnection(_))
+      .WillOnce(DoAll(SaveArg<0>(&resp),
+                      Return(0)));
+    ASSERT_OK(service_->handleMessage(wire::Message{req}));
+
+    resp.visit(
+      [&](opt_ref<wire::UserAuthPubKeyOkMsg>) {},
+      [](auto&) {
+        FAIL() << "expected UserAuthPubKeyOkMsg";
+      });
+  }
+}
+
+TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKey_TooManyAttempts) {
+  for (int i = 0; i < 11; i++) {
+    wire::UserAuthRequestMsg req;
+    req.username = "foo@bar"s;
+    req.service_name = "ssh-connection"s;
+    req.request = wire::PubKeyUserAuthRequestMsg{
+      .has_signature = false,
+      .public_key_alg = "ssh-ed25519"s,
+      .public_key = (*openssh::SSHKey::generate(KEY_ED25519, 256))->toPublicKeyBlob(),
+    };
+
+    if (i == 10) {
+      ASSERT_EQ(absl::InvalidArgumentError("too many attempts"),
+                service_->handleMessage(wire::Message{req}));
+      break;
+    }
+    wire::Message resp;
+    EXPECT_CALL(*transport_, sendMessageToConnection(_))
+      .WillOnce(DoAll(SaveArg<0>(&resp),
+                      Return(0)));
+    ASSERT_OK(service_->handleMessage(wire::Message{req}));
+
+    resp.visit(
+      [&](opt_ref<wire::UserAuthPubKeyOkMsg>) {},
+      [](auto&) {
+        FAIL() << "expected UserAuthPubKeyOkMsg";
+      });
+  }
+}
+
+TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKey_KeyAlreadyUsed) {
+  auto key = openssh::SSHKey::generate(KEY_ED25519, 256);
+  ASSERT_OK(key.status());
+
+  wire::UserAuthRequestMsg req;
+  req.username = "foo@bar"s;
+  req.service_name = "ssh-connection"s;
+  req.request = wire::PubKeyUserAuthRequestMsg{
+    .has_signature = false,
+    .public_key_alg = "ssh-ed25519"s,
+    .public_key = (*key)->toPublicKeyBlob(),
+  };
+
+  wire::Message resp;
+  EXPECT_CALL(*transport_, sendMessageToConnection(_))
+    .WillOnce(DoAll(SaveArg<0>(&resp),
+                    Return(0)));
+  ASSERT_OK(service_->handleMessage(wire::Message{req}));
+
+  req.request = wire::PubKeyUserAuthRequestMsg{
+    .has_signature = false,
+    .public_key_alg = "ssh-ed25519"s,
+    .public_key = (*key)->toPublicKeyBlob(),
+  };
+
+  ASSERT_EQ(absl::InvalidArgumentError("key already used"),
+            service_->handleMessage(wire::Message{req}));
+}
+
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyUnexpectedSignature) {
   auto key = openssh::SSHKey::generate(KEY_ED25519, 256);
   ASSERT_OK(key.status());
