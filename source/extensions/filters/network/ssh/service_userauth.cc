@@ -108,6 +108,8 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
           PublicKeyMethodRequest method_req;
           method_req.set_public_key(pubkey_req.public_key->data(), pubkey_req.public_key->size());
           method_req.set_public_key_alg(pubkey_req.public_key_alg);
+          auto rawFp = (*userPubKey)->rawFingerprint();
+          method_req.set_public_key_fingerprint_sha256(rawFp.data(), rawFp.size());
           auth_req.mutable_method_request()->PackFrom(method_req);
 
           pomerium::extensions::ssh::ClientMessage clientMsg;

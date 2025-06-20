@@ -192,6 +192,8 @@ public:
     PublicKeyMethodRequest method_req;
     method_req.set_public_key(pubkeyReq.public_key->data(), pubkeyReq.public_key->size());
     method_req.set_public_key_alg(pubkeyReq.public_key_alg);
+    auto clientKeyFp = clientKey.rawFingerprint();
+    method_req.set_public_key_fingerprint_sha256(clientKeyFp.data(), clientKeyFp.size());
     grpcAuthReq.mutable_method_request()->PackFrom(method_req);
 
     ClientMessage clientMsg;

@@ -1740,11 +1740,12 @@ func (*SSHChannelControlAction_Disconnect_) isSSHChannelControlAction_Action() {
 func (*SSHChannelControlAction_HandOff) isSSHChannelControlAction_Action() {}
 
 type PublicKeyMethodRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	PublicKey     []byte                 `protobuf:"bytes,1,opt,name=public_key,json=publicKey,proto3" json:"public_key,omitempty"`
-	PublicKeyAlg  string                 `protobuf:"bytes,2,opt,name=public_key_alg,json=publicKeyAlg,proto3" json:"public_key_alg,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state                      protoimpl.MessageState `protogen:"open.v1"`
+	PublicKey                  []byte                 `protobuf:"bytes,1,opt,name=public_key,json=publicKey,proto3" json:"public_key,omitempty"`
+	PublicKeyAlg               string                 `protobuf:"bytes,2,opt,name=public_key_alg,json=publicKeyAlg,proto3" json:"public_key_alg,omitempty"`
+	PublicKeyFingerprintSha256 []byte                 `protobuf:"bytes,3,opt,name=public_key_fingerprint_sha256,json=publicKeyFingerprintSha256,proto3" json:"public_key_fingerprint_sha256,omitempty"` // raw fingerprint, no formatting
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
 }
 
 func (x *PublicKeyMethodRequest) Reset() {
@@ -1789,6 +1790,13 @@ func (x *PublicKeyMethodRequest) GetPublicKeyAlg() string {
 		return x.PublicKeyAlg
 	}
 	return ""
+}
+
+func (x *PublicKeyMethodRequest) GetPublicKeyFingerprintSha256() []byte {
+	if x != nil {
+		return x.PublicKeyFingerprintSha256
+	}
+	return nil
 }
 
 type PublicKeyAllowResponse struct {
@@ -2537,11 +2545,12 @@ const file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_s
 	"\x17downstream_channel_info\x18\x02 \x01(\v21.pomerium.extensions.ssh.SSHDownstreamChannelInfoR\x15downstreamChannelInfo\x12]\n" +
 	"\x13downstream_pty_info\x18\x03 \x01(\v2-.pomerium.extensions.ssh.SSHDownstreamPTYInfoR\x11downstreamPtyInfo\x12K\n" +
 	"\rupstream_auth\x18\x04 \x01(\v2&.pomerium.extensions.ssh.AllowResponseR\fupstreamAuthB\b\n" +
-	"\x06action\"]\n" +
+	"\x06action\"\xa0\x01\n" +
 	"\x16PublicKeyMethodRequest\x12\x1d\n" +
 	"\n" +
 	"public_key\x18\x01 \x01(\fR\tpublicKey\x12$\n" +
-	"\x0epublic_key_alg\x18\x02 \x01(\tR\fpublicKeyAlg\"\x7f\n" +
+	"\x0epublic_key_alg\x18\x02 \x01(\tR\fpublicKeyAlg\x12A\n" +
+	"\x1dpublic_key_fingerprint_sha256\x18\x03 \x01(\fR\x1apublicKeyFingerprintSha256\"\x7f\n" +
 	"\x16PublicKeyAllowResponse\x12\x1d\n" +
 	"\n" +
 	"public_key\x18\x01 \x01(\fR\tpublicKey\x12F\n" +

@@ -74,6 +74,7 @@ public:
   // Returns the cert-less equivalent to a certified key type
   static sshkey_types keyTypePlain(sshkey_types type);
 
+  bytes rawFingerprint() const;
   absl::StatusOr<std::string> fingerprint(sshkey_fp_rep representation = SSH_FP_DEFAULT) const;
   std::string_view keyTypeName() const;
   sshkey_types keyType() const;
