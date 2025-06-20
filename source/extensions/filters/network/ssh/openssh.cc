@@ -241,6 +241,14 @@ absl::StatusOr<std::string> SSHKey::fingerprint(sshkey_fp_rep representation) co
   return std::string{fp.get()};
 }
 
+bytes SSHKey::rawFingerprint() const {
+  CBytesPtr fp_bytes;
+  size_t fp_len{};
+  auto r = sshkey_fingerprint_raw(key_.get(), SSH_DIGEST_SHA256, std::out_ptr(fp_bytes), &fp_len);
+  ASSERT(r == 0); // only fails on invalid usage or oom
+  return to_bytes(unsafe_forge_span(fp_bytes.get(), fp_len));
+}
+
 std::string_view SSHKey::keyTypeName() const {
   return {namePtr()};
 }

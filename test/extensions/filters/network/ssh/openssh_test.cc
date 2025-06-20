@@ -540,6 +540,23 @@ TEST_P(SSHKeyPropertiesTestSuite, Fingerprint_InvalidFormat) {
   EXPECT_EQ(absl::InvalidArgumentError("sshkey_fingerprint failed"), r.status());
 }
 
+TEST_P(SSHKeyPropertiesTestSuite, RawFingerprint) {
+  const auto* raw_key = key_->sshkeyForTest();
+  CBytesPtr fp_bytes;
+  size_t fp_size{};
+  sshkey_fingerprint_raw(raw_key, SSH_DIGEST_SHA256, std::out_ptr(fp_bytes), &fp_size);
+  auto expected_fp = to_bytes(unsafe_forge_span(fp_bytes.get(), fp_size));
+
+  CStringPtr hex{sshkey_fingerprint(raw_key, SSH_DIGEST_SHA256, SSH_FP_HEX)};
+  std::string plainHexString = absl::StrReplaceAll(absl::StripPrefix(std::string_view(hex.get()), "SHA256"), {{":", ""}});
+  std::string fpDecodedFromHex;
+  ASSERT_TRUE(absl::HexStringToBytes(plainHexString, &fpDecodedFromHex));
+
+  auto r = key_->rawFingerprint();
+  EXPECT_EQ(expected_fp, r);
+  EXPECT_EQ(to_bytes(fpDecodedFromHex), r);
+}
+
 TEST_P(SSHKeyPropertiesTestSuite, KeyTypeName) {
   auto [keyType, bits] = GetParam();
   const std::string_view expected = sshkey_ssh_name(key_->sshkeyForTest());

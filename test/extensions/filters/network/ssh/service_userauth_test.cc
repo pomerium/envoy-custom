@@ -291,6 +291,11 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyValidSignature) {
   ASSERT_TRUE(auth_request.method_request().UnpackTo(&method_req));
   ASSERT_EQ(public_key_blob, to_bytes(method_req.public_key()));
   ASSERT_EQ("ssh-ed25519", method_req.public_key_alg());
+  auto expectedFp = bytes{0x2f, 0x79, 0x3f, 0xa0, 0x9b, 0x9b, 0x6e, 0x54,
+                          0x98, 0xd2, 0x50, 0x7d, 0x52, 0x5b, 0x25, 0xed,
+                          0xe9, 0x83, 0x32, 0x74, 0x4f, 0x2a, 0x6f, 0xfc,
+                          0xb9, 0xd7, 0xf6, 0x71, 0xcc, 0x24, 0xe7, 0xad};
+  ASSERT_EQ(expectedFp, to_bytes(method_req.public_key_fingerprint_sha256()));
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshKeyboardInteractive) {

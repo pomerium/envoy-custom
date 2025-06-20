@@ -265,8 +265,9 @@ message SSHChannelControlAction {
 }
 
 message PublicKeyMethodRequest {
-  bytes  public_key     = 1;
-  string public_key_alg = 2;
+  bytes  public_key                    = 1;
+  string public_key_alg                = 2;
+  bytes  public_key_fingerprint_sha256 = 3; // raw fingerprint, no formatting
 }
 
 message PublicKeyAllowResponse {
