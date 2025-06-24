@@ -86,14 +86,20 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
           }
           auto fp = (*userPubKey)->fingerprint();
           ASSERT(fp.ok());
-          if (previous_attempted_keys_.contains(*fp)) {
-            return absl::InvalidArgumentError("key already used");
+          if (auto it = previous_attempted_keys_.find(*fp); it != previous_attempted_keys_.end()) {
+            bool had_signature_previously = it->second;
+            if (!had_signature_previously && pubkey_req.has_signature) {
+              // the first time this key was attempted, there was no signature, but there is now
+              it->second = true;
+            } else {
+              return absl::InvalidArgumentError("key already used");
+            }
           }
-          // allow 10 public key attempts (11th attempt fails)
+          // allow 10 different public key attempts
           if (previous_attempted_keys_.size() >= 10) {
             return absl::InvalidArgumentError("too many attempts");
           }
-          previous_attempted_keys_.insert(*fp);
+          previous_attempted_keys_[*fp] = pubkey_req.has_signature;
 
           if (!pubkey_req.has_signature) {
             // any public key is acceptable
