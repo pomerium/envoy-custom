@@ -36,28 +36,20 @@ TEST_F(StreamManagementServiceClientTest, OnReceiveMessage) {
   EXPECT_CALL(*client_, startRaw("pomerium.extensions.ssh.StreamManagement", "ManageStream", _, _))
     .WillOnce(Return(&stream_));
 
-  MockStreamMgmtServerMessageHandler handler1;
-  MockStreamMgmtServerMessageHandler handler2;
+  MockStreamMgmtServerMessageHandler handler;
   StreamManagementServiceClient client(client_);
-  client.registerHandler(ServerMessage::kStreamControl, &handler1); // client is a message dispatcher
-  client.registerHandler(ServerMessage::kAuthResponse, &handler2);
+  client.registerHandler(ServerMessage::kAuthResponse, &handler);
 
   EXPECT_CALL(stream_, sendMessageRaw_);
 
-  ServerMessage msg1;
-  *msg1.mutable_stream_control()->mutable_close_stream()->mutable_reason() = "foo";
-  EXPECT_CALL(handler1, handleMessage(testing::Pointee(Envoy::ProtoEq(msg1))))
-    .WillOnce(Return(absl::OkStatus()));
-
-  ServerMessage msg2;
-  *msg2.mutable_auth_response()->mutable_allow()->mutable_username() = "bar";
-  EXPECT_CALL(handler2, handleMessage(testing::Pointee(Envoy::ProtoEq(msg2))))
+  ServerMessage msg;
+  *msg.mutable_auth_response()->mutable_allow()->mutable_username() = "bar";
+  EXPECT_CALL(handler, handleMessage(testing::Pointee(Envoy::ProtoEq(msg))))
     .WillOnce(Return(absl::OkStatus()));
 
   client.connect(1); // only to ensure client.stream_ is set
   EXPECT_NE(nullptr, &client.stream());
-  client.onReceiveMessage(std::make_unique<ServerMessage>(msg1));
-  client.onReceiveMessage(std::make_unique<ServerMessage>(msg2));
+  client.onReceiveMessage(std::make_unique<ServerMessage>(msg));
 }
 
 TEST_F(StreamManagementServiceClientTest, OnReceiveMessage_HandlerReturnsError) {
@@ -67,18 +59,15 @@ TEST_F(StreamManagementServiceClientTest, OnReceiveMessage_HandlerReturnsError) 
 
   MockStreamMgmtServerMessageHandler handler;
   StreamManagementServiceClient client(client_);
-  client.registerHandler(ServerMessage::kStreamControl, &handler);
+  client.registerHandler(ServerMessage::kAuthResponse, &handler);
 
   ServerMessage msg1;
-  msg1.mutable_stream_control();
+  msg1.mutable_auth_response();
 
   EXPECT_CALL(stream_, sendMessageRaw_);
   EXPECT_CALL(handler, handleMessage(_))
     .WillOnce(Return(absl::InvalidArgumentError("test error")));
   client.connect(1);
-
-  EXPECT_CALL(stream_, closeStream);
-  EXPECT_CALL(stream_, waitForRemoteCloseAndDelete);
 
   client.onReceiveMessage(std::make_unique<ServerMessage>(msg1));
 }
@@ -90,10 +79,10 @@ TEST_F(StreamManagementServiceClientTest, OnReceiveMessage_HandlerReturnsError_O
 
   MockStreamMgmtServerMessageHandler handler;
   StreamManagementServiceClient client(client_);
-  client.registerHandler(ServerMessage::kStreamControl, &handler);
+  client.registerHandler(ServerMessage::kAuthResponse, &handler);
 
   ServerMessage msg1;
-  msg1.mutable_stream_control();
+  msg1.mutable_auth_response();
 
   EXPECT_CALL(stream_, sendMessageRaw_);
   EXPECT_CALL(handler, handleMessage(_))
@@ -106,9 +95,6 @@ TEST_F(StreamManagementServiceClientTest, OnReceiveMessage_HandlerReturnsError_O
     EXPECT_EQ("test error", err);
     called = true;
   });
-
-  EXPECT_CALL(stream_, closeStream);
-  EXPECT_CALL(stream_, waitForRemoteCloseAndDelete);
 
   client.onReceiveMessage(std::make_unique<ServerMessage>(msg1));
   EXPECT_TRUE(called);
@@ -124,19 +110,15 @@ TEST_F(StreamManagementServiceClientTest, OnReceiveMessage_NoRegisteredHandler) 
   StreamManagementServiceClient client(client_);
 
   ServerMessage msg1;
-  msg1.mutable_stream_control();
+  msg1.mutable_auth_response();
 
   client.connect(1);
-  EXPECT_CALL(stream_, closeStream);
-  EXPECT_CALL(stream_, waitForRemoteCloseAndDelete);
 
   client.onReceiveMessage(std::make_unique<ServerMessage>(msg1));
 }
 
 TEST_F(StreamManagementServiceClientTest, OnRemoteClose) {
   StreamManagementServiceClient client(client_);
-  ServerMessage msg1;
-  msg1.mutable_stream_control();
 
   Envoy::OptRef<Grpc::RawAsyncStreamCallbacks> callbacks_ref{};
   IN_SEQUENCE;
@@ -148,7 +130,6 @@ TEST_F(StreamManagementServiceClientTest, OnRemoteClose) {
         return &stream_;
       }));
   EXPECT_CALL(stream_, sendMessageRaw_);
-  EXPECT_CALL(stream_, resetStream);
 
   bool called = false;
   client.setOnRemoteCloseCallback([&](Grpc::Status::GrpcStatus status, std::string err) {
@@ -163,8 +144,6 @@ TEST_F(StreamManagementServiceClientTest, OnRemoteClose) {
 
 TEST_F(StreamManagementServiceClientTest, OnRemoteClose_NoCallback) {
   StreamManagementServiceClient client(client_);
-  ServerMessage msg1;
-  msg1.mutable_stream_control();
 
   Envoy::OptRef<Grpc::RawAsyncStreamCallbacks> callbacks_ref{};
   IN_SEQUENCE;
@@ -177,7 +156,6 @@ TEST_F(StreamManagementServiceClientTest, OnRemoteClose_NoCallback) {
       }));
   EXPECT_CALL(stream_, sendMessageRaw_);
   client.connect(1);
-  EXPECT_CALL(stream_, resetStream);
   callbacks_ref->onRemoteClose(Grpc::Status::InvalidArgument, "test error");
 }
 
@@ -284,9 +262,6 @@ TEST_F(ChannelStreamServiceClientTest, OnReceiveMessage_HandlerReturnsError) {
 
   client.start(&callbacks_, std::nullopt);
 
-  EXPECT_CALL(stream_, closeStream);
-  EXPECT_CALL(stream_, waitForRemoteCloseAndDelete);
-
   client.onReceiveMessage(std::make_unique<ChannelMessage>(msg1));
 }
 
@@ -314,9 +289,6 @@ TEST_F(ChannelStreamServiceClientTest, OnReceiveMessage_HandlerReturnsError_OnRe
   });
 
   client.start(&callbacks_, std::nullopt);
-
-  EXPECT_CALL(stream_, closeStream);
-  EXPECT_CALL(stream_, waitForRemoteCloseAndDelete);
 
   client.onReceiveMessage(std::make_unique<ChannelMessage>(msg1));
   EXPECT_TRUE(called);
@@ -346,7 +318,6 @@ TEST_F(ChannelStreamServiceClientTest, OnRemoteClose) {
     EXPECT_EQ("test error", err);
     called = true;
   });
-  EXPECT_CALL(stream_, resetStream);
   callbacks_ref->onRemoteClose(Grpc::Status::InvalidArgument, "test error");
   EXPECT_TRUE(called);
 }
@@ -369,7 +340,6 @@ TEST_F(ChannelStreamServiceClientTest, OnRemoteClose_NoCallback) {
   ChannelStreamServiceClient client(client_);
   client.start(&callbacks_, std::nullopt);
 
-  EXPECT_CALL(stream_, resetStream);
   callbacks_ref->onRemoteClose(Grpc::Status::InvalidArgument, "test error");
 }
 

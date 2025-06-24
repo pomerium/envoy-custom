@@ -8,8 +8,6 @@
 #include <sshkey.h>
 #include <unistd.h>
 
-#include "source/common/event/deferred_task.h"
-
 #include "source/common/status.h"
 #include "source/extensions/filters/network/ssh/common.h"
 #include "source/extensions/filters/network/ssh/frame.h"
@@ -62,12 +60,6 @@ void SshServerTransport::registerMessageHandlers(MessageDispatcher<wire::Message
 
   ping_handler_->registerMessageHandlers(*this);
   user_auth_service_->registerMessageHandlers(*mgmt_client_);
-  this->registerMessageHandlers(*mgmt_client_);
-}
-
-void SshServerTransport::registerMessageHandlers(
-  MessageDispatcher<Grpc::ResponsePtr<ServerMessage>>& dispatcher) {
-  dispatcher.registerHandler(ServerMessage::MessageCase::kStreamControl, this);
 }
 
 void SshServerTransport::setCodecCallbacks(Callbacks& callbacks) {
@@ -228,20 +220,6 @@ absl::Status SshServerTransport::handleMessage(wire::Message&& msg) {
     });
 }
 
-absl::Status SshServerTransport::handleMessage(Grpc::ResponsePtr<ServerMessage>&& msg) {
-  switch (msg->message_case()) {
-  case ServerMessage::kStreamControl:
-    switch (msg->stream_control().action_case()) {
-    case pomerium::extensions::ssh::StreamControl::kCloseStream:
-      return absl::CancelledError(msg->stream_control().close_stream().reason());
-    default:
-      throw Envoy::EnvoyException("unknown action case");
-    }
-  default:
-    throw Envoy::EnvoyException("unknown message case");
-  }
-}
-
 void SshServerTransport::onServiceAuthenticated(const std::string& service_name) {
   RELEASE_ASSERT(services_.contains(service_name), fmt::format("unknown service: {}", service_name));
   ENVOY_LOG(debug, "service authenticated: {}", service_name);
@@ -270,9 +248,7 @@ void SshServerTransport::initUpstream(AuthStateSharedPtr s) {
       optional_metadata = internal.set_metadata();
     }
     channel_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus code, std::string err) {
-      Envoy::Event::DeferredTaskUtil::deferredRun(callbacks_->connection()->dispatcher(), [=, this] {
-        onDecodingFailure(absl::Status(static_cast<absl::StatusCode>(code), err));
-      });
+      onDecodingFailure(absl::Status(static_cast<absl::StatusCode>(code), err));
     });
     auth_state_->hijacked_stream = channel_client_->start(connection_service_.get(), std::move(optional_metadata));
     sendMessageToConnection(wire::UserAuthSuccessMsg{})

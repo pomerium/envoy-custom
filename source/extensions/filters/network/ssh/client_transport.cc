@@ -111,6 +111,13 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
         callbacks_->writeToConnection(buffer);
         return size;
       },
+      [this](const wire::ChannelEOFMsg&) -> absl::StatusOr<size_t> {
+        // Downstream client on this channel is closed.
+        // XXX: according to the RFC, this doesn't imply that we should end the entire connection,
+        // but this seems fine for now given the expected usage of this feature.
+        callbacks_->connection()->close(Network::ConnectionCloseType::FlushWrite);
+        return absl::CancelledError("EOF");
+      },
       [](const auto& msg) -> absl::StatusOr<size_t> {
         return absl::InvalidArgumentError(fmt::format("unexpected message of type {} on direct-tcpip channel", msg.msg_type()));
       });

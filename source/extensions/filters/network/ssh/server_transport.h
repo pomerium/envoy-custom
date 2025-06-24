@@ -20,8 +20,7 @@ class DownstreamUserAuthService;
 class DownstreamConnectionService;
 
 class SshServerTransport final : public TransportBase<ServerCodec>,
-                                 public DownstreamTransportCallbacks,
-                                 public StreamMgmtServerMessageHandler {
+                                 public DownstreamTransportCallbacks {
 public:
   SshServerTransport(Api::Api& api,
                      std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
@@ -41,9 +40,7 @@ public:
   void onKexCompleted(std::shared_ptr<KexResult> kex_result, bool initial_kex) override;
 
   void registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) override;
-  void registerMessageHandlers(MessageDispatcher<Grpc::ResponsePtr<ServerMessage>>& dispatcher) override;
   absl::Status handleMessage(wire::Message&& msg) override;
-  absl::Status handleMessage(Grpc::ResponsePtr<ServerMessage>&& msg) override;
   void sendMgmtClientMessage(const ClientMessage& msg) override;
 
   stream_id_t streamId() const override { return stream_id_; }
