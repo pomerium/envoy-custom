@@ -343,22 +343,54 @@ absl::Status UpstreamUserAuthService::onServiceAccepted() {
 
   auto [alg, key_type, key_bits] = getUpstreamKeyParams();
 
-  auto res = openssh::SSHKey::generate(key_type, key_bits);
-  RELEASE_ASSERT(res.ok(), fmt::format("couldn't generate ephemeral ssh key: {}", res.status()));
-  auto userSessionSshKey = std::move(res).value();
+  std::unique_ptr<openssh::SSHKey> userSessionSshKey;
+  auto key = openssh::SSHKey::generate(key_type, key_bits);
+  RELEASE_ASSERT(key.ok(), fmt::format("couldn't generate ephemeral ssh key: {}", key.status()));
+  userSessionSshKey = std::move(key).value();
+
+  string_list extensions;
+  absl::Time validStartTime;
+  absl::Time validEndTime;
+  bool foundMethod{};
+  for (const auto& method : transport_.authState().allow_response->upstream().allowed_methods()) {
+    if (method.method() == "publickey") {
+      foundMethod = true;
+      PublicKeyAllowResponse resp;
+      method.method_data().UnpackTo(&resp);
+      if (resp.permissions().permit_port_forwarding()) {
+        extensions.push_back(openssh::ExtensionPermitPortForwarding);
+      }
+      if (resp.permissions().permit_agent_forwarding()) {
+        extensions.push_back(openssh::ExtensionPermitAgentForwarding);
+      }
+      if (resp.permissions().permit_x11_forwarding()) {
+        extensions.push_back(openssh::ExtensionPermitX11Forwarding);
+      }
+      if (resp.permissions().permit_pty()) {
+        extensions.push_back(openssh::ExtensionPermitPty);
+      }
+      if (resp.permissions().permit_user_rc()) {
+        extensions.push_back(openssh::ExtensionPermitUserRc);
+      }
+      validStartTime = absl::FromUnixNanos(google::protobuf::util::TimeUtil::TimestampToNanoseconds(resp.permissions().valid_start_time()));
+      validEndTime = absl::FromUnixNanos(google::protobuf::util::TimeUtil::TimestampToNanoseconds(resp.permissions().valid_end_time()));
+      break;
+    }
+  }
+  if (!foundMethod) {
+    return absl::InternalError("missing publickey method in AllowResponse");
+  }
+
   auto stat = userSessionSshKey->convertToSignedUserCertificate(
-    1,
+    1, // channel id
     {transport_.authState().allow_response->username()},
-    {
-      openssh::ExtensionNoTouchRequired,
-      openssh::ExtensionPermitX11Forwarding,
-      openssh::ExtensionPermitPortForwarding,
-      openssh::ExtensionPermitPty,
-      openssh::ExtensionPermitUserRc,
-    },
-    absl::Hours(24),
+    extensions,
+    validStartTime,
+    validEndTime,
     *ca_user_key_);
-  RELEASE_ASSERT(res.ok(), fmt::format("error generating user certificate: {}", stat));
+  if (!stat.ok()) {
+    return statusf("error generating user certificate: {}", stat);
+  }
 
   auto req = std::make_unique<wire::UserAuthRequestMsg>();
   req->username = transport_.authState().allow_response->username();

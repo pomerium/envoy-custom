@@ -265,8 +265,12 @@ absl::Status SSHKey::convertToSignedUserCertificate(
   uint64_t serial,
   string_list principals,
   string_list extensions,
-  absl::Duration valid_duration,
+  absl::Time valid_start_time,
+  absl::Time valid_end_time,
   const SSHKey& signer) {
+  if (valid_start_time >= valid_end_time) {
+    return absl::InvalidArgumentError("valid_start_time >= valid_end_time");
+  }
   if (auto err = sshkey_to_certified(key_.get()); err != 0) {
     return statusFromErr(err);
   }
@@ -286,8 +290,8 @@ absl::Status SSHKey::convertToSignedUserCertificate(
     sshbuf_put_string(key_->cert->extensions, nullptr, 0);
   }
 
-  key_->cert->valid_after = absl::ToUnixSeconds(absl::Now());
-  key_->cert->valid_before = absl::ToUnixSeconds(absl::Now() + valid_duration);
+  key_->cert->valid_after = absl::ToUnixSeconds(valid_start_time);
+  key_->cert->valid_before = absl::ToUnixSeconds(valid_end_time);
 
   // Despite the name of this function, the input can be a public key.
   //

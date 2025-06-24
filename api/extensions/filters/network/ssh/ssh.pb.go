@@ -1982,8 +1982,8 @@ type Permissions struct {
 	PermitX11Forwarding   bool                   `protobuf:"varint,3,opt,name=permit_x11_forwarding,json=permitX11Forwarding,proto3" json:"permit_x11_forwarding,omitempty"`
 	PermitPty             bool                   `protobuf:"varint,4,opt,name=permit_pty,json=permitPty,proto3" json:"permit_pty,omitempty"`
 	PermitUserRc          bool                   `protobuf:"varint,5,opt,name=permit_user_rc,json=permitUserRc,proto3" json:"permit_user_rc,omitempty"`
-	ValidBefore           *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=valid_before,json=validBefore,proto3" json:"valid_before,omitempty"`
-	ValidAfter            *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=valid_after,json=validAfter,proto3" json:"valid_after,omitempty"`
+	ValidStartTime        *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=valid_start_time,json=validStartTime,proto3" json:"valid_start_time,omitempty"`
+	ValidEndTime          *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=valid_end_time,json=validEndTime,proto3" json:"valid_end_time,omitempty"`
 	PermitOpen            []string               `protobuf:"bytes,8,rep,name=permit_open,json=permitOpen,proto3" json:"permit_open,omitempty"`
 	PermitListen          []string               `protobuf:"bytes,9,rep,name=permit_listen,json=permitListen,proto3" json:"permit_listen,omitempty"`
 	ForceCommand          string                 `protobuf:"bytes,10,opt,name=force_command,json=forceCommand,proto3" json:"force_command,omitempty"`
@@ -2059,16 +2059,16 @@ func (x *Permissions) GetPermitUserRc() bool {
 	return false
 }
 
-func (x *Permissions) GetValidBefore() *timestamppb.Timestamp {
+func (x *Permissions) GetValidStartTime() *timestamppb.Timestamp {
 	if x != nil {
-		return x.ValidBefore
+		return x.ValidStartTime
 	}
 	return nil
 }
 
-func (x *Permissions) GetValidAfter() *timestamppb.Timestamp {
+func (x *Permissions) GetValidEndTime() *timestamppb.Timestamp {
 	if x != nil {
-		return x.ValidAfter
+		return x.ValidEndTime
 	}
 	return nil
 }
@@ -2367,17 +2367,16 @@ const file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_s
 	"\x06prompt\x18\x01 \x01(\tR\x06prompt\x12\x12\n" +
 	"\x04echo\x18\x02 \x01(\bR\x04echo\"F\n" +
 	"&KeyboardInteractiveInfoPromptResponses\x12\x1c\n" +
-	"\tresponses\x18\x01 \x03(\tR\tresponses\"\xc4\x05\n" +
+	"\tresponses\x18\x01 \x03(\tR\tresponses\"\xd0\x05\n" +
 	"\vPermissions\x124\n" +
 	"\x16permit_port_forwarding\x18\x01 \x01(\bR\x14permitPortForwarding\x126\n" +
 	"\x17permit_agent_forwarding\x18\x02 \x01(\bR\x15permitAgentForwarding\x122\n" +
 	"\x15permit_x11_forwarding\x18\x03 \x01(\bR\x13permitX11Forwarding\x12\x1d\n" +
 	"\n" +
 	"permit_pty\x18\x04 \x01(\bR\tpermitPty\x12$\n" +
-	"\x0epermit_user_rc\x18\x05 \x01(\bR\fpermitUserRc\x12=\n" +
-	"\fvalid_before\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\vvalidBefore\x12;\n" +
-	"\vvalid_after\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"validAfter\x12\x1f\n" +
+	"\x0epermit_user_rc\x18\x05 \x01(\bR\fpermitUserRc\x12D\n" +
+	"\x10valid_start_time\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\x0evalidStartTime\x12@\n" +
+	"\x0evalid_end_time\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\fvalidEndTime\x12\x1f\n" +
 	"\vpermit_open\x18\b \x03(\tR\n" +
 	"permitOpen\x12#\n" +
 	"\rpermit_listen\x18\t \x03(\tR\fpermitListen\x12#\n" +
@@ -2486,8 +2485,8 @@ var file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh
 	29, // 30: pomerium.extensions.ssh.PublicKeyAllowResponse.permissions:type_name -> pomerium.extensions.ssh.Permissions
 	31, // 31: pomerium.extensions.ssh.KeyboardInteractiveAllowResponse.claims:type_name -> pomerium.extensions.ssh.KeyboardInteractiveAllowResponse.ClaimsEntry
 	32, // 32: pomerium.extensions.ssh.KeyboardInteractiveInfoPrompts.prompts:type_name -> pomerium.extensions.ssh.KeyboardInteractiveInfoPrompts.Prompt
-	41, // 33: pomerium.extensions.ssh.Permissions.valid_before:type_name -> google.protobuf.Timestamp
-	41, // 34: pomerium.extensions.ssh.Permissions.valid_after:type_name -> google.protobuf.Timestamp
+	41, // 33: pomerium.extensions.ssh.Permissions.valid_start_time:type_name -> google.protobuf.Timestamp
+	41, // 34: pomerium.extensions.ssh.Permissions.valid_end_time:type_name -> google.protobuf.Timestamp
 	33, // 35: pomerium.extensions.ssh.Permissions.force_env:type_name -> pomerium.extensions.ssh.Permissions.ForceEnvEntry
 	20, // 36: pomerium.extensions.ssh.SSHChannelControlAction.HandOffUpstream.downstream_channel_info:type_name -> pomerium.extensions.ssh.SSHDownstreamChannelInfo
 	21, // 37: pomerium.extensions.ssh.SSHChannelControlAction.HandOffUpstream.downstream_pty_info:type_name -> pomerium.extensions.ssh.SSHDownstreamPTYInfo

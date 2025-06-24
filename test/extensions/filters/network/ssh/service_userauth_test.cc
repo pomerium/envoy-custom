@@ -18,6 +18,29 @@ TEST(UserAuthServiceTest, SplitUsername) {
   ASSERT_EQ((std::pair{"foo\0@bar\0"s, "baz"s}), detail::splitUsername("foo\0@bar\0@baz"s));
 }
 
+AuthState newValidAuthState() {
+  AuthState authState;
+  authState.allow_response = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
+  authState.allow_response->set_username("foo");
+  authState.allow_response->mutable_upstream()->set_hostname("example");
+  auto* publicKeyMethod = authState.allow_response->mutable_upstream()->add_allowed_methods();
+  publicKeyMethod->set_method("publickey");
+  pomerium::extensions::ssh::PublicKeyAllowResponse publicKeyMethodData;
+  pomerium::extensions::ssh::Permissions permissions;
+  permissions.set_permit_port_forwarding(true);
+  permissions.set_permit_agent_forwarding(true);
+  permissions.set_permit_x11_forwarding(true);
+  permissions.set_permit_pty(true);
+  permissions.set_permit_user_rc(true);
+  *permissions.mutable_valid_start_time() = google::protobuf::util::TimeUtil::NanosecondsToTimestamp(
+    absl::ToUnixNanos(absl::Now()));
+  *permissions.mutable_valid_end_time() = google::protobuf::util::TimeUtil::NanosecondsToTimestamp(
+    absl::ToUnixNanos(absl::Now() + absl::Hours(1)));
+  *publicKeyMethodData.mutable_permissions() = std::move(permissions);
+  publicKeyMethod->mutable_method_data()->PackFrom(publicKeyMethodData);
+  return authState;
+}
+
 class TestSshMessageDispatcher : public SshMessageDispatcher {
 public:
   using SshMessageDispatcher::dispatch;
@@ -725,9 +748,7 @@ protected:
   // Simulates a call to onServiceAccepted() in a valid auth state, triggering a
   // UserAuthRequestMsg to be sent.
   void triggerUserAuthRequestMsg(wire::Message* out_req = nullptr) {
-    AuthState state;
-    state.allow_response = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
-    state.allow_response->set_username("example-username");
+    auto state = newValidAuthState();
     EXPECT_CALL(*transport_, authState())
       .WillRepeatedly(ReturnRef(state));
 
@@ -775,17 +796,40 @@ TEST_F(UpstreamUserAuthServiceTest, RequestService) {
   EXPECT_OK(r);
 }
 
-TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedBadAuthState) {
+TEST_F(UpstreamUserAuthServiceTest, OnServiceAccepted_AuthStateMissingAllowResponse) {
   AuthState state;
   EXPECT_CALL(*transport_, authState())
-    .WillOnce(ReturnRef(state));
+    .WillRepeatedly(ReturnRef(state));
   auto r = service_->onServiceAccepted();
   ASSERT_EQ(absl::InternalError("missing AllowResponse in auth state"), r);
 }
 
-TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedEncodingFailure) {
+TEST_F(UpstreamUserAuthServiceTest, OnServiceAccepted_AuthStateMissingPublickeyMethod) {
   AuthState state;
   state.allow_response = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
+  state.allow_response->mutable_upstream();
+  *state.allow_response->mutable_upstream()->add_allowed_methods()->mutable_method() = "not-publickey";
+  EXPECT_CALL(*transport_, authState())
+    .WillRepeatedly(ReturnRef(state));
+  auto r = service_->onServiceAccepted();
+  ASSERT_EQ(absl::InternalError("missing publickey method in AllowResponse"), r);
+}
+
+TEST_F(UpstreamUserAuthServiceTest, OnServiceAccepted_ErrorGeneratingCertificate) {
+  auto state = newValidAuthState();
+  pomerium::extensions::ssh::PublicKeyAllowResponse publickeyResp;
+  state.allow_response->upstream().allowed_methods().at(0).method_data().UnpackTo(&publickeyResp);
+  publickeyResp.mutable_permissions()->mutable_valid_start_time()->Swap(
+    publickeyResp.mutable_permissions()->mutable_valid_end_time());
+  state.allow_response->mutable_upstream()->mutable_allowed_methods()->at(0).mutable_method_data()->PackFrom(publickeyResp);
+  EXPECT_CALL(*transport_, authState())
+    .WillRepeatedly(ReturnRef(state));
+  auto r = service_->onServiceAccepted();
+  ASSERT_EQ(absl::InvalidArgumentError("error generating user certificate: valid_start_time >= valid_end_time"), r);
+}
+
+TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedEncodingFailure) {
+  AuthState state = newValidAuthState();
   std::string username_too_long(wire::MaxPacketSize, 'A');
   state.allow_response->set_username(username_too_long);
   EXPECT_CALL(*transport_, authState())
@@ -1024,9 +1068,7 @@ TEST_F(UpstreamUserAuthServiceTest, HandleMessageAuthSuccessNoPeerExtInfo) {
   service_->registerMessageHandlers(d);
 
   // We need to first call onServiceAccepted() to initialize some internal state.
-  AuthState state;
-  state.allow_response = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
-  state.allow_response->set_username("example-username");
+  auto state = newValidAuthState();
   EXPECT_CALL(*transport_, authState())
     .WillRepeatedly(ReturnRef(state));
   auto streamId = "stream-id"_bytes;
@@ -1054,9 +1096,7 @@ TEST_F(UpstreamUserAuthServiceTest, HandleMessageAuthSuccessWithPeerExtInfo) {
   service_->registerMessageHandlers(d);
 
   // We need to first call onServiceAccepted() to initialize some internal state.
-  AuthState state;
-  state.allow_response = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
-  state.allow_response->set_username("example-username");
+  auto state = newValidAuthState();
   EXPECT_CALL(*transport_, authState())
     .WillRepeatedly(ReturnRef(state));
   auto streamId = "stream-id"_bytes;

@@ -4219,11 +4219,11 @@ func (m *Permissions) validate(all bool) error {
 	// no validation rules for PermitUserRc
 
 	if all {
-		switch v := interface{}(m.GetValidBefore()).(type) {
+		switch v := interface{}(m.GetValidStartTime()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
 				errors = append(errors, PermissionsValidationError{
-					field:  "ValidBefore",
+					field:  "ValidStartTime",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
@@ -4231,16 +4231,16 @@ func (m *Permissions) validate(all bool) error {
 		case interface{ Validate() error }:
 			if err := v.Validate(); err != nil {
 				errors = append(errors, PermissionsValidationError{
-					field:  "ValidBefore",
+					field:  "ValidStartTime",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
 			}
 		}
-	} else if v, ok := interface{}(m.GetValidBefore()).(interface{ Validate() error }); ok {
+	} else if v, ok := interface{}(m.GetValidStartTime()).(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
 			return PermissionsValidationError{
-				field:  "ValidBefore",
+				field:  "ValidStartTime",
 				reason: "embedded message failed validation",
 				cause:  err,
 			}
@@ -4248,11 +4248,11 @@ func (m *Permissions) validate(all bool) error {
 	}
 
 	if all {
-		switch v := interface{}(m.GetValidAfter()).(type) {
+		switch v := interface{}(m.GetValidEndTime()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
 				errors = append(errors, PermissionsValidationError{
-					field:  "ValidAfter",
+					field:  "ValidEndTime",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
@@ -4260,16 +4260,16 @@ func (m *Permissions) validate(all bool) error {
 		case interface{ Validate() error }:
 			if err := v.Validate(); err != nil {
 				errors = append(errors, PermissionsValidationError{
-					field:  "ValidAfter",
+					field:  "ValidEndTime",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
 			}
 		}
-	} else if v, ok := interface{}(m.GetValidAfter()).(interface{ Validate() error }); ok {
+	} else if v, ok := interface{}(m.GetValidEndTime()).(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
 			return PermissionsValidationError{
-				field:  "ValidAfter",
+				field:  "ValidEndTime",
 				reason: "embedded message failed validation",
 				cause:  err,
 			}
