@@ -117,7 +117,21 @@ public:
     authState->allow_response = std::make_unique<AllowResponse>();
     authState->allow_response->set_username("foo");
     authState->allow_response->mutable_upstream()->set_hostname("example");
-    *authState->allow_response->mutable_upstream()->add_allowed_methods()->mutable_method() = "publickey";
+    auto* publicKeyMethod = authState->allow_response->mutable_upstream()->add_allowed_methods();
+    publicKeyMethod->set_method("publickey");
+    PublicKeyAllowResponse publicKeyMethodData;
+    Permissions permissions;
+    permissions.set_permit_port_forwarding(true);
+    permissions.set_permit_agent_forwarding(true);
+    permissions.set_permit_x11_forwarding(true);
+    permissions.set_permit_pty(true);
+    permissions.set_permit_user_rc(true);
+    *permissions.mutable_valid_start_time() = google::protobuf::util::TimeUtil::NanosecondsToTimestamp(
+      absl::ToUnixNanos(absl::Now()));
+    *permissions.mutable_valid_end_time() = google::protobuf::util::TimeUtil::NanosecondsToTimestamp(
+      absl::ToUnixNanos(absl::Now() + absl::Hours(1)));
+    *publicKeyMethodData.mutable_permissions() = std::move(permissions);
+    publicKeyMethod->mutable_method_data()->PackFrom(publicKeyMethodData);
     GenericProxy::MockEncodingContext ctx;
     SSHRequestHeaderFrame reqHeaderFrame(authState);
     ASSERT_OK(transport_.encode(reqHeaderFrame, ctx).status());
@@ -144,7 +158,21 @@ public:
     authState->allow_response = std::make_unique<AllowResponse>();
     authState->allow_response->set_username("foo");
     authState->allow_response->mutable_upstream()->set_hostname("example");
-    *authState->allow_response->mutable_upstream()->add_allowed_methods()->mutable_method() = "publickey";
+    auto* publicKeyMethod = authState->allow_response->mutable_upstream()->add_allowed_methods();
+    publicKeyMethod->set_method("publickey");
+    PublicKeyAllowResponse publicKeyMethodData;
+    Permissions permissions;
+    permissions.set_permit_port_forwarding(true);
+    permissions.set_permit_agent_forwarding(true);
+    permissions.set_permit_x11_forwarding(true);
+    permissions.set_permit_pty(true);
+    permissions.set_permit_user_rc(true);
+    *permissions.mutable_valid_start_time() = google::protobuf::util::TimeUtil::NanosecondsToTimestamp(
+      absl::ToUnixNanos(absl::Now()));
+    *permissions.mutable_valid_end_time() = google::protobuf::util::TimeUtil::NanosecondsToTimestamp(
+      absl::ToUnixNanos(absl::Now() + absl::Hours(1)));
+    *publicKeyMethodData.mutable_permissions() = std::move(permissions);
+    publicKeyMethod->mutable_method_data()->PackFrom(publicKeyMethodData);
     return authState;
   }
 
@@ -454,6 +482,29 @@ TEST_F(ClientTransportTest, HandleHostKeysMsgGlobalRequest) {
   wire::GlobalRequestMsg upstreamReq;
   upstreamReq.request = wire::HostKeysMsg{};
   ASSERT_OK(WriteMsg(wire::Message{upstreamReq}));
+}
+
+TEST_F(ClientTransportTest, InvalidUserAuthAllowState) {
+  auto authState = std::make_shared<AuthState>();
+  authState->server_version = "SSH-2.0-Envoy";
+  authState->channel_mode = ChannelMode::Normal;
+  authState->allow_response = std::make_unique<AllowResponse>();
+  authState->allow_response->set_username("foo");
+  authState->allow_response->mutable_upstream()->set_hostname("example");
+  // omit the publickey allow response
+  GenericProxy::MockEncodingContext ctx;
+  SSHRequestHeaderFrame reqHeaderFrame(authState);
+  ASSERT_OK(transport_.encode(reqHeaderFrame, ctx).status());
+  DoKeyExchange();
+
+  ASSERT_OK(ExchangeExtInfo());
+
+  ExpectDisconnectAsHeader(absl::InternalError("missing publickey method in AllowResponse"));
+  wire::ServiceRequestMsg clientUserAuthServiceRequest;
+  EXPECT_OK(ReadMsg(clientUserAuthServiceRequest));
+  EXPECT_EQ("ssh-userauth", clientUserAuthServiceRequest.service_name);
+
+  EXPECT_OK(WriteMsg(wire::Message{wire::ServiceAcceptMsg{.service_name = "ssh-userauth"s}}));
 }
 
 TEST_F(ClientTransportTest, HandleInvalidServiceAccept) {

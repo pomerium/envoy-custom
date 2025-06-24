@@ -48,6 +48,7 @@ uint32_t statusCodeToDisconnectCode(absl::StatusCode code);
 static constexpr auto ExtensionNoTouchRequired = "no-touch-required";
 static constexpr auto ExtensionPermitX11Forwarding = "permit-X11-forwarding";
 static constexpr auto ExtensionPermitPortForwarding = "permit-port-forwarding";
+static constexpr auto ExtensionPermitAgentForwarding = "permit-agent-forwarding";
 static constexpr auto ExtensionPermitPty = "permit-pty";
 static constexpr auto ExtensionPermitUserRc = "permit-user-rc";
 
@@ -85,7 +86,8 @@ public:
     uint64_t serial,
     string_list principals,
     string_list extensions,
-    absl::Duration valid_duration,
+    absl::Time valid_start_time,
+    absl::Time valid_end_time,
     const SSHKey& signer);
 
   bytes toPublicKeyBlob() const;

@@ -290,8 +290,8 @@ message Permissions {
   bool permit_pty              = 4;
   bool permit_user_rc          = 5;
 
-  google.protobuf.Timestamp valid_before = 6;
-  google.protobuf.Timestamp valid_after  = 7;
+  google.protobuf.Timestamp valid_start_time = 6;
+  google.protobuf.Timestamp valid_end_time   = 7;
 
   repeated string permit_open   = 8;
   repeated string permit_listen = 9;

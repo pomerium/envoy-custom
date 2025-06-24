@@ -413,7 +413,7 @@ public:
 TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate) {
   auto [keyType, _] = GetParam();
   auto sigAlgs = absl::StrJoin(key_->signatureAlgorithmsForKeyType(), ",");
-  auto stat = key_->convertToSignedUserCertificate(1, {"principal1", "principal2"}, {"extension1", "extension2"}, absl::Hours(24), *signer_);
+  auto stat = key_->convertToSignedUserCertificate(1, {"principal1", "principal2"}, {"extension1", "extension2"}, absl::Now(), absl::Now() + absl::Hours(1), *signer_);
   ASSERT_OK(stat);
   EXPECT_EQ(keyType + 4, key_->keyType()); // for the algorithms we use here, this is fine.
                                            // the openssh type converter function isn't public
@@ -435,7 +435,7 @@ TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate_DifferentSignerAlgori
   // openssh PROTOCOL.certkeys states:
   //  Note that it is possible for a RSA certificate key to be signed by a
   //  Ed25519 or ECDSA CA key and vice-versa.
-  auto stat = key_->convertToSignedUserCertificate(1, {}, {}, absl::Hours(24),
+  auto stat = key_->convertToSignedUserCertificate(1, {}, {}, absl::Now(), absl::Now() + absl::Hours(1),
                                                    *generateWithDifferentAlgorithm());
   ASSERT_OK(stat);
 }
@@ -445,18 +445,18 @@ TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate_SignerIsCert) {
   //  "Chained" certificates, where the signature key type is a certificate type itself are
   //  NOT supported.
 
-  auto stat = key_->convertToSignedUserCertificate(1, {}, {}, absl::Hours(24), *signer_);
+  auto stat = key_->convertToSignedUserCertificate(1, {}, {}, absl::Now(), absl::Now() + absl::Hours(1), *signer_);
   ASSERT_OK(stat);
 
   auto key2 = generate();
-  auto stat2 = key2->convertToSignedUserCertificate(2, {}, {}, absl::Hours(24), *key_);
+  auto stat2 = key2->convertToSignedUserCertificate(2, {}, {}, absl::Now(), absl::Now() + absl::Hours(1), *key_);
   ASSERT_EQ(absl::InvalidArgumentError("invalid certificate signing key"), stat2);
 }
 
 TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate_AlreadyCert) {
-  auto stat = key_->convertToSignedUserCertificate(1, {}, {}, absl::Hours(24), *signer_);
+  auto stat = key_->convertToSignedUserCertificate(1, {}, {}, absl::Now(), absl::Now() + absl::Hours(1), *signer_);
   ASSERT_OK(stat);
-  stat = key_->convertToSignedUserCertificate(1, {}, {}, absl::Hours(24), *signer_);
+  stat = key_->convertToSignedUserCertificate(1, {}, {}, absl::Now(), absl::Now() + absl::Hours(1), *signer_);
   // the exact error we get from openssh depends on the key algorithm; it will be one of these two
   ASSERT_THAT(stat, AnyOf(Eq(absl::InvalidArgumentError("invalid argument")),
                           Eq(absl::InternalError("error in libcrypto"))));
@@ -465,7 +465,7 @@ TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate_AlreadyCert) {
 TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate_KeyIsPublicKey) {
   auto key = generate();
   auto pub = key->toPublicKey();
-  auto stat = pub->convertToSignedUserCertificate(1, {}, {}, absl::Hours(24), *signer_);
+  auto stat = pub->convertToSignedUserCertificate(1, {}, {}, absl::Now(), absl::Now() + absl::Hours(1), *signer_);
   // this is fine, the cert just won't be able to sign etc.
   ASSERT_OK(stat);
   ASSERT_THAT(pub->sign(bytes{'f', 'o', 'o'}).status(), AnyOf(Eq(absl::InvalidArgumentError("invalid argument")),
@@ -476,19 +476,31 @@ TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate_KeyIsPublicKey) {
 TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate_SignerIsPublicKey) {
   auto key = generate();
   auto pub = key->toPublicKey();
-  auto stat = key_->convertToSignedUserCertificate(1, {}, {}, absl::Hours(24), *pub);
+  auto stat = key_->convertToSignedUserCertificate(1, {}, {}, absl::Now(), absl::Now() + absl::Hours(1), *pub);
   ASSERT_THAT(stat, AnyOf(Eq(absl::InvalidArgumentError("invalid argument")),
                           Eq(absl::InternalError("error in libcrypto"))));
 }
 
 TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate_TooManyPrincipals) {
   std::vector<std::string> principals(SSHKEY_CERT_MAX_PRINCIPALS + 1, "asdf");
-  auto stat = key_->convertToSignedUserCertificate(1, principals, {}, absl::Hours(24), *signer_);
+  auto stat = key_->convertToSignedUserCertificate(1, principals, {}, absl::Now(), absl::Now() + absl::Hours(1), *signer_);
   ASSERT_EQ(absl::InvalidArgumentError("number of principals (257) is more than the maximum allowed (256)"), stat);
 }
 
+TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate_BadTimestamps) {
+  { // start time > end time
+    auto stat = key_->convertToSignedUserCertificate(1, {}, {}, absl::Now() + absl::Hours(1), absl::Now(), *signer_);
+    ASSERT_EQ(absl::InvalidArgumentError("valid_start_time >= valid_end_time"), stat);
+  }
+  { // start time == end time
+    auto now = absl::Now();
+    auto stat = key_->convertToSignedUserCertificate(1, {}, {}, now, now, *signer_);
+    ASSERT_EQ(absl::InvalidArgumentError("valid_start_time >= valid_end_time"), stat);
+  }
+}
+
 TEST_P(SSHKeyCertTestSuite, Compare) {
-  auto stat = key_->convertToSignedUserCertificate(1, {"principal1", "principal2"}, {"extension1", "extension2"}, absl::Hours(24), *signer_);
+  auto stat = key_->convertToSignedUserCertificate(1, {"principal1", "principal2"}, {"extension1", "extension2"}, absl::Now(), absl::Now() + absl::Hours(1), *signer_);
   EXPECT_EQ(*key_, *key_);
   EXPECT_EQ(*key_, *key_->toPublicKey());
 }
@@ -510,7 +522,7 @@ public:
     ASSERT_OK(r.status());
     if (SSHKey::keyTypeIsCert(keyType)) {
       signer_ = *SSHKey::generate(SSHKey::keyTypePlain(keyType), bits);
-      ASSERT_OK((*r)->convertToSignedUserCertificate(1, {}, {}, absl::Hours(24), *signer_));
+      ASSERT_OK((*r)->convertToSignedUserCertificate(1, {}, {}, absl::Now(), absl::Now() + absl::Hours(1), *signer_));
     }
     key_ = std::move(r).value();
   }
