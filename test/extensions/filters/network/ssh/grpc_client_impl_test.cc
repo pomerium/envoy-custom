@@ -77,9 +77,6 @@ TEST_F(StreamManagementServiceClientTest, OnReceiveMessage_HandlerReturnsError) 
     .WillOnce(Return(absl::InvalidArgumentError("test error")));
   client.connect(1);
 
-  EXPECT_CALL(stream_, closeStream);
-  EXPECT_CALL(stream_, waitForRemoteCloseAndDelete);
-
   client.onReceiveMessage(std::make_unique<ServerMessage>(msg1));
 }
 
@@ -107,9 +104,6 @@ TEST_F(StreamManagementServiceClientTest, OnReceiveMessage_HandlerReturnsError_O
     called = true;
   });
 
-  EXPECT_CALL(stream_, closeStream);
-  EXPECT_CALL(stream_, waitForRemoteCloseAndDelete);
-
   client.onReceiveMessage(std::make_unique<ServerMessage>(msg1));
   EXPECT_TRUE(called);
 }
@@ -127,8 +121,6 @@ TEST_F(StreamManagementServiceClientTest, OnReceiveMessage_NoRegisteredHandler) 
   msg1.mutable_stream_control();
 
   client.connect(1);
-  EXPECT_CALL(stream_, closeStream);
-  EXPECT_CALL(stream_, waitForRemoteCloseAndDelete);
 
   client.onReceiveMessage(std::make_unique<ServerMessage>(msg1));
 }
@@ -148,7 +140,6 @@ TEST_F(StreamManagementServiceClientTest, OnRemoteClose) {
         return &stream_;
       }));
   EXPECT_CALL(stream_, sendMessageRaw_);
-  EXPECT_CALL(stream_, resetStream);
 
   bool called = false;
   client.setOnRemoteCloseCallback([&](Grpc::Status::GrpcStatus status, std::string err) {
@@ -177,7 +168,6 @@ TEST_F(StreamManagementServiceClientTest, OnRemoteClose_NoCallback) {
       }));
   EXPECT_CALL(stream_, sendMessageRaw_);
   client.connect(1);
-  EXPECT_CALL(stream_, resetStream);
   callbacks_ref->onRemoteClose(Grpc::Status::InvalidArgument, "test error");
 }
 
@@ -284,9 +274,6 @@ TEST_F(ChannelStreamServiceClientTest, OnReceiveMessage_HandlerReturnsError) {
 
   client.start(&callbacks_, std::nullopt);
 
-  EXPECT_CALL(stream_, closeStream);
-  EXPECT_CALL(stream_, waitForRemoteCloseAndDelete);
-
   client.onReceiveMessage(std::make_unique<ChannelMessage>(msg1));
 }
 
@@ -314,9 +301,6 @@ TEST_F(ChannelStreamServiceClientTest, OnReceiveMessage_HandlerReturnsError_OnRe
   });
 
   client.start(&callbacks_, std::nullopt);
-
-  EXPECT_CALL(stream_, closeStream);
-  EXPECT_CALL(stream_, waitForRemoteCloseAndDelete);
 
   client.onReceiveMessage(std::make_unique<ChannelMessage>(msg1));
   EXPECT_TRUE(called);
@@ -346,7 +330,6 @@ TEST_F(ChannelStreamServiceClientTest, OnRemoteClose) {
     EXPECT_EQ("test error", err);
     called = true;
   });
-  EXPECT_CALL(stream_, resetStream);
   callbacks_ref->onRemoteClose(Grpc::Status::InvalidArgument, "test error");
   EXPECT_TRUE(called);
 }
@@ -369,7 +352,6 @@ TEST_F(ChannelStreamServiceClientTest, OnRemoteClose_NoCallback) {
   ChannelStreamServiceClient client(client_);
   client.start(&callbacks_, std::nullopt);
 
-  EXPECT_CALL(stream_, resetStream);
   callbacks_ref->onRemoteClose(Grpc::Status::InvalidArgument, "test error");
 }
 

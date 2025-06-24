@@ -270,9 +270,7 @@ void SshServerTransport::initUpstream(AuthStateSharedPtr s) {
       optional_metadata = internal.set_metadata();
     }
     channel_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus code, std::string err) {
-      Envoy::Event::DeferredTaskUtil::deferredRun(callbacks_->connection()->dispatcher(), [=, this] {
-        onDecodingFailure(absl::Status(static_cast<absl::StatusCode>(code), err));
-      });
+      onDecodingFailure(absl::Status(static_cast<absl::StatusCode>(code), err));
     });
     auth_state_->hijacked_stream = channel_client_->start(connection_service_.get(), std::move(optional_metadata));
     sendMessageToConnection(wire::UserAuthSuccessMsg{})

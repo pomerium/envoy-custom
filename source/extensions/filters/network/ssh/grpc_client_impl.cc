@@ -28,20 +28,17 @@ void StreamManagementServiceClient::onReceiveMessage(Grpc::ResponsePtr<ServerMes
   auto stat = dispatch(std::move(message));
   if (!stat.ok()) {
     ENVOY_LOG(error, stat.message());
-    stream_.closeStream();
-    stream_->waitForRemoteCloseAndDelete();
-    stream_ = nullptr;
-    if (on_remote_close_) {
+    if (on_remote_close_ && !on_remote_close_called_) {
+      on_remote_close_called_ = true;
       on_remote_close_(static_cast<Grpc::Status::GrpcStatus>(stat.code()), std::string(stat.message()));
     }
   }
 }
 
 void StreamManagementServiceClient::onRemoteClose(Grpc::Status::GrpcStatus status, const std::string& err) {
-  ASSERT(stream_ != nullptr);
-  stream_.resetStream();
   stream_ = nullptr;
-  if (on_remote_close_) {
+  if (on_remote_close_ && !on_remote_close_called_) {
+    on_remote_close_called_ = true;
     on_remote_close_(status, err);
   }
 }
@@ -70,21 +67,17 @@ void ChannelStreamServiceClient::onReceiveMessage(Grpc::ResponsePtr<ChannelMessa
   auto stat = callbacks_->onReceiveMessage(std::move(message));
   if (!stat.ok()) {
     ENVOY_LOG(error, stat.message());
-    stream_->closeStream();
-    stream_->waitForRemoteCloseAndDelete();
-    stream_ = nullptr;
-    if (on_remote_close_) {
+    if (on_remote_close_ && !on_remote_close_called_) {
+      on_remote_close_called_ = true;
       on_remote_close_(static_cast<Grpc::Status::GrpcStatus>(stat.code()), std::string(stat.message()));
     }
   }
 }
 
 void ChannelStreamServiceClient::onRemoteClose(Grpc::Status::GrpcStatus status, const std::string& err) {
-  ASSERT(stream_ != nullptr);
-  stream_->resetStream();
   stream_ = nullptr;
-  callbacks_ = nullptr;
-  if (on_remote_close_) {
+  if (on_remote_close_ && !on_remote_close_called_) {
+    on_remote_close_called_ = true;
     on_remote_close_(status, err);
   }
 }

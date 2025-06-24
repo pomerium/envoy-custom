@@ -257,18 +257,6 @@ TEST_F(DownstreamConnectionServiceTest, OnReceiveMessageChannelControlHandoffInt
   ASSERT_EQ(absl::InternalError("received invalid channel message: unexpected target: 3"), r);
 }
 
-TEST_F(DownstreamConnectionServiceTest, OnReceiveMessageChannelControlDisconnect) {
-  pomerium::extensions::ssh::SSHChannelControlAction action{};
-  auto* disconnect = action.mutable_disconnect();
-  disconnect->set_reason_code(999);
-  disconnect->set_description("disconnect description");
-  auto channel_msg = std::make_unique<pomerium::extensions::ssh::ChannelMessage>();
-  channel_msg->mutable_channel_control()->mutable_control_action()->PackFrom(action);
-
-  auto r = service_->onReceiveMessage(std::move(channel_msg));
-  ASSERT_EQ(absl::CancelledError("disconnect description"), r);
-}
-
 TEST_F(DownstreamConnectionServiceTest, OnReceiveMessageChannelControlUnknownAction) {
   auto channel_msg = std::make_unique<pomerium::extensions::ssh::ChannelMessage>();
   channel_msg->mutable_channel_control();

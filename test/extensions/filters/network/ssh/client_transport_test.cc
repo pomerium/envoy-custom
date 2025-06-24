@@ -1021,6 +1021,16 @@ TEST_F(ClientTransportTest, DirectTcpipMode) {
     ASSERT_OK(server_cipher_->encryptPacket(write_seqnum_++, input_buffer_, buf));
     transport_.decode(input_buffer_, false);
   }
+
+  // send EOF from the downstream
+  {
+    wire::ChannelEOFMsg eof{.recipient_channel = 200};
+    EXPECT_CALL(mock_connection_, close(_));
+
+    SSHRequestCommonFrame frame(wire::Message{eof});
+    GenericProxy::MockEncodingContext ctx;
+    ASSERT_EQ(absl::CancelledError("EOF"), transport_.encode(frame, ctx).status());
+  }
 }
 
 TEST_F(ClientTransportTest, DirectTcpipMode_WrongMessageTypeReceived) {

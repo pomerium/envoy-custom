@@ -219,6 +219,7 @@ message InfoRequest {
 message StreamControl {
   message CloseStream {
     string reason = 1;
+    google.protobuf.UInt32Value downstream_channel_id = 2;
   }
 
   oneof action {
@@ -244,11 +245,6 @@ message SSHDownstreamPTYInfo {
 }
 
 message SSHChannelControlAction {
-  message Disconnect {
-    uint32 reason_code = 1;
-    string description = 2;
-  }
-
   message HandOffUpstream {
     SSHDownstreamChannelInfo downstream_channel_info = 2;
     SSHDownstreamPTYInfo     downstream_pty_info     = 3;
@@ -256,8 +252,6 @@ message SSHChannelControlAction {
   }
 
   oneof action {
-    // Disconnect instructs Envoy to close the connection entirely, and disconnect the downstream.
-    Disconnect disconnect = 1;
     // HandOffUpstream instructs Envoy to end the "hijacked" internal stream, and connect the
     // downstream client to the real upstream server.
     HandOffUpstream hand_off = 2;

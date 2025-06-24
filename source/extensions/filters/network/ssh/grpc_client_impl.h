@@ -57,6 +57,7 @@ private:
   Grpc::AsyncStream<ClientMessage> stream_;
   Grpc::AsyncClient<ClientMessage, ServerMessage> client_;
   std::function<void(Grpc::Status::GrpcStatus, std::string)> on_remote_close_;
+  bool on_remote_close_called_{};
 };
 
 class ChannelStreamCallbacks {
@@ -85,6 +86,7 @@ private:
   ChannelStreamCallbacks* callbacks_;
   std::optional<envoy::config::core::v3::Metadata> metadata_;
   std::function<void(Grpc::Status::GrpcStatus, std::string)> on_remote_close_;
+  bool on_remote_close_called_{};
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

@@ -3498,47 +3498,6 @@ func (m *SSHChannelControlAction) validate(all bool) error {
 	var errors []error
 
 	switch v := m.Action.(type) {
-	case *SSHChannelControlAction_Disconnect_:
-		if v == nil {
-			err := SSHChannelControlActionValidationError{
-				field:  "Action",
-				reason: "oneof value cannot be a typed-nil",
-			}
-			if !all {
-				return err
-			}
-			errors = append(errors, err)
-		}
-
-		if all {
-			switch v := interface{}(m.GetDisconnect()).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, SSHChannelControlActionValidationError{
-						field:  "Disconnect",
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, SSHChannelControlActionValidationError{
-						field:  "Disconnect",
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			}
-		} else if v, ok := interface{}(m.GetDisconnect()).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return SSHChannelControlActionValidationError{
-					field:  "Disconnect",
-					reason: "embedded message failed validation",
-					cause:  err,
-				}
-			}
-		}
-
 	case *SSHChannelControlAction_HandOff:
 		if v == nil {
 			err := SSHChannelControlActionValidationError{
@@ -3689,6 +3648,8 @@ func (m *PublicKeyMethodRequest) validate(all bool) error {
 	// no validation rules for PublicKey
 
 	// no validation rules for PublicKeyAlg
+
+	// no validation rules for PublicKeyFingerprintSha256
 
 	if len(errors) > 0 {
 		return PublicKeyMethodRequestMultiError(errors)
@@ -4611,6 +4572,35 @@ func (m *StreamControl_CloseStream) validate(all bool) error {
 
 	// no validation rules for Reason
 
+	if all {
+		switch v := interface{}(m.GetDownstreamChannelId()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, StreamControl_CloseStreamValidationError{
+					field:  "DownstreamChannelId",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, StreamControl_CloseStreamValidationError{
+					field:  "DownstreamChannelId",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetDownstreamChannelId()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return StreamControl_CloseStreamValidationError{
+				field:  "DownstreamChannelId",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
 	if len(errors) > 0 {
 		return StreamControl_CloseStreamMultiError(errors)
 	}
@@ -4690,115 +4680,6 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = StreamControl_CloseStreamValidationError{}
-
-// Validate checks the field values on SSHChannelControlAction_Disconnect with
-// the rules defined in the proto definition for this message. If any rules
-// are violated, the first error encountered is returned, or nil if there are
-// no violations.
-func (m *SSHChannelControlAction_Disconnect) Validate() error {
-	return m.validate(false)
-}
-
-// ValidateAll checks the field values on SSHChannelControlAction_Disconnect
-// with the rules defined in the proto definition for this message. If any
-// rules are violated, the result is a list of violation errors wrapped in
-// SSHChannelControlAction_DisconnectMultiError, or nil if none found.
-func (m *SSHChannelControlAction_Disconnect) ValidateAll() error {
-	return m.validate(true)
-}
-
-func (m *SSHChannelControlAction_Disconnect) validate(all bool) error {
-	if m == nil {
-		return nil
-	}
-
-	var errors []error
-
-	// no validation rules for ReasonCode
-
-	// no validation rules for Description
-
-	if len(errors) > 0 {
-		return SSHChannelControlAction_DisconnectMultiError(errors)
-	}
-
-	return nil
-}
-
-// SSHChannelControlAction_DisconnectMultiError is an error wrapping multiple
-// validation errors returned by
-// SSHChannelControlAction_Disconnect.ValidateAll() if the designated
-// constraints aren't met.
-type SSHChannelControlAction_DisconnectMultiError []error
-
-// Error returns a concatenation of all the error messages it wraps.
-func (m SSHChannelControlAction_DisconnectMultiError) Error() string {
-	var msgs []string
-	for _, err := range m {
-		msgs = append(msgs, err.Error())
-	}
-	return strings.Join(msgs, "; ")
-}
-
-// AllErrors returns a list of validation violation errors.
-func (m SSHChannelControlAction_DisconnectMultiError) AllErrors() []error { return m }
-
-// SSHChannelControlAction_DisconnectValidationError is the validation error
-// returned by SSHChannelControlAction_Disconnect.Validate if the designated
-// constraints aren't met.
-type SSHChannelControlAction_DisconnectValidationError struct {
-	field  string
-	reason string
-	cause  error
-	key    bool
-}
-
-// Field function returns field value.
-func (e SSHChannelControlAction_DisconnectValidationError) Field() string { return e.field }
-
-// Reason function returns reason value.
-func (e SSHChannelControlAction_DisconnectValidationError) Reason() string { return e.reason }
-
-// Cause function returns cause value.
-func (e SSHChannelControlAction_DisconnectValidationError) Cause() error { return e.cause }
-
-// Key function returns key value.
-func (e SSHChannelControlAction_DisconnectValidationError) Key() bool { return e.key }
-
-// ErrorName returns error name.
-func (e SSHChannelControlAction_DisconnectValidationError) ErrorName() string {
-	return "SSHChannelControlAction_DisconnectValidationError"
-}
-
-// Error satisfies the builtin error interface
-func (e SSHChannelControlAction_DisconnectValidationError) Error() string {
-	cause := ""
-	if e.cause != nil {
-		cause = fmt.Sprintf(" | caused by: %v", e.cause)
-	}
-
-	key := ""
-	if e.key {
-		key = "key for "
-	}
-
-	return fmt.Sprintf(
-		"invalid %sSSHChannelControlAction_Disconnect.%s: %s%s",
-		key,
-		e.field,
-		e.reason,
-		cause)
-}
-
-var _ error = SSHChannelControlAction_DisconnectValidationError{}
-
-var _ interface {
-	Field() string
-	Reason() string
-	Key() bool
-	Cause() error
-	ErrorName() string
-} = SSHChannelControlAction_DisconnectValidationError{}
 
 // Validate checks the field values on SSHChannelControlAction_HandOffUpstream
 // with the rules defined in the proto definition for this message. If any
