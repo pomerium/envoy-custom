@@ -308,33 +308,94 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKey_TooManyAttempts) {
   }
 }
 
-TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKey_KeyAlreadyUsed) {
-  auto key = openssh::SSHKey::generate(KEY_ED25519, 256);
-  ASSERT_OK(key.status());
+class DuplicatePublicKeyAttemptsTest : public DownstreamUserAuthServiceTest {
+public:
+  void SetUp() {
+    static const auto session_id = "SESSION-ID"_bytes;
+    EXPECT_CALL(*transport_, sessionId())
+      .WillRepeatedly(ReturnRef(session_id));
 
-  wire::UserAuthRequestMsg req;
-  req.username = "foo@bar"s;
-  req.service_name = "ssh-connection"s;
-  req.request = wire::PubKeyUserAuthRequestMsg{
-    .has_signature = false,
-    .public_key_alg = "ssh-ed25519"s,
-    .public_key = (*key)->toPublicKeyBlob(),
-  };
+    auto privKeyPath = copyTestdataToWritableTmp("regress/unittests/sshkey/testdata/ed25519_1", 0600);
+    auto key = openssh::SSHKey::fromPrivateKeyFile(privKeyPath);
+    ASSERT_OK(key.status());
 
+    without_signature_ = wire::UserAuthRequestMsg{
+      .username = "foo@bar"s,
+      .service_name = "ssh-connection"s,
+      .request = wire::PubKeyUserAuthRequestMsg{
+        .has_signature = false,
+        .public_key_alg = "ssh-ed25519"s,
+        .public_key = (*key)->toPublicKeyBlob(),
+      },
+    };
+    with_signature_ = wire::UserAuthRequestMsg{
+      .username = "foo@bar"s,
+      .service_name = "ssh-connection"s,
+      .request = wire::PubKeyUserAuthRequestMsg{
+        .has_signature = true,
+        .public_key_alg = "ssh-ed25519"s,
+        .public_key = (*key)->toPublicKeyBlob(),
+        .signature = to_bytes(absl::HexStringToBytes("0000000b7373682d6564323535313900000040bf1e4e617a3a1b72dd2d5c066d349e95df08b8d1b0f1f338349fc0db45e89fd0050c42f763dab4512d4b1e5cb109eff77a3cb094a3b7c3aa9a8b2f43c1d9f207")),
+      },
+    };
+  }
+
+  wire::UserAuthRequestMsg without_signature_{};
+  wire::UserAuthRequestMsg with_signature_{};
+};
+
+TEST_F(DuplicatePublicKeyAttemptsTest, HandleMessageSshPubKey_SameKeyWithoutSignatureAttemptedTwice) {
   wire::Message resp;
   EXPECT_CALL(*transport_, sendMessageToConnection(_))
     .WillOnce(DoAll(SaveArg<0>(&resp),
                     Return(0)));
-  ASSERT_OK(service_->handleMessage(wire::Message{req}));
-
-  req.request = wire::PubKeyUserAuthRequestMsg{
-    .has_signature = false,
-    .public_key_alg = "ssh-ed25519"s,
-    .public_key = (*key)->toPublicKeyBlob(),
-  };
+  ASSERT_OK(service_->handleMessage(wire::Message{without_signature_}));
 
   ASSERT_EQ(absl::InvalidArgumentError("key already used"),
-            service_->handleMessage(wire::Message{req}));
+            service_->handleMessage(wire::Message{without_signature_}));
+}
+
+TEST_F(DuplicatePublicKeyAttemptsTest, HandleMessageSshPubKey_AllowSecondAttemptWithSignature) {
+  wire::Message resp;
+  EXPECT_CALL(*transport_, sendMessageToConnection(_))
+    .WillOnce(DoAll(SaveArg<0>(&resp),
+                    Return(0)));
+  ASSERT_OK(service_->handleMessage(wire::Message{without_signature_}));
+
+  resp.visit(
+    [&](opt_ref<wire::UserAuthPubKeyOkMsg>) {},
+    [](auto&) {
+      FAIL() << "expected UserAuthPubKeyOkMsg";
+    });
+
+  // not concerned with the contents for this test; that is validated separately
+  EXPECT_CALL(*transport_, sendMgmtClientMessage(_));
+  ASSERT_OK(service_->handleMessage(wire::Message{with_signature_}));
+
+  {
+
+    ASSERT_EQ(absl::InvalidArgumentError("key already used"),
+              service_->handleMessage(wire::Message{with_signature_}));
+
+    ASSERT_EQ(absl::InvalidArgumentError("key already used"),
+              service_->handleMessage(wire::Message{without_signature_}));
+  }
+}
+
+TEST_F(DuplicatePublicKeyAttemptsTest, HandleMessageSshPubKey_SameKeyWithSignatureAttemptedTwice) {
+  EXPECT_CALL(*transport_, sendMgmtClientMessage(_));
+  ASSERT_OK(service_->handleMessage(wire::Message{with_signature_}));
+
+  ASSERT_EQ(absl::InvalidArgumentError("key already used"),
+            service_->handleMessage(wire::Message{with_signature_}));
+}
+
+TEST_F(DuplicatePublicKeyAttemptsTest, HandleMessageSshPubKey_KeyWithSignatureAttemptedAgainWithout) {
+  EXPECT_CALL(*transport_, sendMgmtClientMessage(_));
+  ASSERT_OK(service_->handleMessage(wire::Message{with_signature_}));
+
+  ASSERT_EQ(absl::InvalidArgumentError("key already used"),
+            service_->handleMessage(wire::Message{without_signature_}));
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyUnexpectedSignature) {

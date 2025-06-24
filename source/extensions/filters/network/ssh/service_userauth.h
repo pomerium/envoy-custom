@@ -44,7 +44,7 @@ private:
   std::optional<std::string> pending_service_auth_;
   int auth_failure_count_{};
   bool none_auth_handled_{};
-  std::unordered_set<std::string> previous_attempted_keys_;
+  std::unordered_map<std::string, bool> previous_attempted_keys_; // fingerprint => has_signature
 };
 
 // (algorithm, key type, key size in bits)
