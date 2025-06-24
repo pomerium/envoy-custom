@@ -138,8 +138,7 @@ message InfoResponse {
 // requests, or to instruct Envoy to take some action on the stream.
 message ServerMessage {
   oneof message {
-    AuthenticationResponse auth_response  = 1;
-    StreamControl          stream_control = 2;
+    AuthenticationResponse auth_response = 1;
   }
 }
 
@@ -213,18 +212,6 @@ message DenyResponse {
 message InfoRequest {
   string              method  = 1;
   google.protobuf.Any request = 2;
-}
-
-// StreamControl contains a request for the peer to take some action on the stream.
-message StreamControl {
-  message CloseStream {
-    string reason = 1;
-    google.protobuf.UInt32Value downstream_channel_id = 2;
-  }
-
-  oneof action {
-    CloseStream close_stream = 1;
-  }
 }
 
 message SSHDownstreamChannelInfo {

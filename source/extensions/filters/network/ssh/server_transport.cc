@@ -8,8 +8,6 @@
 #include <sshkey.h>
 #include <unistd.h>
 
-#include "source/common/event/deferred_task.h"
-
 #include "source/common/status.h"
 #include "source/extensions/filters/network/ssh/common.h"
 #include "source/extensions/filters/network/ssh/frame.h"
@@ -62,12 +60,6 @@ void SshServerTransport::registerMessageHandlers(MessageDispatcher<wire::Message
 
   ping_handler_->registerMessageHandlers(*this);
   user_auth_service_->registerMessageHandlers(*mgmt_client_);
-  this->registerMessageHandlers(*mgmt_client_);
-}
-
-void SshServerTransport::registerMessageHandlers(
-  MessageDispatcher<Grpc::ResponsePtr<ServerMessage>>& dispatcher) {
-  dispatcher.registerHandler(ServerMessage::MessageCase::kStreamControl, this);
 }
 
 void SshServerTransport::setCodecCallbacks(Callbacks& callbacks) {
@@ -226,20 +218,6 @@ absl::Status SshServerTransport::handleMessage(wire::Message&& msg) {
     [](auto& msg) {
       return absl::InternalError(fmt::format("received invalid message: {}", msg.msg_type()));
     });
-}
-
-absl::Status SshServerTransport::handleMessage(Grpc::ResponsePtr<ServerMessage>&& msg) {
-  switch (msg->message_case()) {
-  case ServerMessage::kStreamControl:
-    switch (msg->stream_control().action_case()) {
-    case pomerium::extensions::ssh::StreamControl::kCloseStream:
-      return absl::CancelledError(msg->stream_control().close_stream().reason());
-    default:
-      throw Envoy::EnvoyException("unknown action case");
-    }
-  default:
-    throw Envoy::EnvoyException("unknown message case");
-  }
 }
 
 void SshServerTransport::onServiceAuthenticated(const std::string& service_name) {

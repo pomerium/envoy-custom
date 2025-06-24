@@ -666,46 +666,6 @@ TEST_F(ServerTransportTest, PomeriumDisconnectsDuringAuth) {
   ASSERT_OK(WriteMsg(std::move(authReq)));
 }
 
-TEST_F(ServerTransportTest, HandleStreamControlDisconnect) {
-  ASSERT_OK(ReadExtInfo());
-
-  auto clientKey = *openssh::SSHKey::generate(KEY_ED25519, 256);
-
-  ASSERT_OK(RequestUserAuthService());
-  auto [authReq, clientMsg] = BuildUserAuthMessages(*clientKey);
-
-  ExpectHandlePomeriumGrpcAuthRequestNormal(clientMsg);
-  ExpectDecodingSuccess();
-  ExpectUpstreamConnectMsg();
-
-  ASSERT_OK(WriteMsg(std::move(authReq)));
-
-  // Pomerium can send a ChannelControl message to manually end the stream
-  ServerMessage msg;
-  *msg.mutable_stream_control()->mutable_close_stream()->mutable_reason() = "test";
-  EXPECT_CALL(manage_stream_stream_, closeStream);
-  EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("test"));
-  manage_stream_callbacks_->onReceiveMessage(std::make_unique<ServerMessage>(msg));
-  mock_connection_.dispatcher_.clearDeferredDeleteList(); // invoke the deferredRun callback
-  wire::DisconnectMsg serverDisconnect;
-  ASSERT_OK(ReadMsg(serverDisconnect));
-  EXPECT_EQ("Cancelled: test", serverDisconnect.description);
-}
-
-TEST_F(ServerTransportTest, InvalidStreamControlMessages) {
-  ServerMessage msg;
-  msg.mutable_auth_response();
-  EXPECT_THROW_WITH_MESSAGE(transport_.handleMessage(std::make_unique<ServerMessage>(msg)).IgnoreError(),
-                            EnvoyException,
-                            "unknown message case");
-
-  ServerMessage msg2;
-  msg2.mutable_stream_control();
-  EXPECT_THROW_WITH_MESSAGE(transport_.handleMessage(std::make_unique<ServerMessage>(msg2)).IgnoreError(),
-                            EnvoyException,
-                            "unknown action case");
-}
-
 TEST_F(ServerTransportTest, InvalidMessageReceived) {
   // Can't happen under normal circumstances, but still a possible error
   EXPECT_EQ(absl::InternalError("received invalid message: UserAuthRequest (50)"),
