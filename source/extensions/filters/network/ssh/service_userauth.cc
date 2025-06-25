@@ -56,6 +56,11 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
         return absl::FailedPreconditionError("inconsistent service names sent in user auth request");
       }
 
+      auth_request_count_++;
+      if (auth_request_count_ > MaxAllowedAuthRequests) {
+        return absl::InvalidArgumentError("too many auth attempts");
+      }
+
       auto [username, hostname] = detail::splitUsername(*msg.username);
       AuthenticationRequest auth_req;
       auth_req.set_protocol("ssh");
@@ -84,22 +89,6 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
                                                 ? "invalid PubKeyUserAuthRequestMsg: empty signature"
                                                 : "invalid PubKeyUserAuthRequestMsg: unexpected signature");
           }
-          auto fp = (*userPubKey)->fingerprint();
-          ASSERT(fp.ok());
-          if (auto it = previous_attempted_keys_.find(*fp); it != previous_attempted_keys_.end()) {
-            bool had_signature_previously = it->second;
-            if (!had_signature_previously && pubkey_req.has_signature) {
-              // the first time this key was attempted, there was no signature, but there is now
-              it->second = true;
-            } else {
-              return absl::InvalidArgumentError("key already used");
-            }
-          }
-          // allow 10 different public key attempts
-          if (previous_attempted_keys_.size() >= 10) {
-            return absl::InvalidArgumentError("too many attempts");
-          }
-          previous_attempted_keys_[*fp] = pubkey_req.has_signature;
 
           if (!pubkey_req.has_signature) {
             // any public key is acceptable
