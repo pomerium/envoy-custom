@@ -67,17 +67,19 @@ public:
         return &serve_channel_stream_;
       }));
     EXPECT_CALL(*client_, startRaw("pomerium.extensions.ssh.StreamManagement", "ManageStream", _, _));
-    transport_.setCodecCallbacks(server_codec_callbacks_);
+
+    ON_CALL(server_codec_callbacks_, connection())
+      .WillByDefault(Return(makeOptRef<Network::Connection>(mock_connection_)));
+    EXPECT_CALL(server_codec_callbacks_, connection())
+      .Times(AnyNumber());
     ON_CALL(server_codec_callbacks_, writeToConnection(_))
       .WillByDefault([this](Envoy::Buffer::Instance& buffer) {
         output_buffer_.move(buffer);
       });
     EXPECT_CALL(server_codec_callbacks_, writeToConnection(_))
       .Times(AnyNumber());
-    ON_CALL(server_codec_callbacks_, connection())
-      .WillByDefault(Return(makeOptRef<Network::Connection>(mock_connection_)));
-    EXPECT_CALL(server_codec_callbacks_, connection())
-      .Times(AnyNumber());
+
+    transport_.setCodecCallbacks(server_codec_callbacks_);
 
     // Perform a manual key exchange as the client and set up a packet cipher
     input_buffer_.add("SSH-2.0-TestClient\r\n");
