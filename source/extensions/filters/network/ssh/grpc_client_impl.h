@@ -42,7 +42,7 @@ class StreamManagementServiceClient : public Grpc::AsyncStreamCallbacks<ServerMe
 public:
   StreamManagementServiceClient(Grpc::RawAsyncClientSharedPtr client);
 
-  void connect(stream_id_t stream_id, const std::string& remote_address);
+  void connect(stream_id_t stream_id);
 
   Grpc::AsyncStream<ClientMessage>& stream();
   void setOnRemoteCloseCallback(std::function<void(Grpc::Status::GrpcStatus, std::string)> cb);

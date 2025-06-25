@@ -74,8 +74,7 @@ void SshServerTransport::setCodecCallbacks(Callbacks& callbacks) {
     onDecodingFailure(absl::CancelledError(err));
   });
   stream_id_ = api_.randomGenerator().random();
-  mgmt_client_->connect(streamId(),
-                        callbacks_->connection()->streamInfo().downstreamAddressProvider().remoteAddress()->asString());
+  mgmt_client_->connect(streamId());
 }
 
 void SshServerTransport::initServices() {
