@@ -16,10 +16,9 @@ void StreamManagementServiceClient::setOnRemoteCloseCallback(std::function<void(
   on_remote_close_ = cb;
 }
 
-void StreamManagementServiceClient::connect(stream_id_t stream_id, const std::string& remote_address) {
+void StreamManagementServiceClient::connect(stream_id_t stream_id) {
   ClientMessage msg;
   msg.mutable_event()->mutable_downstream_connected()->set_stream_id(stream_id);
-  msg.mutable_event()->mutable_downstream_connected()->set_source_address(remote_address);
   stream_ = client_.start(method_manage_stream_, *this, Http::AsyncClient::StreamOptions{});
   ASSERT(stream_ != nullptr);
   stream_.sendMessage(msg, false);
