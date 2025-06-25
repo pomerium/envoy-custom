@@ -26,9 +26,10 @@ TEST_F(StreamManagementServiceClientTest, Connect) {
     .WillOnce(Return(&stream_));
   ClientMessage expectedInitMsg;
   expectedInitMsg.mutable_event()->mutable_downstream_connected()->set_stream_id(1);
+  expectedInitMsg.mutable_event()->mutable_downstream_connected()->set_source_address("127.0.0.1"s);
   EXPECT_CALL(stream_, sendMessageRaw_(Grpc::ProtoBufferEq(expectedInitMsg), false));
   StreamManagementServiceClient client(client_);
-  client.connect(1);
+  client.connect(1, "127.0.0.1"s);
 }
 
 TEST_F(StreamManagementServiceClientTest, OnReceiveMessage) {
@@ -47,7 +48,7 @@ TEST_F(StreamManagementServiceClientTest, OnReceiveMessage) {
   EXPECT_CALL(handler, handleMessage(testing::Pointee(Envoy::ProtoEq(msg))))
     .WillOnce(Return(absl::OkStatus()));
 
-  client.connect(1); // only to ensure client.stream_ is set
+  client.connect(1, "127.0.0.1"s); // only to ensure client.stream_ is set
   EXPECT_NE(nullptr, &client.stream());
   client.onReceiveMessage(std::make_unique<ServerMessage>(msg));
 }
@@ -67,7 +68,7 @@ TEST_F(StreamManagementServiceClientTest, OnReceiveMessage_HandlerReturnsError) 
   EXPECT_CALL(stream_, sendMessageRaw_);
   EXPECT_CALL(handler, handleMessage(_))
     .WillOnce(Return(absl::InvalidArgumentError("test error")));
-  client.connect(1);
+  client.connect(1, "127.0.0.1"s);
 
   client.onReceiveMessage(std::make_unique<ServerMessage>(msg1));
 }
@@ -87,7 +88,7 @@ TEST_F(StreamManagementServiceClientTest, OnReceiveMessage_HandlerReturnsError_O
   EXPECT_CALL(stream_, sendMessageRaw_);
   EXPECT_CALL(handler, handleMessage(_))
     .WillOnce(Return(absl::InvalidArgumentError("test error")));
-  client.connect(1);
+  client.connect(1, "127.0.0.1"s);
 
   bool called = false;
   client.setOnRemoteCloseCallback([&](Grpc::Status::GrpcStatus status, std::string err) {
@@ -112,7 +113,7 @@ TEST_F(StreamManagementServiceClientTest, OnReceiveMessage_NoRegisteredHandler) 
   ServerMessage msg1;
   msg1.mutable_auth_response();
 
-  client.connect(1);
+  client.connect(1, "127.0.0.1"s);
 
   client.onReceiveMessage(std::make_unique<ServerMessage>(msg1));
 }
@@ -137,7 +138,7 @@ TEST_F(StreamManagementServiceClientTest, OnRemoteClose) {
     EXPECT_EQ("test error", err);
     called = true;
   });
-  client.connect(1);
+  client.connect(1, "127.0.0.1"s);
   callbacks_ref->onRemoteClose(Grpc::Status::InvalidArgument, "test error");
   EXPECT_TRUE(called);
 }
@@ -155,7 +156,7 @@ TEST_F(StreamManagementServiceClientTest, OnRemoteClose_NoCallback) {
         return &stream_;
       }));
   EXPECT_CALL(stream_, sendMessageRaw_);
-  client.connect(1);
+  client.connect(1, "127.0.0.1"s);
   callbacks_ref->onRemoteClose(Grpc::Status::InvalidArgument, "test error");
 }
 
@@ -172,7 +173,7 @@ TEST_F(StreamManagementServiceClientTest, NoopMetadataCallbacks) {
       }));
 
   EXPECT_CALL(stream_, sendMessageRaw_);
-  client.connect(1);
+  client.connect(1, "127.0.0.1"s);
   auto headers = Http::RequestHeaderMapImpl::create();
   callbacks_ref->onCreateInitialMetadata(*headers);
   EXPECT_TRUE(headers->empty());
