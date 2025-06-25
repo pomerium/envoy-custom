@@ -301,3 +301,7 @@ message Permissions {
   bool                require_user_presence = 12;
   bool                require_verify        = 13;
 }
+
+message FilterMetadata {
+  uint64 stream_id = 1;
+}
