@@ -240,6 +240,7 @@ public:
 
     if (initial_kex) {
       ENVOY_LOG(debug, "ssh [{}]: initial key exchange completed", codec_traits<Codec>::name);
+      this->callbacks_->connection()->noDelay(true);
       this->registerMessageHandlers(*static_cast<SshMessageDispatcher*>(this));
       ENVOY_BUG(pending_messages_.empty(), "extra messages sent before initial key exchange complete");
       pending_messages_.clear();
