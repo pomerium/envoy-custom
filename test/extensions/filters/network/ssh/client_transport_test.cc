@@ -200,6 +200,57 @@ public:
     ASSERT_EQ(0, *r); // nothing sent to the upstream
   }
 
+  // Send and receive packets on a direct-tcpip connection
+  absl::Status DoSendRecvDirectTcpip() {
+    // downstream->upstream
+    {
+      wire::KexInitMsg send{.reserved = 1234};
+      Buffer::OwnedImpl packet;
+      RETURN_IF_NOT_OK(wire::encodePacket(packet, send, 8, 0).status());
+      wire::ChannelDataMsg data{
+        .recipient_channel = 200,
+        .data = wire::flushTo<bytes>(packet),
+      };
+      SSHRequestCommonFrame frame(wire::Message{data});
+      GenericProxy::MockEncodingContext ctx;
+      RETURN_IF_NOT_OK(transport_.encode(frame, ctx).status());
+
+      wire::KexInitMsg recv;
+      RETURN_IF_NOT_OK(ReadMsg(recv));
+
+      EXPECT_EQ(1234, *recv.reserved);
+      if (HasFailure()) {
+        return absl::InternalError("test failed");
+      }
+    }
+    // upstream->downstream
+    {
+      wire::KexInitMsg send{.reserved = 2345};
+      Buffer::OwnedImpl packet;
+      // disable random padding so that we can match the expected packet contents exactly
+      RETURN_IF_NOT_OK(wire::encodePacket(packet, send, 8, 0, false).status());
+      wire::ChannelDataMsg expected{
+        .recipient_channel = 100,
+        .data = wire::flushTo<bytes>(packet),
+      };
+
+      EXPECT_CALL(client_codec_callbacks_, onDecodingSuccess(FrameContainingMsg(wire::Message{expected})));
+      Buffer::OwnedImpl buf;
+      RETURN_IF_NOT_OK(wire::encodePacket(buf, send,
+                                          server_cipher_->blockSize(openssh::CipherMode::Write),
+                                          server_cipher_->aadSize(openssh::CipherMode::Write),
+                                          false) // disable random padding
+                         .status());
+      RETURN_IF_NOT_OK(server_cipher_->encryptPacket(write_seqnum_++, input_buffer_, buf));
+      transport_.decode(input_buffer_, false);
+      if (HasFailure()) {
+        return absl::InternalError("test failed");
+      }
+    }
+
+    return absl::OkStatus();
+  }
+
   void DoKeyExchange() {
     // perform version exchange
     input_buffer_.add("SSH-2.0-TestServer\r\n");
@@ -1034,49 +1085,28 @@ TEST_F(ClientTransportTest, DirectTcpipMode) {
                                                   std::make_unique<NoCipher>());
   StartTransportDirectTcpip();
 
-  // downstream->upstream
+  ASSERT_OK(DoSendRecvDirectTcpip());
+
+  // close the channel from the downstream
   {
-    wire::KexInitMsg send{.reserved = 1234};
-    Buffer::OwnedImpl packet;
-    ASSERT_OK(wire::encodePacket(packet, send, 8, 0).status());
-    wire::ChannelDataMsg data{
-      .recipient_channel = 200,
-      .data = wire::flushTo<bytes>(packet),
-    };
-    SSHRequestCommonFrame frame(wire::Message{data});
+    wire::ChannelCloseMsg close{.recipient_channel = 200};
+
+    SSHRequestCommonFrame frame(wire::Message{close});
     GenericProxy::MockEncodingContext ctx;
-    ASSERT_OK(transport_.encode(frame, ctx).status());
-
-    wire::KexInitMsg recv;
-    ASSERT_OK(ReadMsg(recv));
-    ASSERT_EQ(1234, *recv.reserved);
+    ASSERT_EQ(absl::CancelledError("channel closed"), transport_.encode(frame, ctx).status());
   }
-  // upstream->downstream
-  {
-    wire::KexInitMsg send{.reserved = 2345};
-    Buffer::OwnedImpl packet;
-    // disable random padding so that we can match the expected packet contents exactly
-    ASSERT_OK(wire::encodePacket(packet, send, 8, 0, false).status());
-    wire::ChannelDataMsg expected{
-      .recipient_channel = 100,
-      .data = wire::flushTo<bytes>(packet),
-    };
+}
 
-    EXPECT_CALL(client_codec_callbacks_, onDecodingSuccess(FrameContainingMsg(wire::Message{expected})));
-    Buffer::OwnedImpl buf;
-    ASSERT_OK(wire::encodePacket(buf, send,
-                                 server_cipher_->blockSize(openssh::CipherMode::Write),
-                                 server_cipher_->aadSize(openssh::CipherMode::Write),
-                                 false) // disable random padding
-                .status());
-    ASSERT_OK(server_cipher_->encryptPacket(write_seqnum_++, input_buffer_, buf));
-    transport_.decode(input_buffer_, false);
-  }
+TEST_F(ClientTransportTest, DirectTcpipMode_HandleEOF) {
+  server_cipher_ = std::make_unique<PacketCipher>(std::make_unique<NoCipher>(),
+                                                  std::make_unique<NoCipher>());
+  StartTransportDirectTcpip();
+
+  ASSERT_OK(DoSendRecvDirectTcpip());
 
   // send EOF from the downstream
   {
     wire::ChannelEOFMsg eof{.recipient_channel = 200};
-    EXPECT_CALL(mock_connection_, close(_));
 
     SSHRequestCommonFrame frame(wire::Message{eof});
     GenericProxy::MockEncodingContext ctx;
