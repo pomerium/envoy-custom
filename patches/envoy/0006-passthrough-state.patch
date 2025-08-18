@@ -1,0 +1,87 @@
+diff --git a/source/extensions/io_socket/user_space/io_handle_impl.cc b/source/extensions/io_socket/user_space/io_handle_impl.cc
+index 8ca2088cb4..c595b9f264 100644
+--- a/source/extensions/io_socket/user_space/io_handle_impl.cc
++++ b/source/extensions/io_socket/user_space/io_handle_impl.cc
+@@ -372,13 +372,15 @@ Api::SysCallIntResult IoHandleImpl::shutdown(int how) {
+ void PassthroughStateImpl::initialize(
+     std::unique_ptr<envoy::config::core::v3::Metadata> metadata,
+     const StreamInfo::FilterState::Objects& filter_state_objects) {
++  Thread::LockGuard lock(mu_);
+   ASSERT(state_ == State::Created);
+   metadata_ = std::move(metadata);
+   filter_state_objects_ = filter_state_objects;
+-  state_ = State::Initialized;
++  updateState(State::Initialized);
+ }
+ void PassthroughStateImpl::mergeInto(envoy::config::core::v3::Metadata& metadata,
+                                      StreamInfo::FilterState& filter_state) {
++  Thread::LockGuard lock(mu_);
+   ASSERT(state_ == State::Created || state_ == State::Initialized);
+   if (metadata_) {
+     metadata.MergeFrom(*metadata_);
+@@ -390,8 +392,32 @@ void PassthroughStateImpl::mergeInto(envoy::config::core::v3::Metadata& metadata
+   }
+   metadata_ = nullptr;
+   filter_state_objects_.clear();
+-  state_ = State::Done;
++  updateState(State::Done);
+ }
++
++void PassthroughStateImpl::updateState(State state) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
++  state_ = state;
++  for (auto it = waiters_.begin(); it != waiters_.end();) {
++    if (static_cast<int>(state_) >= static_cast<int>(it->state)) {
++      it->dispatcher.post(std::move(it->callback));
++      it = waiters_.erase(it);
++    } else {
++      it++;
++    }
++  }
++}
++
++void PassthroughStateImpl::notifyOnStateChange(State state, Event::Dispatcher& dispatcher,
++                                               Event::PostCb callback) {
++  Thread::ReleasableLockGuard lock(mu_);
++  if (static_cast<int>(state_) >= static_cast<int>(state)) {
++    lock.release();
++    dispatcher.post(std::move(callback));
++    return;
++  }
++  waiters_.push_back({state, dispatcher, std::move(callback)});
++}
++
+ } // namespace UserSpace
+ } // namespace IoSocket
+ } // namespace Extensions
+diff --git a/source/extensions/io_socket/user_space/io_handle_impl.h b/source/extensions/io_socket/user_space/io_handle_impl.h
+index 0c75dfda4d..c7470e7a2d 100644
+--- a/source/extensions/io_socket/user_space/io_handle_impl.h
++++ b/source/extensions/io_socket/user_space/io_handle_impl.h
+@@ -193,11 +193,23 @@ public:
+   void mergeInto(envoy::config::core::v3::Metadata& metadata,
+                  StreamInfo::FilterState& filter_state) override;
+ 
+-private:
+   enum class State { Created, Initialized, Done };
+-  State state_{State::Created};
+-  std::unique_ptr<envoy::config::core::v3::Metadata> metadata_;
+-  StreamInfo::FilterState::Objects filter_state_objects_;
++
++  void notifyOnStateChange(State state, Event::Dispatcher& dispatcher, Event::PostCb callback);
++
++private:
++  struct Waiter {
++    State state;
++    Event::Dispatcher& dispatcher;
++    Event::PostCb callback;
++  };
++  Thread::MutexBasicLockable mu_;
++  void updateState(State state) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
++
++  State state_ ABSL_GUARDED_BY(mu_){State::Created};
++  std::unique_ptr<envoy::config::core::v3::Metadata> metadata_ ABSL_GUARDED_BY(mu_);
++  StreamInfo::FilterState::Objects filter_state_objects_ ABSL_GUARDED_BY(mu_);
++  std::list<Waiter> waiters_;
+ };
+ 
+ using IoHandleImplPtr = std::unique_ptr<IoHandleImpl>;

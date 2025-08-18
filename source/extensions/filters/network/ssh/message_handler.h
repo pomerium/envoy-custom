@@ -117,7 +117,7 @@ protected:
     message_case_type_t<T> mt = messageCase(msg);
     auto&& it = dispatch_.find(mt);
     if (it == dispatch_.end()) [[unlikely]] {
-      return absl::InvalidArgumentError(fmt::format("unexpected message received: {}", mt));
+      return absl::InvalidArgumentError(fmt::format("message handler for type {}: unexpected message received: {}", type_name<T>(), mt));
     }
     return it->second->handleMessage(std::move(msg));
   }

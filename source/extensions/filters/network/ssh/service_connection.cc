@@ -17,6 +17,7 @@ ConnectionService::ConnectionService(
 }
 
 void DownstreamConnectionService::registerMessageHandlers(SshMessageDispatcher& dispatcher) {
+  msg_dispatcher_ = dispatcher;
   dispatcher.registerHandler(wire::SshMessageType::ChannelOpen, this);
   dispatcher.registerHandler(wire::SshMessageType::ChannelWindowAdjust, this);
   dispatcher.registerHandler(wire::SshMessageType::ChannelData, this);
@@ -28,32 +29,46 @@ void DownstreamConnectionService::registerMessageHandlers(SshMessageDispatcher& 
   dispatcher.registerHandler(wire::SshMessageType::ChannelFailure, this);
 }
 
-absl::Status DownstreamConnectionService::handleMessage(wire::Message&& msg) {
-  const auto& authState = transport_.authState();
-  if (authState.channel_mode == ChannelMode::Hijacked) {
-    auto& authState = transport_.authState();
-    ChannelMessage channel_msg;
-    google::protobuf::BytesValue b;
-    auto msgData = encodeTo<std::string>(msg);
-    if (!msgData.ok()) {
-      return absl::InvalidArgumentError(fmt::format("received invalid message: {}", msgData.status()));
-    }
-    *b.mutable_value() = *msgData;
-    *channel_msg.mutable_raw_bytes() = b;
-    if (auto s = authState.hijacked_stream.lock(); s) {
-      s->sendMessage(channel_msg, false);
-    } else {
-      return absl::CancelledError("connection closed");
-    }
-    return absl::OkStatus();
+absl::Status DownstreamConnectionService::sendToHijackedStream(wire::Message&& msg) {
+  ChannelMessage channel_msg;
+  google::protobuf::BytesValue b;
+  auto msgData = encodeTo<std::string>(msg);
+  if (!msgData.ok()) {
+    return absl::InvalidArgumentError(fmt::format("received invalid message: {}", msgData.status()));
   }
+  *b.mutable_value() = *msgData;
+  *channel_msg.mutable_raw_bytes() = b;
+  if (auto s = transport_.authState().hijacked_stream.lock(); s) {
+    s->sendMessage(channel_msg, false);
+  } else {
+    return absl::CancelledError("connection closed");
+  }
+  return absl::OkStatus();
+}
+
+absl::Status DownstreamConnectionService::sendToExternalChannel(uint32_t channel_id, wire::Message&& msg) {
+  external_channels_[channel_id]->readMessage(std::move(msg));
+  return absl::OkStatus();
+}
+
+absl::Status DownstreamConnectionService::handleMessage(wire::Message&& msg) {
+  auto& authState = transport_.authState();
 
   return msg.visit(
     [&](wire::ChannelOpenMsg& msg) {
+      if (authState.channel_mode == ChannelMode::Hijacked) {
+        return sendToHijackedStream(std::move(msg));
+      }
       transport_.forward(std::move(msg));
       return absl::OkStatus();
     },
     [&](wire::ChannelMsg auto& msg) {
+      if (authState.channel_mode == ChannelMode::Hijacked) {
+        if (external_channels_.contains(msg.recipient_channel)) {
+          return sendToExternalChannel(msg.recipient_channel, std::move(msg));
+        }
+        return sendToHijackedStream(std::move(msg));
+      }
       transport_.forward(std::move(msg));
       return absl::OkStatus();
     },
@@ -106,6 +121,12 @@ absl::Status DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<Cha
                                                static_cast<int>(handOffMsg->upstream_auth().target_case())));
       }
     }
+    case pomerium::extensions::ssh::SSHChannelControlAction::kBeginUpstreamTunnel: {
+      auto* tunnelMsg = ctrl_action.mutable_begin_upstream_tunnel();
+      auto clusterId = tunnelMsg->cluster_id();
+      active_stream_tracker_->setStreamIsClusterEndpoint(transport_.streamId(), clusterId, true);
+      return absl::OkStatus();
+    } break;
     default:
       return absl::InternalError(fmt::format("received invalid channel message: unknown action type: {}",
                                              static_cast<int>(ctrl_action.action_case())));
@@ -117,13 +138,16 @@ absl::Status DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<Cha
   }
 }
 
-absl::Status DownstreamConnectionService::onStreamBegin(
-  [[maybe_unused]] const AuthState& auth_state,
-  [[maybe_unused]] Dispatcher& dispatcher) {
-  return absl::OkStatus();
+void DownstreamConnectionService::onStreamBegin(Dispatcher& dispatcher, std::shared_ptr<ActiveStreamCallbacks> callbacks) {
+  ASSERT(dispatcher.isThreadSafe());
+  test_dispatcher_ = &dispatcher;
+
+  active_stream_handle_ = active_stream_tracker_->onStreamBegin(transport_.streamId(), dispatcher, callbacks);
 }
 
-void DownstreamConnectionService::onStreamEnd() {}
+void DownstreamConnectionService::onStreamEnd() {
+  active_stream_handle_.reset();
+}
 
 absl::Status UpstreamConnectionService::requestService() {
   wire::ServiceRequestMsg req;
@@ -160,12 +184,12 @@ absl::Status UpstreamConnectionService::handleMessage(wire::Message&& msg) {
     });
 }
 
-absl::Status UpstreamConnectionService::onStreamBegin(
-  [[maybe_unused]] const AuthState& auth_state,
-  [[maybe_unused]] Dispatcher& dispatcher) {
-  return absl::OkStatus();
-}
+// absl::Status UpstreamConnectionService::onStreamBegin(
+//   [[maybe_unused]] const AuthState& auth_state,
+//   [[maybe_unused]] Dispatcher& dispatcher) {
+//   return absl::OkStatus();
+// }
 
-void UpstreamConnectionService::onStreamEnd() {}
+// void UpstreamConnectionService::onStreamEnd() {}
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

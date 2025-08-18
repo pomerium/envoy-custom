@@ -26,15 +26,17 @@ extern "C" {
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-SshServerTransport::SshServerTransport(Api::Api& api,
+SshServerTransport::SshServerTransport(Server::Configuration::ServerFactoryContext& context,
                                        std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
                                        CreateGrpcClientFunc create_grpc_client)
-    : TransportBase(api, std::move(config)),
+    : TransportBase(context.api(), std::move(config)),
       DownstreamTransportCallbacks(*this) {
   auto grpcClient = create_grpc_client();
   THROW_IF_NOT_OK_REF(grpcClient.status());
   mgmt_client_ = std::make_unique<StreamManagementServiceClient>(*grpcClient);
   channel_client_ = std::make_unique<ChannelStreamServiceClient>(*grpcClient);
+
+  active_stream_tracker_ = ActiveStreamTracker::fromContext(context);
 
   wire::ExtInfoMsg extInfo;
   extInfo.extensions->emplace_back(wire::PingExtension{.version = "0"s});
@@ -79,7 +81,7 @@ void SshServerTransport::setCodecCallbacks(Callbacks& callbacks) {
 
 void SshServerTransport::initServices() {
   user_auth_service_ = std::make_unique<DownstreamUserAuthService>(*this, api_);
-  connection_service_ = std::make_unique<DownstreamConnectionService>(*this, api_);
+  connection_service_ = std::make_unique<DownstreamConnectionService>(*this, api_, active_stream_tracker_);
   ping_handler_ = std::make_unique<PingExtensionHandler>(*this);
 
   services_[user_auth_service_->name()] = user_auth_service_.get();
@@ -178,6 +180,28 @@ absl::Status SshServerTransport::handleMessage(wire::Message&& msg) {
           // server->client only
           return absl::InvalidArgumentError(fmt::format("unexpected global request: {}",
                                                         wire::HostKeysMsg::submsg_key));
+        },
+        [&](wire::TcpipForwardMsg&) {
+          if (authState().channel_mode == ChannelMode::Hijacked) {
+            ChannelMessage channel_msg;
+            google::protobuf::BytesValue b;
+            auto msgData = encodeTo<std::string>(msg);
+            if (!msgData.ok()) {
+              return absl::InvalidArgumentError(fmt::format("received invalid message: {}", msgData.status()));
+            }
+            *b.mutable_value() = *msgData;
+            *channel_msg.mutable_raw_bytes() = b;
+            if (auto s = authState().hijacked_stream.lock(); s) {
+              s->sendMessage(channel_msg, false);
+            } else {
+              return absl::CancelledError("connection closed");
+            }
+            return absl::OkStatus();
+          }
+
+          ENVOY_LOG(debug, "forwarding global request: {}", msg.request_name());
+          forward(std::move(msg));
+          return absl::OkStatus();
         });
     },
     [&](wire::GlobalRequestSuccessMsg& msg) {
@@ -228,6 +252,7 @@ void SshServerTransport::onServiceAuthenticated(const std::string& service_name)
 
 void SshServerTransport::initUpstream(AuthStateSharedPtr s) {
   s->server_version = server_version_;
+  bool first_init = (auth_state_ == nullptr);
   auth_state_ = s;
   switch (auth_state_->channel_mode) {
   case ChannelMode::Normal: {
@@ -269,6 +294,11 @@ void SshServerTransport::initUpstream(AuthStateSharedPtr s) {
   } break;
   case ChannelMode::Mirror:
     throw EnvoyException("mirroring not supported");
+  }
+  if (first_init) {
+    callbacks_impl_ = std::make_shared<ActiveStreamCallbacksImpl>(*this);
+    connection_service_->onStreamBegin(callbacks_->connection()->dispatcher(), callbacks_impl_);
+    callbacks_->connection()->addConnectionCallbacks(*this);
   }
 }
 
@@ -341,6 +371,19 @@ void SshServerTransport::onDecodingFailure(absl::Status status) {
     .IgnoreError();
 
   TransportBase::onDecodingFailure(status);
+}
+
+void SshServerTransport::onEvent(Network::ConnectionEvent event) {
+  if (event == Network::ConnectionEvent::LocalClose || event == Network::ConnectionEvent::RemoteClose) {
+    connection_service_->onStreamEnd();
+  }
+}
+
+void SshServerTransport::ActiveStreamCallbacksImpl::requestOpenDownstreamChannel(Network::IoHandlePtr io_handle) {
+  RELEASE_ASSERT(self.auth_state_->channel_mode == ChannelMode::Hijacked,
+                 fmt::format("requestOpenDownstreamChannel called with invalid channel mode: {}", self.auth_state_->channel_mode));
+
+  self.connection_service_->requestOpenDownstreamChannel(std::move(io_handle));
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

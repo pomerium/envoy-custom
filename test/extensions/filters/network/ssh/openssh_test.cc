@@ -139,6 +139,18 @@ TEST(SSHKeyTest, FromPrivateKeyBytes_InvalidPublicKeyData) {
   ASSERT_EQ(absl::InvalidArgumentError("invalid format"), SSHKey::fromPrivateKeyBytes(key->formatPublicKey()).status());
 }
 
+TEST(SSHKeyTest, FromPrivateKeyBytes_NoTrailingNewline) {
+  auto key = *SSHKey::generate(KEY_RSA, 2048);
+  auto privateKey = key->formatPrivateKey();
+  ASSERT_TRUE(privateKey->ends_with('\n'));
+  privateKey->resize(privateKey->size() - 1);
+  ASSERT_FALSE(privateKey->ends_with('\n'));
+
+  auto key2 = SSHKey::fromPrivateKeyBytes(*privateKey);
+  ASSERT_OK(key2.status());
+  ASSERT_EQ(key, *key2);
+}
+
 TEST(SSHKeyTest, FromPrivateKeyDataSource) {
   for (auto keyName : {"rsa_1", "ecdsa_1", "ed25519_1"}) {
     auto privKeyPath = copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600);

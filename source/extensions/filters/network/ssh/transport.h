@@ -111,3 +111,12 @@ public:
 class UpstreamTransportCallbacks : public virtual TransportCallbacks {};
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
+
+// specialization of fmt::formatter for ChannelMode, used for fmt::format
+template <>
+struct fmt::formatter<Envoy::Extensions::NetworkFilters::GenericProxy::Codec::ChannelMode> : fmt::formatter<string_view> {
+  auto format(Envoy::Extensions::NetworkFilters::GenericProxy::Codec::ChannelMode mode, format_context& ctx) const
+    -> format_context::iterator {
+    return fmt::formatter<string_view>::format(magic_enum::enum_name(mode), ctx);
+  }
+};

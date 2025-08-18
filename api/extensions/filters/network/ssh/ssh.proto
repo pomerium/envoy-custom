@@ -43,6 +43,10 @@ message CodecConfig {
   envoy.config.core.v3.GrpcService grpc_service = 4 [(validate.rules).message.required = true];
 }
 
+message UpstreamCluster {
+  string name = 1;
+}
+
 // The StreamManagement service is implemented by the Pomerium Authorize
 // service on the same internal GRPC server as ExtAuthz.
 service StreamManagement {
@@ -67,6 +71,7 @@ message ChannelMessage {
     envoy.config.core.v3.Metadata metadata        = 1;
     google.protobuf.BytesValue    raw_bytes       = 2;
     ChannelControl                channel_control = 3;
+    ChannelEvent                  channel_event   = 4;
   }
 }
 
@@ -75,6 +80,20 @@ message ChannelMessage {
 message ChannelControl {
   string              protocol       = 1;
   google.protobuf.Any control_action = 2;
+}
+
+message ChannelEvent {
+  message ExternalChannelOpenedEvent {
+    uint32 channel_id     = 1;
+    string remote_address = 2;
+  }
+  message ExternalChannelClosedEvent {
+    uint32 channel_id = 1;
+  }
+  oneof event {
+    ExternalChannelOpenedEvent external_channel_opened = 1;
+    ExternalChannelClosedEvent external_channel_closed = 2;
+  }
 }
 
 // ClientMessages are sent by Envoy to Pomerium to inform it of stream events,
@@ -241,8 +260,13 @@ message SSHChannelControlAction {
   oneof action {
     // HandOffUpstream instructs Envoy to end the "hijacked" internal stream, and connect the
     // downstream client to the real upstream server.
-    HandOffUpstream hand_off = 2;
+    HandOffUpstream     hand_off              = 2;
+    BeginUpstreamTunnel begin_upstream_tunnel = 3;
   }
+}
+
+message BeginUpstreamTunnel {
+  string cluster_id = 1;
 }
 
 message PublicKeyMethodRequest {

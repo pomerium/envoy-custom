@@ -16,9 +16,9 @@ extern "C" {
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 SshClientTransport::SshClientTransport(
-  Api::Api& api,
+  Envoy::Server::Configuration::ServerFactoryContext& context,
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config)
-    : TransportBase(api, std::move(config)) {
+    : TransportBase(context.api(), std::move(config)) {
   wire::ExtInfoMsg extInfo;
   extInfo.extensions->emplace_back(wire::PingExtension{.version = "0"s});
   outgoing_ext_info_ = std::move(extInfo);
