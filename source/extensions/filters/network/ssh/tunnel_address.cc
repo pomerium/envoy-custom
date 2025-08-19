@@ -9,7 +9,7 @@ Network::IoHandlePtr InternalStreamSocketInterface::socket(Network::Socket::Type
   ASSERT(socket_type == Network::Socket::Type::Stream);
   auto [local, remote] = Extensions::IoSocket::UserSpace::IoHandleFactory::createIoHandlePair();
 
-  auto r = active_stream_tracker_->requestOpenDownstreamChannel(addr, std::move(local));
+  auto r = active_stream_tracker_->find(*addr)->requestOpenDownstreamChannel(std::move(local));
   if (!r.ok()) {
     ENVOY_LOG_MISC(error, "error requesting channel: {}", statusToString(r));
     return nullptr;

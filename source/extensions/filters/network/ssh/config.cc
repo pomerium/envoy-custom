@@ -21,21 +21,25 @@ CodecFactoryPtr SshCodecFactoryConfig::createCodecFactory(
     return (*factory)->createUncachedRawAsyncClient();
   };
 
-  return std::make_unique<SshCodecFactory>(context, conf, createClient);
+  return std::make_unique<SshCodecFactory>(context, conf, createClient,
+                                           ActiveStreamTracker::fromContext(context, typed_config.active_stream_tracker()));
 }
 
 REGISTER_FACTORY(SshCodecFactoryConfig, CodecFactoryConfig);
 
 SshCodecFactory::SshCodecFactory(Envoy::Server::Configuration::ServerFactoryContext& context,
                                  std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                                 CreateGrpcClientFunc create_grpc_client)
+                                 CreateGrpcClientFunc create_grpc_client,
+                                 std::shared_ptr<ActiveStreamTracker> active_stream_tracker)
     : context_(context),
       config_(config),
-      create_grpc_client_(create_grpc_client) {
+      create_grpc_client_(create_grpc_client),
+      active_stream_tracker_(std::move(active_stream_tracker)) {
 }
 
 ServerCodecPtr SshCodecFactory::createServerCodec() const {
-  return std::make_unique<SshServerTransport>(context_, config_, create_grpc_client_);
+  return std::make_unique<SshServerTransport>(context_, config_, create_grpc_client_,
+                                              active_stream_tracker_);
 }
 
 ClientCodecPtr SshCodecFactory::createClientCodec() const {

@@ -3,8 +3,8 @@
 #include <type_traits>
 
 #pragma clang unsafe_buffer_usage begin
-#include "source/common/grpc/typed_async_client.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
+#include "source/common/grpc/typed_async_client.h"
 #pragma clang unsafe_buffer_usage end
 
 #include "source/extensions/filters/network/ssh/message_handler.h"

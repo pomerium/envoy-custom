@@ -37,7 +37,7 @@ public:
   absl::Status handleMessage(wire::Message&& msg) override;
 
   void registerMessageHandlers(SshMessageDispatcher& dispatcher) override;
-  void onStreamBegin(Dispatcher& dispatcher, std::shared_ptr<ActiveStreamCallbacks> callbacks);
+  void onStreamBegin(Network::Connection& connection, std::shared_ptr<ActiveStreamCallbacks> callbacks);
   void onStreamEnd();
 
   struct RequestOpenDownstreamChannelHandler final : public SshMessageMiddleware {

@@ -26,7 +26,8 @@ class SshServerTransport final : public TransportBase<ServerCodec>,
 public:
   SshServerTransport(Server::Configuration::ServerFactoryContext& context,
                      std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                     CreateGrpcClientFunc create_grpc_client);
+                     CreateGrpcClientFunc create_grpc_client,
+                     std::shared_ptr<ActiveStreamTracker> active_stream_tracker);
 
   void setCodecCallbacks(GenericProxy::ServerCodecCallbacks& callbacks) override;
 

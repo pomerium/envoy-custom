@@ -28,15 +28,15 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 SshServerTransport::SshServerTransport(Server::Configuration::ServerFactoryContext& context,
                                        std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                                       CreateGrpcClientFunc create_grpc_client)
+                                       CreateGrpcClientFunc create_grpc_client,
+                                       std::shared_ptr<ActiveStreamTracker> active_stream_tracker)
     : TransportBase(context.api(), std::move(config)),
-      DownstreamTransportCallbacks(*this) {
+      DownstreamTransportCallbacks(*this),
+      active_stream_tracker_(std::move(active_stream_tracker)) {
   auto grpcClient = create_grpc_client();
   THROW_IF_NOT_OK_REF(grpcClient.status());
   mgmt_client_ = std::make_unique<StreamManagementServiceClient>(*grpcClient);
   channel_client_ = std::make_unique<ChannelStreamServiceClient>(*grpcClient);
-
-  active_stream_tracker_ = ActiveStreamTracker::fromContext(context);
 
   wire::ExtInfoMsg extInfo;
   extInfo.extensions->emplace_back(wire::PingExtension{.version = "0"s});
@@ -297,7 +297,7 @@ void SshServerTransport::initUpstream(AuthStateSharedPtr s) {
   }
   if (first_init) {
     callbacks_impl_ = std::make_shared<ActiveStreamCallbacksImpl>(*this);
-    connection_service_->onStreamBegin(callbacks_->connection()->dispatcher(), callbacks_impl_);
+    connection_service_->onStreamBegin(callbacks_->connection().ref(), callbacks_impl_);
     callbacks_->connection()->addConnectionCallbacks(*this);
   }
 }

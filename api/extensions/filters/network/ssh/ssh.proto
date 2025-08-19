@@ -3,6 +3,7 @@ syntax = "proto3";
 package pomerium.extensions.ssh;
 
 import "envoy/config/core/v3/base.proto";
+import "envoy/config/core/v3/config_source.proto";
 import "envoy/config/core/v3/extension.proto";
 import "envoy/config/core/v3/grpc_service.proto";
 import "google/protobuf/any.proto";
@@ -41,10 +42,19 @@ message CodecConfig {
 
   // Pomerium StreamManagement grpc service.
   envoy.config.core.v3.GrpcService grpc_service = 4 [(validate.rules).message.required = true];
+
+  ActiveStreamTrackerConfig active_stream_tracker = 5;
 }
 
+message ActiveStreamTrackerConfig {
+  repeated envoy.config.core.v3.TypedExtensionConfig filters = 1;
+}
+
+message ClusterEndpointManagerConfig {}
+
 message UpstreamCluster {
-  string name = 1;
+  string                            name       = 1;
+  envoy.config.core.v3.ConfigSource eds_config = 2;
 }
 
 // The StreamManagement service is implemented by the Pomerium Authorize
@@ -260,14 +270,14 @@ message SSHChannelControlAction {
   oneof action {
     // HandOffUpstream instructs Envoy to end the "hijacked" internal stream, and connect the
     // downstream client to the real upstream server.
-    HandOffUpstream     hand_off              = 2;
-    BeginUpstreamTunnel begin_upstream_tunnel = 3;
+    HandOffUpstream hand_off = 2;
+    // BeginUpstreamTunnel begin_upstream_tunnel = 3;
   }
 }
 
-message BeginUpstreamTunnel {
-  string cluster_id = 1;
-}
+// message BeginUpstreamTunnel {
+//   string cluster_id = 1;
+// }
 
 message PublicKeyMethodRequest {
   bytes  public_key                    = 1;

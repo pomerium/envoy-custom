@@ -121,12 +121,13 @@ absl::Status DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<Cha
                                                static_cast<int>(handOffMsg->upstream_auth().target_case())));
       }
     }
-    case pomerium::extensions::ssh::SSHChannelControlAction::kBeginUpstreamTunnel: {
-      auto* tunnelMsg = ctrl_action.mutable_begin_upstream_tunnel();
-      auto clusterId = tunnelMsg->cluster_id();
-      active_stream_tracker_->setStreamIsClusterEndpoint(transport_.streamId(), clusterId, true);
-      return absl::OkStatus();
-    } break;
+    // case pomerium::extensions::ssh::SSHChannelControlAction::kBeginUpstreamTunnel: {
+    //   auto* tunnelMsg = ctrl_action.mutable_begin_upstream_tunnel();
+    //   auto clusterId = tunnelMsg->cluster_id();
+
+    //   active_stream_tracker_->setStreamIsClusterEndpoint(transport_.streamId(), clusterId, true);
+    //   return absl::OkStatus();
+    // } break;
     default:
       return absl::InternalError(fmt::format("received invalid channel message: unknown action type: {}",
                                              static_cast<int>(ctrl_action.action_case())));
@@ -138,11 +139,11 @@ absl::Status DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<Cha
   }
 }
 
-void DownstreamConnectionService::onStreamBegin(Dispatcher& dispatcher, std::shared_ptr<ActiveStreamCallbacks> callbacks) {
-  ASSERT(dispatcher.isThreadSafe());
-  test_dispatcher_ = &dispatcher;
+void DownstreamConnectionService::onStreamBegin(Network::Connection& connection, std::shared_ptr<ActiveStreamCallbacks> callbacks) {
+  ASSERT(connection.dispatcher().isThreadSafe());
+  test_dispatcher_ = &connection.dispatcher();
 
-  active_stream_handle_ = active_stream_tracker_->onStreamBegin(transport_.streamId(), dispatcher, callbacks);
+  active_stream_handle_ = active_stream_tracker_->onStreamBegin(transport_.streamId(), connection, callbacks);
 }
 
 void DownstreamConnectionService::onStreamEnd() {

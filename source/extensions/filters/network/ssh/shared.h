@@ -253,7 +253,7 @@ using ActiveStreamCallbacksWeakPtr = std::weak_ptr<ActiveStreamCallbacks>;
 
 class ActiveStreamInterface {
 public:
-  ActiveStreamInterface(stream_id_t stream_id, ::Envoy::Event::Dispatcher& source_dispatcher, ActiveStreamCallbacksWeakPtr callbacks);
+  ActiveStreamInterface(stream_id_t stream_id, Network::Connection& connection, ActiveStreamCallbacksWeakPtr callbacks);
 
   absl::Status requestOpenDownstreamChannel(Network::IoHandlePtr io_handle) {
     if (callbacks_.expired()) {
@@ -279,15 +279,7 @@ public:
 
   stream_id_t streamId() { return stream_id_; }
 
-  void setEndpointForCluster(const std::string& cluster_id) {
-    endpoint_for_cluster_ = cluster_id;
-  }
-  std::string endpointForCluster() const {
-    return endpoint_for_cluster_;
-  }
-
 private:
-  std::string endpoint_for_cluster_;
   stream_id_t stream_id_;
   Thread::ThreadId source_thread_;
   ActiveStreamCallbacksWeakPtr callbacks_;
@@ -295,13 +287,6 @@ private:
 };
 using ActiveStreamInterfaceSharedPtr = std::shared_ptr<ActiveStreamInterface>;
 using ActiveStreamInterfaceWeakPtr = std::weak_ptr<ActiveStreamInterface>;
-
-class ActiveStreamEndpointListener {
-public:
-  virtual ~ActiveStreamEndpointListener() = default;
-  virtual void onClusterEndpointAdded(stream_id_t key) PURE;
-  virtual void onClusterEndpointRemoved(stream_id_t key) PURE;
-};
 
 class ActiveStreamHandle : public Envoy::Cleanup {
 public:
@@ -314,139 +299,87 @@ private:
   stream_id_t id_;
 };
 
-class ActiveStreamTracker : public Envoy::Singleton::Instance, Logger::Loggable<Logger::Id::filter> {
+class ActiveStreamTrackerFilterCallbacks {
 public:
+};
+
+class ActiveStreamTrackerFilter {
+public:
+  virtual ~ActiveStreamTrackerFilter() = default;
+  virtual void onStreamBegin(stream_id_t key, ActiveStreamInterface& intf) PURE;
+  virtual void onStreamEnd(stream_id_t key, ActiveStreamInterface& intf) PURE;
+};
+
+using ActiveStreamTrackerFilterPtr = std::unique_ptr<ActiveStreamTrackerFilter>;
+using ActiveStreamTrackerFilterMap = std::unordered_map<std::string, ActiveStreamTrackerFilterPtr>;
+
+class ActiveStreamTracker : public Envoy::Singleton::Instance, public Logger::Loggable<Logger::Id::filter> {
+public:
+  static std::shared_ptr<ActiveStreamTracker> fromContext(::Envoy::Server::Configuration::ServerFactoryContext& context,
+                                                          const pomerium::extensions::ssh::ActiveStreamTrackerConfig& config);
   static std::shared_ptr<ActiveStreamTracker> fromContext(::Envoy::Server::Configuration::ServerFactoryContext& context);
 
-  std::unique_ptr<ActiveStreamHandle> insert(stream_id_t key, ActiveStreamInterfaceSharedPtr value) {
+  ActiveStreamInterfaceSharedPtr find(stream_id_t key) const {
     Thread::LockGuard lock(mu_);
-    ENVOY_LOG_MISC(info, "tracking new ssh stream: id={}", key);
-    active_stream_handles_[key] = value;
-    return std::make_unique<ActiveStreamHandle>(key, [this, key] {
-      erase(key);
-    });
-  }
-  ActiveStreamInterfaceSharedPtr at(stream_id_t key) {
-    Thread::LockGuard lock(mu_);
-    return active_stream_handles_[key];
+    return active_stream_handles_.at(key);
   }
 
-  void setStreamIsClusterEndpoint(stream_id_t stream_id, const std::string& cluster_id, bool is_endpoint) {
-    auto id = std::string(absl::StripPrefix(cluster_id, "route-"));
-    if (is_endpoint) {
-      setEndpointForCluster(stream_id, id);
-    } else {
-      unsetEndpointForCluster(stream_id, id);
-    }
+  ActiveStreamInterfaceSharedPtr find(const Envoy::Network::Address::Instance& addr) const;
+
+  std::unique_ptr<ActiveStreamHandle> onStreamBegin(stream_id_t stream_id, Network::Connection& connection, ActiveStreamCallbacksWeakPtr source_callbacks) {
+    ENVOY_LOG(info, "ActiveStreamTracker::onStreamBegin [id={}]", stream_id);
+    return onStreamBeginImpl(stream_id, std::make_shared<ActiveStreamInterface>(stream_id, connection, source_callbacks));
   }
 
-  std::unique_ptr<ActiveStreamHandle> onStreamBegin(stream_id_t stream_id, ::Envoy::Event::Dispatcher& source_dispatcher, ActiveStreamCallbacksWeakPtr source_callbacks) {
-    ENVOY_LOG(info, "ThreadLocalData::onStreamBegin [id={}]", stream_id);
-    return insert(stream_id, std::make_shared<ActiveStreamInterface>(stream_id, source_dispatcher, source_callbacks));
-  }
-  absl::Status shutdownStream(stream_id_t stream_id) {
-    ENVOY_LOG(info, "ThreadLocalData::shutdownStream [id={}]", stream_id);
-    if (auto ptr = at(stream_id); ptr != nullptr) {
-      return absl::OkStatus();
-    }
-    return absl::InvalidArgumentError("stream not found");
-  }
   void onStreamEnd(stream_id_t stream_id) {
-    ENVOY_LOG(info, "ThreadLocalData::onStreamEnd [id={}]", stream_id);
-    erase(stream_id);
+    ENVOY_LOG(info, "ActiveStreamTracker::onStreamEnd [id={}]", stream_id);
+    onStreamEndImpl(stream_id);
   }
-
-  void setEndpointForCluster(stream_id_t key, const std::string& cluster_id) {
-    Thread::LockGuard lock(mu_);
-    setEndpointForClusterLocked(key, cluster_id);
-  }
-
-  void unsetEndpointForCluster(stream_id_t key, const std::string& cluster_id) {
-    Thread::LockGuard lock(mu_);
-    unsetEndpointForClusterLocked(key, cluster_id);
-  }
-
-  std::vector<stream_id_t> endpointsForCluster(const std::string& cluster_id) {
-    Thread::LockGuard lock(mu_);
-    std::vector<stream_id_t> result;
-    for (auto id : cluster_endpoints_[cluster_id]) {
-      result.push_back(id);
-    }
-    return result;
-  }
-
-  void addEndpointListener(const std::string& cluster_id, std::weak_ptr<ActiveStreamEndpointListener> listener) {
-    Thread::LockGuard lock(mu_);
-    auto shared = listener.lock();
-    ASSERT(!!shared);
-    endpoint_listeners_[cluster_id].push_back(listener);
-    ENVOY_LOG_MISC(info, "adding new listener for cluster: {}", cluster_id);
-    for (auto id : cluster_endpoints_[cluster_id]) {
-      shared->onClusterEndpointAdded(id);
-    }
-  }
-
-  absl::Status requestOpenDownstreamChannel(Network::Address::InstanceConstSharedPtr addr, Network::IoHandlePtr io_handle);
 
 private:
-  void erase(stream_id_t key) {
+  ActiveStreamTracker(std::vector<ActiveStreamTrackerFilterPtr> listeners)
+      : filters_(std::move(listeners)) {}
+
+  std::unique_ptr<ActiveStreamHandle> onStreamBeginImpl(stream_id_t key, ActiveStreamInterfaceSharedPtr value) {
     Thread::LockGuard lock(mu_);
-    ENVOY_LOG_MISC(info, "ssh stream ended: id={}", key);
+    ENVOY_LOG(info, "tracking new ssh stream: id={}", key);
+    active_stream_handles_[key] = value;
+    for (auto& filter : filters_) {
+      filter->onStreamBegin(key, *value);
+    }
+    return std::make_unique<ActiveStreamHandle>(key, [this, key] {
+      onStreamEndImpl(key);
+    });
+  }
+
+  void onStreamEndImpl(stream_id_t key) {
+    Thread::LockGuard lock(mu_);
+    ENVOY_LOG(info, "ssh stream ended: id={}", key);
     if (active_stream_handles_.contains(key)) {
-      unsetEndpointForClusterLocked(key, active_stream_handles_[key]->endpointForCluster());
+      auto& intf = active_stream_handles_[key];
+      for (auto& filter : filters_) {
+        filter->onStreamEnd(key, *intf);
+      }
       active_stream_handles_.erase(key);
     }
   }
 
-  void setEndpointForClusterLocked(stream_id_t key, const std::string& cluster_id) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
-    if (!active_stream_handles_.contains(key)) {
-      return;
-    }
-    active_stream_handles_[key]->setEndpointForCluster(cluster_id);
-    cluster_endpoints_[cluster_id].insert(key);
-    ENVOY_LOG_MISC(info, "setting cluster association: {} => {}", key, cluster_id);
+  const std::vector<ActiveStreamTrackerFilterPtr> filters_;
 
-    auto& listeners = endpoint_listeners_[cluster_id];
-    ENVOY_LOG_MISC(info, "notifying {} listeners of cluster association update", listeners.size());
-    for (auto&& it = listeners.begin(); it != listeners.end();) {
-      auto shared = it->lock();
-      if (!shared) {
-        ENVOY_LOG_MISC(info, "clearing expired listener for cluster {}", cluster_id);
-        it = listeners.erase(it);
-      } else {
-        shared->onClusterEndpointAdded(key);
-        it++;
-      }
-    }
-  }
-
-  void unsetEndpointForClusterLocked(stream_id_t key, const std::string& cluster_id) ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_) {
-    if (cluster_endpoints_[cluster_id].erase(key) == 0) {
-      return;
-    }
-    ENVOY_LOG_MISC(info, "removing cluster association: {} => {}", key, cluster_id);
-    if (!active_stream_handles_.contains(key)) {
-      return;
-    }
-    active_stream_handles_[key]->setEndpointForCluster("");
-    auto& listeners = endpoint_listeners_[cluster_id];
-    ENVOY_LOG_MISC(info, "notifying {} listeners of cluster association update", listeners.size());
-    for (auto&& it = listeners.begin(); it != listeners.end();) {
-      auto shared = it->lock();
-      if (!shared) {
-        it = listeners.erase(it);
-      } else {
-        shared->onClusterEndpointRemoved(key);
-        it++;
-      }
-    }
-  }
-
-  Thread::MutexBasicLockable mu_;
+  mutable Thread::MutexBasicLockable mu_;
   absl::node_hash_map<stream_id_t, ActiveStreamInterfaceSharedPtr> ABSL_GUARDED_BY(mu_) active_stream_handles_;
-
-  std::unordered_map<std::string, std::unordered_set<stream_id_t>> ABSL_GUARDED_BY(mu_) cluster_endpoints_;
-  std::unordered_map<std::string, std::list<std::weak_ptr<ActiveStreamEndpointListener>>> ABSL_GUARDED_BY(mu_) endpoint_listeners_;
 };
+
+class ActiveStreamTrackerFilterFactory : public Config::TypedFactory {
+public:
+  virtual ~ActiveStreamTrackerFilterFactory() = default;
+
+  std::string category() const override {
+    return "pomerium.ssh.active_stream_tracker.filters";
+  }
+
+  virtual ActiveStreamTrackerFilterPtr createActiveStreamTrackerFilter(const Protobuf::Message&, Server::Configuration::ServerFactoryContext&) PURE;
+};
+using ActiveStreamTrackerFilterFactoryPtr = std::unique_ptr<ActiveStreamTrackerFilterFactory>;
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

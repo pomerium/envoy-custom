@@ -29,7 +29,8 @@ class SshCodecFactory : public CodecFactory {
 public:
   SshCodecFactory(Envoy::Server::Configuration::ServerFactoryContext& context,
                   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                  CreateGrpcClientFunc create_grpc_client);
+                  CreateGrpcClientFunc create_grpc_client,
+                  std::shared_ptr<ActiveStreamTracker> active_stream_tracker);
   ServerCodecPtr createServerCodec() const override;
   ClientCodecPtr createClientCodec() const override;
 
@@ -37,6 +38,7 @@ private:
   Envoy::Server::Configuration::ServerFactoryContext& context_;
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config_;
   CreateGrpcClientFunc create_grpc_client_;
+  std::shared_ptr<ActiveStreamTracker> active_stream_tracker_;
 };
 
 DECLARE_FACTORY(SshCodecFactoryConfig);
