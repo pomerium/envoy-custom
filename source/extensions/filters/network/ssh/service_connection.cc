@@ -16,6 +16,13 @@ ConnectionService::ConnectionService(
   (void)api_;
 }
 
+DownstreamConnectionService::DownstreamConnectionService(TransportCallbacks& callbacks,
+                                                         Api::Api& api,
+                                                         std::shared_ptr<StreamTracker> stream_tracker)
+    : ConnectionService(callbacks, api),
+      transport_(dynamic_cast<DownstreamTransportCallbacks&>(callbacks)),
+      stream_tracker_(std::move(stream_tracker)) {}
+
 void DownstreamConnectionService::registerMessageHandlers(SshMessageDispatcher& dispatcher) {
   dispatcher.registerHandler(wire::SshMessageType::ChannelOpen, this);
   dispatcher.registerHandler(wire::SshMessageType::ChannelWindowAdjust, this);
@@ -117,13 +124,15 @@ absl::Status DownstreamConnectionService::onReceiveMessage(Grpc::ResponsePtr<Cha
   }
 }
 
-absl::Status DownstreamConnectionService::onStreamBegin(
-  [[maybe_unused]] const AuthState& auth_state,
-  [[maybe_unused]] Dispatcher& dispatcher) {
-  return absl::OkStatus();
+void DownstreamConnectionService::onStreamBegin(Network::Connection& connection, std::shared_ptr<StreamCallbacks> callbacks) {
+  ASSERT(connection.dispatcher().isThreadSafe());
+
+  stream_handle_ = stream_tracker_->onStreamBegin(transport_.streamId(), connection, callbacks);
 }
 
-void DownstreamConnectionService::onStreamEnd() {}
+void DownstreamConnectionService::onStreamEnd() {
+  stream_handle_.reset();
+}
 
 absl::Status UpstreamConnectionService::requestService() {
   wire::ServiceRequestMsg req;
@@ -159,13 +168,5 @@ absl::Status UpstreamConnectionService::handleMessage(wire::Message&& msg) {
       return absl::InternalError("unknown message");
     });
 }
-
-absl::Status UpstreamConnectionService::onStreamBegin(
-  [[maybe_unused]] const AuthState& auth_state,
-  [[maybe_unused]] Dispatcher& dispatcher) {
-  return absl::OkStatus();
-}
-
-void UpstreamConnectionService::onStreamEnd() {}
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

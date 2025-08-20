@@ -41,6 +41,12 @@ message CodecConfig {
 
   // Pomerium StreamManagement grpc service.
   envoy.config.core.v3.GrpcService grpc_service = 4 [(validate.rules).message.required = true];
+
+  StreamTrackerConfig stream_tracker = 5;
+}
+
+message StreamTrackerConfig {
+  repeated envoy.config.core.v3.TypedExtensionConfig filters = 1;
 }
 
 // The StreamManagement service is implemented by the Pomerium Authorize
