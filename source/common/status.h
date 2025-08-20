@@ -1,5 +1,6 @@
 #pragma once
 
+#include "source/common/common/fmt.h" // IWYU pragma: keep
 #include "fmt/format.h"
 #pragma clang unsafe_buffer_usage begin
 #include "absl/status/statusor.h" // IWYU pragma: keep
