@@ -12,6 +12,7 @@
 #include "fmt/ranges.h"
 #pragma clang unsafe_buffer_usage end
 
+#include "source/common/common/fmt.h" // IWYU pragma: keep
 #include "source/common/visit.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
