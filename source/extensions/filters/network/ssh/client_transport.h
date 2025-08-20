@@ -22,7 +22,7 @@ class SshClientTransport final : public TransportBase<ClientCodec>,
                                  public UpstreamTransportCallbacks,
                                  public SshMessageMiddleware {
 public:
-  SshClientTransport(Api::Api& api,
+  SshClientTransport(Envoy::Server::Configuration::ServerFactoryContext& context,
                      std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config);
   void setCodecCallbacks(GenericProxy::ClientCodecCallbacks& callbacks) override;
 

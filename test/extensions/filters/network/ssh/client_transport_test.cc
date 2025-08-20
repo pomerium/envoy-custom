@@ -5,6 +5,7 @@
 #include "test/extensions/filters/network/ssh/wire/test_field_reflect.h" // IWYU pragma: keep
 #include "test/extensions/filters/network/ssh/test_mocks.h"              // IWYU pragma: keep
 #include "test/mocks/network/connection.h"
+#include "test/mocks/server/server_factory_context.h"
 #include "test/test_common/test_common.h"
 #include "source/extensions/filters/network/ssh/service_connection.h" // IWYU pragma: keep
 #include "source/extensions/filters/network/ssh/service_userauth.h"   // IWYU pragma: keep
@@ -67,9 +68,8 @@ MATCHER(SentinelFrame, "") {
 class ClientTransportTest : public testing::Test {
 public:
   ClientTransportTest()
-      : api_(Api::createApiForTest()),
-        server_host_key_(*openssh::SSHKey::generate(KEY_ED25519, 256)),
-        transport_(*api_, initConfig()) {
+      : server_host_key_(*openssh::SSHKey::generate(KEY_ED25519, 256)),
+        transport_(server_factory_context_, initConfig()) {
   }
 
   const wire::KexInitMsg kex_init_ = {
@@ -440,7 +440,7 @@ public:
   std::unique_ptr<PacketCipher> server_cipher_;
   Envoy::Buffer::OwnedImpl input_buffer_;
   Envoy::Buffer::OwnedImpl output_buffer_;
-  Api::ApiPtr api_;
+  testing::NiceMock<Server::Configuration::MockServerFactoryContext> server_factory_context_;
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config_;
   openssh::SSHKeyPtr server_host_key_;
   testing::NiceMock<Envoy::Network::MockServerConnection> mock_connection_;

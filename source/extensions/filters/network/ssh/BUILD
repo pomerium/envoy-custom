@@ -25,6 +25,7 @@ envoy_cc_library(
         "server_transport.cc",
         "service_connection.cc",
         "service_userauth.cc",
+        "stream_tracker.cc",
         "version_exchange.cc",
     ],
     hdrs = [
@@ -45,6 +46,7 @@ envoy_cc_library(
         "service.h",
         "service_connection.h",
         "service_userauth.h",
+        "stream_tracker.h",
         "transport.h",
         "transport_base.h",
         "version_exchange.h",
