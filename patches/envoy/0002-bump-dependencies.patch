@@ -1,34 +1,3 @@
-diff --git a/bazel/grpc.patch b/bazel/grpc.patch
-index b09770279a..a852690ac4 100644
---- a/bazel/grpc.patch
-+++ b/bazel/grpc.patch
-@@ -37,3 +37,25 @@ index a2c7f3a1bb..cd023ebb06 100644
-      arguments += [_get_srcs_file_path(proto) for proto in protos]
-  
-      # create a list of well known proto files if the argument is non-None
-+diff --git a/third_party/BUILD b/third_party/BUILD
-+index 77cb52d0fc..5f69f71978 100644
-+--- a/third_party/BUILD
-++++ b/third_party/BUILD
-+@@ -30,7 +30,7 @@ alias(
-+
-+ alias(
-+     name = "madler_zlib",
-+-    actual = "@zlib//:zlib",
-++    actual = "@envoy//bazel/foreign_cc:zlib",
-+     tags = ["manual"],
-+ )
-+
-+@@ -61,7 +61,7 @@ alias(
-+
-+ alias(
-+     name = "cares",
-+-    actual = "@com_github_cares_cares//:ares",
-++    actual = "@envoy//bazel/foreign_cc:ares",
-+     tags = ["manual"],
-+ )
-+
-
 diff --git a/bazel/repository_locations.bzl b/bazel/repository_locations.bzl
 index caf9659217..411e66514d 100644
 --- a/bazel/repository_locations.bzl
@@ -43,15 +12,4 @@ index caf9659217..411e66514d 100644
 +        sha256 = "621824a62f56ea25f947bb64e107b7c6fb8b31199c46115dc783a670be35e2ca",
          strip_prefix = "tcmalloc-{version}",
          urls = ["https://github.com/google/tcmalloc/archive/{version}.tar.gz"],
-         use_category = ["dataplane_core", "controlplane"],
-@@ -425,8 +425,8 @@ REPOSITORY_LOCATIONS_SPEC = dict(
-         project_name = "gRPC",
-         project_desc = "gRPC C core library",
-         project_url = "https://grpc.io",
--        version = "1.63.2",
--        sha256 = "5b5b9c6507ec166ec0e9e82f58280c36544540ecdd818eaab7b8601596b74c9e",
-+        version = "1.66.2",
-+        sha256 = "1343e2d0c4cbd36cbfbbe4c7305a5529a7a044212c57b9dbfd929a6ceda285f4",
-         strip_prefix = "grpc-{version}",
-         urls = ["https://github.com/grpc/grpc/archive/v{version}.tar.gz"],
          use_category = ["dataplane_core", "controlplane"],
