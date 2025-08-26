@@ -30,10 +30,21 @@ index b09770279a..a852690ac4 100644
 +
 
 diff --git a/bazel/repository_locations.bzl b/bazel/repository_locations.bzl
-index caf9659217..411e66514d 100644
+index 6904bc93bd..6987765458 100644
 --- a/bazel/repository_locations.bzl
 +++ b/bazel/repository_locations.bzl
-@@ -397,8 +397,8 @@ REPOSITORY_LOCATIONS_SPEC = dict(
+@@ -248,8 +248,8 @@ REPOSITORY_LOCATIONS_SPEC = dict(
+         project_name = "c-ares",
+         project_desc = "C library for asynchronous DNS requests",
+         project_url = "https://c-ares.haxx.se/",
+-        version = "1.34.5",
+-        sha256 = "7d935790e9af081c25c495fd13c2cfcda4792983418e96358ef6e7320ee06346",
++        version = "1.34.4",
++        sha256 = "fa38dbed659ee4cc5a32df5e27deda575fa6852c79a72ba1af85de35a6ae222f",
+         strip_prefix = "c-ares-{version}",
+         urls = ["https://github.com/c-ares/c-ares/releases/download/v{version}/c-ares-{version}.tar.gz"],
+         use_category = ["dataplane_core", "controlplane"],
+@@ -378,8 +378,8 @@ REPOSITORY_LOCATIONS_SPEC = dict(
          project_name = "tcmalloc",
          project_desc = "Fast, multi-threaded malloc implementation",
          project_url = "https://github.com/google/tcmalloc",
@@ -44,7 +55,7 @@ index caf9659217..411e66514d 100644
          strip_prefix = "tcmalloc-{version}",
          urls = ["https://github.com/google/tcmalloc/archive/{version}.tar.gz"],
          use_category = ["dataplane_core", "controlplane"],
-@@ -425,8 +425,8 @@ REPOSITORY_LOCATIONS_SPEC = dict(
+@@ -406,8 +406,8 @@ REPOSITORY_LOCATIONS_SPEC = dict(
          project_name = "gRPC",
          project_desc = "gRPC C core library",
          project_url = "https://grpc.io",
