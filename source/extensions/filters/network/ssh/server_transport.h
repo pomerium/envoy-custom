@@ -22,7 +22,8 @@ class DownstreamConnectionService;
 
 class SshServerTransport final : public TransportBase<ServerCodec>,
                                  public Network::ConnectionCallbacks,
-                                 public DownstreamTransportCallbacks {
+                                 public DownstreamTransportCallbacks,
+                                 public HijackedChannelCallbacks {
 public:
   SshServerTransport(Server::Configuration::ServerFactoryContext& context,
                      std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
@@ -30,6 +31,7 @@ public:
                      StreamTrackerSharedPtr active_stream_tracker);
 
   void setCodecCallbacks(GenericProxy::ServerCodecCallbacks& callbacks) override;
+  void onConnected() override;
 
   GenericProxy::EncodingResult encode(const GenericProxy::StreamFrame& frame,
                                       GenericProxy::EncodingContext& ctx) override;
@@ -52,19 +54,14 @@ public:
   void onEvent(Network::ConnectionEvent event) override;
   void onAboveWriteBufferHighWatermark() override {}
   void onBelowWriteBufferLowWatermark() override {}
+  Envoy::OptRef<Envoy::Event::Dispatcher> connectionDispatcher() const override {
+    return connection_dispatcher_;
+  }
+  void terminate(absl::Status status) override;
 
-protected:
-  void onDecodingFailure(absl::Status status) override;
+  void initHandoff(pomerium::extensions::ssh::SSHChannelControlAction_HandOffUpstream* handoff_msg) override;
 
 private:
-  class StreamCallbacksImpl : public StreamCallbacks {
-  public:
-    explicit StreamCallbacksImpl(SshServerTransport& self) : self(self) {}
-
-    SshServerTransport& self;
-  };
-  std::shared_ptr<StreamCallbacksImpl> callbacks_impl_;
-
   void initServices();
 
   bool upstreamReady() const { return auth_state_ != nullptr; };
@@ -80,8 +77,10 @@ private:
 
   std::unique_ptr<StreamManagementServiceClient> mgmt_client_;
   std::unique_ptr<ChannelStreamServiceClient> channel_client_;
+  std::shared_ptr<Envoy::Grpc::RawAsyncClient> grpc_client_;
   stream_id_t stream_id_;
 
+  Envoy::OptRef<Envoy::Event::Dispatcher> connection_dispatcher_;
   StreamTrackerSharedPtr stream_tracker_;
 };
 

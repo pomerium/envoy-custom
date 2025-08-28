@@ -1,5 +1,6 @@
 #pragma once
 
+#include "source/extensions/filters/network/ssh/channel.h"
 #include <unordered_map>
 
 #pragma clang unsafe_buffer_usage begin
@@ -19,8 +20,7 @@ class UpstreamUserAuthService;
 class UpstreamConnectionService;
 
 class SshClientTransport final : public TransportBase<ClientCodec>,
-                                 public UpstreamTransportCallbacks,
-                                 public SshMessageMiddleware {
+                                 public UpstreamTransportCallbacks {
 public:
   SshClientTransport(Envoy::Server::Configuration::ServerFactoryContext& context,
                      std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config);
@@ -35,32 +35,46 @@ public:
   void forward(wire::Message&& msg, FrameTags tags = EffectiveCommon) override;
   void forwardHeader(wire::Message&& msg, FrameTags tags = {}) override;
 
-  absl::StatusOr<size_t> sendMessageToConnection(wire::Message&& msg) override;
-
   stream_id_t streamId() const override;
+
+  Envoy::OptRef<Envoy::Event::Dispatcher> connectionDispatcher() const override {
+    auto connection = callbacks_->connection();
+    if (!connection.has_value()) {
+      return std::nullopt;
+    }
+    return connection->dispatcher();
+  }
 
 protected:
   void onKexCompleted(std::shared_ptr<KexResult> kex_result, bool initial_kex) override;
-  void onDecodingFailure(absl::Status err) override;
+  void terminate(absl::Status err) override;
 
 private:
+  class HandoffMiddleware : public SshMessageMiddleware, public HandoffChannelCallbacks {
+  public:
+    explicit HandoffMiddleware(SshClientTransport& self) : self_(self) {}
+    absl::StatusOr<MiddlewareResult> interceptMessage(wire::Message& msg) override;
+    void onHandoffComplete() override {
+      // handoff is complete, send an empty message to signal the downstream codec
+      self_.forwardHeader(wire::IgnoreMsg{}, Sentinel);
+    }
+
+  private:
+    SshClientTransport& self_;
+  };
   void initServices();
   void registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) override;
-  absl::StatusOr<MiddlewareResult> interceptMessage(wire::Message& ssh_msg) override;
 
-  AuthStateSharedPtr downstream_state_;
+  AuthStateSharedPtr auth_state_;
   std::unique_ptr<UpstreamUserAuthService> user_auth_svc_;
   std::unique_ptr<UpstreamConnectionService> connection_svc_;
   std::unique_ptr<PingExtensionHandler> ping_handler_;
+  HandoffMiddleware handoff_middleware_{*this};
 
   std::map<std::string, UpstreamService*> services_;
 
-  bool channel_id_remap_enabled_{false};
   bool upstream_is_direct_tcpip_{false};
   bool response_stream_header_sent_{false};
-
-  // translates upstream channel ids from {the id the downstream thinks the upstream has} -> {the id the upstream actually has}
-  std::unordered_map<uint32_t, uint32_t> channel_id_mappings_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

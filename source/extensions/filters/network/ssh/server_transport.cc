@@ -35,8 +35,8 @@ SshServerTransport::SshServerTransport(Server::Configuration::ServerFactoryConte
       stream_tracker_(std::move(stream_tracker)) {
   auto grpcClient = create_grpc_client();
   THROW_IF_NOT_OK_REF(grpcClient.status());
-  mgmt_client_ = std::make_unique<StreamManagementServiceClient>(*grpcClient);
-  channel_client_ = std::make_unique<ChannelStreamServiceClient>(*grpcClient);
+  grpc_client_ = *grpcClient;
+  mgmt_client_ = std::make_unique<StreamManagementServiceClient>(grpc_client_);
 
   wire::ExtInfoMsg extInfo;
   extInfo.extensions->emplace_back(wire::PingExtension{.version = "0"s});
@@ -71,9 +71,15 @@ void SshServerTransport::setCodecCallbacks(Callbacks& callbacks) {
   } else {
     kex_->setHostKeys(std::move(*keys));
   }
+}
+
+void SshServerTransport::onConnected() {
+  auto& conn = *callbacks_->connection();
+  ASSERT(conn.state() == Network::Connection::State::Open);
+  connection_dispatcher_ = conn.dispatcher();
   initServices();
   mgmt_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus, std::string err) {
-    onDecodingFailure(absl::CancelledError(err));
+    terminate(absl::CancelledError(err));
   });
   stream_id_ = api_.randomGenerator().random();
   mgmt_client_->connect(streamId());
@@ -180,6 +186,37 @@ absl::Status SshServerTransport::handleMessage(wire::Message&& msg) {
           // server->client only
           return absl::InvalidArgumentError(fmt::format("unexpected global request: {}",
                                                         wire::HostKeysMsg::submsg_key));
+        },
+        [&](wire::TcpipForwardMsg& forward_msg) {
+          if (authState().channel_mode == ChannelMode::Hijacked) {
+            ENVOY_LOG(debug, "sending global request to hijacked stream: {}", msg.request_name());
+            ClientMessage clientMsg;
+            auto* streamEvent = clientMsg.mutable_event();
+            auto* globalReq = streamEvent->mutable_global_request();
+            auto* forwardReq = globalReq->mutable_tcpip_forward_request();
+            forwardReq->set_remote_address(forward_msg.remote_address);
+            forwardReq->set_remote_port(forward_msg.remote_port);
+            sendMgmtClientMessage(clientMsg);
+
+            // ChannelMessage channel_msg;
+            // google::protobuf::BytesValue b;
+            // auto msgData = encodeTo<std::string>(msg);
+            // if (!msgData.ok()) {
+            //   return absl::InvalidArgumentError(fmt::format("received invalid message: {}", msgData.status()));
+            // }
+            // *b.mutable_value() = *msgData;
+            // *channel_msg.mutable_raw_bytes() = b;
+            // if (auto s = authState().hijacked_stream.lock(); s) {
+            //   s->sendMessage(channel_msg, false);
+            // } else {
+            //   return absl::CancelledError("connection closed");
+            // }
+            return absl::OkStatus();
+          }
+
+          ENVOY_LOG(debug, "forwarding global request: {}", msg.request_name());
+          forward(std::move(msg));
+          return absl::OkStatus();
         });
     },
     [&](wire::GlobalRequestSuccessMsg& msg) {
@@ -228,6 +265,34 @@ void SshServerTransport::onServiceAuthenticated(const std::string& service_name)
   services_[service_name]->registerMessageHandlers(*this);
 }
 
+void SshServerTransport::initHandoff(pomerium::extensions::ssh::SSHChannelControlAction_HandOffUpstream* handoff_msg) {
+  auto newState = std::make_unique<AuthState>();
+  newState->server_version = authState().server_version;
+  newState->stream_id = authState().stream_id;
+  newState->channel_mode = authState().channel_mode;
+  switch (handoff_msg->upstream_auth().target_case()) {
+  case pomerium::extensions::ssh::AllowResponse::kUpstream:
+    newState->handoff_info.handoff_in_progress = true;
+    newState->channel_mode = ChannelMode::Handoff;
+    newState->allow_response.reset(handoff_msg->release_upstream_auth());
+    if (handoff_msg->has_downstream_channel_info()) {
+      newState->handoff_info.channel_info.reset(handoff_msg->release_downstream_channel_info());
+    }
+    if (handoff_msg->has_downstream_pty_info()) {
+      newState->handoff_info.pty_info.reset(handoff_msg->release_downstream_pty_info());
+    }
+    initUpstream(std::move(newState));
+    break;
+  case pomerium::extensions::ssh::AllowResponse::kMirrorSession:
+    terminate(absl::UnavailableError("session mirroring feature not available"));
+    break;
+  default:
+    terminate(absl::InternalError(fmt::format("received invalid channel message: unexpected target: {}",
+                                              static_cast<int>(handoff_msg->upstream_auth().target_case()))));
+    break;
+  }
+}
+
 void SshServerTransport::initUpstream(AuthStateSharedPtr s) {
   s->server_version = server_version_;
   bool first_init = (auth_state_ == nullptr);
@@ -246,22 +311,12 @@ void SshServerTransport::initUpstream(AuthStateSharedPtr s) {
                    "wrong target mode in AllowResponse for internal session");
 
     const auto& internal = auth_state_->allow_response->internal();
-    std::optional<envoy::config::core::v3::Metadata> optional_metadata;
-    if (internal.has_set_metadata()) {
-      optional_metadata = internal.set_metadata();
-    }
-    channel_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus code, std::string err) {
-      onDecodingFailure(absl::Status(static_cast<absl::StatusCode>(code), err));
-    });
-    auth_state_->hijacked_stream = channel_client_->start(connection_service_.get(), std::move(optional_metadata));
+    connection_service_->prepareOpenHijackedChannel(*this, internal, grpc_client_);
+
     sendMessageToConnection(wire::UserAuthSuccessMsg{})
       .IgnoreError();
   } break;
   case ChannelMode::Handoff: {
-    channel_client_->setOnRemoteCloseCallback(nullptr);
-    if (auto s = auth_state_->hijacked_stream.lock(); s) {
-      s->resetStream();
-    }
     auto frame = std::make_unique<SSHRequestHeaderFrame>(auth_state_);
     callbacks_->connection()->readDisable(true);
     callbacks_->onDecodingSuccess(std::move(frame));
@@ -274,8 +329,7 @@ void SshServerTransport::initUpstream(AuthStateSharedPtr s) {
     throw EnvoyException("mirroring not supported");
   }
   if (first_init) {
-    callbacks_impl_ = std::make_shared<StreamCallbacksImpl>(*this);
-    connection_service_->onStreamBegin(callbacks_->connection().ref(), callbacks_impl_);
+    connection_service_->onStreamBegin(callbacks_->connection().ref());
     callbacks_->connection()->addConnectionCallbacks(*this);
   }
 }
@@ -339,7 +393,7 @@ void SshServerTransport::sendMgmtClientMessage(const ClientMessage& msg) {
   mgmt_client_->stream().sendMessage(msg, false);
 }
 
-void SshServerTransport::onDecodingFailure(absl::Status status) {
+void SshServerTransport::terminate(absl::Status status) {
   wire::DisconnectMsg msg;
   msg.reason_code = openssh::statusCodeToDisconnectCode(status.code());
   if (!status.ok()) {
@@ -348,7 +402,7 @@ void SshServerTransport::onDecodingFailure(absl::Status status) {
   sendMessageToConnection(std::move(msg))
     .IgnoreError();
 
-  TransportBase::onDecodingFailure(status);
+  TransportBase::terminate(status);
 }
 
 void SshServerTransport::onEvent(Network::ConnectionEvent event) {

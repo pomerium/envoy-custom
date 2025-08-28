@@ -1,5 +1,6 @@
 #pragma once
 
+#include "source/extensions/filters/network/ssh/channel.h"
 #pragma clang unsafe_buffer_usage begin
 #include "source/common/common/thread.h"
 #include "envoy/server/factory_context.h"
@@ -19,21 +20,28 @@ using pomerium::extensions::ssh::StreamTrackerConfig;
 class StreamCallbacks {
 public:
   virtual ~StreamCallbacks() = default;
+  virtual absl::StatusOr<uint32_t> startChannel(std::unique_ptr<Channel> channel, std::optional<uint32_t> channel_id) PURE;
+  // virtual void releaseChannel(uint32_t channel_id) PURE;
 };
 
 using StreamCallbacksSharedPtr = std::shared_ptr<StreamCallbacks>;
 using StreamCallbacksWeakPtr = std::weak_ptr<StreamCallbacks>;
 
-class StreamInterface {
+class StreamInterface : public ChannelEventCallbacks,
+                        public Logger::Loggable<Logger::Id::filter> {
 public:
-  StreamInterface(stream_id_t stream_id, Network::Connection& connection, StreamCallbacksWeakPtr callbacks);
-
+  StreamInterface(stream_id_t stream_id, Network::Connection& connection, StreamCallbacks& callbacks, ChannelEventCallbacks& event_callbacks);
+  absl::Status requestOpenDownstreamChannel(Network::IoHandlePtr io_handle);
   stream_id_t streamId() { return stream_id_; }
+  void sendChannelEvent(const pomerium::extensions::ssh::ChannelEvent& ev) override {
+    event_callbacks_.sendChannelEvent(ev);
+  }
 
 private:
   stream_id_t stream_id_;
   Thread::ThreadId source_thread_;
-  StreamCallbacksWeakPtr callbacks_;
+  StreamCallbacks& stream_callbacks_;
+  ChannelEventCallbacks& event_callbacks_;
   ::Envoy::Event::Dispatcher& source_dispatcher_;
 };
 using StreamInterfaceSharedPtr = std::shared_ptr<StreamInterface>;
@@ -59,7 +67,6 @@ public:
 };
 
 using StreamTrackerFilterPtr = std::unique_ptr<StreamTrackerFilter>;
-using StreamTrackerFilterMap = std::unordered_map<std::string, StreamTrackerFilterPtr>;
 
 class StreamTracker : public Singleton::Instance, public Logger::Loggable<Logger::Id::filter> {
 public:
@@ -67,23 +74,30 @@ public:
                                                     const StreamTrackerConfig& config);
   static std::shared_ptr<StreamTracker> fromContext(Server::Configuration::ServerFactoryContext& context);
 
-  StreamInterfaceSharedPtr find(stream_id_t key) const;
-  size_t numActiveConnectionHandles() const;
+  bool tryLock(stream_id_t key, std::function<void(StreamInterface&)> cb);
+  size_t numActiveConnectionHandles();
 
   [[nodiscard]]
-  StreamHandlePtr onStreamBegin(stream_id_t stream_id, Network::Connection& connection, StreamCallbacksWeakPtr source_callbacks);
+  StreamHandlePtr onStreamBegin(stream_id_t stream_id, Network::Connection& connection,
+                                StreamCallbacks& stream_callbacks, ChannelEventCallbacks& event_callbacks);
   void onStreamEnd(stream_id_t stream_id);
 
-  const std::vector<StreamTrackerFilterPtr>& filtersForTest() { return filters_; }
+  size_t visitFiltersForTest(std::function<void(StreamTrackerFilter&)> cb) {
+    Thread::LockGuard lock(mu_);
+    for (auto& filter : filters_) {
+      cb(*filter);
+    }
+    return filters_.size();
+  }
 
 private:
-  StreamTracker(std::vector<StreamTrackerFilterPtr> listeners)
-      : filters_(std::move(listeners)) {}
+  StreamTracker() = default;
+  void initialize(Server::Configuration::ServerFactoryContext& context,
+                  const StreamTrackerConfig& config);
 
-  const std::vector<StreamTrackerFilterPtr> filters_;
-
-  mutable Thread::MutexBasicLockable mu_;
-  absl::node_hash_map<stream_id_t, StreamInterfaceSharedPtr> ABSL_GUARDED_BY(mu_) active_connection_handles_;
+  Thread::MutexBasicLockable mu_;
+  std::vector<StreamTrackerFilterPtr> filters_ ABSL_GUARDED_BY(mu_);
+  absl::node_hash_map<stream_id_t, std::unique_ptr<StreamInterface>> active_connection_handles_ ABSL_GUARDED_BY(mu_);
 };
 using StreamTrackerPtr = std::unique_ptr<StreamTracker>;
 using StreamTrackerSharedPtr = std::shared_ptr<StreamTracker>;

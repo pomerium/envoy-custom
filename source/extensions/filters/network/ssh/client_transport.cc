@@ -64,7 +64,7 @@ void SshClientTransport::registerMessageHandlers(MessageDispatcher<wire::Message
 void SshClientTransport::decode(Envoy::Buffer::Instance& buffer, bool end_stream) {
   if (upstream_is_direct_tcpip_) {
     wire::ChannelDataMsg data_msg;
-    data_msg.recipient_channel = downstream_state_->handoff_info.channel_info->downstream_channel_id();
+    data_msg.recipient_channel = auth_state_->handoff_info.channel_info->downstream_channel_id();
     data_msg.data = wire::flushTo<bytes>(buffer);
     forward(std::move(data_msg));
     return;
@@ -77,26 +77,28 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
   switch (frame.frameFlags().frameTags() & FrameTags::FrameTypeMask) {
   case FrameTags::RequestHeader: {
     const auto& reqHeader = static_cast<const SSHRequestHeaderFrame&>(frame);
-    downstream_state_ = reqHeader.authState();
-    if (downstream_state_->channel_mode == ChannelMode::Handoff) {
-      if (downstream_state_->allow_response->has_upstream()) {
-        ASSERT(downstream_state_->handoff_info.handoff_in_progress);
-        const auto& upstream = downstream_state_->allow_response->upstream();
+    auth_state_ = reqHeader.authState();
+    if (auth_state_->channel_mode == ChannelMode::Handoff) {
+      if (auth_state_->allow_response->has_upstream()) {
+        ASSERT(auth_state_->handoff_info.handoff_in_progress);
+        const auto& upstream = auth_state_->allow_response->upstream();
         if (upstream.direct_tcpip()) {
           upstream_is_direct_tcpip_ = true;
           wire::ChannelOpenConfirmationMsg confirm;
-          confirm.recipient_channel = downstream_state_->handoff_info.channel_info->downstream_channel_id();
-          confirm.sender_channel = downstream_state_->handoff_info.channel_info->internal_upstream_channel_id();
-          confirm.initial_window_size = downstream_state_->handoff_info.channel_info->initial_window_size();
-          confirm.max_packet_size = downstream_state_->handoff_info.channel_info->max_packet_size();
+          confirm.recipient_channel = auth_state_->handoff_info.channel_info->downstream_channel_id();
+          confirm.sender_channel = auth_state_->handoff_info.channel_info->internal_upstream_channel_id();
+          confirm.initial_window_size = auth_state_->handoff_info.channel_info->initial_window_size();
+          confirm.max_packet_size = auth_state_->handoff_info.channel_info->max_packet_size();
+          if (auto stat = auth_state_->channel_id_mgr.processOutgoingChannelMsg(confirm, Peer::Downstream); !stat.ok()) {
+            return stat;
+          }
           forwardHeader(std::move(confirm));
           return 0;
         }
       }
-      channel_id_remap_enabled_ = true;
-      installMiddleware(this);
+      installMiddleware(&handoff_middleware_);
     }
-    return version_exchanger_->writeVersion(downstream_state_->server_version);
+    return version_exchanger_->writeVersion(auth_state_->server_version);
   }
   case FrameTags::RequestCommon: {
     if (!upstream_is_direct_tcpip_) {
@@ -129,20 +131,6 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
   default:
     throw EnvoyException("bug: unknown frame kind");
   }
-}
-
-absl::StatusOr<size_t> SshClientTransport::sendMessageToConnection(wire::Message&& msg) {
-  if (channel_id_remap_enabled_) {
-    msg.visit(
-      [&](wire::ChannelMsg auto& msg) {
-        auto it = channel_id_mappings_.find(msg.recipient_channel);
-        if (it != channel_id_mappings_.end()) {
-          msg.recipient_channel = it->second;
-        }
-      },
-      [](auto&) {});
-  }
-  return TransportBase::sendMessageToConnection(std::move(msg));
 }
 
 absl::Status SshClientTransport::handleMessage(wire::Message&& msg) {
@@ -188,7 +176,7 @@ absl::Status SshClientTransport::handleMessage(wire::Message&& msg) {
 }
 
 AuthState& SshClientTransport::authState() {
-  return *downstream_state_;
+  return *auth_state_;
 }
 
 void SshClientTransport::forward(wire::Message&& msg, FrameTags tags) {
@@ -212,104 +200,6 @@ void SshClientTransport::forwardHeader(wire::Message&& msg, FrameTags tags) {
   forward(std::move(msg), FrameTags{tags | EffectiveHeader});
 }
 
-absl::StatusOr<MiddlewareResult> SshClientTransport::interceptMessage(wire::Message& ssh_msg) {
-  return ssh_msg.visit(
-    [&](wire::ChannelOpenConfirmationMsg& msg) -> absl::StatusOr<MiddlewareResult> {
-      const auto& info = downstream_state_->handoff_info;
-      if (info.handoff_in_progress) {
-        if (info.pty_info == nullptr) {
-          return absl::InvalidArgumentError("session is not interactive");
-        }
-        channel_id_mappings_[info.channel_info->internal_upstream_channel_id()] = msg.sender_channel;
-        // channel is open, now request a pty
-        wire::ChannelRequestMsg channelReq;
-        channelReq.recipient_channel = msg.sender_channel;
-        channelReq.want_reply = true;
-
-        wire::PtyReqChannelRequestMsg ptyReq;
-        ptyReq.term_env = info.pty_info->term_env();
-        ptyReq.width_columns = info.pty_info->width_columns();
-        ptyReq.height_rows = info.pty_info->height_rows();
-        ptyReq.width_px = info.pty_info->width_px();
-        ptyReq.height_px = info.pty_info->height_px();
-        ptyReq.modes = info.pty_info->modes();
-
-        channelReq.request = ptyReq;
-        if (auto r = sendMessageToConnection(std::move(channelReq)); !r.ok()) {
-          return statusf("error requesting pty: {}", r.status());
-        }
-        return Break;
-      }
-      return Continue;
-    },
-    [&](wire::ChannelOpenFailureMsg& msg) -> absl::StatusOr<MiddlewareResult> {
-      const auto& info = downstream_state_->handoff_info;
-      if (info.handoff_in_progress) {
-
-        // couldn't connect to the upstream, bail out
-        // still can't forward the message, the downstream thinks
-        // the channel is already open
-        onDecodingFailure(absl::UnavailableError(*msg.description));
-        return Break;
-      }
-      return Continue;
-    },
-    [&](wire::UserAuthSuccessMsg&) -> absl::StatusOr<MiddlewareResult> {
-      wire::ChannelOpenMsg openMsg;
-      openMsg.channel_type = downstream_state_->handoff_info.channel_info->channel_type();
-      openMsg.sender_channel = downstream_state_->handoff_info.channel_info->downstream_channel_id();
-      openMsg.initial_window_size = downstream_state_->handoff_info.channel_info->initial_window_size();
-      openMsg.max_packet_size = downstream_state_->handoff_info.channel_info->max_packet_size();
-      auto r = sendMessageToConnection(std::move(openMsg));
-      RELEASE_ASSERT(r.ok(), "failed to send ChannelOpenMsg");
-
-      // this message won't be dispatched to the upstream userauth service, so we need to handle a
-      // couple of post-auth-success actions that it would normally do
-
-      // set the upstream ext info if available
-      if (auto info = peerExtInfo(); info.has_value()) {
-        authState().upstream_ext_info = std::move(info);
-      }
-      // unregister the user auth service
-      unregisterHandler(user_auth_svc_.get());
-
-      return Break;
-    },
-    [&](wire::UserAuthFailureMsg&) -> absl::StatusOr<MiddlewareResult> {
-      return absl::PermissionDeniedError("");
-    },
-    [&](wire::ChannelSuccessMsg&) -> absl::StatusOr<MiddlewareResult> {
-      if (downstream_state_->handoff_info.handoff_in_progress) {
-        // open a shell; this logic is only reached after requesting a pty
-        wire::ChannelRequestMsg shellReq;
-        shellReq.recipient_channel = channel_id_mappings_[downstream_state_->handoff_info.channel_info->internal_upstream_channel_id()];
-        shellReq.request = wire::ShellChannelRequestMsg{};
-        shellReq.want_reply = false;
-        auto r = sendMessageToConnection(std::move(shellReq));
-        RELEASE_ASSERT(r.ok(), "failed to send ShellChannelRequestMsg");
-
-        // handoff is complete, send an empty message to signal the downstream codec
-        forwardHeader(wire::IgnoreMsg{}, Sentinel);
-        return Break;
-      }
-      return Continue;
-    },
-    [&](wire::ChannelFailureMsg&) -> absl::StatusOr<MiddlewareResult> {
-      if (downstream_state_->handoff_info.handoff_in_progress) {
-        return absl::InternalError("failed to open upstream tty");
-      }
-      return Continue;
-    },
-    [&](any_of<wire::IgnoreMsg, wire::DebugMsg, wire::UnimplementedMsg> auto&) -> absl::StatusOr<MiddlewareResult> {
-      if (downstream_state_->handoff_info.handoff_in_progress) {
-        // ignore these messages during handoff, they can trigger a common frame to be sent too early
-        return Break;
-      }
-      return Continue;
-    },
-    [](auto&) -> absl::StatusOr<MiddlewareResult> { return Continue; });
-}
-
 void SshClientTransport::onKexCompleted(std::shared_ptr<KexResult> kex_result, bool initial_kex) {
   TransportBase::onKexCompleted(std::move(kex_result), initial_kex);
 
@@ -331,15 +221,54 @@ void SshClientTransport::onKexCompleted(std::shared_ptr<KexResult> kex_result, b
 }
 
 stream_id_t SshClientTransport::streamId() const {
-  return downstream_state_->stream_id;
+  return auth_state_->stream_id;
 }
 
-void SshClientTransport::onDecodingFailure(absl::Status err) {
+void SshClientTransport::terminate(absl::Status err) {
   ENVOY_LOG(error, "ssh: stream {} closing with error: {}", streamId(), err.message());
 
   wire::DisconnectMsg msg;
   msg.reason_code = openssh::statusCodeToDisconnectCode(err.code());
   msg.description = statusToString(err);
   forwardHeader(std::move(msg), Error);
+}
+
+// Handoff Middleware
+
+absl::StatusOr<MiddlewareResult> SshClientTransport::HandoffMiddleware::interceptMessage(wire::Message& ssh_msg) {
+  const auto& info = self_.auth_state_->handoff_info;
+  ASSERT(info.handoff_in_progress);
+
+  return ssh_msg.visit(
+    // 1: User auth request
+    [&](wire::UserAuthSuccessMsg&) -> absl::StatusOr<MiddlewareResult> {
+      auto channel = std::make_unique<HandoffChannel>(info, *this);
+      auto stat = self_.connection_svc_->startChannel(std::move(channel), info.channel_info->internal_upstream_channel_id());
+      if (!stat.ok()) {
+        return stat.status();
+      }
+
+      // this message won't be dispatched to the upstream userauth service, so we need to handle a
+      // couple of post-auth-success actions that it would normally do
+
+      // set the upstream ext info if available
+      if (auto info = self_.peerExtInfo(); info.has_value()) {
+        self_.authState().upstream_ext_info = std::move(info);
+      }
+      // unregister the user auth service
+      self_.unregisterHandler(self_.user_auth_svc_.get());
+
+      return Break;
+    },
+    [&](wire::UserAuthFailureMsg&) -> absl::StatusOr<MiddlewareResult> {
+      return absl::PermissionDeniedError("");
+    },
+    [&](any_of<wire::IgnoreMsg, wire::DebugMsg, wire::UnimplementedMsg> auto&) -> absl::StatusOr<MiddlewareResult> {
+      // ignore these messages during handoff, they can trigger a common frame to be sent too early
+      return Break;
+    },
+    [](auto& msg) -> absl::StatusOr<MiddlewareResult> {
+      return absl::InternalError(fmt::format("received unexpected message from upstream during handoff: {}", msg.msg_type()));
+    });
 }
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

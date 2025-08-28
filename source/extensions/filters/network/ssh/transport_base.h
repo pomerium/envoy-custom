@@ -93,7 +93,7 @@ public:
         ASSERT(!version_exchanger_->versionRead());
         auto n = version_exchanger_->readVersion(buffer);
         if (!n.ok()) {
-          onDecodingFailure(n.status());
+          terminate(n.status());
           return;
         }
         if (*n == 0) {
@@ -111,7 +111,7 @@ public:
       Envoy::Buffer::OwnedImpl dec;
       auto bytes_read = cipher_->decryptPacket(seq_read_, dec, buffer);
       if (!bytes_read.ok()) {
-        onDecodingFailure(statusf("failed to decrypt packet: {}", bytes_read.status()));
+        terminate(statusf("failed to decrypt packet: {}", bytes_read.status()));
         return;
       }
       if (*bytes_read == 0) {
@@ -125,12 +125,12 @@ public:
       wire::Message msg;
       auto packet_len = wire::decodePacket(dec, msg);
       if (!packet_len.ok()) {
-        onDecodingFailure(statusf("failed to decode packet: {}", packet_len.status()));
+        terminate(statusf("failed to decode packet: {}", packet_len.status()));
         return;
       }
       ENVOY_LOG(trace, "received message: size: {}, type: {}", *packet_len, msg.msg_type());
       if (auto err = onMessageDecoded(std::move(msg)); !err.ok()) {
-        onDecodingFailure(err);
+        terminate(err);
         return;
       }
 
@@ -146,7 +146,7 @@ public:
                   codec_traits<Codec>::name,
                   read_bytes_remaining_, seq_read_);
         if (auto stat = kex_->initiateKex(); !stat.ok()) {
-          onDecodingFailure(statusf("failed to initiate rekey: {}", stat));
+          terminate(statusf("failed to initiate rekey: {}", stat));
           return;
         }
       }
@@ -204,7 +204,7 @@ public:
     ENVOY_LOG(debug, "ssh [{}]: stream {}: version exchange complete (server: {}; client: {})",
               codec_traits<Codec>::name, streamId(), serverVersionString, clientVersionString);
     if (auto stat = kex_->initiateKex(); !stat.ok()) {
-      onDecodingFailure(stat);
+      terminate(stat);
     }
   }
 
@@ -252,7 +252,7 @@ public:
         while (!pending_messages_.empty() && !pending_key_exchange_) {
           auto& msg = pending_messages_.back();
           if (auto r = sendMessageDirect(std::move(msg)); !r.ok()) {
-            onDecodingFailure(r.status());
+            terminate(r.status());
             return;
           }
           pending_messages_.pop_back();
@@ -261,7 +261,7 @@ public:
     }
   }
 
-  virtual void onDecodingFailure(absl::Status err) {
+  void terminate(absl::Status err) override {
     if (err.ok()) {
       ENVOY_LOG(info, "ssh [{}]: stream {} closing", codec_traits<Codec>::name, streamId(), err.message());
     } else {

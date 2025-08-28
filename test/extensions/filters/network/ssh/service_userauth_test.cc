@@ -19,11 +19,10 @@ TEST(UserAuthServiceTest, SplitUsername) {
 }
 
 AuthState newValidAuthState() {
-  AuthState authState;
-  authState.allow_response = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
-  authState.allow_response->set_username("foo");
-  authState.allow_response->mutable_upstream()->set_hostname("example");
-  auto* publicKeyMethod = authState.allow_response->mutable_upstream()->add_allowed_methods();
+  auto allow_response = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
+  allow_response->set_username("foo");
+  allow_response->mutable_upstream()->set_hostname("example");
+  auto* publicKeyMethod = allow_response->mutable_upstream()->add_allowed_methods();
   publicKeyMethod->set_method("publickey");
   pomerium::extensions::ssh::PublicKeyAllowResponse publicKeyMethodData;
   pomerium::extensions::ssh::Permissions permissions;
@@ -38,7 +37,9 @@ AuthState newValidAuthState() {
     absl::ToUnixNanos(absl::Now() + absl::Hours(1)));
   *publicKeyMethodData.mutable_permissions() = std::move(permissions);
   publicKeyMethod->mutable_method_data()->PackFrom(publicKeyMethodData);
-  return authState;
+  return AuthState{
+    .allow_response = std::move(allow_response),
+  };
 }
 
 class TestSshMessageDispatcher : public SshMessageDispatcher {

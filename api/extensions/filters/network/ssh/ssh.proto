@@ -3,6 +3,7 @@ syntax = "proto3";
 package pomerium.extensions.ssh;
 
 import "envoy/config/core/v3/base.proto";
+import "envoy/config/core/v3/config_source.proto";
 import "envoy/config/core/v3/extension.proto";
 import "envoy/config/core/v3/grpc_service.proto";
 import "google/protobuf/any.proto";
@@ -47,6 +48,11 @@ message CodecConfig {
 
 message StreamTrackerConfig {
   repeated envoy.config.core.v3.TypedExtensionConfig filters = 1;
+}
+
+message ReverseTunnelCluster {
+  string                            name       = 1;
+  envoy.config.core.v3.ConfigSource eds_config = 2;
 }
 
 // The StreamManagement service is implemented by the Pomerium Authorize
@@ -102,6 +108,8 @@ message StreamEvent {
     DownstreamConnectEvent      downstream_connected    = 1;
     DownstreamDisconnectedEvent downstream_disconnected = 2;
     UpstreamConnectEvent        upstream_connected      = 3;
+    ChannelEvent                channel_event           = 4;
+    GlobalRequest               global_request          = 5;
   }
 }
 
@@ -118,6 +126,33 @@ message DownstreamDisconnectedEvent {
 
 message UpstreamConnectEvent {
   uint64 stream_id = 1;
+}
+
+message ChannelEvent {
+  uint32 channel_id = 1;
+  message InternalChannelOpenedEvent {
+    uint32 channel_id   = 1;
+    string peer_address = 2;
+  }
+  message InternalChannelClosedEvent {
+    uint32 channel_id = 1;
+    string reason     = 2;
+  }
+  oneof event {
+    InternalChannelOpenedEvent internal_channel_opened = 2;
+    InternalChannelClosedEvent internal_channel_closed = 3;
+  }
+}
+
+message GlobalRequest {
+  uint64 stream_id = 1;
+  message TcpipForwardRequest {
+    string remote_address = 1;
+    uint32 remote_port    = 2;
+  }
+  oneof request {
+    TcpipForwardRequest tcpip_forward_request = 2;
+  }
 }
 
 // AuthenticationRequest is sent by Envoy to Pomerium when the downstream
@@ -309,5 +344,6 @@ message Permissions {
 }
 
 message FilterMetadata {
-  uint64 stream_id = 1;
+  uint64 stream_id  = 1;
+  uint32 channel_id = 2;
 }

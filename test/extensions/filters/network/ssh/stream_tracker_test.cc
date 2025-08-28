@@ -38,6 +38,14 @@ TEST_F(StreamTrackerTest, FromContextWithNoConfig) {
 class TestStreamCallbacks : public StreamCallbacks {
 public:
   virtual ~TestStreamCallbacks() = default;
+  absl::Status startChannel(std::unique_ptr<Channel> channel, std::optional<uint32_t> channel_id) {
+    (void)channel;
+    (void)channel_id;
+    return absl::OkStatus();
+  }
+  void closeChannel(uint32_t channel_id) {
+    (void)channel_id;
+  }
 };
 
 TEST_F(StreamTrackerTest, TrackStream) {
@@ -212,13 +220,15 @@ TEST_F(StreamTrackerTest, Filters) {
 
   auto st = StreamTracker::fromContext(context, cfg);
   ASSERT_NE(nullptr, st);
-  ASSERT_EQ(1, st->filtersForTest().size());
-  const auto& filter = dynamic_cast<const MockStreamTrackerFilter&>(*st->filtersForTest()[0]);
-  EXPECT_CALL(filter, onStreamBegin)
-    .WillOnce([](StreamInterface& intf) {
-      EXPECT_EQ(1, intf.streamId());
-    });
-  EXPECT_CALL(filter, onStreamEnd);
+  auto n = st->visitFiltersForTest([&](StreamTrackerFilter& f) {
+    const auto& filter = dynamic_cast<const MockStreamTrackerFilter&>(f);
+    EXPECT_CALL(filter, onStreamBegin)
+      .WillOnce([](StreamInterface& intf) {
+        EXPECT_EQ(1, intf.streamId());
+      });
+    EXPECT_CALL(filter, onStreamEnd);
+  });
+  ASSERT_EQ(1, n);
 
   auto testCallbacks1 = std::make_shared<TestStreamCallbacks>();
   testing::NiceMock<Network::MockConnection> conn1;

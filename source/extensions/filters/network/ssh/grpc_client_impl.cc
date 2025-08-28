@@ -48,19 +48,19 @@ ChannelStreamServiceClient::ChannelStreamServiceClient(Grpc::RawAsyncClientShare
         "pomerium.extensions.ssh.StreamManagement.ServeChannel")),
       client_(client) {}
 
-std::weak_ptr<Grpc::AsyncStream<ChannelMessage>> ChannelStreamServiceClient::start(
+Grpc::AsyncStream<ChannelMessage> ChannelStreamServiceClient::start(
   ChannelStreamCallbacks* callbacks, std::optional<envoy::config::core::v3::Metadata> metadata) {
   callbacks_ = callbacks;
   Http::AsyncClient::StreamOptions opts;
-  stream_ = std::make_shared<Grpc::AsyncStream<ChannelMessage>>(client_.start(method_manage_stream_, *this, opts));
+  auto stream = client_.start(method_manage_stream_, *this, opts);
   ChannelMessage mdMsg;
   if (metadata.has_value()) {
     *mdMsg.mutable_metadata() = *metadata;
   } else {
     mdMsg.mutable_metadata(); // set empty metadata
   }
-  stream_->sendMessage(mdMsg, false);
-  return stream_;
+  stream->sendMessage(mdMsg, false);
+  return stream;
 }
 
 void ChannelStreamServiceClient::onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) {
@@ -75,7 +75,6 @@ void ChannelStreamServiceClient::onReceiveMessage(Grpc::ResponsePtr<ChannelMessa
 }
 
 void ChannelStreamServiceClient::onRemoteClose(Grpc::Status::GrpcStatus status, const std::string& err) {
-  stream_ = nullptr;
   if (on_remote_close_ && !on_remote_close_called_) {
     on_remote_close_called_ = true;
     on_remote_close_(status, err);

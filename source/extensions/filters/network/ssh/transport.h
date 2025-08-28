@@ -1,5 +1,7 @@
 #pragma once
 
+#include "source/common/id_alloc.h"
+#include "source/extensions/filters/network/ssh/id_manager.h"
 #pragma clang unsafe_buffer_usage begin
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #pragma clang unsafe_buffer_usage end
@@ -58,12 +60,13 @@ struct AuthState {
   std::string server_version;
   stream_id_t stream_id{}; // unique stream id for both connections
   ChannelMode channel_mode{};
-  std::weak_ptr<Grpc::AsyncStream<pomerium::extensions::ssh::ChannelMessage>> hijacked_stream;
+  // std::weak_ptr<Grpc::AsyncStream<pomerium::extensions::ssh::ChannelMessage>> hijacked_stream;
   HandoffInfo handoff_info;
   MultiplexingInfo multiplexing_info;
   std::optional<wire::ExtInfoMsg> downstream_ext_info;
   std::optional<wire::ExtInfoMsg> upstream_ext_info;
   std::unique_ptr<pomerium::extensions::ssh::AllowResponse> allow_response;
+  ChannelIDManager channel_id_mgr;
 };
 
 using AuthStateSharedPtr = std::shared_ptr<AuthState>;
@@ -86,6 +89,8 @@ public:
   virtual const pomerium::extensions::ssh::CodecConfig& codecConfig() const PURE;
   virtual stream_id_t streamId() const PURE;
   virtual void updatePeerExtInfo(std::optional<wire::ExtInfoMsg> msg) PURE;
+  virtual Envoy::OptRef<Envoy::Event::Dispatcher> connectionDispatcher() const PURE;
+  virtual void terminate(absl::Status status) PURE;
 
   // This function is called at each opportunity to send ext info (once for clients, twice for
   // servers). Iff a value is returned, it will be sent to the peer.
@@ -111,3 +116,12 @@ public:
 class UpstreamTransportCallbacks : public virtual TransportCallbacks {};
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
+
+// specialization of fmt::formatter for ChannelMode, used for fmt::format
+template <>
+struct fmt::formatter<Envoy::Extensions::NetworkFilters::GenericProxy::Codec::ChannelMode> : fmt::formatter<string_view> {
+  auto format(Envoy::Extensions::NetworkFilters::GenericProxy::Codec::ChannelMode mode, format_context& ctx) const
+    -> format_context::iterator {
+    return fmt::formatter<string_view>::format(magic_enum::enum_name(mode), ctx);
+  }
+};
