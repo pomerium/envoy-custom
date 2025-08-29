@@ -1,0 +1,50 @@
+name: Envoy Tests (Linux)
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+  ### ONLY FOR TESTING ###
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ["x64"]
+    runs-on:
+      - ubuntu-latest-16-cores${{ matrix.arch == 'arm64' && '-arm64' || '' }}
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: disable man-db auto update
+        if: ${{ runner.environment == 'github-hosted' }}
+        run: sudo rm -f /var/lib/man-db/auto-update
+
+      - name: setup clang
+        run: |
+          sudo apt -y install virtualenv llvm-19 llvm-19-linker-tools llvm-19-runtime libllvm19 clang-19 clang-tidy-19 clang-tools-19 libclang1-19 libclang-cpp19 libc++-19-dev libc++abi1-19 lld-19
+          tools/setup_clang.sh /usr/lib/llvm-19
+
+      - name: setup bazel
+        uses: bazel-contrib/setup-bazel@e8776f58fb6a6e9055cbaf1b38c52ccc5247e9c4
+        with:
+          bazelisk-version: 1.25.0
+          bazelisk-cache: true
+          disk-cache: bazel-linux-${{ matrix.arch }}
+          repository-cache: true
+
+      - name: test
+        # Exclude any tests that depend on CEL (currently broken under C++23)
+        run: >
+          bazel test --test_output=errors -- @envoy//test/...
+          -@envoy//test/common/access_log:access_log_impl_test
+          -@envoy//test/extensions/access_loggers/grpc:tcp_grpc_access_log_integration_test
+          -@envoy//test/extensions/common/wasm/...
+          -@envoy//test/extensions/filters/common/expr:evaluator_fuzz_test
+          -@envoy//test/extensions/filters/http/rbac:rbac_filter_fuzz_test
+          -@envoy//test/integration:access_log_integration_test
