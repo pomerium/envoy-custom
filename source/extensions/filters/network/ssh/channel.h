@@ -17,40 +17,52 @@ class ChannelCallbacks {
 public:
   virtual ~ChannelCallbacks() = default;
   virtual absl::Status sendMessageToConnection(wire::Message&& msg) PURE;
+  virtual void passthrough(wire::Message&& msg) PURE;
   virtual uint32_t channelId() const PURE;
 
-  // Closes the channel. If a non-ok error is passed, the underlying connection will be terminated.
-  virtual void closeChannel(absl::Status err = absl::OkStatus()) PURE;
+private:
+  friend class Channel;
+  virtual void cleanup() PURE;
 };
 
 class Channel {
 public:
-  virtual ~Channel() = default;
+  virtual ~Channel() {
+    if (callbacks_ != nullptr) {
+      callbacks_->cleanup();
+    }
+  };
   virtual void setChannelCallbacks(ChannelCallbacks& callbacks) {
     callbacks_ = &callbacks;
   }
-  virtual absl::Status open() {
-    wire::ChannelOpenMsg open;
-    open.channel_type = channelType();
-    open.sender_channel = callbacks_->channelId();
-    open.initial_window_size = 2097152; // TODO
-    open.max_packet_size = 32768;
-    open.extra = extra();
-    return callbacks_->sendMessageToConnection(std::move(open));
-  }
-  virtual std::string channelType() PURE;
+
   virtual bytes extra() { return {}; }
-
-  virtual absl::Status writeMessage(wire::Message&& msg) {
-    return callbacks_->sendMessageToConnection(std::move(msg));
-  }
-  virtual absl::Status readMessage(const wire::Message& msg) PURE;
-
-  virtual absl::Status onChannelOpened() PURE;
-  virtual absl::Status onChannelOpenFailed(const std::string& description) PURE;
+  virtual absl::Status readMessage(wire::Message&& msg) PURE;
+  virtual absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&&) PURE;
+  virtual absl::Status onChannelOpenFailed(wire::ChannelOpenFailureMsg&&) PURE;
 
 protected:
-  ChannelCallbacks* callbacks_;
+  ChannelCallbacks* callbacks_{};
+};
+
+class PassthroughChannel : public Channel {
+public:
+  PassthroughChannel() = default;
+
+  absl::Status readMessage(wire::Message&& msg) override {
+    callbacks_->passthrough(std::move(msg));
+    return absl::OkStatus();
+  }
+
+  absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&& msg) override {
+    callbacks_->passthrough(std::move(msg));
+    return absl::OkStatus();
+  }
+
+  absl::Status onChannelOpenFailed(wire::ChannelOpenFailureMsg&& msg) override {
+    callbacks_->passthrough(std::move(msg));
+    return absl::OkStatus();
+  }
 };
 
 class HandoffChannelCallbacks {
@@ -59,20 +71,21 @@ public:
   virtual void onHandoffComplete() PURE;
 };
 
-class HandoffChannel : public Channel {
+class HandoffChannel : public Channel, public Logger::Loggable<Logger::Id::filter> {
 public:
   HandoffChannel(const HandoffInfo& info, HandoffChannelCallbacks& callbacks)
       : info_(info),
         handoff_callbacks_(callbacks) {}
-  std::string channelType() override {
-    return info_.channel_info->channel_type();
-  }
-  absl::Status onChannelOpened() override {
+
+  absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&&) override {
     if (info_.pty_info == nullptr) {
       return absl::InvalidArgumentError("session is not interactive");
     }
+
+    ENVOY_LOG(debug, "handoff started");
     // channel is open, now request a pty
     wire::ChannelRequestMsg channelReq{
+      .recipient_channel = callbacks_->channelId(),
       .want_reply = true,
       .request = wire::PtyReqChannelRequestMsg{
         .term_env = info_.pty_info->term_env(),
@@ -85,21 +98,29 @@ public:
     };
     return callbacks_->sendMessageToConnection(std::move(channelReq));
   }
-  absl::Status onChannelOpenFailed(const std::string& description) override {
+  absl::Status onChannelOpenFailed(wire::ChannelOpenFailureMsg&& msg) override {
     // this should end the connection
-    return absl::InvalidArgumentError(description);
+    return absl::InvalidArgumentError(*msg.description);
   }
-  absl::Status readMessage(const wire::Message& msg) override {
+
+  absl::Status readMessage(wire::Message&& msg) override {
+    if (handoff_complete_) {
+      callbacks_->passthrough(std::move(msg));
+      return absl::OkStatus();
+    }
     return msg.visit(
       // 3: PTY open request
       [&](const wire::ChannelSuccessMsg&) {
         // open a shell; this logic is only reached after requesting a pty
         wire::ChannelRequestMsg shellReq;
+        shellReq.recipient_channel = callbacks_->channelId();
         shellReq.request = wire::ShellChannelRequestMsg{};
         shellReq.want_reply = false;
         auto r = callbacks_->sendMessageToConnection(std::move(shellReq));
         RELEASE_ASSERT(r.ok(), "failed to send ShellChannelRequestMsg");
 
+        ENVOY_LOG(debug, "handoff complete");
+        handoff_complete_ = true;
         handoff_callbacks_.onHandoffComplete();
 
         return absl::OkStatus();
@@ -108,11 +129,12 @@ public:
         return absl::InternalError("failed to open upstream tty");
       },
       [](const auto& msg) {
-        return absl::InternalError(fmt::format("received unexpected message from upstream during handoff: {}", msg.msg_type()));
+        return absl::InternalError(fmt::format("invalid message received during handoff: {}", msg.msg_type()));
       });
   }
 
 private:
+  bool handoff_complete_{false};
   const HandoffInfo& info_;
   HandoffChannelCallbacks& handoff_callbacks_;
 };
@@ -137,21 +159,32 @@ public:
     loadPassthroughMetadata();
   }
 
-  std::string channelType() override {
-    return channel_type_;
-  }
+  void setChannelCallbacks(ChannelCallbacks& callbacks) override {
+    Channel::setChannelCallbacks(callbacks);
 
-  bytes extra() override {
+    // Build and send the ChannelOpen message to the downstream.
+    // Normally channels don't send their own ChannelOpen messages, but this is somewhat of a
+    // special case, because the channel is owned internally.
+    wire::ChannelOpenMsg open;
+    open.channel_type = "forwarded-tcpip";
+    open.sender_channel = callbacks_->channelId();
+    open.initial_window_size = 2097152; // TODO
+    open.max_packet_size = 32768;
+
     Buffer::OwnedImpl extra;
     auto addrData = Envoy::Http::Utility::parseAuthority(server_name_);
     wire::write_opt<wire::LengthPrefixed>(extra, std::string(addrData.host_));
     wire::write<uint32_t>(extra, 443);
     wire::write_opt<wire::LengthPrefixed>(extra, downstream_addr_->ip()->addressAsString());
     wire::write<uint32_t>(extra, downstream_addr_->ip()->port());
-    return wire::flushTo<bytes>(extra);
+    open.extra = wire::flushTo<bytes>(extra);
+
+    auto stat = callbacks.sendMessageToConnection(std::move(open));
+    // TODO: not sure how to best handle this failure, or if it is necessary
+    THROW_IF_NOT_OK(stat);
   }
 
-  absl::Status onChannelOpened() override {
+  absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&&) override {
     connection_dispatcher_.post([this] {
       io_handle_->initializeFileEvent(
         connection_dispatcher_,
@@ -180,17 +213,17 @@ public:
     return absl::OkStatus();
   }
 
-  absl::Status onChannelOpenFailed(const std::string& description) override {
+  absl::Status onChannelOpenFailed(wire::ChannelOpenFailureMsg&& msg) override {
     // this is not necessarily an error that should end the connection. we can just close the
     // io handle and send a channel event
     io_handle_->close();
-    onIoHandleClosed(description);
+    onIoHandleClosed(msg.description);
     return absl::OkStatus();
   }
 
-  absl::Status readMessage(const wire::Message& msg) override {
+  absl::Status readMessage(wire::Message&& msg) override {
     return msg.visit(
-      [&](const wire::ChannelDataMsg& msg) {
+      [&](wire::ChannelDataMsg& msg) {
         Buffer::OwnedImpl buffer(msg.data->data(), msg.data->size());
         auto r = io_handle_->write(buffer);
         if (!r.ok()) {
@@ -200,18 +233,20 @@ public:
         ENVOY_LOG(debug, "wrote {} bytes to socket", r.return_value_);
         return absl::OkStatus();
       },
-      [this](const wire::ChannelEOFMsg&) {
+      [this](wire::ChannelEOFMsg&) {
         ENVOY_LOG(debug, "got eof message");
         io_handle_->shutdown(SHUT_WR);
         return absl::OkStatus();
       },
-      [this](const wire::ChannelCloseMsg&) {
+      [this](wire::ChannelCloseMsg&) {
         ENVOY_LOG(debug, "got close message");
-        io_handle_->close();
-        onIoHandleClosed("channel closed");
+        if (!closed_) {
+          io_handle_->close();
+          onIoHandleClosed("channel closed");
+        }
         return absl::OkStatus();
       },
-      [&](const auto& msg) {
+      [&](auto& msg) {
         return absl::InternalError(fmt::format("unexpected message type: {}", msg.msg_type()));
       });
   }
@@ -248,12 +283,16 @@ private:
     auto* opened = ev.mutable_internal_channel_closed();
     opened->set_channel_id(callbacks_->channelId());
     opened->set_reason(reason);
+    event_callbacks_.sendChannelEvent(ev);
+
+    wire::ChannelCloseMsg close;
+    close.recipient_channel = callbacks_->channelId();
+    callbacks_->sendMessageToConnection(std::move(close)).IgnoreError();
 
     // pomerium::extensions::ssh::StreamEvent stream_ev;
     // *stream_ev.mutable_channel_event() = ev;
     // ClientMessage msg;
     // *msg.mutable_event() = stream_ev;
-    event_callbacks_.sendChannelEvent(ev);
     //   ASSERT(transport_dispatcher_->isThreadSafe());
     //   auto r = io_handle_->close();
     //   if (!r.ok()) {
@@ -272,7 +311,9 @@ private:
       return absl::CancelledError(fmt::format("read: io error: {}", r.err_->getErrorDetails()));
     }
     wire::ChannelDataMsg dataMsg;
+    dataMsg.recipient_channel = callbacks_->channelId();
     dataMsg.data = wire::flushTo<bytes>(buffer);
+    ENVOY_LOG(debug, "writing {} bytes to internal downstream channel {}", dataMsg.data->size(), dataMsg.recipient_channel);
     return callbacks_->sendMessageToConnection(wire::Message{std::move(dataMsg)});
   }
 
@@ -293,7 +334,7 @@ private:
     downstream_addr_ = addr->address();
   }
 
-  bool closed_{false}; // for debug purposes only
+  bool closed_{false};
   Network::IoHandlePtr io_handle_;
   Envoy::Event::Dispatcher& connection_dispatcher_;
   std::string channel_type_;
@@ -307,6 +348,7 @@ class HijackedChannelCallbacks {
 public:
   virtual ~HijackedChannelCallbacks() = default;
   virtual void initHandoff(pomerium::extensions::ssh::SSHChannelControlAction_HandOffUpstream*) PURE;
+  virtual void hijackedChannelFailed(absl::Status) PURE;
 };
 
 class HijackedChannel : public Channel, public ChannelStreamCallbacks, public Logger::Loggable<Logger::Id::filter> {
@@ -320,24 +362,9 @@ public:
         hijack_callbacks_(hijack_callbacks),
         channel_open_(channel_open) {
     channel_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus code, std::string err) {
-      callbacks_->closeChannel(absl::Status(static_cast<absl::StatusCode>(code), err));
+      onGrpcConnectionClosed(code, err);
     });
   }
-
-  absl::Status open() override {
-    pomerium::extensions::ssh::FilterMetadata typed_metadata;
-    if (config_.has_set_metadata()) {
-      config_.set_metadata().typed_filter_metadata().at("com.pomerium.ssh").UnpackTo(&typed_metadata);
-    }
-    typed_metadata.set_channel_id(callbacks_->channelId());
-    envoy::config::core::v3::Metadata metadata;
-    ProtobufWkt::Any typed_metadata_any;
-    typed_metadata_any.PackFrom(typed_metadata);
-    metadata.mutable_typed_filter_metadata()->insert({"com.pomerium.ssh"s, std::move(typed_metadata_any)});
-    stream_ = channel_client_->start(this, metadata);
-    return readMessage(wire::Message{channel_open_});
-  }
-
   absl::Status onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& msg) override {
     switch (msg->message_case()) {
     case pomerium::extensions::ssh::ChannelMessage::kRawBytes: {
@@ -361,6 +388,7 @@ public:
         stream_->resetStream();
         auto* handOffMsg = ctrl_action.mutable_hand_off();
         hijack_callbacks_.initHandoff(handOffMsg);
+        handoff_complete_ = true;
         return absl::OkStatus();
       }
       default:
@@ -374,9 +402,11 @@ public:
     }
   }
 
-  std::string channelType() override { return ""; }
-
-  absl::Status readMessage(const wire::Message& msg) override {
+  absl::Status readMessage(wire::Message&& msg) override {
+    if (handoff_complete_) {
+      callbacks_->passthrough(std::move(msg));
+      return absl::OkStatus();
+    }
     ChannelMessage channel_msg;
     google::protobuf::BytesValue b;
     auto msgData = encodeTo<std::string>(msg);
@@ -389,16 +419,32 @@ public:
     return absl::OkStatus();
   }
 
-  absl::Status onChannelOpened() override {
-    return absl::OkStatus();
+  absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&&) override {
+    pomerium::extensions::ssh::FilterMetadata typed_metadata;
+    if (config_.has_set_metadata()) {
+      config_.set_metadata().typed_filter_metadata().at("com.pomerium.ssh").UnpackTo(&typed_metadata);
+    }
+    typed_metadata.set_channel_id(callbacks_->channelId());
+    envoy::config::core::v3::Metadata metadata;
+    ProtobufWkt::Any typed_metadata_any;
+    typed_metadata_any.PackFrom(typed_metadata);
+    metadata.mutable_typed_filter_metadata()->insert({"com.pomerium.ssh"s, std::move(typed_metadata_any)});
+    stream_ = channel_client_->start(this, metadata);
+    return readMessage(auto(channel_open_));
   }
 
-  absl::Status onChannelOpenFailed(const std::string& description) override {
+  absl::Status onChannelOpenFailed(wire::ChannelOpenFailureMsg&& msg) override {
     // this should end the connection
-    return absl::InvalidArgumentError(description);
+    return absl::InvalidArgumentError(*msg.description);
+  }
+
+  void onGrpcConnectionClosed(Grpc::Status::GrpcStatus code, std::string err) {
+    // Connection to pomerium was closed unexpectedly. This callback is unregistered on handoff.
+    hijack_callbacks_.hijackedChannelFailed(absl::Status(static_cast<absl::StatusCode>(code), err));
   }
 
 private:
+  bool handoff_complete_{false};
   std::unique_ptr<ChannelStreamServiceClient> channel_client_;
   pomerium::extensions::ssh::InternalTarget config_;
   Grpc::AsyncStream<ChannelMessage> stream_;

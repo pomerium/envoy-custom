@@ -89,7 +89,7 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
           confirm.sender_channel = auth_state_->handoff_info.channel_info->internal_upstream_channel_id();
           confirm.initial_window_size = auth_state_->handoff_info.channel_info->initial_window_size();
           confirm.max_packet_size = auth_state_->handoff_info.channel_info->max_packet_size();
-          if (auto stat = auth_state_->channel_id_mgr.processOutgoingChannelMsg(confirm, Peer::Downstream); !stat.ok()) {
+          if (auto stat = auth_state_->channel_id_mgr->processOutgoingChannelMsg(confirm, Peer::Downstream); !stat.ok()) {
             return stat;
           }
           forwardHeader(std::move(confirm));
@@ -243,8 +243,26 @@ absl::StatusOr<MiddlewareResult> SshClientTransport::HandoffMiddleware::intercep
     // 1: User auth request
     [&](wire::UserAuthSuccessMsg&) -> absl::StatusOr<MiddlewareResult> {
       auto channel = std::make_unique<HandoffChannel>(info, *this);
-      auto stat = self_.connection_svc_->startChannel(std::move(channel), info.channel_info->internal_upstream_channel_id());
+      auto id = self_.connection_svc_->startChannel(std::move(channel), info.channel_info->internal_upstream_channel_id());
+      if (!id.ok()) {
+        return id.status();
+      }
+      auto stat = self_.auth_state_->channel_id_mgr->trackRelativeID(
+        *id, RelativeChannelID{
+               .channel_id = info.channel_info->downstream_channel_id(),
+               .relative_to = Peer::Downstream,
+             });
       if (!stat.ok()) {
+        return stat;
+      }
+      // Build and send the ChannelOpen message to the upstream
+      wire::ChannelOpenMsg open;
+      open.channel_type = "session";
+      open.sender_channel = *id;
+      open.initial_window_size = 2097152; // TODO
+      open.max_packet_size = 32768;
+
+      if (auto stat = self_.sendMessageToConnection(std::move(open)); !stat.ok()) {
         return stat.status();
       }
 
@@ -258,7 +276,7 @@ absl::StatusOr<MiddlewareResult> SshClientTransport::HandoffMiddleware::intercep
       // unregister the user auth service
       self_.unregisterHandler(self_.user_auth_svc_.get());
 
-      return Break;
+      return Break | UninstallSelf;
     },
     [&](wire::UserAuthFailureMsg&) -> absl::StatusOr<MiddlewareResult> {
       return absl::PermissionDeniedError("");
@@ -267,8 +285,8 @@ absl::StatusOr<MiddlewareResult> SshClientTransport::HandoffMiddleware::intercep
       // ignore these messages during handoff, they can trigger a common frame to be sent too early
       return Break;
     },
-    [](auto& msg) -> absl::StatusOr<MiddlewareResult> {
-      return absl::InternalError(fmt::format("received unexpected message from upstream during handoff: {}", msg.msg_type()));
+    [](auto&) -> absl::StatusOr<MiddlewareResult> {
+      return Continue;
     });
 }
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

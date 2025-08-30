@@ -266,10 +266,11 @@ void SshServerTransport::onServiceAuthenticated(const std::string& service_name)
 }
 
 void SshServerTransport::initHandoff(pomerium::extensions::ssh::SSHChannelControlAction_HandOffUpstream* handoff_msg) {
-  auto newState = std::make_unique<AuthState>();
+  auto newState = std::make_shared<AuthState>();
   newState->server_version = authState().server_version;
   newState->stream_id = authState().stream_id;
   newState->channel_mode = authState().channel_mode;
+  newState->channel_id_mgr = authState().channel_id_mgr; // reuse the same channel_id_mgr here
   switch (handoff_msg->upstream_auth().target_case()) {
   case pomerium::extensions::ssh::AllowResponse::kUpstream:
     newState->handoff_info.handoff_in_progress = true;

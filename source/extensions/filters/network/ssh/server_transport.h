@@ -59,7 +59,11 @@ public:
   }
   void terminate(absl::Status status) override;
 
+  // HijackedChannelCallbacks
   void initHandoff(pomerium::extensions::ssh::SSHChannelControlAction_HandOffUpstream* handoff_msg) override;
+  void hijackedChannelFailed(absl::Status err) override {
+    terminate(err);
+  }
 
 private:
   void initServices();

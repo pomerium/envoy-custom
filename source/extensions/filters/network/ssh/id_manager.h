@@ -2,14 +2,30 @@
 
 #include "source/common/id_alloc.h"
 #include "source/extensions/filters/network/ssh/common.h"
-#include "source/extensions/filters/network/ssh/message_handler.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-enum class Peer {
-  Downstream = 1,
-  Upstream = 2,
+enum Peer {
+  Downstream = 0,
+  Upstream = 1,
+};
+
+struct RelativeChannelID {
+  uint32_t channel_id;
+  Peer relative_to;
+};
+
+struct InternalChannelInfo {
+  enum State {
+    Untracked = 0,
+    Tracked = 1,
+    Released = 2,
+  };
+  std::array<uint32_t, 2> peer_ids;
+  std::array<State, 2> peer_states;
+
+  Peer owner{};
 };
 
 // Manages channel ID mappings.
@@ -49,56 +65,17 @@ enum class Peer {
 //    recipient_channel is replaced with Bob's ID, which was tracked in (2). If the message is to
 //    be sent to Alice, the recipient_channel is replaced with Alice's ID, which was tracked in (1).
 //
-class ChannelIDManager : NonCopyable {
+class ChannelIDManager : NonCopyable, Logger::Loggable<Logger::Id::filter> {
 public:
-  absl::StatusOr<uint32_t> newInternalChannel() {
-    auto id = id_alloc_.alloc();
-    if (!id.ok()) {
-      return id.status();
-    }
-    internal_channels_[*id] = internalChannelInfo{
-      // .opened_by = Source::Internal,
-    };
-    return *id;
-  }
+  absl::StatusOr<uint32_t> allocateNewChannel(Peer owner);
 
-  absl::Status processIncomingChannelOpenMsg(wire::ChannelOpenMsg& msg, Peer source);
+  absl::Status trackRelativeID(uint32_t internal_id, RelativeChannelID relative_id);
 
-  absl::Status processIncomingChannelOpenConfirmationMsg(wire::ChannelOpenConfirmationMsg& msg, Peer source) {
-    auto internalId = *msg.recipient_channel;
-    auto it = internal_channels_.find(internalId);
-    if (it == internal_channels_.end()) {
-      return absl::InvalidArgumentError(fmt::format("received ChannelOpenConfirmationMsg for unknown channel {}", *msg.recipient_channel));
+  std::optional<Peer> owner(uint32_t internal_id) {
+    if (!internal_channels_.contains(internal_id)) {
+      return std::nullopt;
     }
-
-    auto& info = it->second;
-    switch (source) {
-    case Peer::Downstream:
-      // ChannelOpenConfirmation sent by the downstream in response to an open request
-      info.downstream_id = msg.sender_channel;
-      msg.sender_channel = internalId;
-      break;
-    case Peer::Upstream:
-      // ChannelOpenConfirmation sent by the upstream in response to an open request
-      info.upstream_id = msg.sender_channel;
-      msg.sender_channel = internalId;
-      break;
-      // case Source::Internal:
-      //   // ChannelOpenConfirmation sent by us; the IDs will already be correct, just keep track of
-      //   // the recipient channel
-      //   switch (source) {
-      //   case Source::Downstream:
-      //     info.downstream_id = msg.sender_channel;
-      //     break;
-      //   case Source::Upstream:
-      //     info.upstream_id = msg.sender_channel;
-      //     break;
-      //   case Source::Internal:
-      //     break;
-      //   }
-      //   break;
-    }
-    return absl::OkStatus();
+    return internal_channels_[internal_id].owner;
   }
 
   template <wire::ChannelMsg M>
@@ -110,64 +87,24 @@ public:
     }
 
     auto& info = it->second;
-    switch (dest) {
-    case Peer::Downstream:
-      if (!info.downstream_id.has_value()) {
-        return absl::InvalidArgumentError(fmt::format("channel {} is not known to the downstream", internalId));
-      }
-      msg.recipient_channel = info.downstream_id.value();
-      break;
-    case Peer::Upstream:
-      if (!info.upstream_id.has_value()) {
-        return absl::InvalidArgumentError(fmt::format("channel {} is not known to the upstream", internalId));
-      }
-      msg.recipient_channel = info.upstream_id.value();
-      break;
+    if (info.peer_states[dest] == InternalChannelInfo::Untracked) {
+      return absl::InvalidArgumentError(
+        fmt::format("error processing outgoing {}: internal channel {} is not known to {} (state: {})",
+                    msg.msg_type(), internalId, dest, info.peer_states[dest]));
     }
+    msg.recipient_channel = info.peer_ids[dest];
     return absl::OkStatus();
   }
 
-  void releaseInternalChannel(uint32_t id) {
-    internal_channels_.erase(id);
-    id_alloc_.release(id);
-  }
-
-  // auto newMiddleware(Source src, Dest dst) {
-  //   return std::make_unique<Middleware>(*this, src, dst);
-  // }
-
-  struct internalChannelInfo {
-    std::optional<uint32_t> upstream_id;
-    std::optional<uint32_t> downstream_id;
-  };
+  // NB: this should only be called by ChannelCallbacksImpl::cleanup().
+  void releaseChannel(uint32_t internal_id, Peer local_peer);
 
 private:
-  // class Middleware : public SshMessageMiddleware {
-  // public:
-  //   Middleware(ChannelIDManager& self, Source src, Dest dst)
-  //       : self_(self),
-  //         src_(src),
-  //         dst_(dst) {}
-  //   absl::StatusOr<MiddlewareResult> interceptMessage(wire::Message& msg) override {
-  //     auto stat = msg.visit([&](wire::ChannelOpenMsg& msg) { return self_.processChannelOpenMsg(msg, src_); },
-  //                           [&](wire::ChannelMsg auto& msg) { return self_.processChannelMsg(msg, dst_); },
-  //                           [&](auto&) { return absl::OkStatus(); });
-  //     if (!stat.ok()) {
-  //       return stat;
-  //     }
-  //     return MiddlewareResult::Continue;
-  //   }
-
-  // private:
-  //   ChannelIDManager& self_;
-  //   const Source src_;
-  //   const Dest dst_;
-  // };
-
-  absl::flat_hash_map<uint32_t, internalChannelInfo> internal_channels_;
+  absl::flat_hash_map<uint32_t, InternalChannelInfo> internal_channels_;
   IDAllocator<uint32_t> id_alloc_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
 
 DECL_BASIC_ENUM_FORMATTER(Envoy::Extensions::NetworkFilters::GenericProxy::Codec::Peer);
+DECL_BASIC_ENUM_FORMATTER(Envoy::Extensions::NetworkFilters::GenericProxy::Codec::InternalChannelInfo::State);

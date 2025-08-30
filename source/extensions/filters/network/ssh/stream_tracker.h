@@ -20,7 +20,7 @@ using pomerium::extensions::ssh::StreamTrackerConfig;
 class StreamCallbacks {
 public:
   virtual ~StreamCallbacks() = default;
-  virtual absl::StatusOr<uint32_t> startChannel(std::unique_ptr<Channel> channel, std::optional<uint32_t> channel_id) PURE;
+  virtual absl::StatusOr<uint32_t> startChannel(std::unique_ptr<Channel> channel, std::optional<uint32_t> channel_id = std::nullopt) PURE;
   // virtual void releaseChannel(uint32_t channel_id) PURE;
 };
 

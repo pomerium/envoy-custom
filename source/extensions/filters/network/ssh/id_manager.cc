@@ -2,80 +2,49 @@
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-absl::Status ChannelIDManager::processIncomingChannelOpenMsg(wire::ChannelOpenMsg& msg, Peer source) {
-  switch (source) {
-  case Peer::Downstream: {
-    internalChannelInfo mappings{
-      // .opened_by = source,
-      .downstream_id = msg.sender_channel,
-    };
-    auto newInternalId = id_alloc_.alloc();
-    if (!newInternalId.ok()) {
-      return newInternalId.status();
-    }
-    internal_channels_[*newInternalId] = mappings;
-  } break;
-  case Peer::Upstream: {
-    internalChannelInfo mappings{
-      // .opened_by = source,
-      .upstream_id = msg.sender_channel,
-    };
-    auto newInternalId = id_alloc_.alloc();
-    if (!newInternalId.ok()) {
-      return newInternalId.status();
-    }
-    internal_channels_[*newInternalId] = mappings;
-  } break;
-    // case Source::Internal:
-    //   internal_channels_[msg.sender_channel] = internalChannelInfo{
-    //     .opened_by = source,
-    //   };
-    //   break;
+absl::StatusOr<uint32_t> ChannelIDManager::allocateNewChannel(Peer owner) {
+  auto id = id_alloc_.alloc();
+  if (!id.ok()) {
+    return id.status();
   }
+  ENVOY_LOG(debug, "allocated internal channel ID {} (owner: {})", *id, owner);
+  internal_channels_[*id] = InternalChannelInfo{
+    .owner = owner,
+  };
+  return *id;
+}
+
+absl::Status ChannelIDManager::trackRelativeID(uint32_t internal_id, RelativeChannelID relative_id) {
+  auto it = internal_channels_.find(internal_id);
+  if (it == internal_channels_.end()) {
+    return absl::InvalidArgumentError(fmt::format("unknown channel {}", internal_id));
+  }
+  ENVOY_LOG(debug, "{} channel ID {} tracking internal ID {}",
+            relative_id.relative_to, relative_id.channel_id, internal_id);
+  it->second.peer_ids[relative_id.relative_to] = relative_id.channel_id;
+  it->second.peer_states[relative_id.relative_to] = InternalChannelInfo::Tracked;
   return absl::OkStatus();
 }
 
-// absl::Status ChannelIDManager::processOutgoingChannelOpenConfirmationMsg(wire::ChannelOpenConfirmationMsg& msg, Dest dest) {
-//   auto internalId = *msg.recipient_channel;
-//   auto it = internal_channels_.find(internalId);
-//   if (it == internal_channels_.end()) {
-//     return absl::InvalidArgumentError(fmt::format("unknown channel {} in ChannelOpenConfirmationMsg", *msg.recipient_channel));
-//   }
+void ChannelIDManager::releaseChannel(uint32_t internal_id, Peer local_peer) {
+  ASSERT(internal_channels_.contains(internal_id));
+  auto& internalChannel = internal_channels_[internal_id];
+  internalChannel.peer_states[local_peer] = InternalChannelInfo::Released;
 
-//   auto& info = it->second;
-//   switch (info.opened_by) {
-//   case Source::Downstream:
-//     // ChannelOpenConfirmation sent by the downstream in response to an open request
-//     info.downstream_id = msg.sender_channel;
-//     msg.sender_channel = internalId;
-//     if (dest == Dest::Upstream) {
-//       ASSERT(info.upstream_id.has_value());
-//       msg.recipient_channel = info.upstream_id.value();
-//     }
-//     break;
-//   case Source::Upstream:
-//     // ChannelOpenConfirmation sent by the upstream in response to an open request
-//     info.upstream_id = msg.sender_channel;
-//     msg.sender_channel = internalId;
-//     if (dest == Dest::Downstream) {
-//       ASSERT(info.downstream_id.has_value());
-//       msg.recipient_channel = info.downstream_id.value();
-//     }
-//     break;
-//   // case Source::Internal:
-//   //   // ChannelOpenConfirmation sent by us; the IDs will already be correct, just keep track of
-//   //   // the recipient channel
-//   //   switch (dest) {
-//   //   case Dest::Downstream:
-//   //     info.downstream_id = msg.recipient_channel;
-//   //     break;
-//   //   case Dest::Upstream:
-//   //     info.upstream_id = msg.recipient_channel;
-//   //     break;
-//   //   }
-//   //   break;
-//   }
-//   return absl::OkStatus();
-// }
+  if (internalChannel.peer_states[Downstream] != InternalChannelInfo::Tracked &&
+      internalChannel.peer_states[Upstream] != InternalChannelInfo::Tracked) {
+    ENVOY_LOG(debug, "released internal channel ID [U:{} I:{} D:{}] (owner: {})",
+              internalChannel.peer_states[Upstream] == InternalChannelInfo::Released
+                ? fmt::to_string(internalChannel.peer_ids[Upstream])
+                : "none",
+              internal_id,
+              internalChannel.peer_states[Downstream] == InternalChannelInfo::Released
+                ? fmt::to_string(internalChannel.peer_ids[Downstream])
+                : "none",
+              internalChannel.owner);
+    internal_channels_.erase(internal_id);
+    id_alloc_.release(internal_id);
+  }
+}
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

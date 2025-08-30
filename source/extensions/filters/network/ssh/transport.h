@@ -66,7 +66,7 @@ struct AuthState {
   std::optional<wire::ExtInfoMsg> downstream_ext_info;
   std::optional<wire::ExtInfoMsg> upstream_ext_info;
   std::unique_ptr<pomerium::extensions::ssh::AllowResponse> allow_response;
-  ChannelIDManager channel_id_mgr;
+  std::shared_ptr<ChannelIDManager> channel_id_mgr;
 };
 
 using AuthStateSharedPtr = std::shared_ptr<AuthState>;
