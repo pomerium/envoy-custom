@@ -1,7 +1,5 @@
 #include "source/extensions/filters/network/ssh/stream_tracker.h"
 #include "source/extensions/filters/network/ssh/channel.h"
-#include "source/extensions/filters/network/ssh/passthrough_state.h"
-#include "source/extensions/filters/network/ssh/filter_state_objects.h"
 
 #pragma clang unsafe_buffer_usage begin
 #include "source/common/config/utility.h"
@@ -11,32 +9,6 @@
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 SINGLETON_MANAGER_REGISTRATION(ssh_connection_tracker); // NOLINT
-
-StreamInterface::StreamInterface(stream_id_t stream_id, Network::Connection& connection, StreamCallbacks& stream_callbacks, ChannelEventCallbacks& event_callbacks)
-    : stream_id_(stream_id),
-      stream_callbacks_(stream_callbacks),
-      event_callbacks_(event_callbacks),
-      source_dispatcher_(connection.dispatcher()) {}
-
-absl::Status StreamInterface::requestOpenDownstreamChannel(Network::IoHandlePtr io_handle) {
-  ENVOY_LOG(debug, "requesting new downstream channel");
-  auto passthroughState = Network::InternalStreamPassthroughState::fromIoHandle(*io_handle);
-  auto start = absl::Now();
-  passthroughState->notifyOnStateChange(
-    Network::InternalStreamPassthroughState::Initialized,
-    source_dispatcher_,
-    [this, start, io_handle = std::move(io_handle)] mutable {
-      auto diff = absl::Now() - start;
-      ENVOY_LOG(debug, "waited {} for passthrough state initialization", absl::FormatDuration(diff));
-      auto c = std::make_unique<InternalDownstreamChannel>(*this, std::move(io_handle), source_dispatcher_, "forwarded-tcpip");
-      auto stat = stream_callbacks_.startChannel(std::move(c), std::nullopt);
-      if (!stat.ok()) {
-        ENVOY_LOG(error, "failed to start channel: {}", statusToString(stat.status()));
-        io_handle->close();
-      }
-    });
-  return absl::OkStatus();
-}
 
 StreamTrackerSharedPtr StreamTracker::fromContext(Server::Configuration::ServerFactoryContext& context,
                                                   const pomerium::extensions::ssh::StreamTrackerConfig& config) {
@@ -54,7 +26,7 @@ StreamTrackerSharedPtr StreamTracker::fromContext(Server::Configuration::ServerF
     });
 }
 
-bool StreamTracker::tryLock(stream_id_t key, std::function<void(StreamInterface&)> cb) {
+bool StreamTracker::tryLock(stream_id_t key, std::function<void(StreamContext&)> cb) {
   Thread::LockGuard lock(mu_);
   if (auto it = active_connection_handles_.find(key); it != active_connection_handles_.end()) {
     cb(*it->second);
@@ -71,7 +43,7 @@ size_t StreamTracker::numActiveConnectionHandles() {
 std::unique_ptr<StreamHandle> StreamTracker::onStreamBegin(stream_id_t stream_id, Network::Connection& connection,
                                                            StreamCallbacks& stream_callbacks, ChannelEventCallbacks& event_callbacks) {
   Thread::ReleasableLockGuard lock(mu_);
-  auto intf = std::make_unique<StreamInterface>(stream_id, connection, stream_callbacks, event_callbacks);
+  auto intf = std::make_unique<StreamContext>(stream_id, connection, stream_callbacks, event_callbacks);
   ENVOY_LOG(debug, "tracking new ssh stream: id={}", stream_id);
   ASSERT(!active_connection_handles_.contains(stream_id));
   for (auto& filter : filters_) {

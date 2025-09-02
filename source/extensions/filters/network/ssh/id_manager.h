@@ -11,15 +11,15 @@ enum Peer {
   Upstream = 1,
 };
 
-struct RelativeChannelID {
+struct PeerLocalID {
   uint32_t channel_id;
-  Peer relative_to;
+  Peer local_peer;
 };
 
 struct InternalChannelInfo {
   enum State {
-    Untracked = 0,
-    Tracked = 1,
+    Unbound = 0,
+    Bound = 1,
     Released = 2,
   };
   std::array<uint32_t, 2> peer_ids;
@@ -59,17 +59,33 @@ struct InternalChannelInfo {
 //    recipient_channel is *our* internal ID. Before forwarding this message to Alice, we will
 //    make the following changes:
 //    - The sender_channel (Bob's ID) is stored, and replaced with the recipient_channel (our ID).
-//    - The recipient_channel is replaced with Alice's ID, obtained by lookup from our ID.
-// 3. For any subsequent channel messages (see ChannelMsg), it can be assumed that the
-//    recipient_channel refers to our own channel ID. If the message is to be sent to Bob, the
+//    - The recipient_channel is replaced with Alice's ID, obtained by lookup from our internal ID.
+// 3. For any subsequent channel messages (see concept ChannelMsg), it can be assumed that the
+//    recipient_channel refers to our internal ID. If the message is to be sent to Bob, the
 //    recipient_channel is replaced with Bob's ID, which was tracked in (2). If the message is to
 //    be sent to Alice, the recipient_channel is replaced with Alice's ID, which was tracked in (1).
 //
-class ChannelIDManager : NonCopyable, Logger::Loggable<Logger::Id::filter> {
+// Internal channels keep track of the upstream and downstream channel IDs and whether or not they
+// have been "bound" to the internal ID. The ID is only fully released for re-use once a matching
+// call to releaseChannelID() has been made for each peer that has called bindChannelID() for the ID.
+// Because individual Channel instances only handle messages read from their local peer, not
+// messages sent from the remote peer, this allows a Channel to be destroyed when it is done
+// handling any reads on the channel (i.e. after reading a ChannelClose message), and still allow
+// the opposite peer to respond with their own ChannelClose message to the correct channel ID.
+// At the protocol level, the channel is not "closed" until both sides have sent and received a
+// ChannelClose message. Only when this happens is the ID released for re-use.
+//
+class ChannelIDManager : public NonCopyable,
+                         public StreamInfo::FilterState::Object,
+                         public Logger::Loggable<Logger::Id::filter> {
 public:
+  ChannelIDManager(uint32_t start_id = 0)
+      : id_alloc_(start_id) {}
+
   absl::StatusOr<uint32_t> allocateNewChannel(Peer owner);
 
-  absl::Status trackRelativeID(uint32_t internal_id, RelativeChannelID relative_id);
+  absl::Status bindChannelID(uint32_t internal_id, PeerLocalID peer_local_id);
+  void releaseChannelID(uint32_t internal_id, Peer local_peer);
 
   std::optional<Peer> owner(uint32_t internal_id) {
     if (!internal_channels_.contains(internal_id)) {
@@ -80,26 +96,13 @@ public:
 
   template <wire::ChannelMsg M>
   absl::Status processOutgoingChannelMsg(M& msg, Peer dest) {
-    auto internalId = *msg.recipient_channel;
-    auto it = internal_channels_.find(internalId);
-    if (it == internal_channels_.end()) {
-      return absl::InvalidArgumentError(fmt::format("unknown channel {} in {}", internalId, msg.msg_type()));
-    }
-
-    auto& info = it->second;
-    if (info.peer_states[dest] == InternalChannelInfo::Untracked) {
-      return absl::InvalidArgumentError(
-        fmt::format("error processing outgoing {}: internal channel {} is not known to {} (state: {})",
-                    msg.msg_type(), internalId, dest, info.peer_states[dest]));
-    }
-    msg.recipient_channel = info.peer_ids[dest];
-    return absl::OkStatus();
+    return processOutgoingChannelMsgImpl(msg.recipient_channel, msg.msg_type(), dest);
   }
 
-  // NB: this should only be called by ChannelCallbacksImpl::cleanup().
-  void releaseChannel(uint32_t internal_id, Peer local_peer);
-
 private:
+  absl::Status processOutgoingChannelMsgImpl(wire::field<uint32_t>& recipient_channel,
+                                             wire::SshMessageType msg_type,
+                                             Peer dest);
   absl::flat_hash_map<uint32_t, InternalChannelInfo> internal_channels_;
   IDAllocator<uint32_t> id_alloc_;
 };

@@ -204,7 +204,7 @@ TEST_F(ChannelStreamServiceClientTest, Start_NoMetadata) {
   EXPECT_CALL(stream_, sendMessageRaw_(Grpc::ProtoBufferEq(expectedMetadataMsg), false));
 
   auto stream = client.start(&callbacks_, std::nullopt);
-  ASSERT_FALSE(stream.expired());
+  ASSERT_GT(0, stream.streamInfo().bytesSent());
 }
 
 TEST_F(ChannelStreamServiceClientTest, Start_Metadata) {
@@ -221,7 +221,7 @@ TEST_F(ChannelStreamServiceClientTest, Start_Metadata) {
   EXPECT_CALL(stream_, sendMessageRaw_(Grpc::ProtoBufferEq(expectedMetadataMsg), false));
 
   auto stream = client.start(&callbacks_, md);
-  ASSERT_FALSE(stream.expired());
+  ASSERT_GT(0, stream.streamInfo().bytesSent());
 }
 
 TEST_F(ChannelStreamServiceClientTest, OnReceiveMessage) {

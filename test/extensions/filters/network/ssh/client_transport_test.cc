@@ -112,6 +112,7 @@ public:
     // start the client transport by simulating a SSHRequestHeaderFrame forwarded from the
     // server transport
     auto authState = std::make_shared<AuthState>();
+    authState->channel_id_mgr = std::make_unique<ChannelIDManager>();
     authState->server_version = "SSH-2.0-Envoy";
     authState->channel_mode = ChannelMode::Normal;
     authState->allow_response = std::make_unique<AllowResponse>();
@@ -142,6 +143,7 @@ public:
     auto authState = std::make_shared<AuthState>();
     authState->server_version = "SSH-2.0-Envoy";
     authState->channel_mode = ChannelMode::Handoff;
+    authState->channel_id_mgr = std::make_unique<ChannelIDManager>();
     authState->handoff_info.handoff_in_progress = true;
     authState->handoff_info.channel_info = std::make_unique<SSHDownstreamChannelInfo>();
     authState->handoff_info.channel_info->set_downstream_channel_id(100);

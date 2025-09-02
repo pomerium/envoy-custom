@@ -30,5 +30,8 @@ MockStreamMgmtServerMessageHandler::~MockStreamMgmtServerMessageHandler() {}
 MockChannelStreamCallbacks::MockChannelStreamCallbacks() {}
 MockChannelStreamCallbacks::~MockChannelStreamCallbacks() {}
 
+MockHijackedChannelCallbacks::MockHijackedChannelCallbacks() {}
+MockHijackedChannelCallbacks::~MockHijackedChannelCallbacks() {}
+
 } // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

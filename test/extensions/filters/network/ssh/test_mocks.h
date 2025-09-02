@@ -1,5 +1,6 @@
 #pragma once
 #include "source/extensions/filters/network/ssh/packet_cipher.h"
+#include "source/extensions/filters/network/ssh/service_connection.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/message_handler.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
@@ -32,6 +33,9 @@ public:
   MOCK_METHOD(void, updatePeerExtInfo, (std::optional<wire::ExtInfoMsg>));
   MOCK_METHOD(std::optional<wire::ExtInfoMsg>, outgoingExtInfo, ());
   MOCK_METHOD(std::optional<wire::ExtInfoMsg>, peerExtInfo, (), (const));
+  MOCK_METHOD(void, terminate, (absl::Status), (override));
+  MOCK_METHOD(Envoy::OptRef<Envoy::Event::Dispatcher>, connectionDispatcher, (), (const override));
+  MOCK_METHOD(ChannelIDManager&, channelIdManager, (), (override));
 
   MOCK_METHOD(void, writeToConnection, (Envoy::Buffer::Instance&), (const));
   MOCK_METHOD(absl::StatusOr<size_t>, sendMessageDirect, (wire::Message&&));
@@ -60,6 +64,15 @@ public:
 class MockVersionExchangeCallbacks : public VersionExchangeCallbacks {
 public:
   MOCK_METHOD(void, onVersionExchangeCompleted, (const bytes&, const bytes&, const bytes&));
+};
+
+class MockHijackedChannelCallbacks : public HijackedChannelCallbacks {
+public:
+  MockHijackedChannelCallbacks();
+  virtual ~MockHijackedChannelCallbacks();
+
+  MOCK_METHOD(void, initHandoff, (pomerium::extensions::ssh::SSHChannelControlAction_HandOffUpstream*));
+  MOCK_METHOD(void, hijackedChannelFailed, (absl::Status));
 };
 
 class MockKexCallbacks : public KexCallbacks {

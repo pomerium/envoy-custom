@@ -24,8 +24,6 @@ TEST_F(StreamTrackerTest, FromContextWithConfig) {
 }
 
 TEST_F(StreamTrackerTest, FromContextWithNoConfig) {
-  ASSERT_EQ(nullptr, StreamTracker::fromContext(context));
-
   StreamTrackerConfig cfg;
   auto st = StreamTracker::fromContext(context, cfg);
   ASSERT_NE(nullptr, st);
@@ -35,17 +33,11 @@ TEST_F(StreamTrackerTest, FromContextWithNoConfig) {
   ASSERT_EQ(st, st2);
 }
 
-class TestStreamCallbacks : public StreamCallbacks {
+class TestStreamCallbacks : public StreamCallbacks, public ChannelEventCallbacks {
 public:
   virtual ~TestStreamCallbacks() = default;
-  absl::Status startChannel(std::unique_ptr<Channel> channel, std::optional<uint32_t> channel_id) {
-    (void)channel;
-    (void)channel_id;
-    return absl::OkStatus();
-  }
-  void closeChannel(uint32_t channel_id) {
-    (void)channel_id;
-  }
+  MOCK_METHOD(absl::StatusOr<uint32_t>, startChannel, (std::unique_ptr<Channel>, std::optional<uint32_t>));
+  MOCK_METHOD(void, sendChannelEvent, (const pomerium::extensions::ssh::ChannelEvent&));
 };
 
 TEST_F(StreamTrackerTest, TrackStream) {
@@ -59,30 +51,39 @@ TEST_F(StreamTrackerTest, TrackStream) {
   testing::NiceMock<Network::MockConnection> conn1;
   testing::NiceMock<Network::MockConnection> conn2;
 
-  auto handle1 = st->onStreamBegin(1, conn1, testCallbacks1);
+  auto handle1 = st->onStreamBegin(1, conn1, *testCallbacks1, *testCallbacks1);
   ASSERT_EQ(1, st->numActiveConnectionHandles());
   ASSERT_EQ(1, handle1->streamId());
-  auto handle2 = st->onStreamBegin(2, conn2, testCallbacks2);
+  auto handle2 = st->onStreamBegin(2, conn2, *testCallbacks2, *testCallbacks2);
   ASSERT_EQ(2, st->numActiveConnectionHandles());
   ASSERT_EQ(2, handle2->streamId());
 
-  ASSERT_EQ(1, st->find(1)->streamId());
-  ASSERT_EQ(2, st->find(2)->streamId());
-  ASSERT_EQ(nullptr, st->find(3));
+  ASSERT_TRUE(st->tryLock(1, [&](StreamContext& sc) {
+    EXPECT_EQ(1, sc.streamId());
+    EXPECT_EQ(&sc.streamCallbacks(), &static_cast<StreamCallbacks&>(*testCallbacks1));
+    EXPECT_EQ(&sc.eventCallbacks(), &static_cast<ChannelEventCallbacks&>(*testCallbacks1));
+    EXPECT_EQ(&sc.connection(), &static_cast<Network::Connection&>(conn1));
+  }));
+  ASSERT_TRUE(st->tryLock(2, [](StreamContext& sc) {
+    EXPECT_EQ(2, sc.streamId());
+  }));
+  ASSERT_FALSE(st->tryLock(3, [](StreamContext&) {}));
 
   st->onStreamEnd(1);
   ASSERT_EQ(1, st->numActiveConnectionHandles());
 
-  ASSERT_EQ(nullptr, st->find(1));
-  ASSERT_EQ(2, st->find(2)->streamId());
-  ASSERT_EQ(nullptr, st->find(3));
+  ASSERT_FALSE(st->tryLock(1, [](StreamContext&) {}));
+  ASSERT_TRUE(st->tryLock(2, [](StreamContext& sc) {
+    EXPECT_EQ(2, sc.streamId());
+  }));
+  ASSERT_FALSE(st->tryLock(3, [](StreamContext&) {}));
 
   st->onStreamEnd(2);
   ASSERT_EQ(0, st->numActiveConnectionHandles());
 
-  ASSERT_EQ(nullptr, st->find(1));
-  ASSERT_EQ(nullptr, st->find(2));
-  ASSERT_EQ(nullptr, st->find(3));
+  ASSERT_FALSE(st->tryLock(1, [](StreamContext&) {}));
+  ASSERT_FALSE(st->tryLock(2, [](StreamContext&) {}));
+  ASSERT_FALSE(st->tryLock(3, [](StreamContext&) {}));
 }
 
 TEST_F(StreamTrackerTest, TrackStream_EndWithHandle) {
@@ -96,28 +97,34 @@ TEST_F(StreamTrackerTest, TrackStream_EndWithHandle) {
   testing::NiceMock<Network::MockConnection> conn1;
   testing::NiceMock<Network::MockConnection> conn2;
 
-  auto handle1 = st->onStreamBegin(1, conn1, testCallbacks1);
+  auto handle1 = st->onStreamBegin(1, conn1, *testCallbacks1, *testCallbacks1);
   ASSERT_EQ(1, st->numActiveConnectionHandles());
-  auto handle2 = st->onStreamBegin(2, conn2, testCallbacks2);
+  auto handle2 = st->onStreamBegin(2, conn2, *testCallbacks2, *testCallbacks2);
   ASSERT_EQ(2, st->numActiveConnectionHandles());
 
-  ASSERT_EQ(1, st->find(1)->streamId());
-  ASSERT_EQ(2, st->find(2)->streamId());
-  ASSERT_EQ(nullptr, st->find(3));
+  ASSERT_TRUE(st->tryLock(1, [](StreamContext& sc) {
+    EXPECT_EQ(1, sc.streamId());
+  }));
+  ASSERT_TRUE(st->tryLock(2, [](StreamContext& sc) {
+    EXPECT_EQ(2, sc.streamId());
+  }));
+  ASSERT_FALSE(st->tryLock(3, [](StreamContext&) {}));
 
   handle1.reset();
   ASSERT_EQ(1, st->numActiveConnectionHandles());
 
-  ASSERT_EQ(nullptr, st->find(1));
-  ASSERT_EQ(2, st->find(2)->streamId());
-  ASSERT_EQ(nullptr, st->find(3));
+  ASSERT_FALSE(st->tryLock(1, [](StreamContext&) {}));
+  ASSERT_TRUE(st->tryLock(2, [](StreamContext& sc) {
+    EXPECT_EQ(2, sc.streamId());
+  }));
+  ASSERT_FALSE(st->tryLock(3, [](StreamContext&) {}));
 
   handle2.reset();
   ASSERT_EQ(0, st->numActiveConnectionHandles());
 
-  ASSERT_EQ(nullptr, st->find(1));
-  ASSERT_EQ(nullptr, st->find(2));
-  ASSERT_EQ(nullptr, st->find(3));
+  ASSERT_FALSE(st->tryLock(1, [](StreamContext&) {}));
+  ASSERT_FALSE(st->tryLock(2, [](StreamContext&) {}));
+  ASSERT_FALSE(st->tryLock(3, [](StreamContext&) {}));
 }
 
 TEST_F(StreamTrackerTest, TrackStream_ThreadSafety_Serial) {
@@ -141,7 +148,7 @@ TEST_F(StreamTrackerTest, TrackStream_ThreadSafety_Serial) {
       testing::NiceMock<Network::MockConnection> conn;
 
       beginStreams.wait();
-      auto handle = st->onStreamBegin(i, conn, testCallbacks);
+      auto handle = st->onStreamBegin(i, conn, *testCallbacks, *testCallbacks);
       ASSERT_EQ(i, handle->streamId());
       beginWait.DecrementCount();
 
@@ -181,7 +188,7 @@ TEST_F(StreamTrackerTest, TrackStream_ThreadSafety_Mixed) {
       testing::NiceMock<Network::MockConnection> conn;
 
       beginStreams.wait();
-      auto handle = st->onStreamBegin(i, conn, testCallbacks);
+      auto handle = st->onStreamBegin(i, conn, *testCallbacks, *testCallbacks);
       EXPECT_NE(nullptr, handle); // let the handle go out of scope immediately
     }));
   }
@@ -195,8 +202,8 @@ TEST_F(StreamTrackerTest, TrackStream_ThreadSafety_Mixed) {
 
 class MockStreamTrackerFilter : public StreamTrackerFilter {
 public:
-  MOCK_METHOD(void, onStreamBegin, (StreamInterface&), (override));
-  MOCK_METHOD(void, onStreamEnd, (StreamInterface&), (override));
+  MOCK_METHOD(void, onStreamBegin, (StreamContext&), (override));
+  MOCK_METHOD(void, onStreamEnd, (StreamContext&), (override));
 };
 
 class MockStreamTrackerFilterFactory : public StreamTrackerFilterFactory {
@@ -223,8 +230,8 @@ TEST_F(StreamTrackerTest, Filters) {
   auto n = st->visitFiltersForTest([&](StreamTrackerFilter& f) {
     const auto& filter = dynamic_cast<const MockStreamTrackerFilter&>(f);
     EXPECT_CALL(filter, onStreamBegin)
-      .WillOnce([](StreamInterface& intf) {
-        EXPECT_EQ(1, intf.streamId());
+      .WillOnce([](StreamContext& ctx) {
+        EXPECT_EQ(1, ctx.streamId());
       });
     EXPECT_CALL(filter, onStreamEnd);
   });
@@ -233,7 +240,7 @@ TEST_F(StreamTrackerTest, Filters) {
   auto testCallbacks1 = std::make_shared<TestStreamCallbacks>();
   testing::NiceMock<Network::MockConnection> conn1;
 
-  auto handle = st->onStreamBegin(1, conn1, testCallbacks1);
+  auto handle = st->onStreamBegin(1, conn1, *testCallbacks1, *testCallbacks1);
   st->onStreamEnd(1);
 }
 

@@ -42,43 +42,41 @@ public:
       server_factory_context_->api(),
       StreamTracker::fromContext(*server_factory_context_, StreamTrackerConfig{}));
 
+    service_->registerMessageHandlers(msg_dispatcher_);
     EXPECT_CALL(*transport_, authState())
       .WillRepeatedly(ReturnRef(transport_auth_state_));
   }
 
+  void StartHijackedChannel() { // NOLINT
+    hijacked_client_ = std::make_shared<testing::StrictMock<Grpc::MockAsyncClient>>();
+    EXPECT_CALL(*hijacked_client_, startRaw("pomerium.extensions.ssh.StreamManagement", "ServeChannel", _, _))
+      .WillOnce(Return(&channel_stream_));
+    transport_auth_state_.channel_mode = ChannelMode::Hijacked;
+    transport_auth_state_.allow_response = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
+    transport_auth_state_.allow_response->mutable_internal();
+    service_->prepareOpenHijackedChannel(mock_hijack_callbacks_, {}, hijacked_client_);
+    EXPECT_OK(msg_dispatcher_.dispatch(wire::ChannelOpenMsg{
+      .channel_type = "session"s,
+      .sender_channel = 123,
+    }));
+    typed_channel_stream_ = &channel_stream_;
+    testing::Mock::VerifyAndClearExpectations(hijacked_client_.get());
+  };
+
 protected:
   AuthState transport_auth_state_;
+  TestSshMessageDispatcher msg_dispatcher_;
   std::unique_ptr<testing::StrictMock<MockDownstreamTransportCallbacks>> transport_;
   std::unique_ptr<testing::NiceMock<Server::Configuration::MockServerFactoryContext>> server_factory_context_;
   std::unique_ptr<DownstreamConnectionService> service_;
+  std::shared_ptr<testing::StrictMock<Grpc::MockAsyncClient>> hijacked_client_;
+  testing::StrictMock<Grpc::MockAsyncStream> channel_stream_;
+  Grpc::AsyncStream<ChannelMessage> typed_channel_stream_;
+  testing::StrictMock<MockHijackedChannelCallbacks> mock_hijack_callbacks_;
 };
 
 TEST_F(DownstreamConnectionServiceTest, Name) {
   ASSERT_EQ("ssh-connection", service_->name());
-}
-
-TEST_F(DownstreamConnectionServiceTest, HandleMessage) {
-  // Verify that all known message types will be forwarded when dispatched.
-  std::vector<wire::Message> messages{
-    populatedMessage<wire::ChannelOpenMsg>(),
-    populatedMessage<wire::ChannelWindowAdjustMsg>(),
-    populatedMessage<wire::ChannelDataMsg>(),
-    populatedMessage<wire::ChannelExtendedDataMsg>(),
-    populatedMessage<wire::ChannelEOFMsg>(),
-    populatedMessage<wire::ChannelCloseMsg>(),
-    populatedMessage<wire::ChannelRequestMsg>(),
-    populatedMessage<wire::ChannelSuccessMsg>(),
-    populatedMessage<wire::ChannelFailureMsg>(),
-  };
-
-  TestSshMessageDispatcher d;
-  service_->registerMessageHandlers(d);
-
-  EXPECT_EQ(messages.size(), d.dispatch_.size());
-  for (auto msg : messages) {
-    EXPECT_CALL(*transport_, forward(Eq(msg), FrameTags{}));
-    ASSERT_OK(d.dispatch(auto(msg)));
-  }
 }
 
 TEST_F(DownstreamConnectionServiceTest, HandleMessageHijacked) {
@@ -86,19 +84,15 @@ TEST_F(DownstreamConnectionServiceTest, HandleMessageHijacked) {
   msg.message = populatedMessage<wire::ChannelDataMsg>();
 
   // If there is a hijacked channel, dispatched messages should be sent there instead.
-  testing::StrictMock<Grpc::MockAsyncStream> stream;
-  auto stream_ptr = std::make_shared<Grpc::AsyncStream<pomerium::extensions::ssh::ChannelMessage>>(&stream);
-  transport_auth_state_.hijacked_stream = stream_ptr;
-  transport_auth_state_.channel_mode = ChannelMode::Hijacked;
-
+  StartHijackedChannel();
   // Verify that the proto version of the message matches the original message.
   Buffer::InstancePtr request;
-  EXPECT_CALL(stream, sendMessageRaw_(_, false))
+  EXPECT_CALL(channel_stream_, sendMessageRaw_(_, false))
     .WillOnce([&](Buffer::InstancePtr& arg, [[maybe_unused]] bool end_stream) {
       request = std::move(arg);
     });
 
-  ASSERT_OK(service_->handleMessage(auto(msg)));
+  ASSERT_OK(msg_dispatcher_.dispatch(auto(msg)));
 
   pomerium::extensions::ssh::ChannelMessage proto_msg;
   proto_msg.ParseFromArray(request->linearize(request->length()), static_cast<int>(request->length()));
@@ -116,7 +110,7 @@ TEST_F(DownstreamConnectionServiceTest, HandleMessageHijackedInvalid) {
 
   transport_auth_state_.channel_mode = ChannelMode::Hijacked;
 
-  auto r = service_->handleMessage(wire::Message{msg});
+  auto r = msg_dispatcher_.dispatch(wire::Message{msg});
   ASSERT_EQ(absl::InvalidArgumentError("received invalid message: ABORTED: message size too large"), r);
 }
 
@@ -125,16 +119,18 @@ TEST_F(DownstreamConnectionServiceTest, HandleMessageHijackedNoStream) {
 
   transport_auth_state_.channel_mode = ChannelMode::Hijacked;
 
-  auto r = service_->handleMessage(wire::Message{msg});
+  auto r = msg_dispatcher_.dispatch(wire::Message{msg});
   ASSERT_EQ(absl::CancelledError("connection closed"), r);
 }
 
 TEST_F(DownstreamConnectionServiceTest, HandleMessageUnknown) {
-  auto r = service_->handleMessage(wire::Message{wire::DebugMsg{}});
+  auto r = msg_dispatcher_.dispatch(wire::Message{wire::DebugMsg{}});
   ASSERT_EQ(absl::InternalError("unknown message"), r);
 }
 
 TEST_F(DownstreamConnectionServiceTest, OnReceiveMessageRawBytes) {
+  StartHijackedChannel();
+
   wire::Message expected_msg{};
   expected_msg = wire::ChannelDataMsg{
     .recipient_channel = 123,
@@ -144,40 +140,44 @@ TEST_F(DownstreamConnectionServiceTest, OnReceiveMessageRawBytes) {
   ASSERT_OK(b.status());
   ProtobufWkt::BytesValue bytes_value;
   bytes_value.set_value(*b);
-  auto channel_msg = std::make_unique<pomerium::extensions::ssh::ChannelMessage>();
-  *channel_msg->mutable_raw_bytes() = bytes_value;
+  pomerium::extensions::ssh::ChannelMessage channel_msg;
+  *channel_msg.mutable_raw_bytes() = bytes_value;
 
   EXPECT_CALL(*transport_, sendMessageToConnection(Eq(expected_msg)))
     .WillOnce(Return(absl::UnknownError("sentinel")));
 
-  auto r = service_->onReceiveMessage(std::move(channel_msg));
-  ASSERT_EQ(absl::UnknownError("sentinel"), r);
+  typed_channel_stream_.sendMessage(std::move(channel_msg), false);
 }
 
 TEST_F(DownstreamConnectionServiceTest, OnReceiveMessageRawBytesEmpty) {
-  auto channel_msg = std::make_unique<pomerium::extensions::ssh::ChannelMessage>();
-  channel_msg->mutable_raw_bytes();
+  StartHijackedChannel();
+
+  pomerium::extensions::ssh::ChannelMessage channel_msg;
+  channel_msg.mutable_raw_bytes();
 
   EXPECT_CALL(*transport_, sendMessageToConnection(wire::Message{}))
     .WillOnce(Return(absl::UnknownError("sentinel")));
 
-  auto r = service_->onReceiveMessage(std::move(channel_msg));
-  ASSERT_EQ(absl::UnknownError("sentinel"), r);
+  typed_channel_stream_->sendMessage(std::move(channel_msg), false);
 }
 
 TEST_F(DownstreamConnectionServiceTest, OnReceiveMessageRawBytesInvalid) {
-  auto channel_msg = std::make_unique<pomerium::extensions::ssh::ChannelMessage>();
-  channel_msg->mutable_raw_bytes()->set_value("\x14");
+  StartHijackedChannel();
 
-  auto r = service_->onReceiveMessage(std::move(channel_msg));
-  ASSERT_EQ(absl::InvalidArgumentError("received invalid channel message: short read"), r);
+  pomerium::extensions::ssh::ChannelMessage channel_msg;
+  channel_msg.mutable_raw_bytes()->set_value("\x14");
+
+  EXPECT_CALL(*transport_, terminate(absl::InvalidArgumentError("received invalid channel message: short read")));
+
+  typed_channel_stream_->sendMessage(std::move(channel_msg), false);
 }
 
 TEST_F(DownstreamConnectionServiceTest, OnReceiveMessageChannelControlHandoffUpstream) {
+  StartHijackedChannel();
+
   auto hijacked_stream = std::make_shared<Grpc::AsyncStream<pomerium::extensions::ssh::ChannelMessage>>();
   transport_auth_state_.server_version = "example-server-version"s,
   transport_auth_state_.stream_id = 42;
-  transport_auth_state_.hijacked_stream = hijacked_stream;
   transport_auth_state_.channel_mode = ChannelMode::Hijacked;
 
   pomerium::extensions::ssh::SSHChannelControlAction action{};
@@ -190,18 +190,17 @@ TEST_F(DownstreamConnectionServiceTest, OnReceiveMessageChannelControlHandoffUps
   auto* pty_info = handoff->mutable_downstream_pty_info();
   pty_info->set_width_columns(80);
   pty_info->set_height_rows(24);
-  auto channel_msg = std::make_unique<pomerium::extensions::ssh::ChannelMessage>();
-  channel_msg->mutable_channel_control()->mutable_control_action()->PackFrom(action);
+  pomerium::extensions::ssh::ChannelMessage channel_msg;
+  channel_msg.mutable_channel_control()->mutable_control_action()->PackFrom(action);
 
   AuthStateSharedPtr new_auth_state;
   EXPECT_CALL(*transport_, initUpstream(_))
     .WillOnce(SaveArg<0>(&new_auth_state));
 
-  ASSERT_OK(service_->onReceiveMessage(std::move(channel_msg)));
+  typed_channel_stream_->sendMessage(std::move(channel_msg), false);
 
   ASSERT_EQ("example-server-version", new_auth_state->server_version);
   ASSERT_EQ(42, new_auth_state->stream_id);
-  ASSERT_EQ(hijacked_stream, new_auth_state->hijacked_stream.lock());
   ASSERT_EQ(ChannelMode::Handoff, new_auth_state->channel_mode);
   ASSERT_TRUE(new_auth_state->handoff_info.handoff_in_progress);
   ASSERT_THAT(*new_auth_state->handoff_info.channel_info, Envoy::ProtoEq(*channel_info));
@@ -210,27 +209,27 @@ TEST_F(DownstreamConnectionServiceTest, OnReceiveMessageChannelControlHandoffUps
 }
 
 TEST_F(DownstreamConnectionServiceTest, OnReceiveMessageChannelControlHandoffUpstreamNoInfo) {
+  StartHijackedChannel();
+
   auto hijacked_stream = std::make_shared<Grpc::AsyncStream<pomerium::extensions::ssh::ChannelMessage>>();
   transport_auth_state_.server_version = "example-server-version"s,
   transport_auth_state_.stream_id = 42;
-  transport_auth_state_.hijacked_stream = hijacked_stream;
   transport_auth_state_.channel_mode = ChannelMode::Hijacked;
 
   pomerium::extensions::ssh::SSHChannelControlAction action{};
   auto* upstream_auth = action.mutable_hand_off()->mutable_upstream_auth();
   upstream_auth->mutable_upstream();
-  auto channel_msg = std::make_unique<pomerium::extensions::ssh::ChannelMessage>();
-  channel_msg->mutable_channel_control()->mutable_control_action()->PackFrom(action);
+  pomerium::extensions::ssh::ChannelMessage channel_msg;
+  channel_msg.mutable_channel_control()->mutable_control_action()->PackFrom(action);
 
   AuthStateSharedPtr new_auth_state;
   EXPECT_CALL(*transport_, initUpstream(_))
     .WillOnce(SaveArg<0>(&new_auth_state));
 
-  ASSERT_OK(service_->onReceiveMessage(std::move(channel_msg)));
+  typed_channel_stream_->sendMessage(std::move(channel_msg), false);
 
   ASSERT_EQ("example-server-version", new_auth_state->server_version);
   ASSERT_EQ(42, new_auth_state->stream_id);
-  ASSERT_EQ(hijacked_stream, new_auth_state->hijacked_stream.lock());
   ASSERT_EQ(ChannelMode::Handoff, new_auth_state->channel_mode);
   ASSERT_TRUE(new_auth_state->handoff_info.handoff_in_progress);
   ASSERT_EQ(nullptr, new_auth_state->handoff_info.channel_info);
@@ -239,40 +238,48 @@ TEST_F(DownstreamConnectionServiceTest, OnReceiveMessageChannelControlHandoffUps
 }
 
 TEST_F(DownstreamConnectionServiceTest, OnReceiveMessageChannelControlHandoffMirror) {
+  StartHijackedChannel();
+
   // "MirrorSessionTarget" is not supported yet.
   pomerium::extensions::ssh::SSHChannelControlAction action{};
   action.mutable_hand_off()->mutable_upstream_auth()->mutable_mirror_session();
-  auto channel_msg = std::make_unique<pomerium::extensions::ssh::ChannelMessage>();
-  channel_msg->mutable_channel_control()->mutable_control_action()->PackFrom(action);
+  pomerium::extensions::ssh::ChannelMessage channel_msg;
+  channel_msg.mutable_channel_control()->mutable_control_action()->PackFrom(action);
 
-  auto r = service_->onReceiveMessage(std::move(channel_msg));
-  ASSERT_EQ(absl::UnavailableError("session mirroring feature not available"), r);
+  EXPECT_CALL(*transport_, terminate(absl::UnavailableError("session mirroring feature not available")));
+  typed_channel_stream_->sendMessage(std::move(channel_msg), false);
 }
 
 TEST_F(DownstreamConnectionServiceTest, OnReceiveMessageChannelControlHandoffInternal) {
+  StartHijackedChannel();
+
   // "InternalTarget" is not a valid target for a handoff.
   pomerium::extensions::ssh::SSHChannelControlAction action{};
   action.mutable_hand_off()->mutable_upstream_auth()->mutable_internal();
-  auto channel_msg = std::make_unique<pomerium::extensions::ssh::ChannelMessage>();
-  channel_msg->mutable_channel_control()->mutable_control_action()->PackFrom(action);
+  pomerium::extensions::ssh::ChannelMessage channel_msg;
+  channel_msg.mutable_channel_control()->mutable_control_action()->PackFrom(action);
 
-  auto r = service_->onReceiveMessage(std::move(channel_msg));
-  ASSERT_EQ(absl::InternalError("received invalid channel message: unexpected target: 3"), r);
+  EXPECT_CALL(*transport_, terminate(absl::InternalError("received invalid channel message: unexpected target: 3")));
+  typed_channel_stream_->sendMessage(std::move(channel_msg), false);
 }
 
 TEST_F(DownstreamConnectionServiceTest, OnReceiveMessageChannelControlUnknownAction) {
-  auto channel_msg = std::make_unique<pomerium::extensions::ssh::ChannelMessage>();
-  channel_msg->mutable_channel_control();
+  StartHijackedChannel();
 
-  auto r = service_->onReceiveMessage(std::move(channel_msg));
-  ASSERT_EQ(absl::InternalError("received invalid channel message: unknown action type: 0"), r);
+  pomerium::extensions::ssh::ChannelMessage channel_msg;
+  channel_msg.mutable_channel_control();
+
+  EXPECT_CALL(*transport_, terminate(absl::InternalError("received invalid channel message: unknown action type: 0")));
+  typed_channel_stream_->sendMessage(std::move(channel_msg), false);
 }
 
 TEST_F(DownstreamConnectionServiceTest, OnReceiveMessageUnknown) {
-  auto channel_msg = std::make_unique<pomerium::extensions::ssh::ChannelMessage>();
+  StartHijackedChannel();
 
-  auto r = service_->onReceiveMessage(std::move(channel_msg));
-  ASSERT_EQ(absl::InternalError("received invalid channel message: unknown message type: 0"), r);
+  pomerium::extensions::ssh::ChannelMessage channel_msg;
+
+  EXPECT_CALL(*transport_, terminate(absl::InternalError("received invalid channel message: unknown message type: 0")));
+  typed_channel_stream_->sendMessage(std::move(channel_msg), false);
 }
 
 class UpstreamConnectionServiceTest : public testing::Test {
@@ -281,9 +288,11 @@ public:
     transport_ = std::make_unique<testing::StrictMock<MockUpstreamTransportCallbacks>>();
     api_ = std::make_unique<testing::StrictMock<Api::MockApi>>();
     service_ = std::make_unique<UpstreamConnectionService>(*transport_, *api_);
+    service_->registerMessageHandlers(msg_dispatcher_);
   }
 
 protected:
+  TestSshMessageDispatcher msg_dispatcher_;
   std::unique_ptr<testing::StrictMock<MockUpstreamTransportCallbacks>> transport_;
   std::unique_ptr<testing::StrictMock<Api::MockApi>> api_;
   std::unique_ptr<UpstreamConnectionService> service_;
@@ -303,33 +312,8 @@ TEST_F(UpstreamConnectionServiceTest, onServiceAccepted) {
   ASSERT_OK(service_->onServiceAccepted());
 }
 
-TEST_F(UpstreamConnectionServiceTest, HandleMessage) {
-  // Verify that all known message types will be forwarded when dispatched.
-  std::vector<wire::Message> messages{
-    populatedMessage<wire::ChannelOpenConfirmationMsg>(),
-    populatedMessage<wire::ChannelOpenFailureMsg>(),
-    populatedMessage<wire::ChannelWindowAdjustMsg>(),
-    populatedMessage<wire::ChannelDataMsg>(),
-    populatedMessage<wire::ChannelExtendedDataMsg>(),
-    populatedMessage<wire::ChannelEOFMsg>(),
-    populatedMessage<wire::ChannelCloseMsg>(),
-    populatedMessage<wire::ChannelRequestMsg>(),
-    populatedMessage<wire::ChannelSuccessMsg>(),
-    populatedMessage<wire::ChannelFailureMsg>(),
-  };
-
-  TestSshMessageDispatcher d;
-  service_->registerMessageHandlers(d);
-
-  EXPECT_EQ(messages.size(), d.dispatch_.size());
-  for (auto msg : messages) {
-    EXPECT_CALL(*transport_, forward(Eq(msg), FrameTags{}));
-    ASSERT_OK(d.dispatch(auto(msg)));
-  }
-}
-
 TEST_F(UpstreamConnectionServiceTest, HandleMessageUnknown) {
-  auto r = service_->handleMessage(wire::Message{wire::DebugMsg{}});
+  auto r = msg_dispatcher_.dispatch(wire::Message{wire::DebugMsg{}});
   ASSERT_EQ(absl::InternalError("unknown message"), r);
 }
 

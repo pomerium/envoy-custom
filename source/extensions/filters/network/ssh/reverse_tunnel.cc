@@ -2,6 +2,8 @@
 #include "source/common/status.h"
 #include "source/extensions/filters/network/ssh/passthrough_state.h"
 #include "source/extensions/filters/network/ssh/stream_address.h"
+#include "source/extensions/filters/network/ssh/filter_state_objects.h"
+#include "source/extensions/filters/network/ssh/passthrough_state.h"
 
 #pragma clang unsafe_buffer_usage begin
 #include "source/common/upstream/cluster_factory_impl.h"
@@ -10,13 +12,218 @@
 #include "source/extensions/io_socket/user_space/io_handle_impl.h"
 #include "source/common/network/connection_impl.h"
 #include "envoy/network/client_connection_factory.h"
+#include "source/common/stream_info/filter_state_impl.h"
+#include "source/common/http/utility.h"
 #pragma clang unsafe_buffer_usage end
 
 using Envoy::Extensions::IoSocket::UserSpace::IoHandleFactory;
 
+namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
+
+class InternalDownstreamChannel : public Channel,
+                                  public Logger::Loggable<Logger::Id::filter> {
+public:
+  InternalDownstreamChannel(Network::IoHandlePtr io_handle,
+                            ChannelEventCallbacks& event_callbacks,
+                            Envoy::Event::Dispatcher& connection_dispatcher)
+      : io_handle_(std::move(io_handle)),
+        connection_dispatcher_(connection_dispatcher),
+        event_callbacks_(event_callbacks) {
+    loadPassthroughMetadata();
+  }
+
+  void setChannelCallbacks(ChannelCallbacks& callbacks) override {
+    Channel::setChannelCallbacks(callbacks);
+
+    // Build and send the ChannelOpen message to the downstream.
+    // Normally channels don't send their own ChannelOpen messages, but this is somewhat of a
+    // special case, because the channel is owned internally.
+    wire::ChannelOpenMsg open;
+    open.channel_type = "forwarded-tcpip";
+    open.sender_channel = callbacks_->channelId();
+    open.initial_window_size = 2097152; // TODO
+    open.max_packet_size = 32768;
+
+    Buffer::OwnedImpl extra;
+    auto addrData = Envoy::Http::Utility::parseAuthority(server_name_);
+    wire::write_opt<wire::LengthPrefixed>(extra, std::string(addrData.host_));
+    wire::write<uint32_t>(extra, 443);
+    wire::write_opt<wire::LengthPrefixed>(extra, downstream_addr_->ip()->addressAsString());
+    wire::write<uint32_t>(extra, downstream_addr_->ip()->port());
+    open.extra = wire::flushTo<bytes>(extra);
+
+    auto stat = callbacks.sendMessageToConnection(std::move(open));
+    // TODO: not sure how to best handle this failure, or if it is necessary
+    THROW_IF_NOT_OK(stat);
+  }
+
+  absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&&) override {
+    connection_dispatcher_.post([this] {
+      io_handle_->initializeFileEvent(
+        connection_dispatcher_,
+        [this](uint32_t events) {
+          onFileEvent(events);
+          // errors returned from this callback are fatal
+          return absl::OkStatus();
+        },
+        ::Envoy::Event::PlatformDefaultTriggerType,
+        ::Envoy::Event::FileReadyType::Read | ::Envoy::Event::FileReadyType::Closed);
+    });
+    if (downstream_addr_->ip()->port() == 0) {
+      // channel->demoSendSocks5Connect();
+    }
+    pomerium::extensions::ssh::ChannelEvent ev;
+    ev.set_channel_id(callbacks_->channelId());
+    auto* opened = ev.mutable_internal_channel_opened();
+    opened->set_channel_id(callbacks_->channelId());
+    opened->set_peer_address(downstream_addr_->asStringView());
+
+    // pomerium::extensions::ssh::StreamEvent stream_ev;
+    // *stream_ev.mutable_channel_event() = ev;
+    // ClientMessage msg;
+    // *msg.mutable_event() = stream_ev;
+    event_callbacks_.sendChannelEvent(ev);
+    return absl::OkStatus();
+  }
+
+  absl::Status onChannelOpenFailed(wire::ChannelOpenFailureMsg&& msg) override {
+    // this is not necessarily an error that should end the connection. we can just close the
+    // io handle and send a channel event
+    io_handle_->close();
+    onIoHandleClosed(msg.description);
+    return absl::OkStatus();
+  }
+
+  absl::Status readMessage(wire::Message&& msg) override {
+    return msg.visit(
+      [&](wire::ChannelDataMsg& msg) {
+        Buffer::OwnedImpl buffer(msg.data->data(), msg.data->size());
+        auto r = io_handle_->write(buffer);
+        if (!r.ok()) {
+          ENVOY_LOG(debug, "write: io error: {}", r.err_->getErrorDetails());
+          return absl::OkStatus();
+        }
+        ENVOY_LOG(debug, "wrote {} bytes to socket", r.return_value_);
+        return absl::OkStatus();
+      },
+      [this](wire::ChannelEOFMsg&) {
+        ENVOY_LOG(debug, "got eof message");
+        io_handle_->shutdown(SHUT_WR);
+        return absl::OkStatus();
+      },
+      [this](wire::ChannelCloseMsg&) {
+        ENVOY_LOG(debug, "got close message");
+        if (!closed_) {
+          io_handle_->close();
+          onIoHandleClosed("channel closed");
+        }
+        return absl::OkStatus();
+      },
+      [&](auto& msg) {
+        return absl::InternalError(fmt::format("unexpected message type: {}", msg.msg_type()));
+      });
+  }
+
+private:
+  void onFileEvent(uint32_t events) {
+    ASSERT(connection_dispatcher_.isThreadSafe());
+    if ((events & Envoy::Event::FileReadyType::Closed) != 0) {
+      onIoHandleClosed("connection closed by upstream");
+      return;
+    }
+
+    absl::Status status;
+    if ((events & Envoy::Event::FileReadyType::Read) != 0) {
+      status = readReady();
+    }
+
+    if (!status.ok()) {
+      io_handle_->close();
+      onIoHandleClosed(statusToString(status));
+    }
+
+    // if ((events & FileReadyType::Write) != 0) {
+    //   status = writeReady();
+    // }
+  }
+
+  void onIoHandleClosed(const std::string& reason) {
+    ASSERT(!closed_);
+    closed_ = true;
+
+    io_handle_->resetFileEvents();
+    pomerium::extensions::ssh::ChannelEvent ev;
+    auto* opened = ev.mutable_internal_channel_closed();
+    opened->set_channel_id(callbacks_->channelId());
+    opened->set_reason(reason);
+    event_callbacks_.sendChannelEvent(ev);
+
+    wire::ChannelCloseMsg close;
+    close.recipient_channel = callbacks_->channelId();
+    callbacks_->sendMessageToConnection(std::move(close)).IgnoreError();
+
+    // pomerium::extensions::ssh::StreamEvent stream_ev;
+    // *stream_ev.mutable_channel_event() = ev;
+    // ClientMessage msg;
+    // *msg.mutable_event() = stream_ev;
+    //   ASSERT(transport_dispatcher_->isThreadSafe());
+    //   auto r = io_handle_->close();
+    //   if (!r.ok()) {
+    //     return absl::CancelledError(fmt::format("close: io error: {}", r.err_->getErrorDetails()));
+    //   }
+    // ENVOY_LOG(info, "socket closed", r.return_value_);
+  }
+
+  absl::Status readReady() {
+    ASSERT(connection_dispatcher_.isThreadSafe());
+    // Read from the transport socket and encapsulate the data into a ChannelData message, then
+    // write it on the channel
+    Buffer::OwnedImpl buffer;
+    auto r = io_handle_->read(buffer, std::nullopt);
+    if (!r.ok()) {
+      return absl::CancelledError(fmt::format("read: io error: {}", r.err_->getErrorDetails()));
+    }
+    wire::ChannelDataMsg dataMsg;
+    dataMsg.recipient_channel = callbacks_->channelId();
+    dataMsg.data = wire::flushTo<bytes>(buffer);
+    ENVOY_LOG(debug, "writing {} bytes to internal downstream channel {}", dataMsg.data->size(), dataMsg.recipient_channel);
+    return callbacks_->sendMessageToConnection(wire::Message{std::move(dataMsg)});
+  }
+
+  void loadPassthroughMetadata() {
+    auto passthroughState = Network::InternalStreamPassthroughState::fromIoHandle(*io_handle_);
+
+    envoy::config::core::v3::Metadata passthrough_metadata;
+    StreamInfo::FilterStateImpl passthrough_filter_state{StreamInfo::FilterState::LifeSpan::Connection};
+
+    passthroughState->mergeInto(passthrough_metadata, passthrough_filter_state);
+
+    auto* serverName = passthrough_filter_state.getDataReadOnly<RequestedServerName>(RequestedServerName::key());
+    ASSERT(serverName != nullptr);
+    server_name_ = serverName->value();
+
+    auto* addr = passthrough_filter_state.getDataReadOnly<Network::AddressObject>(DownstreamSourceAddressFilterStateFactory::key());
+    ASSERT(addr != nullptr);
+    downstream_addr_ = addr->address();
+  }
+
+  bool closed_{false};
+  Network::IoHandlePtr io_handle_;
+  Envoy::Event::Dispatcher& connection_dispatcher_;
+
+  std::string server_name_;
+  Envoy::Network::Address::InstanceConstSharedPtr downstream_addr_;
+  ChannelEventCallbacks& event_callbacks_;
+};
+
+} // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
+
 namespace Envoy::Network {
 
-class InternalStreamSocketInterface : public Network::SocketInterface {
+using Envoy::Extensions::NetworkFilters::GenericProxy::Codec::InternalDownstreamChannel;
+
+class InternalStreamSocketInterface : public Network::SocketInterface,
+                                      public Logger::Loggable<Logger::Id::filter> {
 public:
   explicit InternalStreamSocketInterface(std::shared_ptr<StreamTracker> stream_tracker)
       : stream_tracker_(std::move(stream_tracker)) {
@@ -36,8 +243,25 @@ public:
 
     auto streamId = dynamic_cast<const Address::InternalStreamAddressImpl&>(*addr).streamId();
     absl::Status stat;
-    auto ok = stream_tracker_->tryLock(streamId, [&](Extensions::NetworkFilters::GenericProxy::Codec::StreamInterface& intf) {
-      stat = intf.requestOpenDownstreamChannel(std::move(local));
+    auto ok = stream_tracker_->tryLock(streamId, [&](Extensions::NetworkFilters::GenericProxy::Codec::StreamContext& ctx) {
+      // stat = intf.requestOpenDownstreamChannel(std::move(local));
+      ENVOY_LOG(debug, "requesting new downstream channel");
+      auto passthroughState = Network::InternalStreamPassthroughState::fromIoHandle(*local);
+      auto start = absl::Now();
+      passthroughState->notifyOnStateChange(
+        Network::InternalStreamPassthroughState::Initialized,
+        ctx.connection().dispatcher(),
+        [&, io_handle = std::move(local)] mutable {
+          auto diff = absl::Now() - start;
+          ENVOY_LOG(debug, "waited {} for passthrough state initialization", absl::FormatDuration(diff));
+          auto c = std::make_unique<InternalDownstreamChannel>(std::move(io_handle), ctx.eventCallbacks(), ctx.connection().dispatcher());
+          auto stat = ctx.streamCallbacks().startChannel(std::move(c), std::nullopt);
+          if (!stat.ok()) {
+            ENVOY_LOG(error, "failed to start channel: {}", statusToString(stat.status()));
+            io_handle->close();
+          }
+        });
+      return absl::OkStatus();
     });
     if (!ok) {
       ENVOY_LOG_MISC(error, "error requesting channel: stream with ID {} not found", streamId);

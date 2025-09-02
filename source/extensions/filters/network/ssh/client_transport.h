@@ -1,8 +1,5 @@
 #pragma once
 
-#include "source/extensions/filters/network/ssh/channel.h"
-#include <unordered_map>
-
 #pragma clang unsafe_buffer_usage begin
 #include "source/extensions/filters/network/generic_proxy/codec_callbacks.h"
 #pragma clang unsafe_buffer_usage end
@@ -21,6 +18,8 @@ class UpstreamConnectionService;
 
 class SshClientTransport final : public TransportBase<ClientCodec>,
                                  public UpstreamTransportCallbacks {
+  friend class HandoffMiddleware;
+
 public:
   SshClientTransport(Envoy::Server::Configuration::ServerFactoryContext& context,
                      std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config);
@@ -45,23 +44,16 @@ public:
     return connection->dispatcher();
   }
 
+  ChannelIDManager& channelIdManager() override {
+    ASSERT(channel_id_manager_ != nullptr);
+    return *channel_id_manager_;
+  }
+
 protected:
   void onKexCompleted(std::shared_ptr<KexResult> kex_result, bool initial_kex) override;
   void terminate(absl::Status err) override;
 
 private:
-  class HandoffMiddleware : public SshMessageMiddleware, public HandoffChannelCallbacks {
-  public:
-    explicit HandoffMiddleware(SshClientTransport& self) : self_(self) {}
-    absl::StatusOr<MiddlewareResult> interceptMessage(wire::Message& msg) override;
-    void onHandoffComplete() override {
-      // handoff is complete, send an empty message to signal the downstream codec
-      self_.forwardHeader(wire::IgnoreMsg{}, Sentinel);
-    }
-
-  private:
-    SshClientTransport& self_;
-  };
   void initServices();
   void registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) override;
 
@@ -69,7 +61,8 @@ private:
   std::unique_ptr<UpstreamUserAuthService> user_auth_svc_;
   std::unique_ptr<UpstreamConnectionService> connection_svc_;
   std::unique_ptr<PingExtensionHandler> ping_handler_;
-  HandoffMiddleware handoff_middleware_{*this};
+  std::unique_ptr<Envoy::Event::DeferredDeletable> handoff_middleware_;
+  std::shared_ptr<ChannelIDManager> channel_id_manager_; // shared with downstream
 
   std::map<std::string, UpstreamService*> services_;
 

@@ -71,7 +71,7 @@ class ChannelStreamServiceClient : public Grpc::AsyncStreamCallbacks<ChannelMess
 public:
   ChannelStreamServiceClient(Grpc::RawAsyncClientSharedPtr client);
   Grpc::AsyncStream<ChannelMessage> start(ChannelStreamCallbacks* callbacks,
-                                          std::optional<envoy::config::core::v3::Metadata> metadata);
+                                          envoy::config::core::v3::Metadata metadata);
   void setOnRemoteCloseCallback(std::function<void(Grpc::Status::GrpcStatus, std::string)> cb);
   void onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) override;
 

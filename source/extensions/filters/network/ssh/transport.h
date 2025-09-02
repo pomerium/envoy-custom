@@ -60,13 +60,11 @@ struct AuthState {
   std::string server_version;
   stream_id_t stream_id{}; // unique stream id for both connections
   ChannelMode channel_mode{};
-  // std::weak_ptr<Grpc::AsyncStream<pomerium::extensions::ssh::ChannelMessage>> hijacked_stream;
   HandoffInfo handoff_info;
   MultiplexingInfo multiplexing_info;
   std::optional<wire::ExtInfoMsg> downstream_ext_info;
   std::optional<wire::ExtInfoMsg> upstream_ext_info;
   std::unique_ptr<pomerium::extensions::ssh::AllowResponse> allow_response;
-  std::shared_ptr<ChannelIDManager> channel_id_mgr;
 };
 
 using AuthStateSharedPtr = std::shared_ptr<AuthState>;
@@ -91,6 +89,7 @@ public:
   virtual void updatePeerExtInfo(std::optional<wire::ExtInfoMsg> msg) PURE;
   virtual Envoy::OptRef<Envoy::Event::Dispatcher> connectionDispatcher() const PURE;
   virtual void terminate(absl::Status status) PURE;
+  virtual ChannelIDManager& channelIdManager() PURE;
 
   // This function is called at each opportunity to send ext info (once for clients, twice for
   // servers). Iff a value is returned, it will be sent to the peer.

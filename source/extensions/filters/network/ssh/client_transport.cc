@@ -1,6 +1,7 @@
 #include "source/extensions/filters/network/ssh/client_transport.h"
 
 #include "source/common/status.h"
+#include "source/extensions/filters/network/ssh/filter_state_objects.h"
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
 #include "source/extensions/filters/network/ssh/transport_base.h"
@@ -14,6 +15,31 @@ extern "C" {
 }
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
+
+class HandoffChannelCallbacks {
+public:
+  virtual ~HandoffChannelCallbacks() = default;
+  virtual void onHandoffComplete() PURE;
+};
+
+class HandoffMiddleware : public SshMessageMiddleware,
+                          public HandoffChannelCallbacks,
+                          public Envoy::Event::DeferredDeletable {
+public:
+  explicit HandoffMiddleware(SshClientTransport& self) : parent_(self) {}
+  absl::StatusOr<MiddlewareResult> interceptMessage(wire::Message& msg) override;
+  void onHandoffComplete() override {
+    // handoff is complete, send an empty message to signal the downstream codec
+    parent_.forwardHeader(wire::IgnoreMsg{}, Sentinel);
+  }
+
+  void cleanup() {
+    parent_.connectionDispatcher()->deferredDelete(std::move(parent_.handoff_middleware_));
+  }
+
+private:
+  SshClientTransport& parent_;
+};
 
 SshClientTransport::SshClientTransport(
   Envoy::Server::Configuration::ServerFactoryContext& context,
@@ -78,6 +104,8 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
   case FrameTags::RequestHeader: {
     const auto& reqHeader = static_cast<const SSHRequestHeaderFrame&>(frame);
     auth_state_ = reqHeader.authState();
+    channel_id_manager_ = std::dynamic_pointer_cast<ChannelIDManager>(
+      callbacks_->connection()->streamInfo().filterState()->getDataSharedMutableGeneric(ChannelIDManagerFilterStateKey));
     if (auth_state_->channel_mode == ChannelMode::Handoff) {
       if (auth_state_->allow_response->has_upstream()) {
         ASSERT(auth_state_->handoff_info.handoff_in_progress);
@@ -89,14 +117,16 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
           confirm.sender_channel = auth_state_->handoff_info.channel_info->internal_upstream_channel_id();
           confirm.initial_window_size = auth_state_->handoff_info.channel_info->initial_window_size();
           confirm.max_packet_size = auth_state_->handoff_info.channel_info->max_packet_size();
-          if (auto stat = auth_state_->channel_id_mgr->processOutgoingChannelMsg(confirm, Peer::Downstream); !stat.ok()) {
+          if (auto stat = channel_id_manager_->processOutgoingChannelMsg(confirm, Peer::Downstream); !stat.ok()) {
             return stat;
           }
           forwardHeader(std::move(confirm));
           return 0;
         }
       }
-      installMiddleware(&handoff_middleware_);
+      auto mw = std::make_unique<HandoffMiddleware>(*this);
+      installMiddleware(mw.get());
+      handoff_middleware_ = std::move(mw); // TODO: move storage/cleanup logic into the message dispatcher
     }
     return version_exchanger_->writeVersion(auth_state_->server_version);
   }
@@ -235,22 +265,90 @@ void SshClientTransport::terminate(absl::Status err) {
 
 // Handoff Middleware
 
-absl::StatusOr<MiddlewareResult> SshClientTransport::HandoffMiddleware::interceptMessage(wire::Message& ssh_msg) {
-  const auto& info = self_.auth_state_->handoff_info;
+class HandoffChannel : public Channel, public Logger::Loggable<Logger::Id::filter> {
+public:
+  HandoffChannel(const HandoffInfo& info, HandoffChannelCallbacks& callbacks)
+      : info_(info),
+        handoff_callbacks_(callbacks) {}
+
+  absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&&) override {
+    if (info_.pty_info == nullptr) {
+      return absl::InvalidArgumentError("session is not interactive");
+    }
+
+    ENVOY_LOG(debug, "handoff started");
+    // channel is open, now request a pty
+    wire::ChannelRequestMsg channelReq{
+      .recipient_channel = callbacks_->channelId(),
+      .want_reply = true,
+      .request = wire::PtyReqChannelRequestMsg{
+        .term_env = info_.pty_info->term_env(),
+        .width_columns = info_.pty_info->width_columns(),
+        .height_rows = info_.pty_info->height_rows(),
+        .width_px = info_.pty_info->width_px(),
+        .height_px = info_.pty_info->height_px(),
+        .modes = info_.pty_info->modes(),
+      },
+    };
+    return callbacks_->sendMessageToConnection(std::move(channelReq));
+  }
+  absl::Status onChannelOpenFailed(wire::ChannelOpenFailureMsg&& msg) override {
+    // this should end the connection
+    return absl::InvalidArgumentError(*msg.description);
+  }
+
+  absl::Status readMessage(wire::Message&& msg) override {
+    if (handoff_complete_) {
+      callbacks_->passthrough(std::move(msg));
+      return absl::OkStatus();
+    }
+    return msg.visit(
+      // 3: PTY open request
+      [&](const wire::ChannelSuccessMsg&) {
+        // open a shell; this logic is only reached after requesting a pty
+        wire::ChannelRequestMsg shellReq;
+        shellReq.recipient_channel = callbacks_->channelId();
+        shellReq.request = wire::ShellChannelRequestMsg{};
+        shellReq.want_reply = false;
+        auto r = callbacks_->sendMessageToConnection(std::move(shellReq));
+        RELEASE_ASSERT(r.ok(), "failed to send ShellChannelRequestMsg");
+
+        ENVOY_LOG(debug, "handoff complete");
+        handoff_complete_ = true;
+        handoff_callbacks_.onHandoffComplete();
+
+        return absl::OkStatus();
+      },
+      [&](const wire::ChannelFailureMsg&) {
+        return absl::InternalError("failed to open upstream tty");
+      },
+      [](const auto& msg) {
+        return absl::InternalError(fmt::format("invalid message received during handoff: {}", msg.msg_type()));
+      });
+  }
+
+private:
+  bool handoff_complete_{false};
+  const HandoffInfo& info_;
+  HandoffChannelCallbacks& handoff_callbacks_;
+};
+
+absl::StatusOr<MiddlewareResult> HandoffMiddleware::interceptMessage(wire::Message& ssh_msg) {
+  const auto& info = parent_.auth_state_->handoff_info;
   ASSERT(info.handoff_in_progress);
 
   return ssh_msg.visit(
     // 1: User auth request
     [&](wire::UserAuthSuccessMsg&) -> absl::StatusOr<MiddlewareResult> {
       auto channel = std::make_unique<HandoffChannel>(info, *this);
-      auto id = self_.connection_svc_->startChannel(std::move(channel), info.channel_info->internal_upstream_channel_id());
+      auto id = parent_.connection_svc_->startChannel(std::move(channel), info.channel_info->internal_upstream_channel_id());
       if (!id.ok()) {
         return id.status();
       }
-      auto stat = self_.auth_state_->channel_id_mgr->trackRelativeID(
-        *id, RelativeChannelID{
+      auto stat = parent_.channel_id_manager_->bindChannelID(
+        *id, PeerLocalID{
                .channel_id = info.channel_info->downstream_channel_id(),
-               .relative_to = Peer::Downstream,
+               .local_peer = Peer::Downstream,
              });
       if (!stat.ok()) {
         return stat;
@@ -262,7 +360,7 @@ absl::StatusOr<MiddlewareResult> SshClientTransport::HandoffMiddleware::intercep
       open.initial_window_size = 2097152; // TODO
       open.max_packet_size = 32768;
 
-      if (auto stat = self_.sendMessageToConnection(std::move(open)); !stat.ok()) {
+      if (auto stat = parent_.sendMessageToConnection(std::move(open)); !stat.ok()) {
         return stat.status();
       }
 
@@ -270,12 +368,13 @@ absl::StatusOr<MiddlewareResult> SshClientTransport::HandoffMiddleware::intercep
       // couple of post-auth-success actions that it would normally do
 
       // set the upstream ext info if available
-      if (auto info = self_.peerExtInfo(); info.has_value()) {
-        self_.authState().upstream_ext_info = std::move(info);
+      if (auto info = parent_.peerExtInfo(); info.has_value()) {
+        parent_.authState().upstream_ext_info = std::move(info);
       }
       // unregister the user auth service
-      self_.unregisterHandler(self_.user_auth_svc_.get());
+      parent_.unregisterHandler(parent_.user_auth_svc_.get());
 
+      cleanup();
       return Break | UninstallSelf;
     },
     [&](wire::UserAuthFailureMsg&) -> absl::StatusOr<MiddlewareResult> {

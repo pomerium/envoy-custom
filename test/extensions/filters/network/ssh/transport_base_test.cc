@@ -52,6 +52,16 @@ public:
       .WillByDefault([this](wire::Message&& msg) {
         return this->TransportBase<T>::sendMessageDirect(std::move(msg));
       });
+    ON_CALL(*this, terminate(_))
+      .WillByDefault([this](absl::Status status) {
+        return this->TransportBase<T>::terminate(std::move(status));
+      });
+    ON_CALL(*this, connectionDispatcher())
+      .WillByDefault([this] -> Envoy::OptRef<Envoy::Event::Dispatcher> {
+        return *dispatcher_;
+      });
+    ON_CALL(*this, channelIdManager())
+      .WillByDefault(ReturnRef(channel_id_manager_));
     ON_CALL(*this, updatePeerExtInfo(_))
       .WillByDefault([this](std::optional<wire::ExtInfoMsg> msg) {
         return this->TransportBase<T>::updatePeerExtInfo(std::move(msg));
@@ -88,12 +98,15 @@ public:
   MOCK_METHOD(absl::Status, onMessageDecoded, (wire::Message&&), (override));                            // delegates to the base class
   MOCK_METHOD(absl::StatusOr<size_t>, sendMessageToConnection, (wire::Message&&), (override));           // delegates to the base class
   MOCK_METHOD(absl::StatusOr<size_t>, sendMessageDirect, (wire::Message&&), (override));                 // delegates to the base class
+  MOCK_METHOD(void, terminate, (absl::Status), (override));                                              // delegates to the base class
 
   MOCK_METHOD(EncodingResult, encode, (const StreamFrame&, EncodingContext&));                         // pure virtual, not tested here
   MOCK_METHOD(ResponseHeaderFramePtr, respond, (Status, std::string_view, const RequestHeaderFrame&)); // pure virtual, not tested here
 
-  MOCK_METHOD(absl::Status, handleMessage, (wire::Message&&));         // pure virtual, used for assertions
-  MOCK_METHOD(void, registerMessageHandlers, (SshMessageDispatcher&)); // mocked
+  MOCK_METHOD(absl::Status, handleMessage, (wire::Message&&));                                      // pure virtual, used for assertions
+  MOCK_METHOD(void, registerMessageHandlers, (SshMessageDispatcher&));                              // mocked
+  MOCK_METHOD(Envoy::OptRef<Envoy::Event::Dispatcher>, connectionDispatcher, (), (const override)); // mocked
+  MOCK_METHOD(ChannelIDManager&, channelIdManager, (), (override));                                 // mocked
 
   MOCK_METHOD(void, forward, (wire::Message&&, FrameTags));                   // pure virtual, not tested here
   MOCK_METHOD(absl::StatusOr<bytes>, signWithHostKey, (bytes_view), (const)); // pure virtual, not tested here
@@ -173,6 +186,7 @@ public:
 private:
   std::atomic_bool closed_{false};
   ::Envoy::Event::DispatcherPtr dispatcher_;
+  ChannelIDManager channel_id_manager_;
 };
 
 inline absl::Duration defaultTimeout() {
@@ -634,10 +648,10 @@ TYPED_TEST(TransportBaseTest, TestDecodeMessageFailure) {
 
 TYPED_TEST(TransportBaseTest, OnDecodingFailure) {
   EXPECT_CALL(this->ClientCallbacks(), onDecodingFailure("test error"));
-  this->Client().onDecodingFailure(absl::InternalError("test error"));
+  this->Client().terminate(absl::InternalError("test error"));
 
   EXPECT_CALL(this->ClientCallbacks(), onDecodingFailure(""));
-  this->Client().onDecodingFailure(absl::OkStatus());
+  this->Client().terminate(absl::OkStatus());
 }
 
 TYPED_TEST(TransportBaseTest, TestRekeyManual) {

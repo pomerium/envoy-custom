@@ -195,7 +195,6 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
       state->allow_response->CopyFrom(allow);
       state->stream_id = transport_.streamId();
       state->downstream_ext_info = transport_.peerExtInfo();
-      state->channel_id_mgr = std::make_shared<ChannelIDManager>();
       switch (allow.target_case()) {
       case pomerium::extensions::ssh::AllowResponse::kUpstream:
         state->channel_mode = ChannelMode::Normal;

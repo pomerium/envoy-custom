@@ -14,6 +14,9 @@
 template <std::unsigned_integral T, T Limit = std::numeric_limits<T>::max()>
 class IDAllocator {
 public:
+  IDAllocator(T start_id)
+      : next_(start_id) {}
+
   absl::StatusOr<T> alloc() {
     if (freed_.empty()) {
       if (next_ == Limit) {

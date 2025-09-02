@@ -32,4 +32,6 @@ public:
   }
 };
 
+constexpr std::string_view ChannelIDManagerFilterStateKey = "pomerium.extensions.ssh.channel_id_manager";
+
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

@@ -14,6 +14,7 @@
 #include "source/extensions/filters/network/ssh/message_handler.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/transport_base.h"
+#include "source/extensions/filters/network/ssh/service_connection.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -50,6 +51,8 @@ public:
 
   stream_id_t streamId() const override { return stream_id_; }
 
+  ChannelIDManager& channelIdManager() override { return *channel_id_manager_; }
+
   // Network::ConnectionCallbacks
   void onEvent(Network::ConnectionEvent event) override;
   void onAboveWriteBufferHighWatermark() override {}
@@ -82,6 +85,7 @@ private:
   std::unique_ptr<StreamManagementServiceClient> mgmt_client_;
   std::unique_ptr<ChannelStreamServiceClient> channel_client_;
   std::shared_ptr<Envoy::Grpc::RawAsyncClient> grpc_client_;
+  std::shared_ptr<ChannelIDManager> channel_id_manager_;
   stream_id_t stream_id_;
 
   Envoy::OptRef<Envoy::Event::Dispatcher> connection_dispatcher_;

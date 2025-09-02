@@ -49,16 +49,12 @@ ChannelStreamServiceClient::ChannelStreamServiceClient(Grpc::RawAsyncClientShare
       client_(client) {}
 
 Grpc::AsyncStream<ChannelMessage> ChannelStreamServiceClient::start(
-  ChannelStreamCallbacks* callbacks, std::optional<envoy::config::core::v3::Metadata> metadata) {
+  ChannelStreamCallbacks* callbacks, envoy::config::core::v3::Metadata metadata) {
   callbacks_ = callbacks;
   Http::AsyncClient::StreamOptions opts;
   auto stream = client_.start(method_manage_stream_, *this, opts);
   ChannelMessage mdMsg;
-  if (metadata.has_value()) {
-    *mdMsg.mutable_metadata() = *metadata;
-  } else {
-    mdMsg.mutable_metadata(); // set empty metadata
-  }
+  *mdMsg.mutable_metadata() = std::move(metadata);
   stream->sendMessage(mdMsg, false);
   return stream;
 }

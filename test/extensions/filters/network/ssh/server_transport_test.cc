@@ -83,6 +83,8 @@ public:
     EXPECT_CALL(server_codec_callbacks_, connection())
       .Times(AnyNumber());
 
+    transport_.onConnected();
+
     // Perform a manual key exchange as the client and set up a packet cipher
     input_buffer_.add("SSH-2.0-TestClient\r\n");
     transport_.decode(input_buffer_, false);
@@ -996,14 +998,13 @@ TEST_P(StreamTrackerConnectionCallbacksTest, TestDisconnectEvent) {
   auto st = StreamTracker::fromContext(server_factory_context_);
   auto streamId = transport_.streamId();
   // ensure the connection is tracked
-  EXPECT_NE(nullptr, st->find(streamId));
-  EXPECT_EQ(streamId, st->find(streamId)->streamId());
+  EXPECT_TRUE(st->tryLock(streamId, [](StreamContext&) {}));
 
   // send a disconnect event (either local or remote should do the same thing)
   mock_connection_.raiseEvent(GetParam());
 
   // ensure the tracked connection was ended
-  EXPECT_EQ(nullptr, st->find(streamId));
+  EXPECT_FALSE(st->tryLock(streamId, [](StreamContext&) {}));
 
   // no-op Network::ConnectionCallbacks methods, for coverage only
   transport_.onAboveWriteBufferHighWatermark();

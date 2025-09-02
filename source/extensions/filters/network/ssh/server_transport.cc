@@ -10,11 +10,11 @@
 
 #include "source/common/status.h"
 #include "source/extensions/filters/network/ssh/common.h"
+#include "source/extensions/filters/network/ssh/filter_state_objects.h"
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/kex.h"
 #include "source/extensions/filters/network/ssh/transport_base.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
-#include "source/extensions/filters/network/ssh/service_connection.h"
 #include "source/extensions/filters/network/ssh/service_userauth.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "source/extensions/filters/network/ssh/transport.h"
@@ -77,6 +77,12 @@ void SshServerTransport::onConnected() {
   auto& conn = *callbacks_->connection();
   ASSERT(conn.state() == Network::Connection::State::Open);
   connection_dispatcher_ = conn.dispatcher();
+  channel_id_manager_ = std::make_shared<ChannelIDManager>();
+  conn.streamInfo().filterState()->setData(ChannelIDManagerFilterStateKey,
+                                           channel_id_manager_,
+                                           StreamInfo::FilterState::StateType::Mutable,
+                                           StreamInfo::FilterState::LifeSpan::Connection,
+                                           StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
   initServices();
   mgmt_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus, std::string err) {
     terminate(absl::CancelledError(err));
@@ -270,7 +276,6 @@ void SshServerTransport::initHandoff(pomerium::extensions::ssh::SSHChannelContro
   newState->server_version = authState().server_version;
   newState->stream_id = authState().stream_id;
   newState->channel_mode = authState().channel_mode;
-  newState->channel_id_mgr = authState().channel_id_mgr; // reuse the same channel_id_mgr here
   switch (handoff_msg->upstream_auth().target_case()) {
   case pomerium::extensions::ssh::AllowResponse::kUpstream:
     newState->handoff_info.handoff_in_progress = true;
@@ -308,6 +313,7 @@ void SshServerTransport::initUpstream(AuthStateSharedPtr s) {
     sendMgmtClientMessage(upstream_connect_msg);
   } break;
   case ChannelMode::Hijacked: {
+    ASSERT(auth_state_->allow_response != nullptr);
     RELEASE_ASSERT(auth_state_->allow_response->target_case() == pomerium::extensions::ssh::AllowResponse::kInternal,
                    "wrong target mode in AllowResponse for internal session");
 
