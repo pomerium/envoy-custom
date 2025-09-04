@@ -81,7 +81,7 @@ void SshServerTransport::onConnected() {
   conn.streamInfo().filterState()->setData(ChannelIDManagerFilterStateKey,
                                            channel_id_manager_,
                                            StreamInfo::FilterState::StateType::Mutable,
-                                           StreamInfo::FilterState::LifeSpan::Connection,
+                                           StreamInfo::FilterState::LifeSpan::Request,
                                            StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
   initServices();
   mgmt_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus, std::string err) {
@@ -108,6 +108,7 @@ GenericProxy::EncodingResult SshServerTransport::encode(const GenericProxy::Stre
   }
   ASSERT((tags & FrameTags::FrameEffectiveTypeMask) == FrameTags::EffectiveHeader); // 1-bit mask
   if (authState().handoff_info.handoff_in_progress) {
+    ENVOY_LOG(debug, "handoff complete, re-enabling reads on downstream connection");
     authState().handoff_info.handoff_in_progress = false;
     callbacks_->connection()->readDisable(false);
   }
@@ -288,6 +289,9 @@ void SshServerTransport::initHandoff(pomerium::extensions::ssh::SSHChannelContro
     if (handoff_msg->has_downstream_pty_info()) {
       newState->handoff_info.pty_info.reset(handoff_msg->release_downstream_pty_info());
     }
+    ENVOY_LOG(debug, "starting handoff to upstream {} for internal channel {}",
+              newState->allow_response->upstream().hostname(),
+              newState->handoff_info.channel_info->internal_upstream_channel_id());
     initUpstream(std::move(newState));
     break;
   case pomerium::extensions::ssh::AllowResponse::kMirrorSession:
@@ -326,6 +330,7 @@ void SshServerTransport::initUpstream(AuthStateSharedPtr s) {
   } break;
   case ChannelMode::Handoff: {
     auto frame = std::make_unique<SSHRequestHeaderFrame>(auth_state_);
+    ENVOY_LOG(debug, "disabling reads on downstream connection for handoff");
     callbacks_->connection()->readDisable(true);
     callbacks_->onDecodingSuccess(std::move(frame));
 

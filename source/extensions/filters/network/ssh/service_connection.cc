@@ -41,7 +41,6 @@ absl::StatusOr<uint32_t> ConnectionService::startChannel(std::unique_ptr<Channel
     if (!internalId.ok()) {
       return internalId.status();
     }
-    ENVOY_LOG(debug, "allocated new internal channel ID: {}", *internalId);
     channel_id = *internalId;
   }
   auto callbacks = std::make_unique<ChannelCallbacksImpl>(*this, *channel_id, local_peer_);
@@ -50,7 +49,7 @@ absl::StatusOr<uint32_t> ConnectionService::startChannel(std::unique_ptr<Channel
   }
   LinkedList::moveIntoList(std::move(callbacks), channel_callbacks_);
 
-  ENVOY_LOG(debug, "new internal channel: {}", *channel_id);
+  ENVOY_LOG(debug, "starting new internal channel: {}", *channel_id);
   RELEASE_ASSERT(!channels_.contains(*channel_id), fmt::format("bug: channel with ID {} already exists", *channel_id));
   channels_[*channel_id] = std::move(channel);
 
@@ -275,7 +274,8 @@ public:
     auto& typedMetadata = *metadata.mutable_typed_filter_metadata();
     if (auto it = typedMetadata.find("com.pomerium.ssh"); it != typedMetadata.end()) {
       // if there is already FilterMetadata present in the expected key, use it
-      RELEASE_ASSERT(!it->second.UnpackTo(&sshMetadata), "bug: invalid metadata in InternalTarget");
+      auto ok = it->second.UnpackTo(&sshMetadata);
+      RELEASE_ASSERT(ok, "bug: invalid metadata in InternalTarget");
     }
     // set the channel id (this shouldn't be present if set_metadata is used)
     // XXX: should we use a separate key for this?
@@ -362,8 +362,8 @@ public:
     return sendMessageToStream(std::move(msg));
   }
 
-  absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&&) override {
-    return absl::OkStatus();
+  absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&& msg) override {
+    return callbacks_->sendMessageToConnection(std::move(msg));
   }
 
   absl::Status onChannelOpenFailed(wire::ChannelOpenFailureMsg&& msg) override {
@@ -426,6 +426,7 @@ absl::StatusOr<MiddlewareResult> OpenHijackedChannelMiddleware::interceptMessage
   return msg.visit(
     [&](wire::ChannelOpenMsg& msg) -> absl::StatusOr<MiddlewareResult> {
       auto client = std::make_unique<ChannelStreamServiceClient>(grpc_client_);
+
       auto channel = std::make_unique<HijackedChannel>(hijack_callbacks_, std::move(client), config_, msg);
 
       auto internalId = parent_.startChannel(std::move(channel), std::nullopt);

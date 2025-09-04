@@ -16,22 +16,11 @@ extern "C" {
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-class HandoffChannelCallbacks {
-public:
-  virtual ~HandoffChannelCallbacks() = default;
-  virtual void onHandoffComplete() PURE;
-};
-
 class HandoffMiddleware : public SshMessageMiddleware,
-                          public HandoffChannelCallbacks,
                           public Envoy::Event::DeferredDeletable {
 public:
   explicit HandoffMiddleware(SshClientTransport& self) : parent_(self) {}
   absl::StatusOr<MiddlewareResult> interceptMessage(wire::Message& msg) override;
-  void onHandoffComplete() override {
-    // handoff is complete, send an empty message to signal the downstream codec
-    parent_.forwardHeader(wire::IgnoreMsg{}, Sentinel);
-  }
 
   void cleanup() {
     parent_.connectionDispatcher()->deferredDelete(std::move(parent_.handoff_middleware_));
@@ -40,6 +29,20 @@ public:
 private:
   SshClientTransport& parent_;
 };
+
+// class DirectTcpipChannel : public Channel {
+// public:
+//   absl::Status setChannelCallbacks(ChannelCallbacks& callbacks) override {
+//     RETURN_IF_NOT_OK(Channel::setChannelCallbacks(callbacks));
+
+//   }
+//   absl::Status readMessage(wire::Message&& msg) override {
+//   }
+//   absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&&) override {
+//   }
+//   absl::Status onChannelOpenFailed(wire::ChannelOpenFailureMsg&&) override {
+//   }
+// };
 
 SshClientTransport::SshClientTransport(
   Envoy::Server::Configuration::ServerFactoryContext& context,
@@ -110,13 +113,22 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
       if (auth_state_->allow_response->has_upstream()) {
         ASSERT(auth_state_->handoff_info.handoff_in_progress);
         const auto& upstream = auth_state_->allow_response->upstream();
+        // TODO: this is not ideal, should pull this logic out into a Channel implementation.
         if (upstream.direct_tcpip()) {
+          auto internalId = auth_state_->handoff_info.channel_info->internal_upstream_channel_id();
           upstream_is_direct_tcpip_ = true;
           wire::ChannelOpenConfirmationMsg confirm;
           confirm.recipient_channel = auth_state_->handoff_info.channel_info->downstream_channel_id();
-          confirm.sender_channel = auth_state_->handoff_info.channel_info->internal_upstream_channel_id();
+          confirm.sender_channel = internalId;
           confirm.initial_window_size = auth_state_->handoff_info.channel_info->initial_window_size();
           confirm.max_packet_size = auth_state_->handoff_info.channel_info->max_packet_size();
+          // Logically, we are the upstream for this channel. The ID needs to be bound so that
+          // the downstream can send messages to the "upstream" (us) on this channel correctly
+          RETURN_IF_NOT_OK(channel_id_manager_->bindChannelID(internalId,
+                                                              PeerLocalID{
+                                                                .channel_id = internalId,
+                                                                .local_peer = Peer::Upstream,
+                                                              }));
           forwardHeader(std::move(confirm));
           return 0;
         }
@@ -341,7 +353,7 @@ absl::StatusOr<MiddlewareResult> HandoffMiddleware::interceptMessage(wire::Messa
   return ssh_msg.visit(
     // 1: User auth request
     [&](wire::UserAuthSuccessMsg&) -> absl::StatusOr<MiddlewareResult> {
-      auto channel = std::make_unique<HandoffChannel>(info, *this);
+      auto channel = std::make_unique<HandoffChannel>(info, parent_);
       auto internalId = parent_.connection_svc_->startChannel(std::move(channel), info.channel_info->internal_upstream_channel_id());
       if (!internalId.ok()) {
         return internalId.status();

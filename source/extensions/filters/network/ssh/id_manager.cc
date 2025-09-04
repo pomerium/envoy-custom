@@ -23,7 +23,7 @@ absl::Status ChannelIDManager::bindChannelID(uint32_t internal_id, PeerLocalID p
   ENVOY_LOG(debug, "{} channel ID {} tracking internal ID {}",
             peer_local_id.local_peer, peer_local_id.channel_id, internal_id);
   it->second.peer_ids[peer_local_id.local_peer] = peer_local_id.channel_id;
-  it->second.peer_states[peer_local_id.local_peer] = InternalChannelInfo::Bound;
+  it->second.peer_states[peer_local_id.local_peer] = ChannelIDState::Bound;
   return absl::OkStatus();
 }
 
@@ -31,19 +31,11 @@ absl::Status ChannelIDManager::bindChannelID(uint32_t internal_id, PeerLocalID p
 void ChannelIDManager::releaseChannelID(uint32_t internal_id, Peer local_peer) {
   ASSERT(internal_channels_.contains(internal_id));
   auto& internalChannel = internal_channels_[internal_id];
-  internalChannel.peer_states[local_peer] = InternalChannelInfo::Released;
+  internalChannel.peer_states[local_peer] = ChannelIDState::Released;
 
-  if (internalChannel.peer_states[Downstream] != InternalChannelInfo::Bound &&
-      internalChannel.peer_states[Upstream] != InternalChannelInfo::Bound) {
-    ENVOY_LOG(debug, "released internal channel ID [U:{} I:{} D:{}] (owner: {})",
-              internalChannel.peer_states[Upstream] == InternalChannelInfo::Released
-                ? fmt::to_string(internalChannel.peer_ids[Upstream])
-                : "none",
-              internal_id,
-              internalChannel.peer_states[Downstream] == InternalChannelInfo::Released
-                ? fmt::to_string(internalChannel.peer_ids[Downstream])
-                : "none",
-              internalChannel.owner);
+  if (internalChannel.peer_states[Peer::Downstream] != ChannelIDState::Bound &&
+      internalChannel.peer_states[Peer::Upstream] != ChannelIDState::Bound) {
+    ENVOY_LOG(debug, "released internal channel ID {} [{}]", internal_id, internalChannel);
     internal_channels_.erase(internal_id);
     id_alloc_.release(internal_id);
   }
@@ -59,7 +51,7 @@ absl::Status ChannelIDManager::processOutgoingChannelMsgImpl(wire::field<uint32_
   }
 
   auto& info = it->second;
-  if (info.peer_states[dest] == InternalChannelInfo::Unbound) {
+  if (info.peer_states[dest] == ChannelIDState::Unbound) {
     return absl::InvalidArgumentError(
       fmt::format("error processing outgoing message of type {}: internal channel {} is not known to {} (state: {})",
                   msg_type, internalId, dest, info.peer_states[dest]));

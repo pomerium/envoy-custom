@@ -1,0 +1,19 @@
+diff --git a/source/extensions/filters/network/generic_proxy/router/upstream.cc b/source/extensions/filters/network/generic_proxy/router/upstream.cc
+index adc6d56dfc..a44014cf70 100644
+--- a/source/extensions/filters/network/generic_proxy/router/upstream.cc
++++ b/source/extensions/filters/network/generic_proxy/router/upstream.cc
+@@ -234,6 +234,14 @@ void BoundGenericUpstream::onEvent(Network::ConnectionEvent event) {
+ }
+ 
+ void BoundGenericUpstream::onUpstreamSuccess() {
++  auto shared = downstream_conn_.streamInfo().filterState()->objectsSharedWithUpstreamConnection();
++  if (shared) {
++    for (const auto& obj : *shared) {
++      upstreamConnection()->streamInfo().filterState()->setData(obj.name_, obj.data_,
++                                                                obj.state_type_);
++    }
++  }
++
+   // This should be called only once and all pending requests should be notified. After this is
+   // called, the upstream connection is ready and new upstream requests should be notified directly.
+ 

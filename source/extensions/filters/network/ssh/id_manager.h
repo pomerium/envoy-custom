@@ -1,8 +1,10 @@
 #pragma once
 
+#include "fmt/args.h"
 #include "source/common/id_alloc.h"
 #include "source/extensions/filters/network/ssh/common.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
+#include "source/extensions/filters/network/ssh/common.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -11,22 +13,36 @@ enum Peer {
   Upstream = 1,
 };
 
+enum class ChannelIDState {
+  Unbound = 0,
+  Bound = 1,
+  Released = 2,
+};
+
 struct PeerLocalID {
   uint32_t channel_id;
   Peer local_peer;
 };
 
 struct InternalChannelInfo {
-  enum State {
-    Unbound = 0,
-    Bound = 1,
-    Released = 2,
-  };
   std::array<uint32_t, 2> peer_ids;
-  std::array<State, 2> peer_states;
+  std::array<ChannelIDState, 2> peer_states;
 
   Peer owner{};
 };
+
+constexpr auto format_as(const InternalChannelInfo& info) {
+  fmt::dynamic_format_arg_store<fmt::format_context> args;
+  for (auto peer : {Peer::Upstream, Peer::Downstream}) {
+    args.push_back(info.owner == peer ? "*" : "");
+    if (info.peer_states[peer] == ChannelIDState::Unbound) {
+      args.push_back("none");
+    } else {
+      args.push_back(info.peer_ids[peer]);
+    }
+  }
+  return fmt::vformat("U{}:{}/D{}:{}", args);
+}
 
 // Manages channel ID mappings.
 // Channel IDs for proxied SSH connections are managed as follows:
@@ -112,4 +128,4 @@ private:
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
 
 DECL_BASIC_ENUM_FORMATTER(Envoy::Extensions::NetworkFilters::GenericProxy::Codec::Peer);
-DECL_BASIC_ENUM_FORMATTER(Envoy::Extensions::NetworkFilters::GenericProxy::Codec::InternalChannelInfo::State);
+DECL_BASIC_ENUM_FORMATTER(Envoy::Extensions::NetworkFilters::GenericProxy::Codec::ChannelIDState);

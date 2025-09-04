@@ -16,7 +16,14 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 class UpstreamUserAuthService;
 class UpstreamConnectionService;
 
+class HandoffChannelCallbacks {
+public:
+  virtual ~HandoffChannelCallbacks() = default;
+  virtual void onHandoffComplete() PURE;
+};
+
 class SshClientTransport final : public TransportBase<ClientCodec>,
+                                 public HandoffChannelCallbacks,
                                  public UpstreamTransportCallbacks {
   friend class HandoffMiddleware;
 
@@ -44,6 +51,11 @@ public:
   ChannelIDManager& channelIdManager() override {
     ASSERT(channel_id_manager_ != nullptr);
     return *channel_id_manager_;
+  }
+
+  void onHandoffComplete() override {
+    // handoff is complete, send an empty message to signal the downstream codec
+    forwardHeader(wire::IgnoreMsg{}, Sentinel);
   }
 
 protected:
