@@ -315,6 +315,18 @@ TEST_F(ServerTransportTest, Disconnect) {
   ASSERT_OK(WriteMsg(wire::DisconnectMsg{.reason_code = 11}));
 }
 
+TEST_F(ServerTransportTest, Terminate) {
+  ASSERT_OK(ReadExtInfo());
+
+  EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("test error"sv));
+
+  transport_.terminate(absl::ResourceExhaustedError("test error"));
+
+  wire::DisconnectMsg disconnect;
+  ASSERT_OK(ReadMsg(disconnect));
+  EXPECT_EQ(disconnect.description, "Resource Exhausted: test error");
+}
+
 // Validate the server's initial ExtInfoMsg
 TEST_F(ServerTransportTest, InitialExtInfo) {
   wire::ExtInfoMsg serverExtInfo;

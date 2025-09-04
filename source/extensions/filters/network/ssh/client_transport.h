@@ -58,9 +58,10 @@ public:
     forwardHeader(wire::IgnoreMsg{}, Sentinel);
   }
 
+  void terminate(absl::Status err) override;
+
 protected:
   void onKexCompleted(std::shared_ptr<KexResult> kex_result, bool initial_kex) override;
-  void terminate(absl::Status err) override;
 
 private:
   void initServices();

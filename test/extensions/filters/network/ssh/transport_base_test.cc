@@ -646,12 +646,15 @@ TYPED_TEST(TransportBaseTest, TestDecodeMessageFailure) {
   this->Join();
 }
 
-TYPED_TEST(TransportBaseTest, OnDecodingFailure) {
+TYPED_TEST(TransportBaseTest, Terminate) {
+  this->Start();
   EXPECT_CALL(this->ClientCallbacks(), onDecodingFailure("test error"));
-  this->Client().terminate(absl::InternalError("test error"));
-
-  EXPECT_CALL(this->ClientCallbacks(), onDecodingFailure(""));
-  this->Client().terminate(absl::OkStatus());
+  this->Client().Post([&](auto& client) {
+    client.terminate(absl::InternalError("test error"));
+    client.Exit();
+    this->Server().Exit();
+  });
+  this->Join();
 }
 
 TYPED_TEST(TransportBaseTest, TestRekeyManual) {

@@ -230,11 +230,9 @@ public:
         .recipient_channel = internal_channel_id,
         .data = wire::flushTo<bytes>(packet),
       };
-      // sanity check: this channel ID should not be known to the upstream
-      EXPECT_EQ(absl::InvalidArgumentError(
-                  fmt::format("error processing outgoing message of type ChannelData (94): internal channel {} is not known to Upstream (state: Unbound)",
-                              internal_channel_id)),
-                channel_id_manager_->processOutgoingChannelMsg(data, Peer::Upstream));
+      // this channel ID should have a bound upstream ID with the same internal ID
+      RETURN_IF_NOT_OK(channel_id_manager_->processOutgoingChannelMsg(data, Peer::Upstream));
+      EXPECT_EQ(data.recipient_channel, internal_channel_id); // no change
       SSHRequestCommonFrame frame(wire::Message{data});
       GenericProxy::MockEncodingContext ctx;
       RETURN_IF_NOT_OK(transport_.encode(frame, ctx).status());
@@ -638,6 +636,12 @@ TEST_F(ClientTransportTest, HandleUpstreamDisconnect) {
 TEST_F(ClientTransportTest, HandleInvalidMessage) {
   ASSERT_EQ(absl::InternalError("received invalid message: KexInit (20)"),
             transport_.handleMessage(wire::Message{wire::KexInitMsg{}}));
+}
+
+TEST_F(ClientTransportTest, Terminate) {
+  StartTransportNormal();
+  ExpectDisconnectAsHeader(absl::ResourceExhaustedError("test error"));
+  transport_.terminate(absl::ResourceExhaustedError("test error"));
 }
 
 TEST_F(ClientTransportTest, Handoff) {
