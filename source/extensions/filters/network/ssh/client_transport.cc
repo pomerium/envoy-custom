@@ -117,9 +117,6 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
           confirm.sender_channel = auth_state_->handoff_info.channel_info->internal_upstream_channel_id();
           confirm.initial_window_size = auth_state_->handoff_info.channel_info->initial_window_size();
           confirm.max_packet_size = auth_state_->handoff_info.channel_info->max_packet_size();
-          if (auto stat = channel_id_manager_->processOutgoingChannelMsg(confirm, Peer::Downstream); !stat.ok()) {
-            return stat;
-          }
           forwardHeader(std::move(confirm));
           return 0;
         }
@@ -290,11 +287,15 @@ public:
         .modes = info_.pty_info->modes(),
       },
     };
-    return callbacks_->sendMessageToConnection(std::move(channelReq));
+    auto stat = callbacks_->sendMessageToConnection(std::move(channelReq));
+    if (!stat.ok()) {
+      return statusf("error requesting pty: {}", stat);
+    }
+    return absl::OkStatus();
   }
   absl::Status onChannelOpenFailed(wire::ChannelOpenFailureMsg&& msg) override {
     // this should end the connection
-    return absl::InvalidArgumentError(*msg.description);
+    return absl::UnavailableError(*msg.description);
   }
 
   absl::Status readMessage(wire::Message&& msg) override {
@@ -341,24 +342,24 @@ absl::StatusOr<MiddlewareResult> HandoffMiddleware::interceptMessage(wire::Messa
     // 1: User auth request
     [&](wire::UserAuthSuccessMsg&) -> absl::StatusOr<MiddlewareResult> {
       auto channel = std::make_unique<HandoffChannel>(info, *this);
-      auto id = parent_.connection_svc_->startChannel(std::move(channel), info.channel_info->internal_upstream_channel_id());
-      if (!id.ok()) {
-        return id.status();
+      auto internalId = parent_.connection_svc_->startChannel(std::move(channel), info.channel_info->internal_upstream_channel_id());
+      if (!internalId.ok()) {
+        return internalId.status();
       }
       auto stat = parent_.channel_id_manager_->bindChannelID(
-        *id, PeerLocalID{
-               .channel_id = info.channel_info->downstream_channel_id(),
-               .local_peer = Peer::Downstream,
-             });
+        *internalId, PeerLocalID{
+                       .channel_id = info.channel_info->downstream_channel_id(),
+                       .local_peer = Peer::Downstream,
+                     });
       if (!stat.ok()) {
         return stat;
       }
       // Build and send the ChannelOpen message to the upstream
       wire::ChannelOpenMsg open;
       open.channel_type = "session";
-      open.sender_channel = *id;
-      open.initial_window_size = 2097152; // TODO
-      open.max_packet_size = 32768;
+      open.sender_channel = *internalId;
+      open.initial_window_size = info.channel_info->initial_window_size();
+      open.max_packet_size = info.channel_info->max_packet_size();
 
       if (auto stat = parent_.sendMessageToConnection(std::move(open)); !stat.ok()) {
         return stat.status();

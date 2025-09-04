@@ -61,7 +61,7 @@ absl::Status ChannelIDManager::processOutgoingChannelMsgImpl(wire::field<uint32_
   auto& info = it->second;
   if (info.peer_states[dest] == InternalChannelInfo::Unbound) {
     return absl::InvalidArgumentError(
-      fmt::format("error processing outgoing {} message: internal channel {} is not known to {} (state: {})",
+      fmt::format("error processing outgoing message of type {}: internal channel {} is not known to {} (state: {})",
                   msg_type, internalId, dest, info.peer_states[dest]));
   }
   recipient_channel = info.peer_ids[dest];

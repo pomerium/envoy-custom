@@ -272,6 +272,7 @@ void SshServerTransport::onServiceAuthenticated(const std::string& service_name)
 }
 
 void SshServerTransport::initHandoff(pomerium::extensions::ssh::SSHChannelControlAction_HandOffUpstream* handoff_msg) {
+  connection_service_->disableChannelHijack();
   auto newState = std::make_shared<AuthState>();
   newState->server_version = authState().server_version;
   newState->stream_id = authState().stream_id;
@@ -318,7 +319,7 @@ void SshServerTransport::initUpstream(AuthStateSharedPtr s) {
                    "wrong target mode in AllowResponse for internal session");
 
     const auto& internal = auth_state_->allow_response->internal();
-    connection_service_->prepareOpenHijackedChannel(*this, internal, grpc_client_);
+    connection_service_->enableChannelHijack(*this, internal, grpc_client_);
 
     sendMessageToConnection(wire::UserAuthSuccessMsg{})
       .IgnoreError();

@@ -37,11 +37,8 @@ public:
   stream_id_t streamId() const override;
 
   Envoy::OptRef<Envoy::Event::Dispatcher> connectionDispatcher() const override {
-    auto connection = callbacks_->connection();
-    if (!connection.has_value()) {
-      return std::nullopt;
-    }
-    return connection->dispatcher();
+    ASSERT(callbacks_->connection().has_value());
+    return callbacks_->connection()->dispatcher();
   }
 
   ChannelIDManager& channelIdManager() override {

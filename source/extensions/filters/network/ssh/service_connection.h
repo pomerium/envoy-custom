@@ -87,9 +87,10 @@ public:
 
   void onStreamBegin(Network::Connection& connection);
   void onStreamEnd();
-  void prepareOpenHijackedChannel(HijackedChannelCallbacks& hijack_callbacks,
-                                  const pomerium::extensions::ssh::InternalTarget& config,
-                                  Envoy::Grpc::RawAsyncClientSharedPtr grpc_client);
+  void enableChannelHijack(HijackedChannelCallbacks& hijack_callbacks,
+                           const pomerium::extensions::ssh::InternalTarget& config,
+                           Envoy::Grpc::RawAsyncClientSharedPtr grpc_client);
+  void disableChannelHijack();
 
   void sendChannelEvent(const pomerium::extensions::ssh::ChannelEvent& ev) override;
 
@@ -98,7 +99,7 @@ private:
 
   std::shared_ptr<StreamTracker> stream_tracker_;
   std::unique_ptr<StreamHandle> stream_handle_;
-  std::unique_ptr<Envoy::Event::DeferredDeletable> open_hijacked_channel_middleware_;
+  std::unique_ptr<SshMessageMiddleware> open_hijacked_channel_middleware_;
 };
 
 class UpstreamConnectionService final : public ConnectionService,

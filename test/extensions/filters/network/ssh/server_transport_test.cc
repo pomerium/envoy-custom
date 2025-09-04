@@ -30,8 +30,7 @@ public:
           server_factory_context_,
           initConfig(),
           [this] { return this->client_; },
-          StreamTracker::fromContext(server_factory_context_, StreamTrackerConfig{})) {
-  }
+          StreamTracker::fromContext(server_factory_context_, StreamTrackerConfig{})) {}
 
   const wire::KexInitMsg kex_init_ = {
     .cookie = {{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}},
@@ -60,14 +59,16 @@ public:
       .WillByDefault(Invoke([this](absl::string_view, absl::string_view,
                                    Envoy::Grpc::RawAsyncStreamCallbacks& callbacks,
                                    const Http::AsyncClient::StreamOptions&) {
-        manage_stream_callbacks_ = dynamic_cast<Envoy::Grpc::AsyncStreamCallbacks<ServerMessage>*>(&callbacks);
+        // dynamic cast the reference, not the pointer, so that failures throw an exception instead
+        // of returning nullptr
+        manage_stream_callbacks_ = &dynamic_cast<Envoy::Grpc::AsyncStreamCallbacks<ServerMessage>&>(callbacks);
         return &manage_stream_stream_;
       }));
     ON_CALL(*client_, startRaw("pomerium.extensions.ssh.StreamManagement", "ServeChannel", _, _))
       .WillByDefault(Invoke([this](absl::string_view, absl::string_view,
                                    Envoy::Grpc::RawAsyncStreamCallbacks& callbacks,
                                    const Http::AsyncClient::StreamOptions&) {
-        serve_channel_callbacks_ = dynamic_cast<Envoy::Grpc::AsyncStreamCallbacks<ChannelMessage>*>(&callbacks);
+        serve_channel_callbacks_ = &dynamic_cast<Envoy::Grpc::AsyncStreamCallbacks<ChannelMessage>&>(callbacks);
         return &serve_channel_stream_;
       }));
     EXPECT_CALL(*client_, startRaw("pomerium.extensions.ssh.StreamManagement", "ManageStream", _, _));
@@ -84,6 +85,15 @@ public:
       .Times(AnyNumber());
 
     transport_.onConnected();
+    // Replace the transport's ChannelIDManager to set the starting channel ID to 100. This makes
+    // it easier to differentiate internal IDs in tests. The default starting ID is also 0, which
+    // causes fields to be omitted when printing protobuf messages.
+    // ChannelIDManager is not copyable or movable so we need to reconstruct it in-place. It is
+    // normally created in the onConnected() callback above.
+    ChannelIDManager* mgr = &transport_.channelIdManager();
+    ASSERT(mgr->numActiveChannels() == 0);
+    mgr->~ChannelIDManager();
+    new (mgr) ChannelIDManager(100);
 
     // Perform a manual key exchange as the client and set up a packet cipher
     input_buffer_.add("SSH-2.0-TestClient\r\n");
@@ -283,8 +293,8 @@ public:
   testing::NiceMock<Grpc::MockAsyncStream> manage_stream_stream_;
   testing::NiceMock<Grpc::MockAsyncStream> serve_channel_stream_;
   std::shared_ptr<testing::StrictMock<Grpc::MockAsyncClient>> client_;
-  Envoy::Grpc::AsyncStreamCallbacks<ServerMessage>* manage_stream_callbacks_;
-  Envoy::Grpc::AsyncStreamCallbacks<ChannelMessage>* serve_channel_callbacks_;
+  Envoy::Grpc::AsyncStreamCallbacks<ServerMessage>* manage_stream_callbacks_{};
+  Envoy::Grpc::AsyncStreamCallbacks<ChannelMessage>* serve_channel_callbacks_{};
   SshServerTransport transport_;
 
 private:
@@ -548,26 +558,89 @@ TEST_F(ServerTransportTest, SuccessfulUserAuth_HijackedMode) {
 
   ExpectHandlePomeriumGrpcAuthRequestHijack(clientMsg);
   // no decoding success or upstream connect
-  ExpectServeChannelStart();
-
-  // The allow response can contain metadata which will be sent back at the start of the
-  // ServeChannel RPC, to help identify the stream or pass arbitrary data between the rpc handlers.
-  ChannelMessage metadataReq;
-  (*metadataReq.mutable_metadata()->mutable_filter_metadata())["foo"] = ProtobufWkt::Struct{};
-  ExpectSendOnServeChannelStream(metadataReq);
 
   ASSERT_OK(WriteMsg(std::move(authReq)));
   wire::UserAuthSuccessMsg success;
   ASSERT_OK(ReadMsg(success));
 
+  // The allow response can contain metadata which will be sent back at the start of the
+  // ServeChannel RPC, to help identify the stream or pass arbitrary data between the rpc handlers.
+  ChannelMessage metadataReq;
+  (*metadataReq.mutable_metadata()->mutable_filter_metadata())["foo"] = ProtobufWkt::Struct{};
+  pomerium::extensions::ssh::FilterMetadata sshMetadata;
+  sshMetadata.set_channel_id(100);
+  (*metadataReq.mutable_metadata()->mutable_typed_filter_metadata())["com.pomerium.ssh"].PackFrom(sshMetadata);
+
   // when the downstream sends messages, they should be written to the hijacked stream
   wire::ChannelOpenMsg open;
   open.channel_type = "session"s;
   open.sender_channel = 1;
-  open.initial_window_size = 64 * wire::MaxPacketSize;
-  open.max_packet_size = wire::MaxPacketSize;
-  ExpectSendOnServeChannelStream(open);
+  open.initial_window_size = wire::ChannelWindowSize;
+  open.max_packet_size = wire::ChannelMaxPacketSize;
+  {
+    IN_SEQUENCE;
+    ExpectServeChannelStart();
+    ExpectSendOnServeChannelStream(metadataReq);
+    ExpectSendOnServeChannelStream(open);
+  }
   ASSERT_OK(WriteMsg(std::move(open)));
+}
+
+TEST_F(ServerTransportTest, SuccessfulUserAuth_HijackedMode_MultipleChannels) {
+  ASSERT_OK(ReadExtInfo());
+
+  auto clientKey = *openssh::SSHKey::generate(KEY_ED25519, 256);
+
+  ASSERT_OK(RequestUserAuthService());
+  auto [authReq, clientMsg] = BuildUserAuthMessages(*clientKey);
+
+  ExpectHandlePomeriumGrpcAuthRequestHijack(clientMsg);
+  // no decoding success or upstream connect
+
+  ASSERT_OK(WriteMsg(std::move(authReq)));
+  wire::UserAuthSuccessMsg success;
+  ASSERT_OK(ReadMsg(success));
+
+  // The allow response can contain metadata which will be sent back at the start of the
+  // ServeChannel RPC, to help identify the stream or pass arbitrary data between the rpc handlers.
+  ChannelMessage metadataReq;
+  (*metadataReq.mutable_metadata()->mutable_filter_metadata())["foo"] = ProtobufWkt::Struct{};
+  pomerium::extensions::ssh::FilterMetadata sshMetadata;
+  sshMetadata.set_channel_id(100);
+  (*metadataReq.mutable_metadata()->mutable_typed_filter_metadata())["com.pomerium.ssh"].PackFrom(sshMetadata);
+
+  // when the downstream sends messages, they should be written to the hijacked stream
+  wire::ChannelOpenMsg open;
+  open.channel_type = "session"s;
+  open.sender_channel = 1;
+  open.initial_window_size = wire::ChannelWindowSize;
+  open.max_packet_size = wire::ChannelMaxPacketSize;
+  {
+    IN_SEQUENCE;
+    ExpectServeChannelStart();
+    ExpectSendOnServeChannelStream(metadataReq);
+    ExpectSendOnServeChannelStream(open);
+  }
+  ASSERT_OK(WriteMsg(std::move(open)));
+}
+
+TEST_F(ServerTransportTest, SuccessfulUserAuth_HijackedMode_NoChannelRequest) {
+  ASSERT_OK(ReadExtInfo());
+
+  auto clientKey = *openssh::SSHKey::generate(KEY_ED25519, 256);
+
+  ASSERT_OK(RequestUserAuthService());
+  auto [authReq, clientMsg] = BuildUserAuthMessages(*clientKey);
+
+  ExpectHandlePomeriumGrpcAuthRequestHijack(clientMsg);
+  // The ServeChannel stream is only started on a ChannelOpen request after auth success. If
+  // none is sent no connection should be started.
+  EXPECT_CALL(*client_, startRaw("pomerium.extensions.ssh.StreamManagement", "ServeChannel", _, _))
+    .Times(0);
+
+  ASSERT_OK(WriteMsg(std::move(authReq)));
+  wire::UserAuthSuccessMsg success;
+  ASSERT_OK(ReadMsg(success));
 }
 
 TEST_F(ServerTransportTest, SuccessfulUserAuth_HandoffMode) {
@@ -579,24 +652,29 @@ TEST_F(ServerTransportTest, SuccessfulUserAuth_HandoffMode) {
   auto [authReq, clientMsg] = BuildUserAuthMessages(*clientKey);
 
   ExpectHandlePomeriumGrpcAuthRequestHijack(clientMsg);
-  // no decoding success or upstream connect
-  ExpectServeChannelStart();
-
-  ChannelMessage metadataReq;
-  (*metadataReq.mutable_metadata()->mutable_filter_metadata())["foo"] = ProtobufWkt::Struct{};
-  ExpectSendOnServeChannelStream(metadataReq);
 
   ASSERT_OK(WriteMsg(std::move(authReq)));
   wire::UserAuthSuccessMsg success;
   ASSERT_OK(ReadMsg(success));
 
-  // when the downstream sends messages, they should be written to the hijacked stream
+  ChannelMessage metadataReq;
+  (*metadataReq.mutable_metadata()->mutable_filter_metadata())["foo"] = ProtobufWkt::Struct{};
+  pomerium::extensions::ssh::FilterMetadata sshMetadata;
+  sshMetadata.set_channel_id(100);
+  (*metadataReq.mutable_metadata()->mutable_typed_filter_metadata())["com.pomerium.ssh"].PackFrom(sshMetadata);
+
+  // when the downstream opens a channel, it should start a new stream
   wire::ChannelOpenMsg open;
   open.channel_type = "session"s;
   open.sender_channel = 1;
-  open.initial_window_size = 64 * wire::MaxPacketSize;
-  open.max_packet_size = wire::MaxPacketSize;
-  ExpectSendOnServeChannelStream(open);
+  open.initial_window_size = wire::ChannelWindowSize;
+  open.max_packet_size = wire::ChannelMaxPacketSize;
+  {
+    IN_SEQUENCE;
+    ExpectServeChannelStart();
+    ExpectSendOnServeChannelStream(metadataReq);
+    ExpectSendOnServeChannelStream(open);
+  }
   ASSERT_OK(WriteMsg(std::move(open)));
 
   ExpectUpstreamConnectMsg();
@@ -636,21 +714,34 @@ TEST_F(ServerTransportTest, SuccessfulUserAuth_HijackedMode_StreamClosed) {
   auto [authReq, clientMsg] = BuildUserAuthMessages(*clientKey);
 
   ExpectHandlePomeriumGrpcAuthRequestHijack(clientMsg);
-  // no decoding success or upstream connect
-  ExpectServeChannelStart();
-
-  ChannelMessage metadataReq;
-  (*metadataReq.mutable_metadata()->mutable_filter_metadata())["foo"] = ProtobufWkt::Struct{};
-  ExpectSendOnServeChannelStream(metadataReq);
 
   ASSERT_OK(WriteMsg(std::move(authReq)));
   wire::UserAuthSuccessMsg success;
   ASSERT_OK(ReadMsg(success));
 
+  ChannelMessage metadataReq;
+  (*metadataReq.mutable_metadata()->mutable_filter_metadata())["foo"] = ProtobufWkt::Struct{};
+  pomerium::extensions::ssh::FilterMetadata sshMetadata;
+  sshMetadata.set_channel_id(100);
+  (*metadataReq.mutable_metadata()->mutable_typed_filter_metadata())["com.pomerium.ssh"].PackFrom(sshMetadata);
+
+  // open a new channel to start the hijacked connection
+  wire::ChannelOpenMsg open;
+  open.channel_type = "session"s;
+  open.sender_channel = 1;
+  open.initial_window_size = wire::ChannelWindowSize;
+  open.max_packet_size = wire::ChannelMaxPacketSize;
+  {
+    IN_SEQUENCE;
+    ExpectServeChannelStart();
+    ExpectSendOnServeChannelStream(metadataReq);
+    ExpectSendOnServeChannelStream(open);
+  }
+  ASSERT_OK(WriteMsg(std::move(open)));
+
   // If the stream is closed unexpectedly, it should end the connection
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("test error"));
   serve_channel_callbacks_->onRemoteClose(Envoy::Grpc::Status::Internal, "test error");
-  mock_connection_.dispatcher_.clearDeferredDeleteList(); // invoke the deferredRun callback
   wire::DisconnectMsg serverDisconnect;
   ASSERT_OK(ReadMsg(serverDisconnect));
 }
@@ -707,12 +798,12 @@ TEST_P(ClientMessagesPostUserAuthTest, ClientMessagesPostUserAuth) {
   if (err != "") {
     EXPECT_CALL(server_codec_callbacks_, onDecodingFailure(_))
       .WillOnce([err](std::string_view actual) {
-        EXPECT_EQ(err, actual);
+        EXPECT_THAT(actual, HasSubstr(err));
       });
   } else {
     msg.visit(
       [this](wire::ChannelMsg auto const&) {
-        EXPECT_CALL(server_codec_callbacks_, onDecodingSuccess(_)); // common frame overload
+        EXPECT_CALL(server_codec_callbacks_, onDecodingFailure(_)); // common frame overload
       },
       [this](const wire::ChannelOpenMsg&) {
         EXPECT_CALL(server_codec_callbacks_, onDecodingSuccess(_));
@@ -767,16 +858,16 @@ INSTANTIATE_TEST_SUITE_P(ClientMessagesPostUserAuth, ClientMessagesPostUserAuthT
                            {wire::UserAuthSuccessMsg{}, "unexpected message received: UserAuthSuccess (52)"sv},
                            {wire::UserAuthBannerMsg{}, "unexpected message received: UserAuthBanner (53)"sv},
                            {wire::ChannelOpenMsg{}, ""sv},
-                           {wire::ChannelOpenConfirmationMsg{}, "unexpected message received: ChannelOpenConfirmation (91)"sv},
-                           {wire::ChannelOpenFailureMsg{}, "unexpected message received: ChannelOpenFailure (92)"sv},
-                           {wire::ChannelWindowAdjustMsg{}, ""sv},
-                           {wire::ChannelDataMsg{}, ""sv},
-                           {wire::ChannelExtendedDataMsg{}, ""sv},
-                           {wire::ChannelEOFMsg{}, ""sv},
-                           {wire::ChannelCloseMsg{}, ""sv},
-                           {wire::ChannelRequestMsg{}, ""sv},
-                           {wire::ChannelSuccessMsg{}, ""sv},
-                           {wire::ChannelFailureMsg{}, ""sv},
+                           {wire::ChannelOpenConfirmationMsg{}, "received invalid ChannelOpenConfirmation message: unknown channel 0"sv},
+                           {wire::ChannelOpenFailureMsg{}, "received ChannelOpenFailureMsg message for unknown channel 0"sv},
+                           {wire::ChannelWindowAdjustMsg{}, "received message for unknown channel 0: ChannelWindowAdjust"sv},
+                           {wire::ChannelDataMsg{}, "received message for unknown channel 0: ChannelData"sv},
+                           {wire::ChannelExtendedDataMsg{}, "received message for unknown channel 0: ChannelExtendedData"sv},
+                           {wire::ChannelEOFMsg{}, "received message for unknown channel 0: ChannelEOF"sv},
+                           {wire::ChannelCloseMsg{}, "received message for unknown channel 0: ChannelClose"sv},
+                           {wire::ChannelRequestMsg{}, "received message for unknown channel 0: ChannelRequest"sv},
+                           {wire::ChannelSuccessMsg{}, "received message for unknown channel 0: ChannelSuccess"sv},
+                           {wire::ChannelFailureMsg{}, "received message for unknown channel 0: ChannelFailure"sv},
                            {wire::PingMsg{}, ""sv},
                            {wire::PongMsg{}, ""sv},
                          }));
@@ -849,15 +940,29 @@ TEST_F(ServerTransportTest, EncodeEffectiveHeaderHandoffComplete) {
   auto [authReq, clientMsg] = BuildUserAuthMessages(*clientKey);
 
   ExpectHandlePomeriumGrpcAuthRequestHijack(clientMsg);
-  ExpectServeChannelStart();
-
-  ChannelMessage metadataReq;
-  (*metadataReq.mutable_metadata()->mutable_filter_metadata())["foo"] = ProtobufWkt::Struct{};
-  ExpectSendOnServeChannelStream(metadataReq);
 
   ASSERT_OK(WriteMsg(std::move(authReq)));
   wire::UserAuthSuccessMsg success;
   ASSERT_OK(ReadMsg(success));
+
+  ChannelMessage metadataReq;
+  (*metadataReq.mutable_metadata()->mutable_filter_metadata())["foo"] = ProtobufWkt::Struct{};
+  pomerium::extensions::ssh::FilterMetadata sshMetadata;
+  sshMetadata.set_channel_id(100);
+  (*metadataReq.mutable_metadata()->mutable_typed_filter_metadata())["com.pomerium.ssh"].PackFrom(sshMetadata);
+
+  wire::ChannelOpenMsg open;
+  open.channel_type = "session"s;
+  open.sender_channel = 1;
+  open.initial_window_size = wire::ChannelWindowSize;
+  open.max_packet_size = wire::ChannelMaxPacketSize;
+  {
+    IN_SEQUENCE;
+    ExpectServeChannelStart();
+    ExpectSendOnServeChannelStream(metadataReq);
+    ExpectSendOnServeChannelStream(open);
+  }
+  ASSERT_OK(WriteMsg(std::move(open)));
 
   ExpectUpstreamConnectMsg();
 

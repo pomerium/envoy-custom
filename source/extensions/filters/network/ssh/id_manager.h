@@ -75,7 +75,7 @@ struct InternalChannelInfo {
 // At the protocol level, the channel is not "closed" until both sides have sent and received a
 // ChannelClose message. Only when this happens is the ID released for re-use.
 //
-class ChannelIDManager : public NonCopyable,
+class ChannelIDManager : NonCopyable,
                          public StreamInfo::FilterState::Object,
                          public Logger::Loggable<Logger::Id::filter> {
 public:
@@ -98,6 +98,8 @@ public:
   absl::Status processOutgoingChannelMsg(M& msg, Peer dest) {
     return processOutgoingChannelMsgImpl(msg.recipient_channel, msg.msg_type(), dest);
   }
+
+  size_t numActiveChannels() const { return internal_channels_.size(); }
 
 private:
   absl::Status processOutgoingChannelMsgImpl(wire::field<uint32_t>& recipient_channel,

@@ -32,8 +32,9 @@ public:
     loadPassthroughMetadata();
   }
 
-  void setChannelCallbacks(ChannelCallbacks& callbacks) override {
-    Channel::setChannelCallbacks(callbacks);
+  absl::Status setChannelCallbacks(ChannelCallbacks& callbacks) override {
+    auto stat = Channel::setChannelCallbacks(callbacks);
+    ASSERT(stat.ok()); // default implementation always succeeds
 
     // Build and send the ChannelOpen message to the downstream.
     // Normally channels don't send their own ChannelOpen messages, but this is somewhat of a
@@ -41,8 +42,8 @@ public:
     wire::ChannelOpenMsg open;
     open.channel_type = "forwarded-tcpip";
     open.sender_channel = callbacks_->channelId();
-    open.initial_window_size = 2097152; // TODO
-    open.max_packet_size = 32768;
+    open.initial_window_size = wire::ChannelWindowSize;
+    open.max_packet_size = wire::ChannelMaxPacketSize;
 
     Buffer::OwnedImpl extra;
     auto addrData = Envoy::Http::Utility::parseAuthority(server_name_);
@@ -52,9 +53,7 @@ public:
     wire::write<uint32_t>(extra, downstream_addr_->ip()->port());
     open.extra = wire::flushTo<bytes>(extra);
 
-    auto stat = callbacks.sendMessageToConnection(std::move(open));
-    // TODO: not sure how to best handle this failure, or if it is necessary
-    THROW_IF_NOT_OK(stat);
+    return callbacks.sendMessageToConnection(std::move(open));
   }
 
   absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&&) override {

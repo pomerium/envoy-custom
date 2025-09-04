@@ -54,7 +54,7 @@ public:
     transport_auth_state_.channel_mode = ChannelMode::Hijacked;
     transport_auth_state_.allow_response = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
     transport_auth_state_.allow_response->mutable_internal();
-    service_->prepareOpenHijackedChannel(mock_hijack_callbacks_, {}, hijacked_client_);
+    service_->enableChannelHijack(mock_hijack_callbacks_, {}, hijacked_client_);
     EXPECT_OK(msg_dispatcher_.dispatch(wire::ChannelOpenMsg{
       .channel_type = "session"s,
       .sender_channel = 123,

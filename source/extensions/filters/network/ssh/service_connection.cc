@@ -45,7 +45,9 @@ absl::StatusOr<uint32_t> ConnectionService::startChannel(std::unique_ptr<Channel
     channel_id = *internalId;
   }
   auto callbacks = std::make_unique<ChannelCallbacksImpl>(*this, *channel_id, local_peer_);
-  channel->setChannelCallbacks(*callbacks);
+  if (auto stat = channel->setChannelCallbacks(*callbacks); !stat.ok()) {
+    return statusf("failed to start channel: {}", stat);
+  }
   LinkedList::moveIntoList(std::move(callbacks), channel_callbacks_);
 
   ENVOY_LOG(debug, "new internal channel: {}", *channel_id);
@@ -142,7 +144,7 @@ absl::Status ConnectionService::handleMessage(wire::Message&& ssh_msg) {
       auto node = channels_.extract(msg.recipient_channel);
       if (node.empty()) {
         // protocol error; end the connection
-        return absl::InvalidArgumentError(fmt::format("received {} for unknown channel {}", msg.msg_type(), msg.recipient_channel));
+        return absl::InvalidArgumentError(fmt::format("received message for unknown channel {}: {}", msg.recipient_channel, msg.msg_type()));
       }
       // allow node to go out of scope
       return node.mapped()->readMessage(std::move(ssh_msg));
@@ -152,7 +154,7 @@ absl::Status ConnectionService::handleMessage(wire::Message&& ssh_msg) {
         return it->second->readMessage(std::move(ssh_msg));
       }
       // protocol error; end the connection
-      return absl::InvalidArgumentError(fmt::format("received {} for unknown channel {}", msg.msg_type(), msg.recipient_channel));
+      return absl::InvalidArgumentError(fmt::format("received message for unknown channel {}: {}", msg.recipient_channel, msg.msg_type()));
     },
     [](auto&) {
       return absl::InternalError("unknown message");
@@ -241,14 +243,54 @@ public:
                   std::unique_ptr<ChannelStreamServiceClient> channel_client,
                   const pomerium::extensions::ssh::InternalTarget& config,
                   const wire::ChannelOpenMsg& channel_open)
-      : channel_client_(std::move(channel_client)),
+      : hijack_callbacks_(hijack_callbacks),
+        channel_client_(std::move(channel_client)),
         config_(config),
-        hijack_callbacks_(hijack_callbacks),
-        channel_open_(channel_open) {
-    channel_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus code, std::string err) {
-      onGrpcConnectionClosed(code, err);
-    });
+        channel_open_(channel_open) {}
+
+  ~HijackedChannel() {
+    if (stream_ != nullptr) {
+      unsetCallbacksAndResetStream();
+    }
   }
+
+  absl::Status setChannelCallbacks(ChannelCallbacks& callbacks) override {
+    auto stat = Channel::setChannelCallbacks(callbacks);
+    ASSERT(stat.ok()); // default implementation always succeeds
+
+    // Note: we're still inside of ConnectionService::startChannel() here, so the downstream ID has
+    // not been bound yet. This callback doesn't send anything to the downstream currently, but if
+    // it ever needs to then the ID will need to be bound earlier.
+
+    // Start the stream and send the downstream's saved ChannelOpen message. The stream expects
+    // the first message to be ChannelOpen (after the metadata is sent). It will respond with a
+    // success or failure message.
+    envoy::config::core::v3::Metadata metadata;
+    if (config_.has_set_metadata()) {
+      // use any metadata present in the set_metadata field
+      metadata = config_.set_metadata();
+    }
+
+    pomerium::extensions::ssh::FilterMetadata sshMetadata;
+    auto& typedMetadata = *metadata.mutable_typed_filter_metadata();
+    if (auto it = typedMetadata.find("com.pomerium.ssh"); it != typedMetadata.end()) {
+      // if there is already FilterMetadata present in the expected key, use it
+      RELEASE_ASSERT(!it->second.UnpackTo(&sshMetadata), "bug: invalid metadata in InternalTarget");
+    }
+    // set the channel id (this shouldn't be present if set_metadata is used)
+    // XXX: should we use a separate key for this?
+    sshMetadata.set_channel_id(callbacks_->channelId());
+
+    // send the combined metadata
+    typedMetadata["com.pomerium.ssh"].PackFrom(sshMetadata);
+    stream_ = channel_client_->start(this, std::move(metadata));
+    channel_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus code, std::string err) {
+      // This callback is unregistered on handoff.
+      hijack_callbacks_.hijackedChannelFailed(absl::Status(static_cast<absl::StatusCode>(code), err));
+    });
+    return sendMessageToStream(std::move(channel_open_)); // clear channel_open_
+  }
+
   absl::Status onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& msg) override {
     switch (msg->message_case()) {
     case pomerium::extensions::ssh::ChannelMessage::kRawBytes: {
@@ -259,8 +301,35 @@ public:
       if (!stat.ok()) {
         return statusf("received invalid channel message: {}", stat.status());
       }
-      ENVOY_LOG(debug, "sending channel message to downstream: {}", anyMsg.msg_type());
-      return callbacks_->sendMessageToConnection(std::move(anyMsg));
+      return anyMsg.visit(
+        [&](wire::ChannelOpenMsg&) -> absl::Status {
+          throw Envoy::EnvoyException("cannot open channels from a hijacked stream");
+        },
+        [&](wire::ChannelOpenConfirmationMsg& msg) {
+          if (open_complete_) {
+            throw Envoy::EnvoyException("unexpected ChannelOpenConfirmationMsg");
+          }
+          open_complete_ = true;
+          // ConnectionService normally calls this, but it never will for a hijacked channel since
+          // it only handles messages on the read path (outgoing).
+          // Note that the downstream channel ID has already been bound, so we don't need to do it
+          // here like the ConnectionService would normally do.
+          ENVOY_LOG(debug, "hijacked channel opened successfully");
+          return onChannelOpened(std::move(msg));
+        },
+        [&](wire::ChannelOpenFailureMsg& msg) {
+          // When this happens normally on the read path, the channel is destroyed after
+          // onChannelOpenFailed is called by the ConnectionService. Here, this should trigger a
+          // connection error.
+          ENVOY_LOG(debug, "hijacked channel open failed");
+          auto stat = onChannelOpenFailed(std::move(msg));
+          ASSERT(!stat.ok()); // sanity check
+          return stat;
+        },
+        [&](auto&) {
+          ENVOY_LOG(debug, "sending channel message to downstream: {}", anyMsg.msg_type());
+          return callbacks_->sendMessageToConnection(std::move(anyMsg));
+        });
     }
     case pomerium::extensions::ssh::ChannelMessage::kChannelControl: {
       pomerium::extensions::ssh::SSHChannelControlAction ctrl_action;
@@ -268,8 +337,7 @@ public:
       switch (ctrl_action.action_case()) {
       case pomerium::extensions::ssh::SSHChannelControlAction::kHandOff: {
         // allow the client to be closed without ending the connection
-        channel_client_->setOnRemoteCloseCallback(nullptr);
-        stream_->resetStream();
+        unsetCallbacksAndResetStream();
         auto* handOffMsg = ctrl_action.mutable_hand_off();
         hijack_callbacks_.initHandoff(handOffMsg);
         handoff_complete_ = true;
@@ -291,6 +359,21 @@ public:
       callbacks_->passthrough(std::move(msg));
       return absl::OkStatus();
     }
+    return sendMessageToStream(std::move(msg));
+  }
+
+  absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&&) override {
+    return absl::OkStatus();
+  }
+
+  absl::Status onChannelOpenFailed(wire::ChannelOpenFailureMsg&& msg) override {
+    // return an error here to end the connection, instead of going through the grpc callbacks
+    unsetCallbacksAndResetStream();
+    return absl::InvalidArgumentError(*msg.description);
+  }
+
+private:
+  absl::Status sendMessageToStream(wire::Message&& msg) {
     ChannelMessage channelMsg;
     google::protobuf::BytesValue b;
     auto msgData = encodeTo<std::string>(msg);
@@ -303,52 +386,22 @@ public:
     return absl::OkStatus();
   }
 
-  absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&&) override {
-    envoy::config::core::v3::Metadata metadata;
-    if (config_.has_set_metadata()) {
-      // use any metadata present in the set_metadata field
-      metadata = config_.set_metadata();
-    }
-
-    pomerium::extensions::ssh::FilterMetadata sshMetadata;
-    auto& typedMetadata = *metadata.mutable_typed_filter_metadata();
-    if (auto it = typedMetadata.find("com.pomerium.ssh"); it != typedMetadata.end()) {
-      // if there is already FilterMetadata present in the expected key, use it
-      if (!it->second.UnpackTo(&sshMetadata)) {
-        return absl::InternalError("invalid metadata");
-      }
-    }
-    // set the channel id (this shouldn't be present if set_metadata is used)
-    // XXX: should we use a separate key for this?
-    sshMetadata.set_channel_id(callbacks_->channelId());
-
-    // send the combined metadata
-    typedMetadata["com.pomerium.ssh"].PackFrom(sshMetadata);
-    stream_ = channel_client_->start(this, std::move(metadata));
-    return readMessage(auto(channel_open_));
+  void unsetCallbacksAndResetStream() {
+    channel_client_->setOnRemoteCloseCallback(nullptr);
+    stream_->resetStream();
+    stream_ = nullptr;
   }
 
-  absl::Status onChannelOpenFailed(wire::ChannelOpenFailureMsg&& msg) override {
-    // this should end the connection
-    return absl::InvalidArgumentError(*msg.description);
-  }
-
-  void onGrpcConnectionClosed(Grpc::Status::GrpcStatus code, std::string err) {
-    // Connection to pomerium was closed unexpectedly. This callback is unregistered on handoff.
-    hijack_callbacks_.hijackedChannelFailed(absl::Status(static_cast<absl::StatusCode>(code), err));
-  }
-
-private:
   bool handoff_complete_{false};
-  std::unique_ptr<ChannelStreamServiceClient> channel_client_;
-  pomerium::extensions::ssh::InternalTarget config_;
-  Grpc::AsyncStream<ChannelMessage> stream_;
+  bool open_complete_{false};
   HijackedChannelCallbacks& hijack_callbacks_;
+  std::unique_ptr<ChannelStreamServiceClient> channel_client_;
+  Grpc::AsyncStream<ChannelMessage> stream_;
+  pomerium::extensions::ssh::InternalTarget config_;
   wire::ChannelOpenMsg channel_open_;
 };
 
-class OpenHijackedChannelMiddleware : public SshMessageMiddleware,
-                                      public Envoy::Event::DeferredDeletable {
+class OpenHijackedChannelMiddleware : public SshMessageMiddleware {
 public:
   OpenHijackedChannelMiddleware(
     DownstreamConnectionService& parent,
@@ -358,22 +411,16 @@ public:
       : parent_(parent),
         hijack_callbacks_(hijack_callbacks),
         config_(config),
-        grpc_client_(grpc_client) {}
+        grpc_client_(std::move(grpc_client)) {}
 
   absl::StatusOr<MiddlewareResult> interceptMessage(wire::Message& msg) override;
-  void cleanup();
 
 private:
   DownstreamConnectionService& parent_;
   HijackedChannelCallbacks& hijack_callbacks_;
   pomerium::extensions::ssh::InternalTarget config_;
-  Envoy::Grpc::RawAsyncClientSharedPtr grpc_client_;
+  std::shared_ptr<Envoy::Grpc::RawAsyncClient> grpc_client_;
 };
-
-void OpenHijackedChannelMiddleware::cleanup() {
-  parent_.transport_.connectionDispatcher()->deferredDelete(
-    std::move(parent_.open_hijacked_channel_middleware_));
-}
 
 absl::StatusOr<MiddlewareResult> OpenHijackedChannelMiddleware::interceptMessage(wire::Message& msg) {
   return msg.visit(
@@ -381,20 +428,25 @@ absl::StatusOr<MiddlewareResult> OpenHijackedChannelMiddleware::interceptMessage
       auto client = std::make_unique<ChannelStreamServiceClient>(grpc_client_);
       auto channel = std::make_unique<HijackedChannel>(hijack_callbacks_, std::move(client), config_, msg);
 
-      auto channelId = parent_.startChannel(std::move(channel), std::nullopt);
-      if (!channelId.ok()) {
-        return channelId.status();
+      auto internalId = parent_.startChannel(std::move(channel), std::nullopt);
+      if (!internalId.ok()) {
+        return internalId.status();
       }
 
-      // synthesize a confirmation message to activate the channel internally
-      wire::ChannelOpenConfirmationMsg confirm;
-      confirm.sender_channel = msg.sender_channel;
-      confirm.recipient_channel = *channelId;
-      if (auto stat = parent_.handleMessage(std::move(confirm)); !stat.ok()) {
-        return stat;
-      }
-      cleanup();
-      return MiddlewareResult::Break | MiddlewareResult::UninstallSelf;
+      // This normally happens when ConnectionService::handleMessage processes an outgoing
+      // ChannelOpenMsg, but we are going to drop the message here, and have it be handled by
+      // the grpc server instead (the ConnectionService would otherwise create a PassthroughChannel
+      // and forward the message).
+      auto stat = parent_.transport_.channelIdManager().bindChannelID(
+        *internalId,
+        PeerLocalID{
+          .channel_id = msg.sender_channel,
+          .local_peer = Peer::Downstream,
+        });
+      // this can't fail, we allocated the internal ID just now
+      THROW_IF_NOT_OK(stat);
+
+      return MiddlewareResult::Break;
     },
     [](auto&) -> absl::StatusOr<MiddlewareResult> {
       return MiddlewareResult::Continue;
@@ -419,7 +471,7 @@ void DownstreamConnectionService::onStreamEnd() {
   stream_handle_.reset();
 }
 
-void DownstreamConnectionService::prepareOpenHijackedChannel(
+void DownstreamConnectionService::enableChannelHijack(
   HijackedChannelCallbacks& hijack_callbacks,
   const pomerium::extensions::ssh::InternalTarget& config,
   std::shared_ptr<Envoy::Grpc::RawAsyncClient> grpc_client) {
@@ -428,6 +480,13 @@ void DownstreamConnectionService::prepareOpenHijackedChannel(
   auto mw = std::make_unique<OpenHijackedChannelMiddleware>(*this, hijack_callbacks, config, grpc_client);
   msg_dispatcher_->installMiddleware(mw.get());
   open_hijacked_channel_middleware_ = std::move(mw);
+}
+
+void DownstreamConnectionService::disableChannelHijack() {
+  // TODO: fix this up when refactoring the MessageDispatcher
+  msg_dispatcher_->uninstallMiddleware(
+    static_cast<OpenHijackedChannelMiddleware*>(open_hijacked_channel_middleware_.get()));
+  open_hijacked_channel_middleware_.reset();
 }
 
 void DownstreamConnectionService::sendChannelEvent(const pomerium::extensions::ssh::ChannelEvent& ev) {

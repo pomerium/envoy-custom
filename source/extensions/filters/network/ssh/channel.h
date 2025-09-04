@@ -31,8 +31,9 @@ public:
       callbacks_->cleanup();
     }
   };
-  virtual void setChannelCallbacks(ChannelCallbacks& callbacks) {
+  virtual absl::Status setChannelCallbacks(ChannelCallbacks& callbacks) {
     callbacks_ = &callbacks;
+    return absl::OkStatus();
   }
 
   // Handles a channel message (see concept ChannelMsg) read from the local peer, to be sent to
