@@ -49,6 +49,8 @@ http_archive(
         "//patches/envoy:0003-envoy-copts.patch",
         "//patches/envoy:0004-pgv.patch",
         "//patches/envoy:0005-suppress-duplicate-wip-warnings.patch",
+        "//patches/envoy:0006-extension-fuzz-test.patch",
+        "//patches/envoy:0007-dynamic-modules-rust-checksum.patch",
         "//patches/envoy:tmp-fix-upstream-connection-callbacks.patch",
     ],
     sha256 = "8761f6508c808725e5879b05dc9a6b2b528ef34957ba606d950b8c9ad6441a48",
@@ -79,6 +81,10 @@ envoy_python_dependencies()
 load("@envoy//bazel:dependency_imports.bzl", "envoy_dependency_imports")
 
 envoy_dependency_imports()
+
+load("@envoy//bazel:dependency_imports_extra.bzl", "envoy_dependency_imports_extra")
+
+envoy_dependency_imports_extra()
 
 load("@envoy_api//bazel:envoy_http_archive.bzl", "envoy_http_archive")
 

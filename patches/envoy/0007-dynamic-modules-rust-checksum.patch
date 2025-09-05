@@ -1,0 +1,11 @@
+diff --git a/source/extensions/dynamic_modules/sdk/rust/Cargo.Bazel.lock b/source/extensions/dynamic_modules/sdk/rust/Cargo.Bazel.lock
+index d3bcae06f9..f32f4b2ced 100644
+--- a/source/extensions/dynamic_modules/sdk/rust/Cargo.Bazel.lock
++++ b/source/extensions/dynamic_modules/sdk/rust/Cargo.Bazel.lock
+@@ -1,5 +1,5 @@
+ {
+-  "checksum": "c0d467a39180d065453586687649d169eafc9222d6c3352463a214d2b1b6cf84",
++  "checksum": "4c6fd9c334b557ab8362c4ec3692911155389d65ac394b59a7fc695630bc330f",
+   "crates": {
+     "aho-corasick 1.1.3": {
+       "name": "aho-corasick",

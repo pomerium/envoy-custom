@@ -1,0 +1,93 @@
+diff --git a/test/extensions/extensions_build_system.bzl b/test/extensions/extensions_build_system.bzl
+index 4b2f68038c..d5f64cc089 100644
+--- a/test/extensions/extensions_build_system.bzl
++++ b/test/extensions/extensions_build_system.bzl
+@@ -1,5 +1,5 @@
+ load("@envoy_build_config//:extensions_build_config.bzl", "EXTENSIONS")
+-load("//bazel:envoy_build_system.bzl", "envoy_benchmark_test", "envoy_cc_benchmark_binary", "envoy_cc_mock", "envoy_cc_test", "envoy_cc_test_binary", "envoy_cc_test_library", "envoy_py_test")
++load("//bazel:envoy_build_system.bzl", "envoy_benchmark_test", "envoy_cc_benchmark_binary", "envoy_cc_fuzz_test", "envoy_cc_mock", "envoy_cc_test", "envoy_cc_test_binary", "envoy_cc_test_library", "envoy_py_test")
+ 
+ def _apply_to_extension_allow_for_test(func, name, extension_names, **kwargs):
+     for extension_name in extension_names:
+@@ -17,6 +17,12 @@ def envoy_extension_cc_test(
+         **kwargs):
+     _apply_to_extension_allow_for_test(envoy_cc_test, name, extension_names, **kwargs)
+ 
++def envoy_extension_cc_fuzz_test(
++        name,
++        extension_names,
++        **kwargs):
++    _apply_to_extension_allow_for_test(envoy_cc_fuzz_test, name, extension_names, **kwargs)
++
+ def envoy_extension_cc_test_library(
+         name,
+         extension_names,
+diff --git a/test/extensions/filters/http/ext_proc/BUILD b/test/extensions/filters/http/ext_proc/BUILD
+index 13e9944bf1..2e2842264d 100644
+--- a/test/extensions/filters/http/ext_proc/BUILD
++++ b/test/extensions/filters/http/ext_proc/BUILD
+@@ -6,6 +6,7 @@ load(
+ )
+ load(
+     "//test/extensions:extensions_build_system.bzl",
++    "envoy_extension_cc_fuzz_test",
+     "envoy_extension_cc_test",
+     "envoy_extension_cc_test_library",
+ )
+@@ -357,21 +358,23 @@ EXT_PROC_GRPC_FUZZ_TEST_DEPS = [
+     "@envoy_api//envoy/type/v3:pkg_cc_proto",
+ ]
+ 
+-envoy_cc_fuzz_test(
++envoy_extension_cc_fuzz_test(
+     name = "ext_proc_grpc_fuzz_test",
+     srcs = ["ext_proc_grpc_fuzz.cc"],
+     hdrs = ["ext_proc_grpc_fuzz.h"],
+     corpus = "ext_proc_grpc_corpus",
++    extension_names = ["envoy.filters.http.ext_proc"],
+     rbe_pool = "6gig",
+     tags = ["skip_on_windows"],
+     deps = EXT_PROC_GRPC_FUZZ_TEST_DEPS,
+ )
+ 
+-envoy_cc_fuzz_test(
++envoy_extension_cc_fuzz_test(
+     name = "ext_proc_grpc_persistent_fuzz_test",
+     srcs = ["ext_proc_grpc_fuzz_persistent.cc"],
+     hdrs = ["ext_proc_grpc_fuzz.h"],
+     corpus = "ext_proc_grpc_corpus",
++    extension_names = ["envoy.filters.http.ext_proc"],
+     rbe_pool = "6gig",
+     tags = ["skip_on_windows"],
+     deps = EXT_PROC_GRPC_FUZZ_TEST_DEPS,
+diff --git a/test/extensions/filters/http/ext_proc/unit_test_fuzz/BUILD b/test/extensions/filters/http/ext_proc/unit_test_fuzz/BUILD
+index 9a73ca977f..17eece0bde 100644
+--- a/test/extensions/filters/http/ext_proc/unit_test_fuzz/BUILD
++++ b/test/extensions/filters/http/ext_proc/unit_test_fuzz/BUILD
+@@ -1,9 +1,12 @@
+ load(
+     "//bazel:envoy_build_system.bzl",
+-    "envoy_cc_fuzz_test",
+     "envoy_package",
+     "envoy_proto_library",
+ )
++load(
++    "//test/extensions:extensions_build_system.bzl",
++    "envoy_extension_cc_fuzz_test",
++)
+ 
+ licenses(["notice"])  # Apache 2
+ 
+@@ -19,10 +22,11 @@ envoy_proto_library(
+     ],
+ )
+ 
+-envoy_cc_fuzz_test(
++envoy_extension_cc_fuzz_test(
+     name = "ext_proc_unit_test_fuzz",
+     srcs = ["ext_proc_unit_test_fuzz.cc"],
+     corpus = "ext_proc_corpus",
++    extension_names = ["envoy.filters.http.ext_proc"],
+     rbe_pool = "6gig",
+     tags = ["skip_on_windows"],
+     deps = [
