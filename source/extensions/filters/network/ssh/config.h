@@ -8,6 +8,8 @@
 #include "api/extensions/filters/network/ssh/ssh.pb.validate.h"
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
 #pragma clang unsafe_buffer_usage end
+
+#include "source/extensions/filters/network/ssh/stream_tracker.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
@@ -25,16 +27,18 @@ public:
 
 class SshCodecFactory : public CodecFactory {
 public:
-  SshCodecFactory(Api::Api& api,
+  SshCodecFactory(Envoy::Server::Configuration::ServerFactoryContext& context,
                   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                  CreateGrpcClientFunc create_grpc_client);
+                  CreateGrpcClientFunc create_grpc_client,
+                  StreamTrackerSharedPtr active_stream_tracker);
   ServerCodecPtr createServerCodec() const override;
   ClientCodecPtr createClientCodec() const override;
 
 private:
-  Api::Api& api_;
+  Envoy::Server::Configuration::ServerFactoryContext& context_;
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config_;
   CreateGrpcClientFunc create_grpc_client_;
+  StreamTrackerSharedPtr stream_tracker_;
 };
 
 DECLARE_FACTORY(SshCodecFactoryConfig);

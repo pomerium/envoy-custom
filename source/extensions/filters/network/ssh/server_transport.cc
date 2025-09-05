@@ -26,11 +26,13 @@ extern "C" {
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-SshServerTransport::SshServerTransport(Api::Api& api,
+SshServerTransport::SshServerTransport(Server::Configuration::ServerFactoryContext& context,
                                        std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                                       CreateGrpcClientFunc create_grpc_client)
-    : TransportBase(api, std::move(config)),
-      DownstreamTransportCallbacks(*this) {
+                                       CreateGrpcClientFunc create_grpc_client,
+                                       StreamTrackerSharedPtr stream_tracker)
+    : TransportBase(context.api(), std::move(config)),
+      DownstreamTransportCallbacks(*this),
+      stream_tracker_(std::move(stream_tracker)) {
   auto grpcClient = create_grpc_client();
   THROW_IF_NOT_OK_REF(grpcClient.status());
   mgmt_client_ = std::make_unique<StreamManagementServiceClient>(*grpcClient);
@@ -79,7 +81,7 @@ void SshServerTransport::setCodecCallbacks(Callbacks& callbacks) {
 
 void SshServerTransport::initServices() {
   user_auth_service_ = std::make_unique<DownstreamUserAuthService>(*this, api_);
-  connection_service_ = std::make_unique<DownstreamConnectionService>(*this, api_);
+  connection_service_ = std::make_unique<DownstreamConnectionService>(*this, api_, stream_tracker_);
   ping_handler_ = std::make_unique<PingExtensionHandler>(*this);
 
   services_[user_auth_service_->name()] = user_auth_service_.get();
@@ -228,6 +230,7 @@ void SshServerTransport::onServiceAuthenticated(const std::string& service_name)
 
 void SshServerTransport::initUpstream(AuthStateSharedPtr s) {
   s->server_version = server_version_;
+  bool first_init = (auth_state_ == nullptr);
   auth_state_ = s;
   switch (auth_state_->channel_mode) {
   case ChannelMode::Normal: {
@@ -269,6 +272,11 @@ void SshServerTransport::initUpstream(AuthStateSharedPtr s) {
   } break;
   case ChannelMode::Mirror:
     throw EnvoyException("mirroring not supported");
+  }
+  if (first_init) {
+    callbacks_impl_ = std::make_shared<StreamCallbacksImpl>(*this);
+    connection_service_->onStreamBegin(callbacks_->connection().ref(), callbacks_impl_);
+    callbacks_->connection()->addConnectionCallbacks(*this);
   }
 }
 
@@ -341,6 +349,12 @@ void SshServerTransport::onDecodingFailure(absl::Status status) {
     .IgnoreError();
 
   TransportBase::onDecodingFailure(status);
+}
+
+void SshServerTransport::onEvent(Network::ConnectionEvent event) {
+  if (event == Network::ConnectionEvent::LocalClose || event == Network::ConnectionEvent::RemoteClose) {
+    connection_service_->onStreamEnd();
+  }
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

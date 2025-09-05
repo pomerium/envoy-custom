@@ -7,6 +7,7 @@
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
 
 #include "source/extensions/filters/network/ssh/service.h"
+#include "source/extensions/filters/network/ssh/stream_tracker.h"
 #include "source/extensions/filters/network/ssh/extension_ping.h"
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
@@ -20,11 +21,13 @@ class DownstreamUserAuthService;
 class DownstreamConnectionService;
 
 class SshServerTransport final : public TransportBase<ServerCodec>,
+                                 public Network::ConnectionCallbacks,
                                  public DownstreamTransportCallbacks {
 public:
-  SshServerTransport(Api::Api& api,
+  SshServerTransport(Server::Configuration::ServerFactoryContext& context,
                      std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                     CreateGrpcClientFunc create_grpc_client);
+                     CreateGrpcClientFunc create_grpc_client,
+                     StreamTrackerSharedPtr active_stream_tracker);
 
   void setCodecCallbacks(GenericProxy::ServerCodecCallbacks& callbacks) override;
 
@@ -45,10 +48,23 @@ public:
 
   stream_id_t streamId() const override { return stream_id_; }
 
+  // Network::ConnectionCallbacks
+  void onEvent(Network::ConnectionEvent event) override;
+  void onAboveWriteBufferHighWatermark() override {}
+  void onBelowWriteBufferLowWatermark() override {}
+
 protected:
   void onDecodingFailure(absl::Status status) override;
 
 private:
+  class StreamCallbacksImpl : public StreamCallbacks {
+  public:
+    explicit StreamCallbacksImpl(SshServerTransport& self) : self(self) {}
+
+    SshServerTransport& self;
+  };
+  std::shared_ptr<StreamCallbacksImpl> callbacks_impl_;
+
   void initServices();
 
   bool upstreamReady() const { return auth_state_ != nullptr; };
@@ -65,6 +81,8 @@ private:
   std::unique_ptr<StreamManagementServiceClient> mgmt_client_;
   std::unique_ptr<ChannelStreamServiceClient> channel_client_;
   stream_id_t stream_id_;
+
+  StreamTrackerSharedPtr stream_tracker_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

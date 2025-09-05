@@ -8,7 +8,7 @@
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "test/extensions/filters/network/ssh/test_mocks.h"
 #include "test/extensions/filters/network/ssh/wire/test_field_reflect.h"
-#include "test/mocks/api/mocks.h"
+#include "test/mocks/server/server_factory_context.h"
 #include "test/test_common/test_common.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
@@ -36,8 +36,11 @@ class DownstreamConnectionServiceTest : public testing::Test {
 public:
   DownstreamConnectionServiceTest() {
     transport_ = std::make_unique<testing::StrictMock<MockDownstreamTransportCallbacks>>();
-    api_ = std::make_unique<testing::StrictMock<Api::MockApi>>();
-    service_ = std::make_unique<DownstreamConnectionService>(*transport_, *api_);
+    server_factory_context_ = std::make_unique<testing::NiceMock<Server::Configuration::MockServerFactoryContext>>();
+    service_ = std::make_unique<DownstreamConnectionService>(
+      *transport_,
+      server_factory_context_->api(),
+      StreamTracker::fromContext(*server_factory_context_, StreamTrackerConfig{}));
 
     EXPECT_CALL(*transport_, authState())
       .WillRepeatedly(ReturnRef(transport_auth_state_));
@@ -46,7 +49,7 @@ public:
 protected:
   AuthState transport_auth_state_;
   std::unique_ptr<testing::StrictMock<MockDownstreamTransportCallbacks>> transport_;
-  std::unique_ptr<testing::StrictMock<Api::MockApi>> api_;
+  std::unique_ptr<testing::NiceMock<Server::Configuration::MockServerFactoryContext>> server_factory_context_;
   std::unique_ptr<DownstreamConnectionService> service_;
 };
 
@@ -98,7 +101,7 @@ TEST_F(DownstreamConnectionServiceTest, HandleMessageHijacked) {
   ASSERT_OK(service_->handleMessage(auto(msg)));
 
   pomerium::extensions::ssh::ChannelMessage proto_msg;
-  proto_msg.ParseFromArray(request->linearize(request->length()), request->length());
+  proto_msg.ParseFromArray(request->linearize(request->length()), static_cast<int>(request->length()));
   Buffer::OwnedImpl buf;
   buf.add(proto_msg.raw_bytes().value());
   wire::Message decoded_msg;
@@ -272,12 +275,6 @@ TEST_F(DownstreamConnectionServiceTest, OnReceiveMessageUnknown) {
   ASSERT_EQ(absl::InternalError("received invalid channel message: unknown message type: 0"), r);
 }
 
-TEST_F(DownstreamConnectionServiceTest, StreamCallbacks) {
-  Envoy::Event::MockDispatcher dispatcher;
-  ASSERT_OK(service_->onStreamBegin(AuthState{}, dispatcher));
-  service_->onStreamEnd();
-}
-
 class UpstreamConnectionServiceTest : public testing::Test {
 public:
   UpstreamConnectionServiceTest() {
@@ -334,12 +331,6 @@ TEST_F(UpstreamConnectionServiceTest, HandleMessage) {
 TEST_F(UpstreamConnectionServiceTest, HandleMessageUnknown) {
   auto r = service_->handleMessage(wire::Message{wire::DebugMsg{}});
   ASSERT_EQ(absl::InternalError("unknown message"), r);
-}
-
-TEST_F(UpstreamConnectionServiceTest, StreamCallbacks) {
-  Envoy::Event::MockDispatcher dispatcher;
-  ASSERT_OK(service_->onStreamBegin(AuthState{}, dispatcher));
-  service_->onStreamEnd();
 }
 
 } // namespace test

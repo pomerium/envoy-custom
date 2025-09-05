@@ -5,6 +5,7 @@
 #include "test/extensions/filters/network/ssh/test_mocks.h"              // IWYU pragma: keep
 #include "test/mocks/network/connection.h"
 #include "test/mocks/grpc/mocks.h"
+#include "test/mocks/server/server_factory_context.h"
 #include "test/test_common/test_common.h"
 #include "source/extensions/filters/network/ssh/service_connection.h" // IWYU pragma: keep
 #include "source/extensions/filters/network/ssh/service_userauth.h"   // IWYU pragma: keep
@@ -23,10 +24,13 @@ using namespace pomerium::extensions::ssh;
 class ServerTransportTest : public testing::Test {
 public:
   ServerTransportTest()
-      : api_(Api::createApiForTest()),
-        client_host_key_(*openssh::SSHKey::generate(KEY_ED25519, 256)),
+      : client_host_key_(*openssh::SSHKey::generate(KEY_ED25519, 256)),
         client_(std::make_shared<testing::StrictMock<Grpc::MockAsyncClient>>()),
-        transport_(*api_, initConfig(), [this] { return this->client_; }) {
+        transport_(
+          server_factory_context_,
+          initConfig(),
+          [this] { return this->client_; },
+          StreamTracker::fromContext(server_factory_context_, StreamTrackerConfig{})) {
   }
 
   const wire::KexInitMsg kex_init_ = {
@@ -269,7 +273,7 @@ public:
   std::unique_ptr<PacketCipher> client_cipher_;
   Envoy::Buffer::OwnedImpl input_buffer_;
   Envoy::Buffer::OwnedImpl output_buffer_;
-  Api::ApiPtr api_;
+  testing::NiceMock<Server::Configuration::MockServerFactoryContext> server_factory_context_;
   openssh::SSHKeyPtr client_host_key_;
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> server_config_;
   testing::StrictMock<MockServerCodecCallbacks> server_codec_callbacks_;
@@ -970,6 +974,45 @@ TEST_F(ServerTransportTest, HandleRekey) {
   ASSERT_OK(ReadMsg(serverNewKeys));
   ASSERT_EQ(0, output_buffer_.length()); // there should be no ExtInfo sent
 }
+
+class StreamTrackerConnectionCallbacksTest : public ServerTransportTest,
+                                             public testing::WithParamInterface<Network::ConnectionEvent> {};
+
+TEST_P(StreamTrackerConnectionCallbacksTest, TestDisconnectEvent) {
+  ASSERT_OK(ReadExtInfo());
+
+  auto clientKey = *openssh::SSHKey::generate(KEY_ED25519, 256);
+
+  ASSERT_OK(RequestUserAuthService());
+  auto [authReq, clientMsg] = BuildUserAuthMessages(*clientKey);
+
+  EXPECT_CALL(mock_connection_, addConnectionCallbacks(_));
+  ExpectHandlePomeriumGrpcAuthRequestNormal(clientMsg);
+  ExpectDecodingSuccess();
+  ExpectUpstreamConnectMsg();
+
+  ASSERT_OK(WriteMsg(std::move(authReq)));
+
+  auto st = StreamTracker::fromContext(server_factory_context_);
+  auto streamId = transport_.streamId();
+  // ensure the connection is tracked
+  EXPECT_NE(nullptr, st->find(streamId));
+  EXPECT_EQ(streamId, st->find(streamId)->streamId());
+
+  // send a disconnect event (either local or remote should do the same thing)
+  mock_connection_.raiseEvent(GetParam());
+
+  // ensure the tracked connection was ended
+  EXPECT_EQ(nullptr, st->find(streamId));
+
+  // no-op Network::ConnectionCallbacks methods, for coverage only
+  transport_.onAboveWriteBufferHighWatermark();
+  transport_.onBelowWriteBufferLowWatermark();
+}
+
+INSTANTIATE_TEST_SUITE_P(StreamTrackerConnectionCallbacks, StreamTrackerConnectionCallbacksTest,
+                         testing::Values(Network::ConnectionEvent::LocalClose,
+                                         Network::ConnectionEvent::RemoteClose));
 
 } // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
