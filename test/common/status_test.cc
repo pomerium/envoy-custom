@@ -72,8 +72,23 @@ TEST(StatusTest, StatusToString) {
 
 TEST(StatusTest, Statusf) {
   auto stat = absl::InvalidArgumentError("error message");
-  auto stat2 = statusf("additional context: {}", stat);
-  EXPECT_EQ(absl::InvalidArgumentError("additional context: error message"), stat2);
+  {
+    auto stat2 = statusf("additional context: {}", stat);
+    EXPECT_EQ(absl::InvalidArgumentError("additional context: error message"), stat2);
+  }
+
+  {
+    auto stat2 = statusf("error handling {}: {}", "something", stat);
+    EXPECT_EQ(absl::InvalidArgumentError("error handling something: error message"), stat2);
+  }
+  {
+    auto stat2 = statusf("{}: {}", stat, "details");
+    EXPECT_EQ(absl::InvalidArgumentError("error message: details"), stat2);
+  }
+  {
+    auto stat2 = statusf("{}: {}", stat, 1);
+    EXPECT_EQ(absl::InvalidArgumentError("error message: 1"), stat2);
+  }
 }
 
 } // namespace test

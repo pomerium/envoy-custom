@@ -116,6 +116,16 @@ struct index_of_type<T> {
   static constexpr bool found = false;
 };
 
+template <typename Old, typename New, typename... Args>
+struct typelist_replace {
+  using type = std::tuple<std::conditional_t<std::is_same_v<Old, Args>,
+                                             New,
+                                             Args>...>;
+};
+
+template <typename Old, typename New, typename... Args>
+using typelist_replace_t = typelist_replace<Old, New, Args...>::type;
+
 // nth_type_t returns the type at index N in the given type list.
 template <size_t N, typename... Ts>
 using nth_type_t = std::tuple_element_t<N, std::tuple<Ts...>>;

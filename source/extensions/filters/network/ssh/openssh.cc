@@ -2,6 +2,7 @@
 
 #include "absl/time/time.h"
 #include "source/common/span.h"
+#include "source/common/status.h"
 #include "source/extensions/filters/network/ssh/common.h"
 #include "source/common/common/assert.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
@@ -184,11 +185,23 @@ absl::StatusOr<std::unique_ptr<SSHKey>> SSHKey::fromPrivateKeyBytes(const std::s
 absl::StatusOr<std::unique_ptr<SSHKey>> SSHKey::fromPrivateKeyDataSource(const ::corev3::DataSource& ds) {
   switch (ds.specifier_case()) {
   case corev3::DataSource::kFilename:
-    return SSHKey::fromPrivateKeyFile(ds.filename());
+    if (auto r = SSHKey::fromPrivateKeyFile(ds.filename()); !r.ok()) {
+      return statusf("failed to load ssh private key {}: {}", ds.filename(), r.status());
+    } else {
+      return r;
+    }
   case corev3::DataSource::kInlineBytes:
-    return SSHKey::fromPrivateKeyBytes(ds.inline_bytes());
+    if (auto r = SSHKey::fromPrivateKeyBytes(ds.inline_bytes()); !r.ok()) {
+      return statusf("failed to load ssh private key: {}", r.status());
+    } else {
+      return r;
+    }
   case corev3::DataSource::kInlineString:
-    return SSHKey::fromPrivateKeyBytes(ds.inline_string());
+    if (auto r = SSHKey::fromPrivateKeyBytes(ds.inline_string()); !r.ok()) {
+      return statusf("failed to load ssh private key: {}", r.status());
+    } else {
+      return r;
+    }
   case corev3::DataSource::kEnvironmentVariable:
     return absl::UnimplementedError("environment variable data source not supported");
   default:

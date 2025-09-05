@@ -779,16 +779,21 @@ TEST(OpensshTest, LoadHostKeysFromBytes_DuplicateAlgorithm) {
 
 TEST(OpensshTest, LoadHostKeys_InvalidMode) {
   std::vector<corev3::DataSource> sources;
+  std::string ecdsaFilename;
   for (auto keyName : {"rsa_1", "ecdsa_1", "ed25519_1", "rsa_2"}) {
     // set invalid permissions on only one of the keys
     auto filename = copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName),
                                               std::string_view(keyName) == "ecdsa_1" ? 0644 : 0600);
+    if (keyName == "ecdsa_1"sv) {
+      ecdsaFilename = filename;
+    }
     corev3::DataSource src;
     *src.mutable_filename() = filename;
     sources.push_back(std::move(src));
   }
   auto stat = loadHostKeys(sources);
-  ASSERT_EQ(absl::InvalidArgumentError("bad permissions"), stat.status());
+  auto msg = fmt::format("failed to load ssh private key {}: bad permissions", ecdsaFilename);
+  ASSERT_EQ(absl::InvalidArgumentError(msg), stat.status());
 }
 
 static const auto cipherInfo = std::unordered_map<std::string, std::tuple<uint32_t, uint32_t, uint32_t, uint32_t>>{
