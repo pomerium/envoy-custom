@@ -56,7 +56,7 @@ struct MultiplexingInfo {
   std::optional<uint32_t> downstream_channel_id;
 };
 
-struct AuthState {
+struct AuthInfo : public StreamInfo::FilterState::Object {
   std::string server_version;
   stream_id_t stream_id{}; // unique stream id for both connections
   ChannelMode channel_mode{};
@@ -67,7 +67,7 @@ struct AuthState {
   std::unique_ptr<pomerium::extensions::ssh::AllowResponse> allow_response;
 };
 
-using AuthStateSharedPtr = std::shared_ptr<AuthState>;
+using AuthInfoSharedPtr = std::shared_ptr<AuthInfo>;
 
 class TransportCallbacks {
   friend class Kex;              // uses reset{Read|Write}SequenceNumber and sendMessageDirect
@@ -83,7 +83,7 @@ public:
   };
 
   virtual const bytes& sessionId() const PURE;
-  virtual AuthState& authState() PURE;
+  virtual AuthInfo& authInfo() PURE;
   virtual const pomerium::extensions::ssh::CodecConfig& codecConfig() const PURE;
   virtual stream_id_t streamId() const PURE;
   virtual void updatePeerExtInfo(std::optional<wire::ExtInfoMsg> msg) PURE;
@@ -107,7 +107,7 @@ protected:
 
 class DownstreamTransportCallbacks : public virtual TransportCallbacks {
 public:
-  virtual void initUpstream(AuthStateSharedPtr downstream_state) PURE;
+  virtual void initUpstream(AuthInfoSharedPtr auth_info) PURE;
   virtual void onServiceAuthenticated(const std::string& service_name) PURE;
   virtual void sendMgmtClientMessage(const ClientMessage& msg) PURE;
 };

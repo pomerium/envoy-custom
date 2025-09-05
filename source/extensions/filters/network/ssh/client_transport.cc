@@ -93,7 +93,7 @@ void SshClientTransport::registerMessageHandlers(MessageDispatcher<wire::Message
 void SshClientTransport::decode(Envoy::Buffer::Instance& buffer, bool end_stream) {
   if (upstream_is_direct_tcpip_) {
     wire::ChannelDataMsg data_msg;
-    data_msg.recipient_channel = auth_state_->handoff_info.channel_info->downstream_channel_id();
+    data_msg.recipient_channel = auth_info_->handoff_info.channel_info->downstream_channel_id();
     data_msg.data = wire::flushTo<bytes>(buffer);
     forward(std::move(data_msg));
     return;
@@ -105,23 +105,35 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
                                                         GenericProxy::EncodingContext&) {
   switch (frame.frameFlags().frameTags() & FrameTags::FrameTypeMask) {
   case FrameTags::RequestHeader: {
+    auto& filterState = callbacks_->connection()->streamInfo().filterState();
     const auto& reqHeader = static_cast<const SSHRequestHeaderFrame&>(frame);
-    auth_state_ = reqHeader.authState();
+    // copy filter state objects shared by the downstream
+    if (auto shared = reqHeader.downstreamSharedFilterStateObjects(); shared.has_value()) {
+      for (auto obj : *shared) {
+        filterState->setData(
+          obj.name_, obj.data_, obj.state_type_, StreamInfo::FilterState::LifeSpan::Request);
+      }
+    }
+    ASSERT(filterState->hasDataWithName(ChannelIDManagerFilterStateKey));
+    ASSERT(filterState->hasDataWithName(AuthInfoFilterStateKey));
+
+    auth_info_ = std::dynamic_pointer_cast<AuthInfo>(
+      filterState->getDataSharedMutableGeneric(AuthInfoFilterStateKey));
     channel_id_manager_ = std::dynamic_pointer_cast<ChannelIDManager>(
-      callbacks_->connection()->streamInfo().filterState()->getDataSharedMutableGeneric(ChannelIDManagerFilterStateKey));
-    if (auth_state_->channel_mode == ChannelMode::Handoff) {
-      if (auth_state_->allow_response->has_upstream()) {
-        ASSERT(auth_state_->handoff_info.handoff_in_progress);
-        const auto& upstream = auth_state_->allow_response->upstream();
+      filterState->getDataSharedMutableGeneric(ChannelIDManagerFilterStateKey));
+    if (auth_info_->channel_mode == ChannelMode::Handoff) {
+      if (auth_info_->allow_response->has_upstream()) {
+        ASSERT(auth_info_->handoff_info.handoff_in_progress);
+        const auto& upstream = auth_info_->allow_response->upstream();
         // TODO: this is not ideal, should pull this logic out into a Channel implementation.
         if (upstream.direct_tcpip()) {
-          auto internalId = auth_state_->handoff_info.channel_info->internal_upstream_channel_id();
+          auto internalId = auth_info_->handoff_info.channel_info->internal_upstream_channel_id();
           upstream_is_direct_tcpip_ = true;
           wire::ChannelOpenConfirmationMsg confirm;
-          confirm.recipient_channel = auth_state_->handoff_info.channel_info->downstream_channel_id();
+          confirm.recipient_channel = auth_info_->handoff_info.channel_info->downstream_channel_id();
           confirm.sender_channel = internalId;
-          confirm.initial_window_size = auth_state_->handoff_info.channel_info->initial_window_size();
-          confirm.max_packet_size = auth_state_->handoff_info.channel_info->max_packet_size();
+          confirm.initial_window_size = auth_info_->handoff_info.channel_info->initial_window_size();
+          confirm.max_packet_size = auth_info_->handoff_info.channel_info->max_packet_size();
           // Logically, we are the upstream for this channel. The ID needs to be bound so that
           // the downstream can send messages to the "upstream" (us) on this channel correctly
           RETURN_IF_NOT_OK(channel_id_manager_->bindChannelID(internalId,
@@ -137,7 +149,7 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
       installMiddleware(mw.get());
       handoff_middleware_ = std::move(mw); // TODO: move storage/cleanup logic into the message dispatcher
     }
-    return version_exchanger_->writeVersion(auth_state_->server_version);
+    return version_exchanger_->writeVersion(auth_info_->server_version);
   }
   case FrameTags::RequestCommon: {
     if (!upstream_is_direct_tcpip_) {
@@ -214,8 +226,8 @@ absl::Status SshClientTransport::handleMessage(wire::Message&& msg) {
     });
 }
 
-AuthState& SshClientTransport::authState() {
-  return *auth_state_;
+AuthInfo& SshClientTransport::authInfo() {
+  return *auth_info_;
 }
 
 void SshClientTransport::forward(wire::Message&& msg, FrameTags tags) {
@@ -232,8 +244,8 @@ void SshClientTransport::forward(wire::Message&& msg, FrameTags tags) {
 }
 
 void SshClientTransport::forwardHeader(wire::Message&& msg, FrameTags tags) {
-  if (authState().upstream_ext_info.has_value() &&
-      authState().upstream_ext_info->hasExtension<wire::PingExtension>()) {
+  if (authInfo().upstream_ext_info.has_value() &&
+      authInfo().upstream_ext_info->hasExtension<wire::PingExtension>()) {
     ping_handler_->enableForward(true);
   }
   forward(std::move(msg), FrameTags{tags | EffectiveHeader});
@@ -260,7 +272,7 @@ void SshClientTransport::onKexCompleted(std::shared_ptr<KexResult> kex_result, b
 }
 
 stream_id_t SshClientTransport::streamId() const {
-  return auth_state_->stream_id;
+  return auth_info_->stream_id;
 }
 
 void SshClientTransport::terminate(absl::Status err) {
@@ -347,7 +359,7 @@ private:
 };
 
 absl::StatusOr<MiddlewareResult> HandoffMiddleware::interceptMessage(wire::Message& ssh_msg) {
-  const auto& info = parent_.auth_state_->handoff_info;
+  const auto& info = parent_.auth_info_->handoff_info;
   ASSERT(info.handoff_in_progress);
 
   return ssh_msg.visit(
@@ -382,7 +394,7 @@ absl::StatusOr<MiddlewareResult> HandoffMiddleware::interceptMessage(wire::Messa
 
       // set the upstream ext info if available
       if (auto info = parent_.peerExtInfo(); info.has_value()) {
-        parent_.authState().upstream_ext_info = std::move(info);
+        parent_.authInfo().upstream_ext_info = std::move(info);
       }
       // unregister the user auth service
       parent_.unregisterHandler(parent_.user_auth_svc_.get());

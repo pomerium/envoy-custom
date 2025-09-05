@@ -40,8 +40,8 @@ public:
                                     const GenericProxy::Request&) override;
 
   void onServiceAuthenticated(const std::string& service_name) override;
-  void initUpstream(AuthStateSharedPtr downstream_state) override;
-  AuthState& authState() override;
+  void initUpstream(AuthInfoSharedPtr auth_info) override;
+  AuthInfo& authInfo() override;
   void forward(wire::Message&& message, FrameTags tags = EffectiveCommon) override;
   void onKexCompleted(std::shared_ptr<KexResult> kex_result, bool initial_kex) override;
 
@@ -71,12 +71,12 @@ public:
 private:
   void initServices();
 
-  bool upstreamReady() const { return auth_state_ != nullptr; };
+  bool upstreamReady() const { return auth_info_ != nullptr; };
 
   absl::StatusOr<std::unique_ptr<wire::HostKeysProveResponseMsg>>
   handleHostKeysProve(const wire::HostKeysProveRequestMsg& msg);
 
-  AuthStateSharedPtr auth_state_;
+  AuthInfoSharedPtr auth_info_;
   std::map<std::string, Service*> services_;
   std::unique_ptr<DownstreamUserAuthService> user_auth_service_;
   std::unique_ptr<DownstreamConnectionService> connection_service_;

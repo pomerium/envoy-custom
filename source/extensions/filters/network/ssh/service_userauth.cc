@@ -190,7 +190,7 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
     switch (authResp.response_case()) {
     case AuthenticationResponse::kAllow: {
       auto allow = authResp.allow();
-      auto state = std::make_shared<AuthState>();
+      auto state = std::make_shared<AuthInfo>();
       state->allow_response = std::make_unique<AllowResponse>();
       state->allow_response->CopyFrom(allow);
       state->stream_id = transport_.streamId();
@@ -332,7 +332,7 @@ key_params_t UpstreamUserAuthService::getUpstreamKeyParams() {
 }
 
 absl::Status UpstreamUserAuthService::onServiceAccepted() {
-  if (!transport_.authState().allow_response) {
+  if (!transport_.authInfo().allow_response) {
     return absl::InternalError("missing AllowResponse in auth state");
   }
 
@@ -347,7 +347,7 @@ absl::Status UpstreamUserAuthService::onServiceAccepted() {
   absl::Time validStartTime;
   absl::Time validEndTime;
   bool foundMethod{};
-  for (const auto& method : transport_.authState().allow_response->upstream().allowed_methods()) {
+  for (const auto& method : transport_.authInfo().allow_response->upstream().allowed_methods()) {
     if (method.method() == "publickey") {
       foundMethod = true;
       PublicKeyAllowResponse resp;
@@ -378,7 +378,7 @@ absl::Status UpstreamUserAuthService::onServiceAccepted() {
 
   auto stat = userSessionSshKey->convertToSignedUserCertificate(
     1, // channel id
-    {transport_.authState().allow_response->username()},
+    {transport_.authInfo().allow_response->username()},
     extensions,
     validStartTime,
     validEndTime,
@@ -388,7 +388,7 @@ absl::Status UpstreamUserAuthService::onServiceAccepted() {
   }
 
   auto req = std::make_unique<wire::UserAuthRequestMsg>();
-  req->username = transport_.authState().allow_response->username();
+  req->username = transport_.authInfo().allow_response->username();
   req->service_name = "ssh-connection";
 
   wire::PubKeyUserAuthRequestMsg pubkeyReq{
@@ -426,7 +426,7 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
   return msg.visit(
     [&](wire::UserAuthBannerMsg& msg) {
       // If the downstream is in the auth flow, we can simply forward this along
-      if (transport_.authState().channel_mode == ChannelMode::Normal) {
+      if (transport_.authInfo().channel_mode == ChannelMode::Normal) {
         transport_.forward(std::move(msg));
       }
       return absl::OkStatus();
@@ -447,7 +447,7 @@ absl::Status UpstreamUserAuthService::handleMessage(wire::Message&& msg) {
       ENVOY_LOG(info, "user auth success: {} [{}]", pending_req_->username,
                 pending_req_->method_name());
       if (auto info = transport_.peerExtInfo(); info.has_value()) {
-        transport_.authState().upstream_ext_info = std::move(info);
+        transport_.authInfo().upstream_ext_info = std::move(info);
       }
 
       pending_req_.reset();

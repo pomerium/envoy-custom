@@ -43,17 +43,17 @@ public:
       StreamTracker::fromContext(*server_factory_context_, StreamTrackerConfig{}));
 
     service_->registerMessageHandlers(msg_dispatcher_);
-    EXPECT_CALL(*transport_, authState())
-      .WillRepeatedly(ReturnRef(transport_auth_state_));
+    EXPECT_CALL(*transport_, authInfo())
+      .WillRepeatedly(ReturnRef(transport_auth_info_));
   }
 
   void StartHijackedChannel() { // NOLINT
     hijacked_client_ = std::make_shared<testing::StrictMock<Grpc::MockAsyncClient>>();
     EXPECT_CALL(*hijacked_client_, startRaw("pomerium.extensions.ssh.StreamManagement", "ServeChannel", _, _))
       .WillOnce(Return(&channel_stream_));
-    transport_auth_state_.channel_mode = ChannelMode::Hijacked;
-    transport_auth_state_.allow_response = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
-    transport_auth_state_.allow_response->mutable_internal();
+    transport_auth_info_.channel_mode = ChannelMode::Hijacked;
+    transport_auth_info_.allow_response = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
+    transport_auth_info_.allow_response->mutable_internal();
     service_->enableChannelHijack(mock_hijack_callbacks_, {}, hijacked_client_);
     EXPECT_OK(msg_dispatcher_.dispatch(wire::ChannelOpenMsg{
       .channel_type = "session"s,
@@ -64,7 +64,7 @@ public:
   };
 
 protected:
-  AuthState transport_auth_state_;
+  AuthInfo transport_auth_info_;
   TestSshMessageDispatcher msg_dispatcher_;
   std::unique_ptr<testing::StrictMock<MockDownstreamTransportCallbacks>> transport_;
   std::unique_ptr<testing::NiceMock<Server::Configuration::MockServerFactoryContext>> server_factory_context_;
@@ -108,7 +108,7 @@ TEST_F(DownstreamConnectionServiceTest, HandleMessageHijackedInvalid) {
   std::string data_too_long(wire::MaxPacketSize, 'A');
   msg.data = to_bytes(data_too_long);
 
-  transport_auth_state_.channel_mode = ChannelMode::Hijacked;
+  transport_auth_info_.channel_mode = ChannelMode::Hijacked;
 
   auto r = msg_dispatcher_.dispatch(wire::Message{msg});
   ASSERT_EQ(absl::InvalidArgumentError("received invalid message: ABORTED: message size too large"), r);
@@ -117,7 +117,7 @@ TEST_F(DownstreamConnectionServiceTest, HandleMessageHijackedInvalid) {
 TEST_F(DownstreamConnectionServiceTest, HandleMessageHijackedNoStream) {
   auto msg = populatedMessage<wire::ChannelDataMsg>();
 
-  transport_auth_state_.channel_mode = ChannelMode::Hijacked;
+  transport_auth_info_.channel_mode = ChannelMode::Hijacked;
 
   auto r = msg_dispatcher_.dispatch(wire::Message{msg});
   ASSERT_EQ(absl::CancelledError("connection closed"), r);
@@ -176,9 +176,9 @@ TEST_F(DownstreamConnectionServiceTest, OnReceiveMessageChannelControlHandoffUps
   StartHijackedChannel();
 
   auto hijacked_stream = std::make_shared<Grpc::AsyncStream<pomerium::extensions::ssh::ChannelMessage>>();
-  transport_auth_state_.server_version = "example-server-version"s,
-  transport_auth_state_.stream_id = 42;
-  transport_auth_state_.channel_mode = ChannelMode::Hijacked;
+  transport_auth_info_.server_version = "example-server-version"s,
+  transport_auth_info_.stream_id = 42;
+  transport_auth_info_.channel_mode = ChannelMode::Hijacked;
 
   pomerium::extensions::ssh::SSHChannelControlAction action{};
   auto* handoff = action.mutable_hand_off();
@@ -193,28 +193,28 @@ TEST_F(DownstreamConnectionServiceTest, OnReceiveMessageChannelControlHandoffUps
   pomerium::extensions::ssh::ChannelMessage channel_msg;
   channel_msg.mutable_channel_control()->mutable_control_action()->PackFrom(action);
 
-  AuthStateSharedPtr new_auth_state;
+  AuthInfoSharedPtr new_auth_info;
   EXPECT_CALL(*transport_, initUpstream(_))
-    .WillOnce(SaveArg<0>(&new_auth_state));
+    .WillOnce(SaveArg<0>(&new_auth_info));
 
   typed_channel_stream_->sendMessage(std::move(channel_msg), false);
 
-  ASSERT_EQ("example-server-version", new_auth_state->server_version);
-  ASSERT_EQ(42, new_auth_state->stream_id);
-  ASSERT_EQ(ChannelMode::Handoff, new_auth_state->channel_mode);
-  ASSERT_TRUE(new_auth_state->handoff_info.handoff_in_progress);
-  ASSERT_THAT(*new_auth_state->handoff_info.channel_info, Envoy::ProtoEq(*channel_info));
-  ASSERT_THAT(*new_auth_state->handoff_info.pty_info, Envoy::ProtoEq(*pty_info));
-  ASSERT_THAT(*new_auth_state->allow_response, Envoy::ProtoEq(*upstream_auth));
+  ASSERT_EQ("example-server-version", new_auth_info->server_version);
+  ASSERT_EQ(42, new_auth_info->stream_id);
+  ASSERT_EQ(ChannelMode::Handoff, new_auth_info->channel_mode);
+  ASSERT_TRUE(new_auth_info->handoff_info.handoff_in_progress);
+  ASSERT_THAT(*new_auth_info->handoff_info.channel_info, Envoy::ProtoEq(*channel_info));
+  ASSERT_THAT(*new_auth_info->handoff_info.pty_info, Envoy::ProtoEq(*pty_info));
+  ASSERT_THAT(*new_auth_info->allow_response, Envoy::ProtoEq(*upstream_auth));
 }
 
 TEST_F(DownstreamConnectionServiceTest, OnReceiveMessageChannelControlHandoffUpstreamNoInfo) {
   StartHijackedChannel();
 
   auto hijacked_stream = std::make_shared<Grpc::AsyncStream<pomerium::extensions::ssh::ChannelMessage>>();
-  transport_auth_state_.server_version = "example-server-version"s,
-  transport_auth_state_.stream_id = 42;
-  transport_auth_state_.channel_mode = ChannelMode::Hijacked;
+  transport_auth_info_.server_version = "example-server-version"s,
+  transport_auth_info_.stream_id = 42;
+  transport_auth_info_.channel_mode = ChannelMode::Hijacked;
 
   pomerium::extensions::ssh::SSHChannelControlAction action{};
   auto* upstream_auth = action.mutable_hand_off()->mutable_upstream_auth();
@@ -222,19 +222,19 @@ TEST_F(DownstreamConnectionServiceTest, OnReceiveMessageChannelControlHandoffUps
   pomerium::extensions::ssh::ChannelMessage channel_msg;
   channel_msg.mutable_channel_control()->mutable_control_action()->PackFrom(action);
 
-  AuthStateSharedPtr new_auth_state;
+  AuthInfoSharedPtr new_auth_info;
   EXPECT_CALL(*transport_, initUpstream(_))
-    .WillOnce(SaveArg<0>(&new_auth_state));
+    .WillOnce(SaveArg<0>(&new_auth_info));
 
   typed_channel_stream_->sendMessage(std::move(channel_msg), false);
 
-  ASSERT_EQ("example-server-version", new_auth_state->server_version);
-  ASSERT_EQ(42, new_auth_state->stream_id);
-  ASSERT_EQ(ChannelMode::Handoff, new_auth_state->channel_mode);
-  ASSERT_TRUE(new_auth_state->handoff_info.handoff_in_progress);
-  ASSERT_EQ(nullptr, new_auth_state->handoff_info.channel_info);
-  ASSERT_EQ(nullptr, new_auth_state->handoff_info.pty_info);
-  ASSERT_THAT(*new_auth_state->allow_response, Envoy::ProtoEq(*upstream_auth));
+  ASSERT_EQ("example-server-version", new_auth_info->server_version);
+  ASSERT_EQ(42, new_auth_info->stream_id);
+  ASSERT_EQ(ChannelMode::Handoff, new_auth_info->channel_mode);
+  ASSERT_TRUE(new_auth_info->handoff_info.handoff_in_progress);
+  ASSERT_EQ(nullptr, new_auth_info->handoff_info.channel_info);
+  ASSERT_EQ(nullptr, new_auth_info->handoff_info.pty_info);
+  ASSERT_THAT(*new_auth_info->allow_response, Envoy::ProtoEq(*upstream_auth));
 }
 
 TEST_F(DownstreamConnectionServiceTest, OnReceiveMessageChannelControlHandoffMirror) {

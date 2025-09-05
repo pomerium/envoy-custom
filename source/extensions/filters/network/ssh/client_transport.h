@@ -37,7 +37,7 @@ public:
                                       GenericProxy::EncodingContext& ctx) final;
 
   absl::Status handleMessage(wire::Message&& msg) override;
-  AuthState& authState() override;
+  AuthInfo& authInfo() override;
   void forward(wire::Message&& msg, FrameTags tags = EffectiveCommon) override;
   void forwardHeader(wire::Message&& msg, FrameTags tags = {}) override;
 
@@ -67,7 +67,7 @@ private:
   void initServices();
   void registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) override;
 
-  AuthStateSharedPtr auth_state_;
+  AuthInfoSharedPtr auth_info_;
   std::unique_ptr<UpstreamUserAuthService> user_auth_svc_;
   std::unique_ptr<UpstreamConnectionService> connection_svc_;
   std::unique_ptr<PingExtensionHandler> ping_handler_;

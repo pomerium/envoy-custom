@@ -110,8 +110,8 @@ public:
 
   MOCK_METHOD(void, forward, (wire::Message&&, FrameTags));                   // pure virtual, not tested here
   MOCK_METHOD(absl::StatusOr<bytes>, signWithHostKey, (bytes_view), (const)); // pure virtual, not tested here
-  MOCK_METHOD(const AuthState&, authState, (), (const));                      // pure virtual, not tested here
-  MOCK_METHOD(AuthState&, authState, ());                                     // pure virtual, not tested here
+  MOCK_METHOD(const AuthInfo&, authInfo, (), (const));                        // pure virtual, not tested here
+  MOCK_METHOD(AuthInfo&, authInfo, ());                                       // pure virtual, not tested here
   MOCK_METHOD(stream_id_t, streamId, (), (const));                            // mocked
 
   void SetOutgoingExtInfo(wire::ExtInfoMsg&& msg) {

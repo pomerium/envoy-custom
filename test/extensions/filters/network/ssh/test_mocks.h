@@ -27,7 +27,7 @@ public:
   MOCK_METHOD(absl::StatusOr<size_t>, sendMessageToConnection, (wire::Message&&));
   MOCK_METHOD(void, forward, (wire::Message&&, FrameTags));
   MOCK_METHOD(const bytes&, sessionId, (), (const));
-  MOCK_METHOD(AuthState&, authState, ());
+  MOCK_METHOD(AuthInfo&, authInfo, ());
   MOCK_METHOD(const pomerium::extensions::ssh::CodecConfig&, codecConfig, (), (const));
   MOCK_METHOD(stream_id_t, streamId, (), (const));
   MOCK_METHOD(void, updatePeerExtInfo, (std::optional<wire::ExtInfoMsg>));
@@ -49,7 +49,7 @@ public:
   MockDownstreamTransportCallbacks();
   virtual ~MockDownstreamTransportCallbacks();
 
-  MOCK_METHOD(void, initUpstream, (AuthStateSharedPtr));
+  MOCK_METHOD(void, initUpstream, (AuthInfoSharedPtr));
   MOCK_METHOD(void, onServiceAuthenticated, (const std::string&));
   MOCK_METHOD(void, sendMgmtClientMessage, (const ClientMessage&));
 };

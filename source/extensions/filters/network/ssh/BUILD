@@ -14,7 +14,6 @@ envoy_cc_library(
         "config.cc",
         "extension_ping.cc",
         "filter_state_objects.cc",
-        "frame.cc",
         "grpc_client_impl.cc",
         "id_manager.cc",
         "kex.cc",

@@ -69,9 +69,9 @@ MATCHER(SentinelFrame, "") {
 class ClientTransportTest : public testing::Test {
 public:
   ClientTransportTest()
-      : server_host_key_(*openssh::SSHKey::generate(KEY_ED25519, 256)),
-        transport_(server_factory_context_, initConfig()) {
-  }
+      : downstream_filter_state_(StreamInfo::FilterState::LifeSpan::FilterChain),
+        server_host_key_(*openssh::SSHKey::generate(KEY_ED25519, 256)),
+        transport_(server_factory_context_, initConfig()) {}
 
   const wire::KexInitMsg kex_init_ = {
     .cookie = {{16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1}},
@@ -119,16 +119,26 @@ public:
       .Times(AnyNumber());
   }
 
+  void SetDownstreamAuthInfo(AuthInfoSharedPtr info) {
+    ASSERT(!downstream_filter_state_.hasDataWithName(AuthInfoFilterStateKey));
+    downstream_filter_state_.setData(
+      AuthInfoFilterStateKey, info,
+      StreamInfo::FilterState::StateType::Mutable,
+      StreamInfo::FilterState::LifeSpan::Request,
+      StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
+  }
+
   void StartTransportNormal() {
     // start the client transport by simulating a SSHRequestHeaderFrame forwarded from the
     // server transport
-    auto authState = std::make_shared<AuthState>();
-    authState->server_version = "SSH-2.0-Envoy";
-    authState->channel_mode = ChannelMode::Normal;
-    authState->allow_response = std::make_unique<AllowResponse>();
-    authState->allow_response->set_username("foo");
-    authState->allow_response->mutable_upstream()->set_hostname("example");
-    auto* publicKeyMethod = authState->allow_response->mutable_upstream()->add_allowed_methods();
+    auto authInfo = std::make_shared<AuthInfo>();
+    authInfo->server_version = "SSH-2.0-Envoy";
+    authInfo->channel_mode = ChannelMode::Normal;
+    authInfo->allow_response = std::make_unique<AllowResponse>();
+    authInfo->allow_response->set_username("foo");
+    authInfo->allow_response->mutable_upstream()->set_hostname("example");
+    auto* publicKeyMethod = authInfo->allow_response->mutable_upstream()->add_allowed_methods();
+    SetDownstreamAuthInfo(authInfo);
     publicKeyMethod->set_method("publickey");
     PublicKeyAllowResponse publicKeyMethodData;
     Permissions permissions;
@@ -144,37 +154,37 @@ public:
     *publicKeyMethodData.mutable_permissions() = std::move(permissions);
     publicKeyMethod->mutable_method_data()->PackFrom(publicKeyMethodData);
     GenericProxy::MockEncodingContext ctx;
-    SSHRequestHeaderFrame reqHeaderFrame(authState);
+    SSHRequestHeaderFrame reqHeaderFrame("example", 0, downstream_filter_state_);
     ASSERT_OK(transport_.encode(reqHeaderFrame, ctx).status());
     DoKeyExchange();
   }
 
-  AuthStateSharedPtr BuildHandoffAuthState() {
+  AuthInfoSharedPtr BuildHandoffAuthInfo() {
     auto internalId = *channel_id_manager_->allocateNewChannel(Peer::Downstream);
     EXPECT_OK(channel_id_manager_->bindChannelID(internalId, PeerLocalID{
                                                                .channel_id = 1,
                                                                .local_peer = Peer::Downstream,
                                                              }));
-    auto authState = std::make_shared<AuthState>();
-    authState->server_version = "SSH-2.0-Envoy";
-    authState->channel_mode = ChannelMode::Handoff;
-    authState->handoff_info.handoff_in_progress = true;
-    authState->handoff_info.channel_info = std::make_unique<SSHDownstreamChannelInfo>();
-    authState->handoff_info.channel_info->set_downstream_channel_id(1);
-    authState->handoff_info.channel_info->set_channel_type("session");
-    authState->handoff_info.channel_info->set_internal_upstream_channel_id(internalId);
-    authState->handoff_info.channel_info->set_initial_window_size(wire::ChannelWindowSize);
-    authState->handoff_info.channel_info->set_max_packet_size(wire::ChannelMaxPacketSize);
-    authState->handoff_info.pty_info = std::make_unique<SSHDownstreamPTYInfo>();
-    authState->handoff_info.pty_info->set_term_env("xterm-256color");
-    authState->handoff_info.pty_info->set_width_columns(80);
-    authState->handoff_info.pty_info->set_height_rows(24);
-    authState->handoff_info.pty_info->set_width_px(300);
-    authState->handoff_info.pty_info->set_height_px(250);
-    authState->allow_response = std::make_unique<AllowResponse>();
-    authState->allow_response->set_username("foo");
-    authState->allow_response->mutable_upstream()->set_hostname("example");
-    auto* publicKeyMethod = authState->allow_response->mutable_upstream()->add_allowed_methods();
+    auto authInfo = std::make_shared<AuthInfo>();
+    authInfo->server_version = "SSH-2.0-Envoy";
+    authInfo->channel_mode = ChannelMode::Handoff;
+    authInfo->handoff_info.handoff_in_progress = true;
+    authInfo->handoff_info.channel_info = std::make_unique<SSHDownstreamChannelInfo>();
+    authInfo->handoff_info.channel_info->set_downstream_channel_id(1);
+    authInfo->handoff_info.channel_info->set_channel_type("session");
+    authInfo->handoff_info.channel_info->set_internal_upstream_channel_id(internalId);
+    authInfo->handoff_info.channel_info->set_initial_window_size(wire::ChannelWindowSize);
+    authInfo->handoff_info.channel_info->set_max_packet_size(wire::ChannelMaxPacketSize);
+    authInfo->handoff_info.pty_info = std::make_unique<SSHDownstreamPTYInfo>();
+    authInfo->handoff_info.pty_info->set_term_env("xterm-256color");
+    authInfo->handoff_info.pty_info->set_width_columns(80);
+    authInfo->handoff_info.pty_info->set_height_rows(24);
+    authInfo->handoff_info.pty_info->set_width_px(300);
+    authInfo->handoff_info.pty_info->set_height_px(250);
+    authInfo->allow_response = std::make_unique<AllowResponse>();
+    authInfo->allow_response->set_username("foo");
+    authInfo->allow_response->mutable_upstream()->set_hostname("example");
+    auto* publicKeyMethod = authInfo->allow_response->mutable_upstream()->add_allowed_methods();
     publicKeyMethod->set_method("publickey");
     PublicKeyAllowResponse publicKeyMethodData;
     Permissions permissions;
@@ -189,34 +199,36 @@ public:
       absl::ToUnixNanos(absl::Now() + absl::Hours(1)));
     *publicKeyMethodData.mutable_permissions() = std::move(permissions);
     publicKeyMethod->mutable_method_data()->PackFrom(publicKeyMethodData);
-    return authState;
+    return authInfo;
   }
 
   [[nodiscard]] uint32_t StartTransportHandoff() {
     GenericProxy::MockEncodingContext ctx;
-    auto authState = BuildHandoffAuthState();
-    SSHRequestHeaderFrame reqHeaderFrame(authState);
+    auto authInfo = BuildHandoffAuthInfo();
+    SetDownstreamAuthInfo(authInfo);
+    SSHRequestHeaderFrame reqHeaderFrame("example", 0, downstream_filter_state_);
     EXPECT_OK(transport_.encode(reqHeaderFrame, ctx).status());
     DoKeyExchange();
-    return authState->handoff_info.channel_info->internal_upstream_channel_id();
+    return authInfo->handoff_info.channel_info->internal_upstream_channel_id();
   }
 
   [[nodiscard]] uint32_t StartTransportDirectTcpip() {
     GenericProxy::MockEncodingContext ctx;
-    auto state = BuildHandoffAuthState();
-    state->handoff_info.channel_info->set_channel_type("direct-tcpip");
-    state->allow_response->mutable_upstream()->set_direct_tcpip(true);
-    SSHRequestHeaderFrame reqHeaderFrame(state);
+    auto authInfo = BuildHandoffAuthInfo();
+    authInfo->handoff_info.channel_info->set_channel_type("direct-tcpip");
+    authInfo->allow_response->mutable_upstream()->set_direct_tcpip(true);
+    SetDownstreamAuthInfo(authInfo);
+    SSHRequestHeaderFrame reqHeaderFrame("example", 0, downstream_filter_state_);
     wire::ChannelOpenConfirmationMsg expectedMsg;
-    expectedMsg.recipient_channel = state->handoff_info.channel_info->downstream_channel_id();
-    expectedMsg.sender_channel = state->handoff_info.channel_info->internal_upstream_channel_id();
-    expectedMsg.initial_window_size = state->handoff_info.channel_info->initial_window_size();
-    expectedMsg.max_packet_size = state->handoff_info.channel_info->max_packet_size();
+    expectedMsg.recipient_channel = authInfo->handoff_info.channel_info->downstream_channel_id();
+    expectedMsg.sender_channel = authInfo->handoff_info.channel_info->internal_upstream_channel_id();
+    expectedMsg.initial_window_size = authInfo->handoff_info.channel_info->initial_window_size();
+    expectedMsg.max_packet_size = authInfo->handoff_info.channel_info->max_packet_size();
     EXPECT_CALL(client_codec_callbacks_, onDecodingSuccess(FrameContainingMsg(wire::Message{expectedMsg}), _));
     auto r = transport_.encode(reqHeaderFrame, ctx);
     EXPECT_OK(r.status());
     EXPECT_EQ(0, *r); // nothing sent to the upstream
-    return state->handoff_info.channel_info->internal_upstream_channel_id();
+    return authInfo->handoff_info.channel_info->internal_upstream_channel_id();
   }
 
   // Send and receive packets on a direct-tcpip connection
@@ -462,6 +474,7 @@ public:
   std::unique_ptr<PacketCipher> server_cipher_;
   Envoy::Buffer::OwnedImpl input_buffer_;
   Envoy::Buffer::OwnedImpl output_buffer_;
+  StreamInfo::FilterStateImpl downstream_filter_state_;
   testing::NiceMock<Server::Configuration::MockServerFactoryContext> server_factory_context_;
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config_;
   openssh::SSHKeyPtr server_host_key_;
@@ -575,15 +588,17 @@ TEST_F(ClientTransportTest, HandleHostKeysMsgGlobalRequest) {
 }
 
 TEST_F(ClientTransportTest, InvalidUserAuthAllowState) {
-  auto authState = std::make_shared<AuthState>();
-  authState->server_version = "SSH-2.0-Envoy";
-  authState->channel_mode = ChannelMode::Normal;
-  authState->allow_response = std::make_unique<AllowResponse>();
-  authState->allow_response->set_username("foo");
-  authState->allow_response->mutable_upstream()->set_hostname("example");
+  auto authInfo = std::make_shared<AuthInfo>();
+  authInfo->server_version = "SSH-2.0-Envoy";
+  authInfo->channel_mode = ChannelMode::Normal;
+  authInfo->allow_response = std::make_unique<AllowResponse>();
+  authInfo->allow_response->set_username("foo");
+  authInfo->allow_response->mutable_upstream()->set_hostname("example");
+  SetDownstreamAuthInfo(authInfo);
+
   // omit the publickey allow response
   GenericProxy::MockEncodingContext ctx;
-  SSHRequestHeaderFrame reqHeaderFrame(authState);
+  SSHRequestHeaderFrame reqHeaderFrame("example", 0, downstream_filter_state_);
   ASSERT_OK(transport_.encode(reqHeaderFrame, ctx).status());
   DoKeyExchange();
 
@@ -714,7 +729,7 @@ TEST_F(ClientTransportTest, Handoff) {
                                          _))
     .WillOnce([this] {
       // the server transport updates handoff_in_progress when it receives the sentinel message
-      transport_.authState().handoff_info.handoff_in_progress = false;
+      transport_.authInfo().handoff_info.handoff_in_progress = false;
     });
 
   ASSERT_OK(WriteMsg(wire::ChannelSuccessMsg{
@@ -836,11 +851,12 @@ TEST_F(ClientTransportTest, Handoff_UserAuthFailure) {
 }
 
 TEST_F(ClientTransportTest, Handoff_SendPtyRequestFailure) {
-  auto authState = BuildHandoffAuthState();
-  authState->handoff_info.pty_info->mutable_term_env()->resize(wire::MaxPacketSize);
+  auto authInfo = BuildHandoffAuthInfo();
+  authInfo->handoff_info.pty_info->mutable_term_env()->resize(wire::MaxPacketSize);
+  SetDownstreamAuthInfo(authInfo);
 
   GenericProxy::MockEncodingContext ctx;
-  SSHRequestHeaderFrame reqHeaderFrame(authState);
+  SSHRequestHeaderFrame reqHeaderFrame("example", 0, downstream_filter_state_);
   ASSERT_OK(transport_.encode(reqHeaderFrame, ctx).status());
   DoKeyExchange();
   ASSERT_OK(ExchangeExtInfo());
@@ -863,7 +879,7 @@ TEST_F(ClientTransportTest, Handoff_SendPtyRequestFailure) {
 
   ExpectDisconnectAsHeader(absl::AbortedError("error requesting pty: error encoding packet: message size too large"));
   ASSERT_OK(WriteMsg(wire::ChannelOpenConfirmationMsg{
-    .recipient_channel = authState->handoff_info.channel_info->internal_upstream_channel_id(),
+    .recipient_channel = authInfo->handoff_info.channel_info->internal_upstream_channel_id(),
     .sender_channel = 300,
     .initial_window_size = wire::ChannelWindowSize,
     .max_packet_size = wire::ChannelMaxPacketSize,
@@ -872,9 +888,11 @@ TEST_F(ClientTransportTest, Handoff_SendPtyRequestFailure) {
 
 TEST_F(ClientTransportTest, Handoff_NoDownstreamPty) {
   GenericProxy::MockEncodingContext ctx;
-  auto authState = BuildHandoffAuthState();
-  authState->handoff_info.pty_info = nullptr;
-  SSHRequestHeaderFrame reqHeaderFrame(authState);
+  auto authInfo = BuildHandoffAuthInfo();
+  authInfo->handoff_info.pty_info = nullptr;
+  SetDownstreamAuthInfo(authInfo);
+
+  SSHRequestHeaderFrame reqHeaderFrame("example", 0, downstream_filter_state_);
   ASSERT_OK(transport_.encode(reqHeaderFrame, ctx).status());
   DoKeyExchange();
 
@@ -897,7 +915,7 @@ TEST_F(ClientTransportTest, Handoff_NoDownstreamPty) {
   ASSERT_OK(ReadMsg(req));
   ExpectDisconnectAsHeader(absl::InvalidArgumentError("session is not interactive"));
   ASSERT_OK(WriteMsg(wire::ChannelOpenConfirmationMsg{
-    .recipient_channel = authState->handoff_info.channel_info->internal_upstream_channel_id(),
+    .recipient_channel = authInfo->handoff_info.channel_info->internal_upstream_channel_id(),
     .sender_channel = 300,
     .initial_window_size = wire::ChannelWindowSize,
     .max_packet_size = wire::ChannelMaxPacketSize,
@@ -1046,7 +1064,7 @@ TEST_F(ClientTransportTest, HandleRekeyDuringHandoff) {
                                                SentinelFrame()),
                                          _))
     .WillOnce([this] {
-      transport_.authState().handoff_info.handoff_in_progress = false;
+      transport_.authInfo().handoff_info.handoff_in_progress = false;
     });
 
   ASSERT_OK(WriteMsg(wire::ChannelSuccessMsg{.recipient_channel = internalId}));
@@ -1097,7 +1115,7 @@ TEST_F(ClientTransportTest, HandleRekeyAfterHandoff) {
                                                SentinelFrame()),
                                          _))
     .WillOnce([this] {
-      transport_.authState().handoff_info.handoff_in_progress = false;
+      transport_.authInfo().handoff_info.handoff_in_progress = false;
     });
 
   ASSERT_OK(WriteMsg(wire::ChannelSuccessMsg{.recipient_channel = internalId}));

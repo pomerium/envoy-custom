@@ -107,16 +107,16 @@ GenericProxy::EncodingResult SshServerTransport::encode(const GenericProxy::Stre
     return sendMessageToConnection(extractFrameMessage(frame));
   }
   ASSERT((tags & FrameTags::FrameEffectiveTypeMask) == FrameTags::EffectiveHeader); // 1-bit mask
-  if (authState().handoff_info.handoff_in_progress) {
+  if (authInfo().handoff_info.handoff_in_progress) {
     ENVOY_LOG(debug, "handoff complete, re-enabling reads on downstream connection");
-    authState().handoff_info.handoff_in_progress = false;
+    authInfo().handoff_info.handoff_in_progress = false;
     callbacks_->connection()->readDisable(false);
   }
   if ((tags & FrameTags::Sentinel) != 0) {
     return 0;
   }
-  if (authState().upstream_ext_info.has_value() &&
-      authState().upstream_ext_info->hasExtension<wire::PingExtension>()) {
+  if (authInfo().upstream_ext_info.has_value() &&
+      authInfo().upstream_ext_info->hasExtension<wire::PingExtension>()) {
     // if the upstream supports the ping extension, we should forward pings to the upstream
     // instead of handling them ourselves
     ping_handler_->enableForward(true);
@@ -195,7 +195,7 @@ absl::Status SshServerTransport::handleMessage(wire::Message&& msg) {
                                                         wire::HostKeysMsg::submsg_key));
         },
         [&](wire::TcpipForwardMsg& forward_msg) {
-          if (authState().channel_mode == ChannelMode::Hijacked) {
+          if (authInfo().channel_mode == ChannelMode::Hijacked) {
             ENVOY_LOG(debug, "sending global request to hijacked stream: {}", msg.request_name());
             ClientMessage clientMsg;
             auto* streamEvent = clientMsg.mutable_event();
@@ -213,7 +213,7 @@ absl::Status SshServerTransport::handleMessage(wire::Message&& msg) {
             // }
             // *b.mutable_value() = *msgData;
             // *channel_msg.mutable_raw_bytes() = b;
-            // if (auto s = authState().hijacked_stream.lock(); s) {
+            // if (auto s = authInfo().hijacked_stream.lock(); s) {
             //   s->sendMessage(channel_msg, false);
             // } else {
             //   return absl::CancelledError("connection closed");
@@ -274,10 +274,10 @@ void SshServerTransport::onServiceAuthenticated(const std::string& service_name)
 
 void SshServerTransport::initHandoff(pomerium::extensions::ssh::SSHChannelControlAction_HandOffUpstream* handoff_msg) {
   connection_service_->disableChannelHijack();
-  auto newState = std::make_shared<AuthState>();
-  newState->server_version = authState().server_version;
-  newState->stream_id = authState().stream_id;
-  newState->channel_mode = authState().channel_mode;
+  auto newState = std::make_shared<AuthInfo>();
+  newState->server_version = authInfo().server_version;
+  newState->stream_id = authInfo().stream_id;
+  newState->channel_mode = authInfo().channel_mode;
   switch (handoff_msg->upstream_auth().target_case()) {
   case pomerium::extensions::ssh::AllowResponse::kUpstream:
     newState->handoff_info.handoff_in_progress = true;
@@ -304,38 +304,50 @@ void SshServerTransport::initHandoff(pomerium::extensions::ssh::SSHChannelContro
   }
 }
 
-void SshServerTransport::initUpstream(AuthStateSharedPtr s) {
-  s->server_version = server_version_;
-  bool first_init = (auth_state_ == nullptr);
-  auth_state_ = s;
-  switch (auth_state_->channel_mode) {
+void SshServerTransport::initUpstream(AuthInfoSharedPtr auth_info) {
+  auth_info->server_version = server_version_;
+  bool first_init = (auth_info_ == nullptr);
+  auth_info_ = auth_info;
+  callbacks_->connection()->streamInfo().filterState()->setData(
+    AuthInfoFilterStateKey, auth_info_,
+    StreamInfo::FilterState::StateType::Mutable,
+    StreamInfo::FilterState::LifeSpan::Request,
+    StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
+  switch (auth_info_->channel_mode) {
   case ChannelMode::Normal: {
-    auto frame = std::make_unique<SSHRequestHeaderFrame>(auth_state_);
+    ASSERT(auth_info_->allow_response != nullptr);
+    auto frame = std::make_unique<SSHRequestHeaderFrame>(
+      auth_info_->allow_response->upstream().hostname(),
+      stream_id_,
+      *callbacks_->connection()->streamInfo().filterState());
     callbacks_->onDecodingSuccess(std::move(frame));
 
     ClientMessage upstream_connect_msg{};
-    upstream_connect_msg.mutable_event()->mutable_upstream_connected()->set_stream_id(auth_state_->stream_id);
+    upstream_connect_msg.mutable_event()->mutable_upstream_connected()->set_stream_id(auth_info_->stream_id);
     sendMgmtClientMessage(upstream_connect_msg);
   } break;
   case ChannelMode::Hijacked: {
-    ASSERT(auth_state_->allow_response != nullptr);
-    RELEASE_ASSERT(auth_state_->allow_response->target_case() == pomerium::extensions::ssh::AllowResponse::kInternal,
+    ASSERT(auth_info_->allow_response != nullptr);
+    RELEASE_ASSERT(auth_info_->allow_response->target_case() == pomerium::extensions::ssh::AllowResponse::kInternal,
                    "wrong target mode in AllowResponse for internal session");
 
-    const auto& internal = auth_state_->allow_response->internal();
+    const auto& internal = auth_info_->allow_response->internal();
     connection_service_->enableChannelHijack(*this, internal, grpc_client_);
 
     sendMessageToConnection(wire::UserAuthSuccessMsg{})
       .IgnoreError();
   } break;
   case ChannelMode::Handoff: {
-    auto frame = std::make_unique<SSHRequestHeaderFrame>(auth_state_);
+    auto frame = std::make_unique<SSHRequestHeaderFrame>(
+      auth_info_->allow_response->upstream().hostname(),
+      stream_id_,
+      *callbacks_->connection()->streamInfo().filterState());
     ENVOY_LOG(debug, "disabling reads on downstream connection for handoff");
     callbacks_->connection()->readDisable(true);
     callbacks_->onDecodingSuccess(std::move(frame));
 
     ClientMessage upstream_connect_msg{};
-    upstream_connect_msg.mutable_event()->mutable_upstream_connected()->set_stream_id(auth_state_->stream_id);
+    upstream_connect_msg.mutable_event()->mutable_upstream_connected()->set_stream_id(auth_info_->stream_id);
     sendMgmtClientMessage(upstream_connect_msg);
   } break;
   case ChannelMode::Mirror:
@@ -347,9 +359,9 @@ void SshServerTransport::initUpstream(AuthStateSharedPtr s) {
   }
 }
 
-AuthState& SshServerTransport::authState() {
+AuthInfo& SshServerTransport::authInfo() {
   ASSERT(upstreamReady());
-  return *auth_state_;
+  return *auth_info_;
 }
 
 void SshServerTransport::forward(wire::Message&& message, [[maybe_unused]] FrameTags tags) {

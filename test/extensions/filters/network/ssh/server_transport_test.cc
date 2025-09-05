@@ -1,3 +1,4 @@
+#include "source/extensions/filters/network/ssh/filter_state_objects.h"
 #include "source/extensions/filters/network/ssh/server_transport.h"
 #include "test/extensions/filters/network/generic_proxy/mocks/codec.h"
 #include "test/extensions/filters/network/ssh/test_env_util.h"
@@ -135,6 +136,15 @@ public:
     transport_.decode(input_buffer_, false);
     wire::NewKeysMsg serverNewKeys;
     ASSERT_OK(wire::decodePacket(output_buffer_, serverNewKeys).status());
+  }
+
+  void SetAuthInfo(AuthInfoSharedPtr info) {
+    ASSERT(!mock_connection_.streamInfo().filterState()->hasDataWithName(AuthInfoFilterStateKey));
+    mock_connection_.streamInfo().filterState()->setData(
+      AuthInfoFilterStateKey, info,
+      StreamInfo::FilterState::StateType::Mutable,
+      StreamInfo::FilterState::LifeSpan::Request,
+      StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
   }
 
   absl::Status WriteMsg(wire::Message&& msg) {
@@ -706,7 +716,7 @@ TEST_F(ServerTransportTest, SuccessfulUserAuth_HandoffMode) {
 }
 
 TEST_F(ServerTransportTest, SuccessfulUserAuth_MirrorMode) {
-  auto state = std::make_shared<AuthState>();
+  auto state = std::make_shared<AuthInfo>();
   state->channel_mode = ChannelMode::Mirror;
 #ifndef SSH_EXPERIMENTAL
   EXPECT_THROW_WITH_MESSAGE(transport_.initUpstream(state),
@@ -935,7 +945,7 @@ TEST_F(ServerTransportTest, EncodeEffectiveHeaderEnablePingForwarding) {
   ASSERT_OK(WriteMsg(std::move(authReq)));
 
   // cheat: this is normally set by upstream user auth service
-  transport_.authState().upstream_ext_info = serverExtInfo;
+  transport_.authInfo().upstream_ext_info = serverExtInfo;
 
   GenericProxy::MockEncodingContext ctx;
   SSHResponseCommonFrame frame(wire::IgnoreMsg{}, EffectiveHeader);
@@ -1011,9 +1021,10 @@ class ServerTransportResponseCodeTest : public ServerTransportTest,
 
 TEST_P(ServerTransportResponseCodeTest, Respond) {
   auto [msg, expectedCode] = GetParam();
-  auto authState = std::make_shared<AuthState>();
-  authState->stream_id = 1234;
-  SSHRequestHeaderFrame mockHeaderFrame(authState);
+  auto authInfo = std::make_shared<AuthInfo>();
+  authInfo->stream_id = 1234;
+  SetAuthInfo(authInfo);
+  SSHRequestHeaderFrame mockHeaderFrame("example", 1234, *mock_connection_.streamInfo().filterState());
   auto status = absl::Status(absl::StatusCode::kInternal, msg);
   auto responseFrame = transport_.respond(status, "", mockHeaderFrame);
   ASSERT_EQ(ResponseHeader | EffectiveCommon | Error,
@@ -1037,9 +1048,10 @@ TEST_P(ServerTransportResponseCodeTest, Respond) {
 
 TEST_P(ServerTransportResponseCodeTest, RespondAdditionalMessage) {
   auto [msg, expectedCode] = GetParam();
-  auto authState = std::make_shared<AuthState>();
-  authState->stream_id = 1234;
-  SSHRequestHeaderFrame mockHeaderFrame(authState);
+  auto authInfo = std::make_shared<AuthInfo>();
+  authInfo->stream_id = 1234;
+  SetAuthInfo(authInfo);
+  SSHRequestHeaderFrame mockHeaderFrame("example", 1234, *mock_connection_.streamInfo().filterState());
   auto status = absl::Status(absl::StatusCode::kInternal, msg);
   auto responseFrame = transport_.respond(status, "additional message", mockHeaderFrame);
   auto dc = extractFrameMessage(*responseFrame);
