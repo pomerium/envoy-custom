@@ -66,6 +66,17 @@ public:
   MOCK_METHOD(void, onVersionExchangeCompleted, (const bytes&, const bytes&, const bytes&));
 };
 
+class MockChannel : public Channel {
+public:
+  MockChannel();
+  virtual ~MockChannel();
+  MOCK_METHOD(void, Die, ());                                          // NOLINT
+  MOCK_METHOD(absl::Status, setChannelCallbacks, (ChannelCallbacks&)); // has a default implementation
+  MOCK_METHOD(absl::Status, readMessage, (wire::Message&&));
+  MOCK_METHOD(absl::Status, onChannelOpened, (wire::ChannelOpenConfirmationMsg&&));
+  MOCK_METHOD(absl::Status, onChannelOpenFailed, (wire::ChannelOpenFailureMsg&&));
+};
+
 class MockHijackedChannelCallbacks : public HijackedChannelCallbacks {
 public:
   MockHijackedChannelCallbacks();

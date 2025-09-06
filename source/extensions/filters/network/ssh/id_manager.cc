@@ -20,6 +20,10 @@ absl::Status ChannelIDManager::bindChannelID(uint32_t internal_id, PeerLocalID p
   if (it == internal_channels_.end()) {
     return absl::InvalidArgumentError(fmt::format("unknown channel {}", internal_id));
   }
+  if (it->second.peer_states[peer_local_id.local_peer] != ChannelIDState::Unbound) {
+    return absl::InvalidArgumentError(fmt::format("channel {} is already known to {}",
+                                                  internal_id, peer_local_id.local_peer));
+  }
   ENVOY_LOG(debug, "{} channel ID {} tracking internal ID {}",
             peer_local_id.local_peer, peer_local_id.channel_id, internal_id);
   it->second.peer_ids[peer_local_id.local_peer] = peer_local_id.channel_id;

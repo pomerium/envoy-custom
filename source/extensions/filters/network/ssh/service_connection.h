@@ -16,7 +16,7 @@ class ConnectionService : public virtual Service,
                           public Logger::Loggable<Logger::Id::filter> {
 public:
   std::string name() override { return "ssh-connection"; };
-  ConnectionService(TransportCallbacks& callbacks, Api::Api& api, Peer direction);
+  ConnectionService(TransportCallbacks& callbacks, Peer direction);
 
   // Channel Lifetime:
   // Creating channels and sending/receiving channel messages must only happen via ConnectionService
@@ -47,7 +47,7 @@ public:
   public:
     ChannelCallbacksImpl(ConnectionService& parent, uint32_t channel_id, Peer local_peer);
     absl::Status sendMessageToConnection(wire::Message&& msg) override;
-    void passthrough(wire::Message&& msg) override;
+    absl::Status passthrough(wire::Message&& msg) override;
     uint32_t channelId() const override { return channel_id_; }
     void cleanup() override;
 
@@ -60,7 +60,6 @@ public:
 
 protected:
   TransportCallbacks& transport_;
-  Api::Api& api_;
   const Peer local_peer_;
   Envoy::OptRef<MessageDispatcher<wire::Message>> msg_dispatcher_;
 
@@ -82,7 +81,6 @@ class DownstreamConnectionService final : public ConnectionService,
 
 public:
   DownstreamConnectionService(TransportCallbacks& callbacks,
-                              Api::Api& api,
                               std::shared_ptr<StreamTracker> stream_tracker);
 
   void onStreamBegin(Network::Connection& connection);
@@ -105,8 +103,8 @@ private:
 class UpstreamConnectionService final : public ConnectionService,
                                         public UpstreamService {
 public:
-  UpstreamConnectionService(UpstreamTransportCallbacks& callbacks, Api::Api& api)
-      : ConnectionService(callbacks, api, Peer::Upstream) {}
+  UpstreamConnectionService(UpstreamTransportCallbacks& callbacks)
+      : ConnectionService(callbacks, Peer::Upstream) {}
   absl::Status requestService() override;
   absl::Status onServiceAccepted() override;
 };

@@ -65,7 +65,7 @@ void SshClientTransport::setCodecCallbacks(GenericProxy::ClientCodecCallbacks& c
 
 void SshClientTransport::initServices() {
   user_auth_svc_ = std::make_unique<UpstreamUserAuthService>(*this, api_);
-  connection_svc_ = std::make_unique<UpstreamConnectionService>(*this, api_);
+  connection_svc_ = std::make_unique<UpstreamConnectionService>(*this);
   ping_handler_ = std::make_unique<PingExtensionHandler>(*this);
 
   services_[user_auth_svc_->name()] = user_auth_svc_.get();
@@ -324,8 +324,7 @@ public:
 
   absl::Status readMessage(wire::Message&& msg) override {
     if (handoff_complete_) {
-      callbacks_->passthrough(std::move(msg));
-      return absl::OkStatus();
+      return callbacks_->passthrough(std::move(msg));
     }
     return msg.visit(
       // 3: PTY open request

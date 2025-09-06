@@ -93,7 +93,7 @@ void SshServerTransport::onConnected() {
 
 void SshServerTransport::initServices() {
   user_auth_service_ = std::make_unique<DownstreamUserAuthService>(*this, api_);
-  connection_service_ = std::make_unique<DownstreamConnectionService>(*this, api_, stream_tracker_);
+  connection_service_ = std::make_unique<DownstreamConnectionService>(*this, stream_tracker_);
   ping_handler_ = std::make_unique<PingExtensionHandler>(*this);
 
   services_[user_auth_service_->name()] = user_auth_service_.get();

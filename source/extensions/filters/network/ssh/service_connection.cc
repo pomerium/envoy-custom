@@ -12,13 +12,9 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 ConnectionService::ConnectionService(
   TransportCallbacks& callbacks,
-  Api::Api& api,
   Peer direction)
     : transport_(callbacks),
-      api_(api),
-      local_peer_(direction) {
-  (void)api_;
-}
+      local_peer_(direction) {}
 
 void ConnectionService::registerMessageHandlers(SshMessageDispatcher& dispatcher) {
   msg_dispatcher_ = dispatcher;
@@ -63,7 +59,7 @@ absl::Status ConnectionService::handleMessage(wire::Message&& ssh_msg) {
       auto passthrough = std::make_unique<PassthroughChannel>();
       auto id = startChannel(std::move(passthrough));
       if (!id.ok()) {
-        return id.status();
+        return statusf("error starting passthrough channel: {}", id.status());
       }
       auto stat = transport_.channelIdManager().bindChannelID(*id, PeerLocalID{
                                                                      .channel_id = msg.sender_channel,
@@ -107,27 +103,21 @@ absl::Status ConnectionService::handleMessage(wire::Message&& ssh_msg) {
       // to the ID we just tracked above
       msg.sender_channel = msg.recipient_channel;
       if (auto stat = channels_[msg.sender_channel]->onChannelOpened(std::move(msg)); !stat.ok()) {
-        return stat;
+        return statusf("error opening channel: {}", stat);
       }
 
       return absl::OkStatus();
     },
     [&](wire::ChannelOpenFailureMsg& msg) {
-      auto owner = transport_.channelIdManager().owner(msg.recipient_channel);
-      if (!owner.has_value()) {
-        return absl::InvalidArgumentError(fmt::format("received ChannelOpenFailureMsg message for unknown channel {}", msg.recipient_channel));
-      }
       // the channel will be immediately deleted after this, but the PassthroughChannel contains
       // the logic to forward the message, and this keeps things contistent
       if (auto stat = maybeStartPassthroughChannel(msg.recipient_channel); !stat.ok()) {
-        return stat;
+        return statusf("received invalid ChannelOpenFailure message: {}", stat);
       }
 
       auto node = channels_.extract(msg.recipient_channel);
-      if (node.empty()) {
-        return absl::InvalidArgumentError(fmt::format("received ChannelOpenFailureMsg message for unknown channel {}", msg.recipient_channel));
-      }
-      // if the channel open fails, remove the channel from the pending list
+      ASSERT(!node.empty());
+
       ENVOY_LOG(debug, "failed to open internal channel: id={}, err={}",
                 *msg.recipient_channel, *msg.description);
       // node goes out of scope after this call, destroying the channel
@@ -166,10 +156,12 @@ absl::Status ConnectionService::maybeStartPassthroughChannel(uint32_t internal_i
   }
   auto owner = transport_.channelIdManager().owner(internal_id);
   if (!owner.has_value()) {
-    return absl::InvalidArgumentError(fmt::format("received ChannelOpenConfirmation for unknown channel {}", internal_id));
+    return absl::InvalidArgumentError(fmt::format("unknown channel {}", internal_id));
   }
-  RELEASE_ASSERT(owner.value() != local_peer_, fmt::format("bug: expected channel {} to exist or be owned by the {} transport",
-                                                           internal_id, local_peer_ == Peer::Upstream ? Peer::Downstream : Peer::Upstream));
+  if (owner.value() == local_peer_) {
+    return absl::InvalidArgumentError(fmt::format("expected channel {} to exist or be owned by the {} transport",
+                                                  internal_id, local_peer_ == Peer::Upstream ? Peer::Downstream : Peer::Upstream));
+  }
   auto passthrough = std::make_unique<PassthroughChannel>();
   return startChannel(std::move(passthrough), internal_id).status();
 }
@@ -199,17 +191,20 @@ absl::Status ConnectionService::ChannelCallbacksImpl::sendMessageToConnection(wi
     .status();
 }
 
-void ConnectionService::ChannelCallbacksImpl::passthrough(wire::Message&& msg) {
-  msg.visit(
+absl::Status ConnectionService::ChannelCallbacksImpl::passthrough(wire::Message&& msg) {
+  return msg.visit(
     [&](wire::ChannelMsg auto& msg) {
       auto stat = channel_id_mgr_.processOutgoingChannelMsg(msg, local_peer_ == Peer::Downstream
                                                                    ? Peer::Upstream
                                                                    : Peer::Downstream);
-      THROW_IF_NOT_OK(stat);
+      if (!stat.ok()) {
+        return stat;
+      }
       ENVOY_LOG(debug, "forwarding channel message: type={}, id={}", msg.msg_type(), *msg.recipient_channel);
       parent_.transport_.forward(std::move(msg));
+      return absl::OkStatus();
     },
-    [&](auto&) {
+    [&](auto&) -> absl::Status {
       throw Envoy::EnvoyException("bug: invalid message passed to passthrough()");
     });
 }
@@ -356,8 +351,7 @@ public:
 
   absl::Status readMessage(wire::Message&& msg) override {
     if (handoff_complete_) {
-      callbacks_->passthrough(std::move(msg));
-      return absl::OkStatus();
+      return callbacks_->passthrough(std::move(msg));
     }
     return sendMessageToStream(std::move(msg));
   }
@@ -456,9 +450,8 @@ absl::StatusOr<MiddlewareResult> OpenHijackedChannelMiddleware::interceptMessage
 
 DownstreamConnectionService::DownstreamConnectionService(
   TransportCallbacks& callbacks,
-  Api::Api& api,
   std::shared_ptr<StreamTracker> stream_tracker)
-    : ConnectionService(callbacks, api, Peer::Downstream),
+    : ConnectionService(callbacks, Peer::Downstream),
       transport_(dynamic_cast<DownstreamTransportCallbacks&>(callbacks)),
       stream_tracker_(std::move(stream_tracker)) {}
 

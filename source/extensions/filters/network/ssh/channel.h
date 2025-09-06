@@ -12,7 +12,7 @@ class ChannelCallbacks {
 public:
   virtual ~ChannelCallbacks() = default;
   virtual absl::Status sendMessageToConnection(wire::Message&& msg) PURE;
-  virtual void passthrough(wire::Message&& msg) PURE;
+  virtual absl::Status passthrough(wire::Message&& msg) PURE;
   virtual uint32_t channelId() const PURE;
 
 private:
@@ -57,18 +57,15 @@ public:
   PassthroughChannel() = default;
 
   absl::Status readMessage(wire::Message&& msg) override {
-    callbacks_->passthrough(std::move(msg));
-    return absl::OkStatus();
+    return callbacks_->passthrough(std::move(msg));
   }
 
   absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&& msg) override {
-    callbacks_->passthrough(std::move(msg));
-    return absl::OkStatus();
+    return callbacks_->passthrough(std::move(msg));
   }
 
   absl::Status onChannelOpenFailed(wire::ChannelOpenFailureMsg&& msg) override {
-    callbacks_->passthrough(std::move(msg));
-    return absl::OkStatus();
+    return callbacks_->passthrough(std::move(msg));
   }
 };
 

@@ -11,15 +11,17 @@
 // A basic numeric ID allocator for unsigned integer types.
 // To allocate a new identifier, call alloc(). When an identifier is no longer needed and should
 // be reused, call release(T).
-template <std::unsigned_integral T, T Limit = std::numeric_limits<T>::max()>
+template <std::unsigned_integral T>
 class IDAllocator {
 public:
-  IDAllocator(T start_id)
-      : next_(start_id) {}
+  IDAllocator(T start_id, T max_id = std::numeric_limits<T>::max())
+      : next_(start_id),
+        start_(start_id),
+        limit_(max_id) {}
 
   absl::StatusOr<T> alloc() {
     if (freed_.empty()) {
-      if (next_ == Limit) {
+      if (next_ == limit_) {
         return absl::ResourceExhaustedError("failed to allocate ID");
       }
       return next_++;
@@ -28,11 +30,14 @@ public:
   }
 
   void release(T id) {
-    RELEASE_ASSERT(id < next_ && !freed_.contains(id), "ID was never allocated or was already released");
+    RELEASE_ASSERT(id >= start_ && id < next_ && !freed_.contains(id),
+                   "ID was never allocated or was already released");
     freed_.insert(id);
   }
 
 private:
-  T next_{0};
+  T next_;
+  const T start_;
+  const T limit_;
   std::set<T, std::less<T>> freed_;
 };

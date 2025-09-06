@@ -33,5 +33,15 @@ MockChannelStreamCallbacks::~MockChannelStreamCallbacks() {}
 MockHijackedChannelCallbacks::MockHijackedChannelCallbacks() {}
 MockHijackedChannelCallbacks::~MockHijackedChannelCallbacks() {}
 
+MockChannel::MockChannel() {
+  ON_CALL(*this, setChannelCallbacks)
+    .WillByDefault([this](ChannelCallbacks& cb) {
+      return this->Channel::setChannelCallbacks(cb);
+    });
+}
+MockChannel::~MockChannel() {
+  Die();
+}
+
 } // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
