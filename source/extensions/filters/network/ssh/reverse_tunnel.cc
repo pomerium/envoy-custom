@@ -4,6 +4,7 @@
 #include "source/extensions/filters/network/ssh/stream_address.h"
 #include "source/extensions/filters/network/ssh/filter_state_objects.h"
 #include "source/extensions/filters/network/ssh/passthrough_state.h"
+#include "source/extensions/filters/network/ssh/wire/common.h"
 
 #pragma clang unsafe_buffer_usage begin
 #include "source/common/upstream/cluster_factory_impl.h"
@@ -54,6 +55,7 @@ public:
       .initial_window_size = local_window_,
       .max_packet_size = MaxPacketSize,
     };
+    ENVOY_LOG(debug, "channel {}: flow control: local window initialized to {}", channel_id_, local_window_);
 
     Buffer::OwnedImpl extra;
     auto addrData = Envoy::Http::Utility::parseAuthority(server_name_);
@@ -84,15 +86,9 @@ public:
       // channel->demoSendSocks5Connect();
     }
     pomerium::extensions::ssh::ChannelEvent ev;
-    ev.set_channel_id(channel_id_);
     auto* opened = ev.mutable_internal_channel_opened();
     opened->set_channel_id(channel_id_);
     opened->set_peer_address(downstream_addr_->asStringView());
-
-    // pomerium::extensions::ssh::StreamEvent stream_ev;
-    // *stream_ev.mutable_channel_event() = ev;
-    // ClientMessage msg;
-    // *msg.mutable_event() = stream_ev;
     event_callbacks_.sendChannelEvent(ev);
     return absl::OkStatus();
   }
@@ -101,7 +97,7 @@ public:
     // this is not necessarily an error that should end the connection. we can just close the
     // io handle and send a channel event
     io_handle_->close();
-    onIoHandleClosed(msg.description);
+    onIoHandleClosed(fmt::format("channel open failed: {}", msg.description));
     return absl::OkStatus();
   }
 
@@ -109,10 +105,10 @@ public:
     return msg.visit(
       [&](wire::ChannelDataMsg& msg) {
         // subtract from the local window
-        if (!__builtin_sub_overflow(local_window_, msg.data->size(), &local_window_)) {
+        if (__builtin_sub_overflow(local_window_, msg.data->size(), &local_window_)) {
           // the upstream wrote more bytes than allowed by the local window
-          return absl::InvalidArgumentError(fmt::format("channel {}: local window exceeded",
-                                                        channel_id_));
+          ENVOY_LOG(debug, "channel {}: flow control: remote exceeded local window", channel_id_);
+          return absl::InvalidArgumentError(fmt::format("channel {}: local window exceeded", channel_id_));
         }
         // write to the local window buffer, then flush to downstream
         window_buffer_.add(msg.data->data(), msg.data->size());
@@ -122,11 +118,15 @@ public:
         // check if we need to increase the local window
         if (local_window_ < wire::ChannelWindowSize / 2) {
           if (!io_handle_->isPeerWritable()) {
+            ENVOY_LOG(debug, "channel {}: flow control: not increasing local window size", channel_id_);
             // Only increase the window size for the upstream if the downstream is writable. We
             // can queue at most one full window of data, after which the upstream will stop
             // writing until we increase the window size.
             return absl::OkStatus();
           }
+          ENVOY_LOG(debug, "channel {}: flow control: increasing local window size ({} -> {})",
+                    channel_id_, local_window_, local_window_ + wire::ChannelWindowSize);
+          local_window_ += wire::ChannelWindowSize;
           return callbacks_->sendMessageToConnection(wire::ChannelWindowAdjustMsg{
             .recipient_channel = channel_id_,
             .bytes_to_add = wire::ChannelWindowSize,
@@ -135,32 +135,33 @@ public:
         return absl::OkStatus();
       },
       [&](wire::ChannelWindowAdjustMsg& msg) {
-        if (!__builtin_add_overflow(remote_window_, *msg.bytes_to_add, &remote_window_)) {
+        if (__builtin_add_overflow(remote_window_, *msg.bytes_to_add, &remote_window_)) {
           return absl::InvalidArgumentError("invalid window adjust");
         }
-        ENVOY_LOG(debug, "channel {}: remote window adjusted by {} bytes", channel_id_, *msg.bytes_to_add);
+        ENVOY_LOG(debug, "channel {}: flow control: remote window adjusted by {} bytes", channel_id_, *msg.bytes_to_add);
         if (!io_handle_->isWritable()) {
           // disable write watermarks if we previously ran out of window space and the peer's
           // high watermark was triggered
+          ENVOY_LOG(debug, "channel {}: flow control: activating low watermark", channel_id_);
           io_handle_->setWatermarks(0);
         }
         return absl::OkStatus();
       },
       [this](wire::ChannelEOFMsg&) {
-        ENVOY_LOG(debug, "got eof message");
+        ENVOY_LOG(debug, "channel {}: downstream eof", channel_id_);
         io_handle_->shutdown(SHUT_WR);
         return absl::OkStatus();
       },
       [this](wire::ChannelCloseMsg&) {
-        ENVOY_LOG(debug, "got close message");
+        ENVOY_LOG(debug, "channel {}: downstream closed", channel_id_);
         if (!closed_) {
           io_handle_->close();
-          onIoHandleClosed("channel closed");
+          onIoHandleClosed("closed by downstream");
         }
         return absl::OkStatus();
       },
       [&](auto& msg) {
-        return absl::InternalError(fmt::format("unexpected message type: {}", msg.msg_type()));
+        return absl::InternalError(fmt::format("channel {}: unexpected message type: {}", channel_id_, msg.msg_type()));
       });
   }
 
@@ -168,7 +169,7 @@ private:
   void onFileEvent(uint32_t events) {
     ASSERT(connection_dispatcher_.isThreadSafe());
     if ((events & Envoy::Event::FileReadyType::Closed) != 0) {
-      onIoHandleClosed("connection closed by upstream");
+      onIoHandleClosed("closed by upstream");
       return;
     }
 
@@ -218,6 +219,7 @@ private:
     if (remote_window_ == 0) {
       // If we have run out of window space, trigger the buffer's high watermark and return. This
       // will prevent read events until we receive a window adjustment from the upstream.
+      ENVOY_LOG(debug, "channel {}: flow control: remote window exhausted; activating high watermark");
       io_handle_->setWatermarks(1); // 1-byte high watermark = any buffered data
       return absl::OkStatus();
     }
@@ -239,8 +241,13 @@ private:
     wire::ChannelDataMsg dataMsg;
     dataMsg.recipient_channel = channel_id_;
     dataMsg.data = wire::flushTo<bytes>(buffer);
-    ENVOY_LOG(debug, "writing {} bytes to internal downstream channel {}", dataMsg.data->size(), dataMsg.recipient_channel);
-    return callbacks_->sendMessageToConnection(wire::Message{std::move(dataMsg)});
+    size_t len = dataMsg.data->size();
+    auto stat = callbacks_->sendMessageToConnection(wire::Message{std::move(dataMsg)});
+    if (!stat.ok()) {
+      return stat;
+    }
+    ENVOY_LOG(debug, "channel {}: wrote {} bytes from upstream", channel_id_, len);
+    return absl::OkStatus();
   }
 
   absl::Status writeReady() {
@@ -252,6 +259,7 @@ private:
       if (!r.ok() && !r.wouldBlock()) {
         return absl::CancelledError(fmt::format("write: io error: {}", r.err_->getErrorDetails()));
       }
+      ENVOY_LOG(debug, "channel {}: read {} bytes from downstream", channel_id_, r.return_value_);
     }
     return absl::OkStatus();
   }
@@ -292,6 +300,7 @@ private:
 namespace Envoy::Network {
 
 using Envoy::Extensions::NetworkFilters::GenericProxy::Codec::InternalDownstreamChannel;
+using Extensions::NetworkFilters::GenericProxy::Codec::StreamContext;
 
 class InternalStreamSocketInterface : public Network::SocketInterface,
                                       public Logger::Loggable<Logger::Id::filter> {
@@ -310,40 +319,31 @@ public:
                               const Network::Address::InstanceConstSharedPtr addr,
                               const Network::SocketCreationOptions&) const override {
     ASSERT(socket_type == Network::Socket::Type::Stream);
-    auto [local, remote] = IoHandleFactory::createIoHandlePair(std::make_unique<InternalStreamPassthroughState>());
-
     auto streamId = dynamic_cast<const Address::InternalStreamAddressImpl&>(*addr).streamId();
-    absl::Status stat;
-    auto ok = stream_tracker_->tryLock(streamId, [&](Extensions::NetworkFilters::GenericProxy::Codec::StreamContext& ctx) {
-      // stat = intf.requestOpenDownstreamChannel(std::move(local));
-      ENVOY_LOG(debug, "requesting new downstream channel");
-      auto passthroughState = Network::InternalStreamPassthroughState::fromIoHandle(*local);
-      auto start = absl::Now();
-      passthroughState->notifyOnStateChange(
-        Network::InternalStreamPassthroughState::Initialized,
-        ctx.connection().dispatcher(),
-        [&, io_handle = std::move(local)] mutable {
-          auto diff = absl::Now() - start;
-          ENVOY_LOG(debug, "waited {} for passthrough state initialization", absl::FormatDuration(diff));
-          auto c = std::make_unique<InternalDownstreamChannel>(std::move(io_handle), ctx.eventCallbacks(), ctx.connection().dispatcher());
-          auto stat = ctx.streamCallbacks().startChannel(std::move(c), std::nullopt);
-          if (!stat.ok()) {
-            ENVOY_LOG(error, "failed to start channel: {}", statusToString(stat.status()));
+    ENVOY_LOG(debug, "requesting downstream channel for stream {}", streamId);
+
+    auto [local, remote] = IoHandleFactory::createIoHandlePair(std::make_unique<InternalStreamPassthroughState>());
+    auto passthroughState = Network::InternalStreamPassthroughState::fromIoHandle(*local);
+
+    passthroughState->setOnInitializedCallback(
+      [this, streamId, io_handle = std::move(local)] mutable {
+        stream_tracker_->tryLock(streamId, [streamId, io_handle = std::move(io_handle)](Envoy::OptRef<StreamContext> ctx) mutable {
+          if (!ctx.has_value()) {
+            ENVOY_LOG_MISC(error, "error requesting channel: stream with ID {} not found", streamId);
+            io_handle->close();
+            return;
+          }
+          ASSERT(ctx->connection().dispatcher().isThreadSafe());
+          auto c = std::make_unique<InternalDownstreamChannel>(
+            std::move(io_handle), ctx->eventCallbacks(), ctx->connection().dispatcher());
+          auto id = ctx->streamCallbacks().startChannel(std::move(c), std::nullopt);
+          if (!id.ok()) {
+            ENVOY_LOG(error, "failed to start channel: {}", statusToString(id.status()));
             io_handle->close();
           }
+          ENVOY_LOG(debug, "internal downstream channel started: {}", *id);
         });
-      return absl::OkStatus();
-    });
-    if (!ok) {
-      ENVOY_LOG_MISC(error, "error requesting channel: stream with ID {} not found", streamId);
-      return nullptr;
-    }
-    if (!stat.ok()) {
-      ENVOY_LOG_MISC(error, "error requesting channel: {}", statusToString(stat));
-      // TODO: we can't return nullptr here, it will cause a fatal error. Instead we need to return
-      // a new IoHandle and immediately close it, or something
-      return nullptr;
-    }
+      });
     return std::move(remote);
   }
   bool ipFamilySupported(int) override { return true; }

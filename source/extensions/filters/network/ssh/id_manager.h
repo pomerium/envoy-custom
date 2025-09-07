@@ -37,13 +37,16 @@ constexpr auto format_as(const InternalChannelInfo& info) {
   fmt::dynamic_format_arg_store<fmt::format_context> args;
   for (auto peer : {Peer::Upstream, Peer::Downstream}) {
     args.push_back(info.owner == peer ? "*" : "");
-    if (info.peer_states[peer] == ChannelIDState::Unbound) {
-      args.push_back("none");
-    } else {
+    args.push_back(info.peer_states[peer]);
+    if (info.peer_states[peer] != ChannelIDState::Unbound) {
+      args.push_back(":");
       args.push_back(info.peer_ids[peer]);
+    } else {
+      args.push_back("");
+      args.push_back("");
     }
   }
-  return fmt::vformat("U{}:{}/D{}:{}", args);
+  return fmt::vformat("U{}:{}{}{}|D{}:{}{}{}", args);
 }
 
 // Manages channel ID mappings.

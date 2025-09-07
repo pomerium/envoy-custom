@@ -323,7 +323,6 @@ void SshServerTransport::initUpstream(AuthInfoSharedPtr auth_info) {
     callbacks_->onDecodingSuccess(std::move(frame));
 
     ClientMessage upstream_connect_msg{};
-    upstream_connect_msg.mutable_event()->mutable_upstream_connected()->set_stream_id(auth_info_->stream_id);
     sendMgmtClientMessage(upstream_connect_msg);
   } break;
   case ChannelMode::Hijacked: {
@@ -347,7 +346,6 @@ void SshServerTransport::initUpstream(AuthInfoSharedPtr auth_info) {
     callbacks_->onDecodingSuccess(std::move(frame));
 
     ClientMessage upstream_connect_msg{};
-    upstream_connect_msg.mutable_event()->mutable_upstream_connected()->set_stream_id(auth_info_->stream_id);
     sendMgmtClientMessage(upstream_connect_msg);
   } break;
   case ChannelMode::Mirror:

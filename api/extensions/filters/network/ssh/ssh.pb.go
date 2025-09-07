@@ -744,7 +744,6 @@ func (x *DownstreamDisconnectedEvent) GetReason() string {
 
 type UpstreamConnectEvent struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	StreamId      uint64                 `protobuf:"varint,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -779,16 +778,8 @@ func (*UpstreamConnectEvent) Descriptor() ([]byte, []int) {
 	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{9}
 }
 
-func (x *UpstreamConnectEvent) GetStreamId() uint64 {
-	if x != nil {
-		return x.StreamId
-	}
-	return 0
-}
-
 type ChannelEvent struct {
-	state     protoimpl.MessageState `protogen:"open.v1"`
-	ChannelId uint32                 `protobuf:"varint,1,opt,name=channel_id,json=channelId,proto3" json:"channel_id,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Event:
 	//
 	//	*ChannelEvent_InternalChannelOpened
@@ -826,13 +817,6 @@ func (x *ChannelEvent) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ChannelEvent.ProtoReflect.Descriptor instead.
 func (*ChannelEvent) Descriptor() ([]byte, []int) {
 	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{10}
-}
-
-func (x *ChannelEvent) GetChannelId() uint32 {
-	if x != nil {
-		return x.ChannelId
-	}
-	return 0
 }
 
 func (x *ChannelEvent) GetEvent() isChannelEvent_Event {
@@ -877,8 +861,7 @@ func (*ChannelEvent_InternalChannelOpened) isChannelEvent_Event() {}
 func (*ChannelEvent_InternalChannelClosed) isChannelEvent_Event() {}
 
 type GlobalRequest struct {
-	state    protoimpl.MessageState `protogen:"open.v1"`
-	StreamId uint64                 `protobuf:"varint,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Request:
 	//
 	//	*GlobalRequest_TcpipForwardRequest_
@@ -915,13 +898,6 @@ func (x *GlobalRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use GlobalRequest.ProtoReflect.Descriptor instead.
 func (*GlobalRequest) Descriptor() ([]byte, []int) {
 	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{11}
-}
-
-func (x *GlobalRequest) GetStreamId() uint64 {
-	if x != nil {
-		return x.StreamId
-	}
-	return 0
 }
 
 func (x *GlobalRequest) GetRequest() isGlobalRequest_Request {
@@ -2776,12 +2752,9 @@ const file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_s
 	"\tstream_id\x18\x01 \x01(\x04R\bstreamId\x12%\n" +
 	"\x0esource_address\x18\x02 \x01(\tR\rsourceAddress\"5\n" +
 	"\x1bDownstreamDisconnectedEvent\x12\x16\n" +
-	"\x06reason\x18\x01 \x01(\tR\x06reason\"3\n" +
-	"\x14UpstreamConnectEvent\x12\x1b\n" +
-	"\tstream_id\x18\x01 \x01(\x04R\bstreamId\"\xe3\x03\n" +
-	"\fChannelEvent\x12\x1d\n" +
-	"\n" +
-	"channel_id\x18\x01 \x01(\rR\tchannelId\x12z\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\"\x16\n" +
+	"\x14UpstreamConnectEvent\"\xc4\x03\n" +
+	"\fChannelEvent\x12z\n" +
 	"\x17internal_channel_opened\x18\x02 \x01(\v2@.pomerium.extensions.ssh.ChannelEvent.InternalChannelOpenedEventH\x00R\x15internalChannelOpened\x12z\n" +
 	"\x17internal_channel_closed\x18\x03 \x01(\v2@.pomerium.extensions.ssh.ChannelEvent.InternalChannelClosedEventH\x00R\x15internalChannelClosed\x1a^\n" +
 	"\x1aInternalChannelOpenedEvent\x12\x1d\n" +
@@ -2792,9 +2765,8 @@ const file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_s
 	"\n" +
 	"channel_id\x18\x01 \x01(\rR\tchannelId\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reasonB\a\n" +
-	"\x05event\"\x88\x02\n" +
-	"\rGlobalRequest\x12\x1b\n" +
-	"\tstream_id\x18\x01 \x01(\x04R\bstreamId\x12p\n" +
+	"\x05event\"\xeb\x01\n" +
+	"\rGlobalRequest\x12p\n" +
 	"\x15tcpip_forward_request\x18\x02 \x01(\v2:.pomerium.extensions.ssh.GlobalRequest.TcpipForwardRequestH\x00R\x13tcpipForwardRequest\x1a]\n" +
 	"\x13TcpipForwardRequest\x12%\n" +
 	"\x0eremote_address\x18\x01 \x01(\tR\rremoteAddress\x12\x1f\n" +

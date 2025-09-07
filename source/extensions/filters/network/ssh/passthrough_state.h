@@ -11,10 +11,7 @@ public:
   void initialize(std::unique_ptr<envoy::config::core::v3::Metadata> metadata,
                   const StreamInfo::FilterState::Objects& filter_state_objects) override;
 
-  void mergeInto(envoy::config::core::v3::Metadata& metadata,
-                 StreamInfo::FilterState& filter_state) override;
-
-  void notifyOnStateChange(State state, Event::Dispatcher& dispatcher, Event::PostCb callback);
+  void setOnInitializedCallback(absl::AnyInvocable<void()> callback);
 
   using enum PassthroughStateImpl::State;
 
@@ -24,14 +21,9 @@ public:
   }
 
 private:
-  void notifyLocked() ABSL_EXCLUSIVE_LOCKS_REQUIRED(mu_);
-  struct Waiter {
-    State state;
-    Event::Dispatcher& dispatcher;
-    Event::PostCb callback;
-  };
-  Thread::MutexBasicLockable mu_;
-  std::list<Waiter> waiters_;
+  void notifyLocked() ABSL_UNLOCK_FUNCTION(init_mu_);
+  absl::Mutex init_mu_;
+  absl::AnyInvocable<void()> init_callback_ ABSL_GUARDED_BY(init_mu_);
 };
 
 } // namespace Envoy::Network

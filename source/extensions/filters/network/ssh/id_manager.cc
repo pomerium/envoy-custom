@@ -24,10 +24,9 @@ absl::Status ChannelIDManager::bindChannelID(uint32_t internal_id, PeerLocalID p
     return absl::InvalidArgumentError(fmt::format("channel {} is already known to {}",
                                                   internal_id, peer_local_id.local_peer));
   }
-  ENVOY_LOG(debug, "{} channel ID {} tracking internal ID {}",
-            peer_local_id.local_peer, peer_local_id.channel_id, internal_id);
   it->second.peer_ids[peer_local_id.local_peer] = peer_local_id.channel_id;
   it->second.peer_states[peer_local_id.local_peer] = ChannelIDState::Bound;
+  ENVOY_LOG(debug, "channel {}: {} ID bound [{}]", internal_id, peer_local_id.local_peer, it->second);
   return absl::OkStatus();
 }
 
@@ -37,11 +36,12 @@ void ChannelIDManager::releaseChannelID(uint32_t internal_id, Peer local_peer) {
   auto& internalChannel = internal_channels_[internal_id];
   internalChannel.peer_states[local_peer] = ChannelIDState::Released;
 
+  ENVOY_LOG(debug, "channel {}: {} ID released [{}]", internal_id, local_peer, internalChannel);
   if (internalChannel.peer_states[Peer::Downstream] != ChannelIDState::Bound &&
       internalChannel.peer_states[Peer::Upstream] != ChannelIDState::Bound) {
-    ENVOY_LOG(debug, "released internal channel ID {} [{}]", internal_id, internalChannel);
     internal_channels_.erase(internal_id);
     id_alloc_.release(internal_id);
+    ENVOY_LOG(debug, "released internal channel ID {}", internal_id);
   }
 }
 

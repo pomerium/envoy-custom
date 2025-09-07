@@ -26,13 +26,20 @@ StreamTrackerSharedPtr StreamTracker::fromContext(Server::Configuration::ServerF
     });
 }
 
-bool StreamTracker::tryLock(stream_id_t key, std::function<void(StreamContext&)> cb) {
+void StreamTracker::tryLock(stream_id_t key, absl::AnyInvocable<void(Envoy::OptRef<StreamContext>)> cb) {
   Thread::LockGuard lock(mu_);
   if (auto it = active_connection_handles_.find(key); it != active_connection_handles_.end()) {
-    cb(*it->second);
-    return true;
+    it->second->connection().dispatcher().post([this, key, cb = std::move(cb)] mutable {
+      Thread::LockGuard lock(mu_);
+      if (auto it = active_connection_handles_.find(key); it != active_connection_handles_.end()) {
+        cb(*it->second);
+      } else {
+        cb({});
+      }
+    });
+  } else {
+    cb({});
   }
-  return false;
 }
 
 size_t StreamTracker::numActiveConnectionHandles() {

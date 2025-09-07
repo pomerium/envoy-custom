@@ -124,12 +124,9 @@ message DownstreamDisconnectedEvent {
   // [other disconnect info as needed]
 }
 
-message UpstreamConnectEvent {
-  uint64 stream_id = 1;
-}
+message UpstreamConnectEvent {}
 
 message ChannelEvent {
-  uint32 channel_id = 1;
   message InternalChannelOpenedEvent {
     uint32 channel_id   = 1;
     string peer_address = 2;
@@ -145,7 +142,6 @@ message ChannelEvent {
 }
 
 message GlobalRequest {
-  uint64 stream_id = 1;
   message TcpipForwardRequest {
     string remote_address = 1;
     uint32 remote_port    = 2;

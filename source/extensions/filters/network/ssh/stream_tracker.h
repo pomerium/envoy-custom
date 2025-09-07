@@ -69,7 +69,9 @@ public:
                                                     const StreamTrackerConfig& config);
   static std::shared_ptr<StreamTracker> fromContext(Server::Configuration::ServerFactoryContext& context);
 
-  bool tryLock(stream_id_t key, std::function<void(StreamContext&)> cb);
+  // If a stream with the given key is active, invokes the given callback in the stream's thread
+  // with a valid StreamContext. Otherwise, invokes the callback with an empty context.
+  void tryLock(stream_id_t key, absl::AnyInvocable<void(Envoy::OptRef<StreamContext>)> cb);
   size_t numActiveConnectionHandles();
 
   [[nodiscard]]
@@ -77,7 +79,7 @@ public:
                                 StreamCallbacks& stream_callbacks, ChannelEventCallbacks& event_callbacks);
   void onStreamEnd(stream_id_t stream_id);
 
-  size_t visitFiltersForTest(std::function<void(StreamTrackerFilter&)> cb) {
+  size_t visitFiltersForTest(absl::AnyInvocable<void(StreamTrackerFilter&)> cb) {
     Thread::LockGuard lock(mu_);
     for (auto& filter : filters_) {
       cb(*filter);
