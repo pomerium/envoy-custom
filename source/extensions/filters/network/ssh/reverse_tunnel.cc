@@ -20,15 +20,23 @@ using Envoy::Extensions::IoSocket::UserSpace::IoHandleFactory;
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
+constexpr uint32_t MaxPacketSize = IoSocket::UserSpace::FRAGMENT_SIZE * IoSocket::UserSpace::MAX_FRAGMENT;
+
 class InternalDownstreamChannel : public Channel,
                                   public Logger::Loggable<Logger::Id::filter> {
 public:
   InternalDownstreamChannel(Network::IoHandlePtr io_handle,
                             ChannelEventCallbacks& event_callbacks,
                             Envoy::Event::Dispatcher& connection_dispatcher)
-      : io_handle_(std::move(io_handle)),
+      : io_handle_(&dynamic_cast<IoSocket::UserSpace::IoHandleImpl&>(*io_handle.release())),
         connection_dispatcher_(connection_dispatcher),
         event_callbacks_(event_callbacks) {
+    // Set the downstream buffer high watermark to match the local window size. This allows us to
+    // apply backpressure to the upstream ssh channel if the downstream is not reading from the
+    // write buffer.
+    // Note that the local socket starts with watermarks disabled. They are turned on/off based on
+    // ssh protocol flow control events.
+    io_handle_->getWriteBuffer()->setWatermarks(local_window_);
     loadPassthroughMetadata();
   }
 
@@ -36,14 +44,16 @@ public:
     auto stat = Channel::setChannelCallbacks(callbacks);
     ASSERT(stat.ok()); // default implementation always succeeds
 
+    channel_id_ = callbacks_->channelId();
     // Build and send the ChannelOpen message to the downstream.
     // Normally channels don't send their own ChannelOpen messages, but this is somewhat of a
     // special case, because the channel is owned internally.
-    wire::ChannelOpenMsg open;
-    open.channel_type = "forwarded-tcpip";
-    open.sender_channel = callbacks_->channelId();
-    open.initial_window_size = wire::ChannelWindowSize;
-    open.max_packet_size = wire::ChannelMaxPacketSize;
+    wire::ChannelOpenMsg open{
+      .channel_type = "forwarded-tcpip"s,
+      .sender_channel = channel_id_,
+      .initial_window_size = local_window_,
+      .max_packet_size = MaxPacketSize,
+    };
 
     Buffer::OwnedImpl extra;
     auto addrData = Envoy::Http::Utility::parseAuthority(server_name_);
@@ -56,7 +66,9 @@ public:
     return callbacks.sendMessageToConnection(std::move(open));
   }
 
-  absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&&) override {
+  absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&& confirm) override {
+    remote_window_ = confirm.initial_window_size;
+    max_packet_size_ = confirm.max_packet_size;
     connection_dispatcher_.post([this] {
       io_handle_->initializeFileEvent(
         connection_dispatcher_,
@@ -65,16 +77,16 @@ public:
           // errors returned from this callback are fatal
           return absl::OkStatus();
         },
-        ::Envoy::Event::PlatformDefaultTriggerType,
-        ::Envoy::Event::FileReadyType::Read | ::Envoy::Event::FileReadyType::Closed);
+        Event::PlatformDefaultTriggerType,
+        Event::FileReadyType::Read | Event::FileReadyType::Write | Event::FileReadyType::Closed);
     });
     if (downstream_addr_->ip()->port() == 0) {
       // channel->demoSendSocks5Connect();
     }
     pomerium::extensions::ssh::ChannelEvent ev;
-    ev.set_channel_id(callbacks_->channelId());
+    ev.set_channel_id(channel_id_);
     auto* opened = ev.mutable_internal_channel_opened();
-    opened->set_channel_id(callbacks_->channelId());
+    opened->set_channel_id(channel_id_);
     opened->set_peer_address(downstream_addr_->asStringView());
 
     // pomerium::extensions::ssh::StreamEvent stream_ev;
@@ -96,13 +108,42 @@ public:
   absl::Status readMessage(wire::Message&& msg) override {
     return msg.visit(
       [&](wire::ChannelDataMsg& msg) {
-        Buffer::OwnedImpl buffer(msg.data->data(), msg.data->size());
-        auto r = io_handle_->write(buffer);
-        if (!r.ok()) {
-          ENVOY_LOG(debug, "write: io error: {}", r.err_->getErrorDetails());
-          return absl::OkStatus();
+        // subtract from the local window
+        if (!__builtin_sub_overflow(local_window_, msg.data->size(), &local_window_)) {
+          // the upstream wrote more bytes than allowed by the local window
+          return absl::InvalidArgumentError(fmt::format("channel {}: local window exceeded",
+                                                        channel_id_));
         }
-        ENVOY_LOG(debug, "wrote {} bytes to socket", r.return_value_);
+        // write to the local window buffer, then flush to downstream
+        window_buffer_.add(msg.data->data(), msg.data->size());
+        if (auto stat = writeReady(); !stat.ok()) {
+          return stat;
+        }
+        // check if we need to increase the local window
+        if (local_window_ < wire::ChannelWindowSize / 2) {
+          if (!io_handle_->isPeerWritable()) {
+            // Only increase the window size for the upstream if the downstream is writable. We
+            // can queue at most one full window of data, after which the upstream will stop
+            // writing until we increase the window size.
+            return absl::OkStatus();
+          }
+          return callbacks_->sendMessageToConnection(wire::ChannelWindowAdjustMsg{
+            .recipient_channel = channel_id_,
+            .bytes_to_add = wire::ChannelWindowSize,
+          });
+        }
+        return absl::OkStatus();
+      },
+      [&](wire::ChannelWindowAdjustMsg& msg) {
+        if (!__builtin_add_overflow(remote_window_, *msg.bytes_to_add, &remote_window_)) {
+          return absl::InvalidArgumentError("invalid window adjust");
+        }
+        ENVOY_LOG(debug, "channel {}: remote window adjusted by {} bytes", channel_id_, *msg.bytes_to_add);
+        if (!io_handle_->isWritable()) {
+          // disable write watermarks if we previously ran out of window space and the peer's
+          // high watermark was triggered
+          io_handle_->setWatermarks(0);
+        }
         return absl::OkStatus();
       },
       [this](wire::ChannelEOFMsg&) {
@@ -134,16 +175,15 @@ private:
     absl::Status status;
     if ((events & Envoy::Event::FileReadyType::Read) != 0) {
       status = readReady();
+    } else if ((events & Envoy::Event::FileReadyType::Write) != 0) {
+      // write buffer low watermark event
+      status = writeReady();
     }
 
     if (!status.ok()) {
       io_handle_->close();
       onIoHandleClosed(statusToString(status));
     }
-
-    // if ((events & FileReadyType::Write) != 0) {
-    //   status = writeReady();
-    // }
   }
 
   void onIoHandleClosed(const std::string& reason) {
@@ -153,12 +193,12 @@ private:
     io_handle_->resetFileEvents();
     pomerium::extensions::ssh::ChannelEvent ev;
     auto* opened = ev.mutable_internal_channel_closed();
-    opened->set_channel_id(callbacks_->channelId());
+    opened->set_channel_id(channel_id_);
     opened->set_reason(reason);
     event_callbacks_.sendChannelEvent(ev);
 
     wire::ChannelCloseMsg close;
-    close.recipient_channel = callbacks_->channelId();
+    close.recipient_channel = channel_id_;
     callbacks_->sendMessageToConnection(std::move(close)).IgnoreError();
 
     // pomerium::extensions::ssh::StreamEvent stream_ev;
@@ -175,18 +215,45 @@ private:
 
   absl::Status readReady() {
     ASSERT(connection_dispatcher_.isThreadSafe());
+    if (remote_window_ == 0) {
+      // If we have run out of window space, trigger the buffer's high watermark and return. This
+      // will prevent read events until we receive a window adjustment from the upstream.
+      io_handle_->setWatermarks(1); // 1-byte high watermark = any buffered data
+      return absl::OkStatus();
+    }
+
     // Read from the transport socket and encapsulate the data into a ChannelData message, then
     // write it on the channel
+    // TODO: this is inefficient
     Buffer::OwnedImpl buffer;
-    auto r = io_handle_->read(buffer, std::nullopt);
+    auto r = io_handle_->read(buffer, std::min(max_packet_size_, remote_window_));
     if (!r.ok()) {
+      if (r.wouldBlock()) {
+        return absl::OkStatus();
+      }
       return absl::CancelledError(fmt::format("read: io error: {}", r.err_->getErrorDetails()));
     }
+    ASSERT(r.return_value_ <= remote_window_); // sanity check
+    remote_window_ -= static_cast<uint32_t>(r.return_value_);
+
     wire::ChannelDataMsg dataMsg;
-    dataMsg.recipient_channel = callbacks_->channelId();
+    dataMsg.recipient_channel = channel_id_;
     dataMsg.data = wire::flushTo<bytes>(buffer);
     ENVOY_LOG(debug, "writing {} bytes to internal downstream channel {}", dataMsg.data->size(), dataMsg.recipient_channel);
     return callbacks_->sendMessageToConnection(wire::Message{std::move(dataMsg)});
+  }
+
+  absl::Status writeReady() {
+    ASSERT(connection_dispatcher_.isThreadSafe());
+    // Flush data from the window buffer to the downstream until the buffer is empty or the
+    // downstream high watermark is reached
+    while (window_buffer_.length() > 0) {
+      auto r = io_handle_->write(window_buffer_);
+      if (!r.ok() && !r.wouldBlock()) {
+        return absl::CancelledError(fmt::format("write: io error: {}", r.err_->getErrorDetails()));
+      }
+    }
+    return absl::OkStatus();
   }
 
   void loadPassthroughMetadata() {
@@ -207,8 +274,13 @@ private:
   }
 
   bool closed_{false};
-  Network::IoHandlePtr io_handle_;
+  uint32_t local_window_{wire::ChannelWindowSize};
+  uint32_t remote_window_{};
+  uint32_t max_packet_size_{};
+  uint32_t channel_id_{};
+  IoSocket::UserSpace::IoHandleImplPtr io_handle_;
   Envoy::Event::Dispatcher& connection_dispatcher_;
+  Buffer::OwnedImpl window_buffer_;
 
   std::string server_name_;
   Envoy::Network::Address::InstanceConstSharedPtr downstream_addr_;
