@@ -1,6 +1,8 @@
 
 #include "source/extensions/filters/network/ssh/client_transport.h"
 #include "source/extensions/filters/network/ssh/filter_state_objects.h"
+#include "source/extensions/filters/network/ssh/id_manager.h"
+#include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "test/extensions/filters/network/generic_proxy/mocks/codec.h"
 #include "test/extensions/filters/network/ssh/test_env_util.h"
 #include "test/extensions/filters/network/ssh/wire/test_field_reflect.h" // IWYU pragma: keep
@@ -98,7 +100,7 @@ public:
   void SetUp() override {
     // Inject a new channel id manager into the mock filter state. This would normally be created
     // by the server transport
-    channel_id_manager_ = std::make_shared<ChannelIDManager>(1000);
+    channel_id_manager_ = std::make_shared<ChannelIDManager>(1000, 100);
     mock_connection_.streamInfo().filterState()->setData(
       ChannelIDManagerFilterStateKey,
       channel_id_manager_,
@@ -161,10 +163,6 @@ public:
 
   AuthInfoSharedPtr BuildHandoffAuthInfo() {
     auto internalId = *channel_id_manager_->allocateNewChannel(Peer::Downstream);
-    EXPECT_OK(channel_id_manager_->bindChannelID(internalId, PeerLocalID{
-                                                               .channel_id = 1,
-                                                               .local_peer = Peer::Downstream,
-                                                             }));
     auto authInfo = std::make_shared<AuthInfo>();
     authInfo->server_version = "SSH-2.0-Envoy";
     authInfo->channel_mode = ChannelMode::Handoff;
@@ -215,6 +213,12 @@ public:
   [[nodiscard]] uint32_t StartTransportDirectTcpip() {
     GenericProxy::MockEncodingContext ctx;
     auto authInfo = BuildHandoffAuthInfo();
+    EXPECT_OK(channel_id_manager_->bindChannelID(
+      authInfo->handoff_info.channel_info->internal_upstream_channel_id(),
+      PeerLocalID{
+        .channel_id = 1,
+        .local_peer = Peer::Downstream,
+      }));
     authInfo->handoff_info.channel_info->set_channel_type("direct-tcpip");
     authInfo->allow_response->mutable_upstream()->set_direct_tcpip(true);
     SetDownstreamAuthInfo(authInfo);
@@ -877,7 +881,7 @@ TEST_F(ClientTransportTest, Handoff_SendPtyRequestFailure) {
   wire::ChannelOpenMsg req;
   ASSERT_OK(ReadMsg(req));
 
-  ExpectDisconnectAsHeader(absl::AbortedError("error requesting pty: error encoding packet: message size too large"));
+  ExpectDisconnectAsHeader(absl::AbortedError("error opening channel: error requesting pty: error encoding packet: message size too large"));
   ASSERT_OK(WriteMsg(wire::ChannelOpenConfirmationMsg{
     .recipient_channel = authInfo->handoff_info.channel_info->internal_upstream_channel_id(),
     .sender_channel = 300,
@@ -913,7 +917,7 @@ TEST_F(ClientTransportTest, Handoff_NoDownstreamPty) {
 
   wire::ChannelOpenMsg req;
   ASSERT_OK(ReadMsg(req));
-  ExpectDisconnectAsHeader(absl::InvalidArgumentError("session is not interactive"));
+  ExpectDisconnectAsHeader(absl::InvalidArgumentError("error opening channel: session is not interactive"));
   ASSERT_OK(WriteMsg(wire::ChannelOpenConfirmationMsg{
     .recipient_channel = authInfo->handoff_info.channel_info->internal_upstream_channel_id(),
     .sender_channel = 300,
@@ -981,6 +985,79 @@ TEST_F(ClientTransportTest, Handoff_PtyOpenFailure) {
   ASSERT_OK(WriteMsg(wire::ChannelFailureMsg{
     .recipient_channel = internalId,
   }));
+}
+
+TEST_F(ClientTransportTest, Handoff_InvalidMessageReceived) {
+  auto internalId = StartTransportHandoff();
+  ASSERT_OK(ExchangeExtInfo());
+
+  wire::ServiceRequestMsg clientUserAuthServiceRequest;
+  EXPECT_OK(ReadMsg(clientUserAuthServiceRequest));
+  EXPECT_OK(WriteMsg(wire::Message{wire::ServiceAcceptMsg{.service_name = "ssh-userauth"s}}));
+
+  wire::UserAuthRequestMsg clientUserAuthRequest;
+  EXPECT_OK(ReadMsg(clientUserAuthRequest));
+
+  ASSERT_OK(WriteMsg(wire::UserAuthSuccessMsg{}));
+
+  wire::ChannelOpenMsg req;
+  ASSERT_OK(ReadMsg(req));
+  ASSERT_OK(WriteMsg(wire::ChannelOpenConfirmationMsg{
+    .recipient_channel = internalId,
+    .sender_channel = 300,
+    .initial_window_size = wire::ChannelWindowSize,
+    .max_packet_size = wire::ChannelMaxPacketSize,
+  }));
+
+  ExpectDisconnectAsHeader(absl::InternalError(
+    "invalid message received during handoff: ChannelRequest (98)"));
+  ASSERT_OK(WriteMsg(wire::ChannelRequestMsg{
+    .recipient_channel = internalId,
+  }));
+}
+
+TEST_F(ClientTransportTest, Handoff_StartHandoffChannelFailed_IdAlreadyBound) {
+  auto internalId = StartTransportHandoff();
+  ASSERT_OK(ExchangeExtInfo());
+
+  wire::ServiceRequestMsg clientUserAuthServiceRequest;
+  EXPECT_OK(ReadMsg(clientUserAuthServiceRequest));
+  EXPECT_OK(WriteMsg(wire::Message{wire::ServiceAcceptMsg{.service_name = "ssh-userauth"s}}));
+
+  wire::UserAuthRequestMsg clientUserAuthRequest;
+  EXPECT_OK(ReadMsg(clientUserAuthRequest));
+
+  // make the channel already bound
+  ASSERT_OK(channel_id_manager_->bindChannelID(internalId,
+                                               PeerLocalID{
+                                                 .channel_id = 1234, // doesn't matter
+                                                 .local_peer = Peer::Downstream,
+                                               }));
+  ExpectDisconnectAsHeader(absl::InvalidArgumentError(fmt::format(
+    "error during handoff: channel {} is already known to Downstream", internalId)));
+  ASSERT_OK(WriteMsg(wire::UserAuthSuccessMsg{}));
+}
+
+TEST_F(ClientTransportTest, Handoff_IgnoredMessages) {
+  auto internalId = StartTransportHandoff();
+  (void)internalId;
+  ASSERT_OK(ExchangeExtInfo());
+
+  wire::ServiceRequestMsg clientUserAuthServiceRequest;
+  EXPECT_OK(ReadMsg(clientUserAuthServiceRequest));
+  EXPECT_OK(WriteMsg(wire::Message{wire::ServiceAcceptMsg{.service_name = "ssh-userauth"s}}));
+
+  wire::UserAuthRequestMsg clientUserAuthRequest;
+  EXPECT_OK(ReadMsg(clientUserAuthRequest));
+
+  ASSERT_OK(WriteMsg(wire::IgnoreMsg{}));
+  ASSERT_OK(WriteMsg(wire::DebugMsg{}));
+  ASSERT_OK(WriteMsg(wire::UnimplementedMsg{}));
+
+  ASSERT_OK(WriteMsg(wire::UserAuthSuccessMsg{}));
+
+  wire::ChannelOpenMsg req;
+  ASSERT_OK(ReadMsg(req));
 }
 
 class ClientTransportLoadHostKeysTest : public ClientTransportTest {

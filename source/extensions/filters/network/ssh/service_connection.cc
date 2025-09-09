@@ -40,7 +40,7 @@ absl::StatusOr<uint32_t> ConnectionService::startChannel(std::unique_ptr<Channel
   }
   auto callbacks = std::make_unique<ChannelCallbacksImpl>(*this, *channel_id, local_peer_);
   if (auto stat = channel->setChannelCallbacks(*callbacks); !stat.ok()) {
-    return statusf("failed to start channel: {}", stat);
+    return stat;
   }
   LinkedList::moveIntoList(std::move(callbacks), channel_callbacks_);
 
@@ -64,7 +64,7 @@ absl::Status ConnectionService::handleMessage(wire::Message&& ssh_msg) {
                                                                      .channel_id = msg.sender_channel,
                                                                      .local_peer = local_peer_,
                                                                    });
-      THROW_IF_NOT_OK(stat);
+      ASSERT(stat.ok());
       // replace the sender channel id with the internal channel id
       msg.sender_channel = *id;
       // forward the message

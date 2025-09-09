@@ -365,17 +365,17 @@ absl::StatusOr<MiddlewareResult> HandoffMiddleware::interceptMessage(wire::Messa
     // 1: User auth request
     [&](wire::UserAuthSuccessMsg&) -> absl::StatusOr<MiddlewareResult> {
       auto channel = std::make_unique<HandoffChannel>(info, parent_);
-      auto internalId = parent_.connection_svc_->startChannel(std::move(channel), info.channel_info->internal_upstream_channel_id());
-      if (!internalId.ok()) {
-        return internalId.status();
-      }
-      auto stat = parent_.channel_id_manager_->bindChannelID(
-        *internalId, PeerLocalID{
-                       .channel_id = info.channel_info->downstream_channel_id(),
-                       .local_peer = Peer::Downstream,
-                     });
-      if (!stat.ok()) {
-        return stat;
+      auto internalId = parent_.connection_svc_->startChannel(
+        std::move(channel), info.channel_info->internal_upstream_channel_id());
+      ASSERT(internalId.ok()); // should not be able to fail
+
+      if (auto stat = parent_.channel_id_manager_->bindChannelID(
+            *internalId, PeerLocalID{
+                           .channel_id = info.channel_info->downstream_channel_id(),
+                           .local_peer = Peer::Downstream,
+                         });
+          !stat.ok()) {
+        return statusf("error during handoff: {}", stat);
       }
       // Build and send the ChannelOpen message to the upstream
       wire::ChannelOpenMsg open;
@@ -384,9 +384,8 @@ absl::StatusOr<MiddlewareResult> HandoffMiddleware::interceptMessage(wire::Messa
       open.initial_window_size = info.channel_info->initial_window_size();
       open.max_packet_size = info.channel_info->max_packet_size();
 
-      if (auto stat = parent_.sendMessageToConnection(std::move(open)); !stat.ok()) {
-        return stat.status();
-      }
+      auto stat = parent_.sendMessageToConnection(std::move(open));
+      ASSERT(stat.ok()); // should not be able to fail
 
       // this message won't be dispatched to the upstream userauth service, so we need to handle a
       // couple of post-auth-success actions that it would normally do

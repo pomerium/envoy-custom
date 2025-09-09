@@ -11,3 +11,13 @@ constexpr T sub_sat(T x, T y) noexcept {
   }
   return 0;
 }
+
+template <std::unsigned_integral T>
+constexpr bool sub_overflow(T* x, T delta) noexcept {
+  return __builtin_sub_overflow(*x, delta, x);
+}
+
+template <std::unsigned_integral T>
+constexpr bool add_overflow(T* x, T delta) noexcept {
+  return __builtin_add_overflow(*x, delta, x);
+}

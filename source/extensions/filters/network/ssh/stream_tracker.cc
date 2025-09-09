@@ -3,7 +3,6 @@
 
 #pragma clang unsafe_buffer_usage begin
 #include "source/common/config/utility.h"
-#include "source/common/stream_info/filter_state_impl.h"
 #pragma clang unsafe_buffer_usage end
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
@@ -27,9 +26,11 @@ StreamTrackerSharedPtr StreamTracker::fromContext(Server::Configuration::ServerF
 }
 
 void StreamTracker::tryLock(stream_id_t key, absl::AnyInvocable<void(Envoy::OptRef<StreamContext>)> cb) {
-  Thread::LockGuard lock(mu_);
+  Thread::ReleasableLockGuard lock(mu_);
   if (auto it = active_connection_handles_.find(key); it != active_connection_handles_.end()) {
-    it->second->connection().dispatcher().post([this, key, cb = std::move(cb)] mutable {
+    auto& dispatcher = it->second->connection().dispatcher();
+    lock.release();
+    dispatcher.post([this, key, cb = std::move(cb)] mutable {
       Thread::LockGuard lock(mu_);
       if (auto it = active_connection_handles_.find(key); it != active_connection_handles_.end()) {
         cb(*it->second);

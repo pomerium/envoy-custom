@@ -97,7 +97,7 @@ public:
           return;
         }
         if (*n == 0) {
-          ENVOY_LOG(debug, "received incomplete packet; waiting for more data");
+          ENVOY_LOG(trace, "received incomplete packet; waiting for more data");
           return;
         }
 
@@ -116,7 +116,7 @@ public:
       }
       if (*bytes_read == 0) {
         // Note: sequence number not increased
-        ENVOY_LOG(debug, "received incomplete packet; waiting for more data");
+        ENVOY_LOG(trace, "received incomplete packet; waiting for more data");
         return;
       }
       // Only increase the sequence number after reading a full packet

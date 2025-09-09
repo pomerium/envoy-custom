@@ -1,5 +1,6 @@
 #include "source/extensions/filters/network/ssh/reverse_tunnel.h"
 #include "source/common/status.h"
+#include "source/common/math.h"
 #include "source/extensions/filters/network/ssh/passthrough_state.h"
 #include "source/extensions/filters/network/ssh/stream_address.h"
 #include "source/extensions/filters/network/ssh/filter_state_objects.h"
@@ -105,7 +106,7 @@ public:
     return msg.visit(
       [&](wire::ChannelDataMsg& msg) {
         // subtract from the local window
-        if (__builtin_sub_overflow(local_window_, msg.data->size(), &local_window_)) {
+        if (sub_overflow(&local_window_, static_cast<uint32_t>(msg.data->size()))) {
           // the upstream wrote more bytes than allowed by the local window
           ENVOY_LOG(debug, "channel {}: flow control: remote exceeded local window", channel_id_);
           return absl::InvalidArgumentError(fmt::format("channel {}: local window exceeded", channel_id_));
@@ -135,7 +136,7 @@ public:
         return absl::OkStatus();
       },
       [&](wire::ChannelWindowAdjustMsg& msg) {
-        if (__builtin_add_overflow(remote_window_, *msg.bytes_to_add, &remote_window_)) {
+        if (add_overflow(&remote_window_, *msg.bytes_to_add)) {
           return absl::InvalidArgumentError("invalid window adjust");
         }
         ENVOY_LOG(debug, "channel {}: flow control: remote window adjusted by {} bytes", channel_id_, *msg.bytes_to_add);
@@ -147,12 +148,12 @@ public:
         }
         return absl::OkStatus();
       },
-      [this](wire::ChannelEOFMsg&) {
+      [&](wire::ChannelEOFMsg&) {
         ENVOY_LOG(debug, "channel {}: downstream eof", channel_id_);
         io_handle_->shutdown(SHUT_WR);
         return absl::OkStatus();
       },
-      [this](wire::ChannelCloseMsg&) {
+      [&](wire::ChannelCloseMsg&) {
         ENVOY_LOG(debug, "channel {}: downstream closed", channel_id_);
         if (!closed_) {
           io_handle_->close();
@@ -201,17 +202,6 @@ private:
     wire::ChannelCloseMsg close;
     close.recipient_channel = channel_id_;
     callbacks_->sendMessageToConnection(std::move(close)).IgnoreError();
-
-    // pomerium::extensions::ssh::StreamEvent stream_ev;
-    // *stream_ev.mutable_channel_event() = ev;
-    // ClientMessage msg;
-    // *msg.mutable_event() = stream_ev;
-    //   ASSERT(transport_dispatcher_->isThreadSafe());
-    //   auto r = io_handle_->close();
-    //   if (!r.ok()) {
-    //     return absl::CancelledError(fmt::format("close: io error: {}", r.err_->getErrorDetails()));
-    //   }
-    // ENVOY_LOG(info, "socket closed", r.return_value_);
   }
 
   absl::Status readReady() {
@@ -518,11 +508,13 @@ absl::Status SshReverseTunnelCluster::onConfigUpdate(const std::vector<Config::D
 
   return update(cluster_load_assignment);
 }
+
 absl::Status SshReverseTunnelCluster::onConfigUpdate(const std::vector<Config::DecodedResourceRef>& added_resources,
                                                      const Protobuf::RepeatedPtrField<std::string>&,
                                                      const std::string&) {
   return onConfigUpdate(added_resources, "");
 }
+
 void SshReverseTunnelCluster::onConfigUpdateFailed(Envoy::Config::ConfigUpdateFailureReason reason, const EnvoyException*) {
   switch (reason) {
   case Config::ConfigUpdateFailureReason::ConnectionFailure:
@@ -538,9 +530,11 @@ void SshReverseTunnelCluster::onConfigUpdateFailed(Envoy::Config::ConfigUpdateFa
   // TODO: handle this
   // update({}).IgnoreError();
 }
+
 absl::StatusOr<HostSharedPtr> SshReverseTunnelCluster::newHostForStreamId(stream_id_t id) {
   return InternalStreamHost::create(id, cluster_, server_context_, socket_interface_);
 }
+
 absl::Status SshReverseTunnelCluster::update(const envoy::config::endpoint::v3::ClusterLoadAssignment& cluster_load_assignment) {
   // only using one priority here (0)
   constexpr uint32_t priority = 0;

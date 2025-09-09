@@ -58,32 +58,74 @@ TEST_F(StreamTrackerTest, TrackStream) {
   ASSERT_EQ(2, st->numActiveConnectionHandles());
   ASSERT_EQ(2, handle2->streamId());
 
-  ASSERT_TRUE(st->tryLock(1, [&](StreamContext& sc) {
-    EXPECT_EQ(1, sc.streamId());
-    EXPECT_EQ(&sc.streamCallbacks(), &static_cast<StreamCallbacks&>(*testCallbacks1));
-    EXPECT_EQ(&sc.eventCallbacks(), &static_cast<ChannelEventCallbacks&>(*testCallbacks1));
-    EXPECT_EQ(&sc.connection(), &static_cast<Network::Connection&>(conn1));
-  }));
-  ASSERT_TRUE(st->tryLock(2, [](StreamContext& sc) {
-    EXPECT_EQ(2, sc.streamId());
-  }));
-  ASSERT_FALSE(st->tryLock(3, [](StreamContext&) {}));
+  CHECK_CALLED({
+    st->tryLock(1, [&](Envoy::OptRef<StreamContext> sc) {
+      CALLED;
+      ASSERT_TRUE(sc.has_value());
+      EXPECT_EQ(1, sc->streamId());
+      EXPECT_EQ(&sc->streamCallbacks(), &static_cast<StreamCallbacks&>(*testCallbacks1));
+      EXPECT_EQ(&sc->eventCallbacks(), &static_cast<ChannelEventCallbacks&>(*testCallbacks1));
+      EXPECT_EQ(&sc->connection(), &static_cast<Network::Connection&>(conn1));
+    });
+  });
+  CHECK_CALLED({
+    st->tryLock(2, [&](Envoy::OptRef<StreamContext> sc) {
+      CALLED;
+      ASSERT_TRUE(sc.has_value());
+      EXPECT_EQ(2, sc->streamId());
+    });
+  });
+  CHECK_CALLED({
+    st->tryLock(3, [&](Envoy::OptRef<StreamContext> sc) {
+      CALLED;
+      ASSERT_FALSE(sc.has_value());
+    });
+  });
 
   st->onStreamEnd(1);
   ASSERT_EQ(1, st->numActiveConnectionHandles());
 
-  ASSERT_FALSE(st->tryLock(1, [](StreamContext&) {}));
-  ASSERT_TRUE(st->tryLock(2, [](StreamContext& sc) {
-    EXPECT_EQ(2, sc.streamId());
-  }));
-  ASSERT_FALSE(st->tryLock(3, [](StreamContext&) {}));
+  CHECK_CALLED({
+    st->tryLock(1, [&](Envoy::OptRef<StreamContext> sc) {
+      CALLED;
+      ASSERT_FALSE(sc.has_value());
+    });
+  });
+  CHECK_CALLED({
+    st->tryLock(2, [&](Envoy::OptRef<StreamContext> sc) {
+      CALLED;
+      ASSERT_TRUE(sc.has_value());
+      EXPECT_EQ(2, sc->streamId());
+    });
+  });
+  CHECK_CALLED({
+    st->tryLock(3, [&](Envoy::OptRef<StreamContext> sc) {
+      CALLED;
+      ASSERT_FALSE(sc.has_value());
+    });
+  });
 
   st->onStreamEnd(2);
   ASSERT_EQ(0, st->numActiveConnectionHandles());
 
-  ASSERT_FALSE(st->tryLock(1, [](StreamContext&) {}));
-  ASSERT_FALSE(st->tryLock(2, [](StreamContext&) {}));
-  ASSERT_FALSE(st->tryLock(3, [](StreamContext&) {}));
+  CHECK_CALLED({
+    st->tryLock(1, [&](Envoy::OptRef<StreamContext> sc) {
+      CALLED;
+      ASSERT_FALSE(sc.has_value());
+    });
+  });
+  CHECK_CALLED({
+    st->tryLock(2, [&](Envoy::OptRef<StreamContext> sc) {
+      CALLED;
+      ASSERT_FALSE(sc.has_value());
+    });
+  });
+  CHECK_CALLED({
+    st->tryLock(3, [&](Envoy::OptRef<StreamContext> sc) {
+      CALLED;
+      ASSERT_FALSE(sc.has_value());
+    });
+  });
 }
 
 TEST_F(StreamTrackerTest, TrackStream_EndWithHandle) {
@@ -102,29 +144,67 @@ TEST_F(StreamTrackerTest, TrackStream_EndWithHandle) {
   auto handle2 = st->onStreamBegin(2, conn2, *testCallbacks2, *testCallbacks2);
   ASSERT_EQ(2, st->numActiveConnectionHandles());
 
-  ASSERT_TRUE(st->tryLock(1, [](StreamContext& sc) {
-    EXPECT_EQ(1, sc.streamId());
-  }));
-  ASSERT_TRUE(st->tryLock(2, [](StreamContext& sc) {
-    EXPECT_EQ(2, sc.streamId());
-  }));
-  ASSERT_FALSE(st->tryLock(3, [](StreamContext&) {}));
-
+  CHECK_CALLED({
+    st->tryLock(1, [&](Envoy::OptRef<StreamContext> sc) {
+      CALLED;
+      ASSERT_TRUE(sc.has_value());
+      EXPECT_EQ(1, sc->streamId());
+    });
+  });
+  CHECK_CALLED({ st->tryLock(2, [&](Envoy::OptRef<StreamContext> sc) {
+                   CALLED;
+                   ASSERT_TRUE(sc.has_value());
+                   EXPECT_EQ(2, sc->streamId());
+                 }); });
+  CHECK_CALLED({
+    st->tryLock(3, [&](Envoy::OptRef<StreamContext> sc) {
+      CALLED;
+      ASSERT_FALSE(sc.has_value());
+    });
+  });
   handle1.reset();
   ASSERT_EQ(1, st->numActiveConnectionHandles());
 
-  ASSERT_FALSE(st->tryLock(1, [](StreamContext&) {}));
-  ASSERT_TRUE(st->tryLock(2, [](StreamContext& sc) {
-    EXPECT_EQ(2, sc.streamId());
-  }));
-  ASSERT_FALSE(st->tryLock(3, [](StreamContext&) {}));
-
+  CHECK_CALLED({
+    st->tryLock(1, [&](Envoy::OptRef<StreamContext> sc) {
+      CALLED;
+      ASSERT_FALSE(sc.has_value());
+    });
+  });
+  CHECK_CALLED({
+    st->tryLock(2, [&](Envoy::OptRef<StreamContext> sc) {
+      CALLED;
+      ASSERT_TRUE(sc.has_value());
+      EXPECT_EQ(2, sc->streamId());
+    });
+  });
+  CHECK_CALLED({
+    st->tryLock(3, [&](Envoy::OptRef<StreamContext> sc) {
+      CALLED;
+      ASSERT_FALSE(sc.has_value());
+    });
+  });
   handle2.reset();
   ASSERT_EQ(0, st->numActiveConnectionHandles());
 
-  ASSERT_FALSE(st->tryLock(1, [](StreamContext&) {}));
-  ASSERT_FALSE(st->tryLock(2, [](StreamContext&) {}));
-  ASSERT_FALSE(st->tryLock(3, [](StreamContext&) {}));
+  CHECK_CALLED({
+    st->tryLock(1, [&](Envoy::OptRef<StreamContext> sc) {
+      CALLED;
+      ASSERT_FALSE(sc.has_value());
+    });
+  });
+  CHECK_CALLED({
+    st->tryLock(2, [&](Envoy::OptRef<StreamContext> sc) {
+      CALLED;
+      ASSERT_FALSE(sc.has_value());
+    });
+  });
+  CHECK_CALLED({
+    st->tryLock(3, [&](Envoy::OptRef<StreamContext> sc) {
+      CALLED;
+      ASSERT_FALSE(sc.has_value());
+    });
+  });
 }
 
 TEST_F(StreamTrackerTest, TrackStream_ThreadSafety_Serial) {

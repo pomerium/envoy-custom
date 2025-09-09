@@ -1,11 +1,16 @@
 #include "gtest/gtest.h"
+#include <algorithm>
+#include <cstdlib>
 // #include "test/mocks/event/mocks.h"
 // #include "test/mocks/grpc/mocks.h"
 // #include "test/test_common/utility.h"
 
+#include "source/common/types.h"
+#include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/service_connection.h"
 // #include "source/extensions/filters/network/ssh/wire/encoding.h"
 // #include "source/extensions/filters/network/ssh/wire/messages.h"
+#include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "test/extensions/filters/network/ssh/test_mocks.h"
 #include "test/extensions/filters/network/ssh/wire/test_field_reflect.h"
 // #include "test/mocks/server/server_factory_context.h"
@@ -89,7 +94,7 @@ TEST_P(ConnectionServiceTest, StartChannel_ChannelCallbacksError) {
     });
   EXPECT_CALL(*ch1, Die);
   auto id = service_.startChannel(std::move(ch1));
-  ASSERT_EQ(absl::InternalError("failed to start channel: test error"), id.status());
+  ASSERT_EQ(absl::InternalError("test error"), id.status());
 }
 
 TEST_P(ConnectionServiceTest, OpenPassthroughChannelOnChannelOpen) {
@@ -341,6 +346,110 @@ TEST_P(ConnectionServiceTest, CloseUnknownChannel) {
     service_.handleMessage(wire::ChannelCloseMsg{
       .recipient_channel = 100,
     }));
+}
+
+TEST_P(ConnectionServiceTest, PassthroughChannelData) {
+  std::vector<uint32_t> internalChannels;
+  std::vector<Buffer::OwnedImpl> channelData;
+  // set up 100 channels that will write their contents to the respective buffers in channelData
+  for (int i = 0; i < 10; i++) {
+    auto internalChannel = *channel_id_manager_.allocateNewChannel(RemotePeer());
+    internalChannels.push_back(internalChannel);
+    channelData.push_back(Buffer::OwnedImpl{});
+    uint32_t upstreamId = 10u + i;
+    ASSERT_OK(channel_id_manager_.bindChannelID(
+      internalChannel, PeerLocalID{
+                         .channel_id = upstreamId,
+                         .local_peer = RemotePeer(),
+                       }));
+
+    EXPECT_CALL(transport_, forward(MSG(wire::ChannelOpenConfirmationMsg,
+                                        FIELD_EQ(recipient_channel, upstreamId),
+                                        FIELD_EQ(sender_channel, internalChannel)),
+                                    _));
+    EXPECT_CALL(transport_, forward(MSG(wire::ChannelDataMsg,
+                                        FIELD_EQ(recipient_channel, upstreamId)),
+                                    _))
+      .WillRepeatedly(Invoke([i, &channelData](wire::Message&& msg, FrameTags) {
+        msg.visit(
+          [&](wire::ChannelDataMsg& msg) {
+            channelData[i].add(msg.data->data(), msg.data->size());
+          },
+          [](auto&) {});
+      }));
+    ASSERT_OK(service_.handleMessage(wire::ChannelOpenConfirmationMsg{
+      .recipient_channel = internalChannel,
+      .sender_channel = 1u + i, // local peer's channel
+    }));
+  }
+
+  // construct messages
+  std::vector<wire::ChannelDataMsg> dataMsgs;
+  dataMsgs.reserve(1000);
+  std::vector<int> insertionOrder;
+  insertionOrder.resize(1000);
+  for (int i = 0; i < 1000; i++) {
+    insertionOrder[i] = i % 10;
+  }
+  std::shuffle(insertionOrder.begin(), insertionOrder.end(), rng);
+
+  std::vector<uint32_t> count;
+  count.resize(10);
+  for (int channelIdx : insertionOrder) {
+    dataMsgs.push_back({
+      .recipient_channel = internalChannels[channelIdx],
+      .data = to_bytes(fmt::format("channel {}: packet {}\n", internalChannels[channelIdx], ++count[channelIdx])),
+    });
+  }
+
+  // send messages
+  for (auto&& msg : dataMsgs) {
+    ASSERT_OK(service_.handleMessage(std::move(msg)));
+  }
+
+  // all buffers should contain the expected data
+  for (int i = 0; i < 10; i++) {
+    Buffer::OwnedImpl expected;
+    for (int j = 0; j < 100; j++) {
+      expected.add(fmt::format("channel {}: packet {}\n", internalChannels[i], j + 1));
+    }
+    EXPECT_EQ(expected.toString(), channelData[i].toString());
+  }
+}
+
+TEST_P(ConnectionServiceTest, HandleMessageWithUnknownChannel) {
+  auto internalChannel = *channel_id_manager_.allocateNewChannel(RemotePeer());
+  uint32_t upstreamId = 10u;
+  ASSERT_OK(channel_id_manager_.bindChannelID(
+    internalChannel, PeerLocalID{
+                       .channel_id = upstreamId,
+                       .local_peer = RemotePeer(),
+                     }));
+  ASSERT_EQ(
+    absl::InvalidArgumentError(fmt::format("received message for unknown channel {}: ChannelData (94)", internalChannel)),
+    service_.handleMessage(wire::ChannelDataMsg{
+      .recipient_channel = internalChannel,
+    }));
+  ASSERT_EQ(
+    absl::InvalidArgumentError(fmt::format("received message for unknown channel {}: ChannelData (94)", internalChannel + 1)),
+    service_.handleMessage(wire::ChannelDataMsg{
+      .recipient_channel = internalChannel + 1,
+    }));
+  EXPECT_CALL(transport_, forward(MSG(wire::ChannelOpenConfirmationMsg, _), _));
+  ASSERT_OK(service_.handleMessage(wire::ChannelOpenConfirmationMsg{
+    .recipient_channel = internalChannel,
+    .sender_channel = 1u,
+  }));
+  ASSERT_EQ(
+    absl::InvalidArgumentError(fmt::format("received message for unknown channel {}: ChannelData (94)", internalChannel + 1)),
+    service_.handleMessage(wire::ChannelDataMsg{
+      .recipient_channel = internalChannel + 1,
+    }));
+}
+
+TEST_P(ConnectionServiceTest, UnknownMessage) {
+  ASSERT_EQ(absl::InternalError("unknown message"),
+            service_.handleMessage(wire::KexInitMsg{}));
 }
 
 INSTANTIATE_TEST_SUITE_P(ConnectionService, ConnectionServiceTest,

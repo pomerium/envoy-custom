@@ -86,6 +86,10 @@ public:
       .Times(AnyNumber());
 
     transport_.onConnected();
+    // check that the connection dispatcher is set after onConnected()
+    ASSERT_TRUE(transport_.connectionDispatcher().has_value());
+    ASSERT_EQ(transport_.connectionDispatcher().ptr(), &mock_connection_.dispatcher_);
+
     // Replace the transport's ChannelIDManager to set the starting channel ID to 100. This makes
     // it easier to differentiate internal IDs in tests. The default starting ID is also 0, which
     // causes fields to be omitted when printing protobuf messages.
@@ -255,7 +259,7 @@ public:
 
   void ExpectUpstreamConnectMsg() {
     ClientMessage upstreamConnectMsg{};
-    upstreamConnectMsg.mutable_event()->mutable_upstream_connected()->set_stream_id(transport_.streamId());
+    upstreamConnectMsg.mutable_event()->mutable_upstream_connected();
     EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(Envoy::Grpc::ProtoBufferEq(upstreamConnectMsg), false));
   }
 
@@ -665,45 +669,63 @@ TEST_F(ServerTransportTest, SuccessfulUserAuth_HijackedMode_NoChannelRequest) {
   ASSERT_OK(ReadMsg(success));
 }
 
-TEST_F(ServerTransportTest, SuccessfulUserAuth_HandoffMode) {
-  ASSERT_OK(ReadExtInfo());
+class HandoffTest : public ServerTransportTest {
+public:
+  absl::Status PrepareHandoff() { // NOLINT
+    RETURN_IF_NOT_OK(ReadExtInfo());
 
-  auto clientKey = *openssh::SSHKey::generate(KEY_ED25519, 256);
+    auto clientKey = *openssh::SSHKey::generate(KEY_ED25519, 256);
 
-  ASSERT_OK(RequestUserAuthService());
-  auto [authReq, clientMsg] = BuildUserAuthMessages(*clientKey);
+    RETURN_IF_NOT_OK(RequestUserAuthService());
+    auto [authReq, clientMsg] = BuildUserAuthMessages(*clientKey);
 
-  ExpectHandlePomeriumGrpcAuthRequestHijack(clientMsg);
+    ExpectHandlePomeriumGrpcAuthRequestHijack(clientMsg);
 
-  ASSERT_OK(WriteMsg(std::move(authReq)));
-  wire::UserAuthSuccessMsg success;
-  ASSERT_OK(ReadMsg(success));
+    RETURN_IF_NOT_OK(WriteMsg(std::move(authReq)));
+    wire::UserAuthSuccessMsg success;
+    RETURN_IF_NOT_OK(ReadMsg(success));
 
-  ChannelMessage metadataReq;
-  (*metadataReq.mutable_metadata()->mutable_filter_metadata())["foo"] = ProtobufWkt::Struct{};
-  pomerium::extensions::ssh::FilterMetadata sshMetadata;
-  sshMetadata.set_channel_id(100);
-  (*metadataReq.mutable_metadata()->mutable_typed_filter_metadata())["com.pomerium.ssh"].PackFrom(sshMetadata);
+    ChannelMessage metadataReq;
+    (*metadataReq.mutable_metadata()->mutable_filter_metadata())["foo"] = ProtobufWkt::Struct{};
+    pomerium::extensions::ssh::FilterMetadata sshMetadata;
+    sshMetadata.set_channel_id(100);
+    (*metadataReq.mutable_metadata()->mutable_typed_filter_metadata())["com.pomerium.ssh"].PackFrom(sshMetadata);
 
-  // when the downstream opens a channel, it should start a new stream
-  wire::ChannelOpenMsg open;
-  open.channel_type = "session"s;
-  open.sender_channel = 1;
-  open.initial_window_size = wire::ChannelWindowSize;
-  open.max_packet_size = wire::ChannelMaxPacketSize;
-  {
-    IN_SEQUENCE;
-    ExpectServeChannelStart();
-    ExpectSendOnServeChannelStream(metadataReq);
-    ExpectSendOnServeChannelStream(open);
+    // when the downstream opens a channel, it should start a new stream
+    wire::ChannelOpenMsg open;
+    open.channel_type = "session"s;
+    open.sender_channel = 1;
+    open.initial_window_size = wire::ChannelWindowSize;
+    open.max_packet_size = wire::ChannelMaxPacketSize;
+    {
+      IN_SEQUENCE;
+      ExpectServeChannelStart();
+      ExpectSendOnServeChannelStream(metadataReq);
+      ExpectSendOnServeChannelStream(open);
+    }
+    RETURN_IF_NOT_OK(WriteMsg(std::move(open)));
+
+    return absl::OkStatus();
   }
-  ASSERT_OK(WriteMsg(std::move(open)));
+};
 
+TEST_F(HandoffTest, SuccessfulUserAuth_HandoffMode) {
+  ASSERT_OK(PrepareHandoff());
   ExpectUpstreamConnectMsg();
-
   ChannelMessage ctrl;
   SSHChannelControlAction action;
-  auto* allow = action.mutable_hand_off()->mutable_upstream_auth();
+  auto* handoff = action.mutable_hand_off();
+  auto* downstreamInfo = handoff->mutable_downstream_channel_info();
+  downstreamInfo->set_downstream_channel_id(1);
+  downstreamInfo->set_internal_upstream_channel_id(100);
+  downstreamInfo->set_channel_type("session");
+  downstreamInfo->set_initial_window_size(wire::ChannelWindowSize);
+  downstreamInfo->set_max_packet_size(wire::ChannelMaxPacketSize);
+  auto* ptyInfo = handoff->mutable_downstream_pty_info();
+  ptyInfo->set_term_env("xterm-256color");
+  ptyInfo->set_height_rows(24);
+  ptyInfo->set_width_columns(80);
+  auto* allow = handoff->mutable_upstream_auth();
   allow->set_username("test");
   auto* upstream = allow->mutable_upstream();
   *upstream->mutable_hostname() = "example";
@@ -712,6 +734,34 @@ TEST_F(ServerTransportTest, SuccessfulUserAuth_HandoffMode) {
   EXPECT_CALL(mock_connection_, readDisable(true));
   EXPECT_CALL(serve_channel_stream_, resetStream);
   ExpectDecodingSuccess();
+  ReceiveOnServeChannelStream(ctrl);
+}
+
+TEST_F(HandoffTest, SuccessfulUserAuth_HandoffMode_Mirror) {
+  ASSERT_OK(PrepareHandoff());
+  ChannelMessage ctrl;
+  SSHChannelControlAction action;
+  auto* handoff = action.mutable_hand_off();
+  auto* allow = handoff->mutable_upstream_auth();
+  allow->set_username("test");
+  allow->mutable_mirror_session();
+  ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action);
+  EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("session mirroring feature not available"));
+  EXPECT_CALL(serve_channel_stream_, resetStream);
+  ReceiveOnServeChannelStream(ctrl);
+}
+
+TEST_F(HandoffTest, SuccessfulUserAuth_HandoffMode_Internal) {
+  ASSERT_OK(PrepareHandoff());
+  ChannelMessage ctrl;
+  SSHChannelControlAction action;
+  auto* handoff = action.mutable_hand_off();
+  auto* allow = handoff->mutable_upstream_auth();
+  allow->set_username("test");
+  allow->mutable_internal();
+  ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action);
+  EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("received invalid channel message: unexpected target: 3"));
+  EXPECT_CALL(serve_channel_stream_, resetStream);
   ReceiveOnServeChannelStream(ctrl);
 }
 
@@ -881,7 +931,7 @@ INSTANTIATE_TEST_SUITE_P(ClientMessagesPostUserAuth, ClientMessagesPostUserAuthT
                            {wire::UserAuthBannerMsg{}, "unexpected message received: UserAuthBanner (53)"sv},
                            {wire::ChannelOpenMsg{}, ""sv},
                            {wire::ChannelOpenConfirmationMsg{}, "received invalid ChannelOpenConfirmation message: unknown channel 0"sv},
-                           {wire::ChannelOpenFailureMsg{}, "received ChannelOpenFailureMsg message for unknown channel 0"sv},
+                           {wire::ChannelOpenFailureMsg{}, "received invalid ChannelOpenFailure message: unknown channel 0"sv},
                            {wire::ChannelWindowAdjustMsg{}, "received message for unknown channel 0: ChannelWindowAdjust"sv},
                            {wire::ChannelDataMsg{}, "received message for unknown channel 0: ChannelData"sv},
                            {wire::ChannelExtendedDataMsg{}, "received message for unknown channel 0: ChannelExtendedData"sv},
@@ -1127,13 +1177,23 @@ TEST_P(StreamTrackerConnectionCallbacksTest, TestDisconnectEvent) {
   auto st = StreamTracker::fromContext(server_factory_context_);
   auto streamId = transport_.streamId();
   // ensure the connection is tracked
-  EXPECT_TRUE(st->tryLock(streamId, [](StreamContext&) {}));
+  CHECK_CALLED({
+    st->tryLock(streamId, [&](Envoy::OptRef<StreamContext> sc) {
+      CALLED;
+      ASSERT_TRUE(sc.has_value());
+    });
+  });
 
   // send a disconnect event (either local or remote should do the same thing)
   mock_connection_.raiseEvent(GetParam());
 
   // ensure the tracked connection was ended
-  EXPECT_FALSE(st->tryLock(streamId, [](StreamContext&) {}));
+  CHECK_CALLED({
+    st->tryLock(streamId, [&](Envoy::OptRef<StreamContext> sc) {
+      CALLED;
+      ASSERT_FALSE(sc.has_value());
+    });
+  });
 
   // no-op Network::ConnectionCallbacks methods, for coverage only
   transport_.onAboveWriteBufferHighWatermark();

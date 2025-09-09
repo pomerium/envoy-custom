@@ -1,7 +1,6 @@
 #pragma once
 
 #include "source/extensions/filters/network/ssh/common.h"
-#include "source/extensions/filters/network/ssh/message_handler.h"
 #include "source/extensions/filters/network/ssh/stream_tracker.h"
 
 #pragma clang unsafe_buffer_usage begin
@@ -13,7 +12,6 @@
 #include "source/common/upstream/cluster_factory_impl.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.validate.h"
-#include "source/common/stream_info/filter_state_impl.h"
 #pragma clang unsafe_buffer_usage end
 
 using Envoy::Extensions::NetworkFilters::GenericProxy::Codec::StreamTracker;
@@ -86,47 +84,3 @@ private:
 DECLARE_FACTORY(SshReverseTunnelClusterFactory);
 
 } // namespace Envoy::Upstream
-
-namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
-
-class RequestOpenDownstreamChannelCallbacks {
-public:
-  virtual ~RequestOpenDownstreamChannelCallbacks();
-  virtual void onDownstreamChannelOpened(const wire::ChannelOpenConfirmationMsg& msg,
-                                         Network::IoHandlePtr io_handle,
-                                         StreamInfo::FilterStateImpl passthrough_filter_state) PURE;
-};
-
-struct RequestOpenDownstreamChannelHandler final : public SshMessageMiddleware {
-  explicit RequestOpenDownstreamChannelHandler(RequestOpenDownstreamChannelCallbacks& self, uint32_t our_id, Network::IoHandlePtr io_handle,
-                                               StreamInfo::FilterStateImpl passthrough_filter_state)
-      : callbacks(self),
-        our_id_(our_id),
-        io_handle_(std::move(io_handle)),
-        passthrough_filter_state_(std::move(passthrough_filter_state)) {}
-  absl::StatusOr<MiddlewareResult> interceptMessage(wire::Message& msg) override {
-    return msg.visit(
-      [&](wire::ChannelOpenConfirmationMsg& msg) -> absl::StatusOr<MiddlewareResult> {
-        if (*msg.recipient_channel != our_id_) {
-          return MiddlewareResult::Continue; // not our channel
-        }
-        callbacks.onDownstreamChannelOpened(msg, std::move(io_handle_), std::move(passthrough_filter_state_));
-        return MiddlewareResult::Break | MiddlewareResult::UninstallSelf;
-      },
-      [&](wire::ChannelOpenFailureMsg& msg) -> absl::StatusOr<MiddlewareResult> {
-        if (*msg.recipient_channel != our_id_) {
-          return MiddlewareResult::Continue; // not our channel
-        }
-        return absl::InvalidArgumentError(fmt::format("failed to open channel: {}", *msg.description));
-      },
-      [&](auto&) -> absl::StatusOr<MiddlewareResult> {
-        return MiddlewareResult::Continue;
-      });
-  }
-  RequestOpenDownstreamChannelCallbacks& callbacks;
-  uint32_t our_id_;
-  Network::IoHandlePtr io_handle_;
-  StreamInfo::FilterStateImpl passthrough_filter_state_;
-};
-
-} // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
