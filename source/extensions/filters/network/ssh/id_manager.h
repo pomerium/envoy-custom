@@ -121,6 +121,7 @@ public:
   }
 
   size_t numActiveChannels() const { return internal_channels_.size(); }
+  uint32_t nextInternalIdForTest() const { return id_alloc_.peekNext(); }
 
 private:
   absl::Status processOutgoingChannelMsgImpl(wire::field<uint32_t>& recipient_channel,

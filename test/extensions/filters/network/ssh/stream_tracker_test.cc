@@ -280,6 +280,34 @@ TEST_F(StreamTrackerTest, TrackStream_ThreadSafety_Mixed) {
   ASSERT_EQ(0, st->numActiveConnectionHandles());
 }
 
+TEST_F(StreamTrackerTest, TrackStream_ThreadSafety_TryLockRace) {
+  // Ensure that if an active connection handle is deleted between the time it is fetched in tryLock
+  // and the time the callback is invoked in the connection's thread, the callback will be passed
+  // an empty context.
+
+  StreamTrackerConfig cfg;
+  auto st = StreamTracker::fromContext(context, cfg);
+  ASSERT_NE(nullptr, st);
+
+  auto testCallbacks1 = std::make_shared<TestStreamCallbacks>();
+  testing::NiceMock<Network::MockConnection> conn1;
+  auto handle1 = st->onStreamBegin(1, conn1, *testCallbacks1, *testCallbacks1);
+
+  EXPECT_CALL(conn1.dispatcher_, post(_))
+    .WillOnce([&](Event::PostCb cb) {
+      // StreamTracker::mu_ has been released and will be acquired again when cb() runs
+      handle1.reset(); // the stream should be deleted
+      cb();
+    });
+
+  CHECK_CALLED({
+    st->tryLock(1, [&](Envoy::OptRef<StreamContext> sc) {
+      CALLED;
+      EXPECT_FALSE(sc.has_value());
+    });
+  });
+}
+
 class MockStreamTrackerFilter : public StreamTrackerFilter {
 public:
   MOCK_METHOD(void, onStreamBegin, (StreamContext&), (override));

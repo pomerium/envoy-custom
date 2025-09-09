@@ -282,7 +282,8 @@ public:
       // This callback is unregistered on handoff.
       hijack_callbacks_.hijackedChannelFailed(absl::Status(static_cast<absl::StatusCode>(code), err));
     });
-    return sendMessageToStream(std::move(channel_open_)); // clear channel_open_
+    sendMessageToStream(std::move(channel_open_)); // clear channel_open_
+    return absl::OkStatus();
   }
 
   absl::Status onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& msg) override {
@@ -295,13 +296,16 @@ public:
       if (!stat.ok()) {
         return statusf("received invalid channel message: {}", stat.status());
       }
+      if (!anyMsg.has_value()) {
+        return absl::InvalidArgumentError(fmt::format("received unknown channel message: {}", anyMsg.msg_type()));
+      }
       return anyMsg.visit(
         [&](wire::ChannelOpenMsg&) -> absl::Status {
-          throw Envoy::EnvoyException("cannot open channels from a hijacked stream");
+          return absl::UnimplementedError("cannot open channels from a hijacked stream");
         },
         [&](wire::ChannelOpenConfirmationMsg& msg) {
           if (open_complete_) {
-            throw Envoy::EnvoyException("unexpected ChannelOpenConfirmationMsg");
+            return absl::InvalidArgumentError("unexpected ChannelOpenConfirmation message");
           }
           open_complete_ = true;
           // ConnectionService normally calls this, but it never will for a hijacked channel since
@@ -321,19 +325,34 @@ public:
           return stat;
         },
         [&](auto&) {
+          if (!open_complete_) [[unlikely]] {
+            return absl::InternalError(
+              fmt::format("expected ChannelOpenConfirmation or ChannelOpenFailure, got {}", anyMsg.msg_type()));
+          }
           ENVOY_LOG(debug, "sending channel message to downstream: {}", anyMsg.msg_type());
           return callbacks_->sendMessageToConnection(std::move(anyMsg));
         });
     }
     case pomerium::extensions::ssh::ChannelMessage::kChannelControl: {
       pomerium::extensions::ssh::SSHChannelControlAction ctrl_action;
-      msg->channel_control().control_action().UnpackTo(&ctrl_action);
+      if (!msg->channel_control().has_control_action()) {
+        return absl::InternalError("received invalid channel message: missing control action");
+      }
+      if (!msg->channel_control().control_action().UnpackTo(&ctrl_action)) {
+        return absl::InternalError("received invalid channel message: failed to unpack control action");
+      }
       switch (ctrl_action.action_case()) {
       case pomerium::extensions::ssh::SSHChannelControlAction::kHandOff: {
+        if (!open_complete_) {
+          return absl::FailedPreconditionError("handoff requested before channel open confirmation");
+        }
         // allow the client to be closed without ending the connection
         unsetCallbacksAndResetStream();
         auto* handOffMsg = ctrl_action.mutable_hand_off();
         hijack_callbacks_.initHandoff(handOffMsg);
+        // set handoff complete here; we expect that initHandoff calls readDisable on the
+        // downstream connection, so there will be nothing received until it is re-enabled
+        // when the handoff is actually completed by the upstream
         handoff_complete_ = true;
         return absl::OkStatus();
       }
@@ -349,10 +368,15 @@ public:
   }
 
   absl::Status readMessage(wire::Message&& msg) override {
+    if (!open_complete_) [[unlikely]] {
+      return absl::InvalidArgumentError(fmt::format(
+        "unexpected message received before channel open confirmation: {}", msg.msg_type()));
+    }
     if (handoff_complete_) {
       return callbacks_->passthrough(std::move(msg));
     }
-    return sendMessageToStream(std::move(msg));
+    sendMessageToStream(std::move(msg));
+    return absl::OkStatus();
   }
 
   absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&& msg) override {
@@ -366,17 +390,17 @@ public:
   }
 
 private:
-  absl::Status sendMessageToStream(wire::Message&& msg) {
+  void sendMessageToStream(wire::Message&& msg) {
     ChannelMessage channelMsg;
     google::protobuf::BytesValue b;
     auto msgData = encodeTo<std::string>(msg);
-    if (!msgData.ok()) {
-      return absl::InvalidArgumentError(fmt::format("received invalid message: {}", msgData.status()));
-    }
+    // It should not be possible to end up with a message here that we can't encode. All messages
+    // that get here would have been previously decoded, and the only modified fields would be
+    // sender/receiver channel IDs.
+    ASSERT(msgData.ok());
     *b.mutable_value() = *msgData;
     *channelMsg.mutable_raw_bytes() = b;
     stream_->sendMessage(channelMsg, false);
-    return absl::OkStatus();
   }
 
   void unsetCallbacksAndResetStream() {
@@ -424,7 +448,7 @@ absl::StatusOr<MiddlewareResult> OpenHijackedChannelMiddleware::interceptMessage
 
       auto internalId = parent_.startChannel(std::move(channel), std::nullopt);
       if (!internalId.ok()) {
-        return internalId.status();
+        return statusf("error starting channel: {}", internalId.status());
       }
 
       // This normally happens when ConnectionService::handleMessage processes an outgoing

@@ -35,6 +35,10 @@ public:
     freed_.insert(id);
   }
 
+  T peekNext() const {
+    return next_;
+  }
+
 private:
   T next_;
   const T start_;

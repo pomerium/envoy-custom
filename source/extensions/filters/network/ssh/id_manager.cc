@@ -51,7 +51,8 @@ absl::Status ChannelIDManager::processOutgoingChannelMsgImpl(wire::field<uint32_
   uint32_t internalId = *recipient_channel;
   auto it = internal_channels_.find(internalId);
   if (it == internal_channels_.end()) {
-    return absl::InvalidArgumentError(fmt::format("unknown channel {} in {}", internalId, msg_type));
+    return absl::InvalidArgumentError(fmt::format(
+      "error processing outgoing message of type {}: no such channel: {}", msg_type, internalId));
   }
 
   auto& info = it->second;

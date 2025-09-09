@@ -419,9 +419,7 @@ void SshServerTransport::sendMgmtClientMessage(const ClientMessage& msg) {
 void SshServerTransport::terminate(absl::Status status) {
   wire::DisconnectMsg msg;
   msg.reason_code = openssh::statusCodeToDisconnectCode(status.code());
-  if (!status.ok()) {
-    msg.description = statusToString(status);
-  }
+  msg.description = statusToString(status);
   sendMessageToConnection(std::move(msg))
     .IgnoreError();
 

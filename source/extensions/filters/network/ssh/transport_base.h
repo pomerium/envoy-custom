@@ -262,11 +262,7 @@ public:
   }
 
   void terminate(absl::Status err) override {
-    if (err.ok()) {
-      ENVOY_LOG(info, "ssh [{}]: stream {} closing", codec_traits<Codec>::name, streamId(), err.message());
-    } else {
-      ENVOY_LOG(error, "ssh [{}]: stream {} closing with error: {}", codec_traits<Codec>::name, streamId(), err.message());
-    }
+    ENVOY_LOG(error, "ssh [{}]: stream {} closing with error: {}", codec_traits<Codec>::name, streamId(), err.message());
     callbacks_->onDecodingFailure(err.message());
   }
 
