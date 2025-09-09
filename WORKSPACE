@@ -49,6 +49,8 @@ http_archive(
         "//patches/envoy:0003-envoy-copts.patch",
         "//patches/envoy:0004-pgv.patch",
         "//patches/envoy:0005-suppress-duplicate-wip-warnings.patch",
+        "//patches/envoy:0007-userspace-socket-40748.patch",
+        "//patches/envoy:0008-downstream-connected-40747.patch",
         "//patches/envoy:tmp-fix-upstream-connection-callbacks.patch",
     ],
     sha256 = "8761f6508c808725e5879b05dc9a6b2b528ef34957ba606d950b8c9ad6441a48",

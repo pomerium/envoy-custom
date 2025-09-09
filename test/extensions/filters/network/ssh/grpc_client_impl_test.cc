@@ -193,20 +193,6 @@ public:
   std::shared_ptr<testing::StrictMock<Grpc::MockAsyncClient>> client_;
 };
 
-TEST_F(ChannelStreamServiceClientTest, Start_NoMetadata) {
-  IN_SEQUENCE;
-  EXPECT_CALL(*client_, startRaw("pomerium.extensions.ssh.StreamManagement", "ServeChannel", _, _))
-    .WillOnce(Return(&stream_));
-  ChannelStreamServiceClient client(client_);
-
-  ChannelMessage expectedMetadataMsg;
-  expectedMetadataMsg.mutable_metadata(); // empty metadata
-  EXPECT_CALL(stream_, sendMessageRaw_(Grpc::ProtoBufferEq(expectedMetadataMsg), false));
-
-  auto stream = client.start(&callbacks_, std::nullopt);
-  ASSERT_FALSE(stream.expired());
-}
-
 TEST_F(ChannelStreamServiceClientTest, Start_Metadata) {
   IN_SEQUENCE;
   EXPECT_CALL(*client_, startRaw("pomerium.extensions.ssh.StreamManagement", "ServeChannel", _, _))
@@ -220,8 +206,7 @@ TEST_F(ChannelStreamServiceClientTest, Start_Metadata) {
   expectedMetadataMsg.mutable_metadata()->CopyFrom(md);
   EXPECT_CALL(stream_, sendMessageRaw_(Grpc::ProtoBufferEq(expectedMetadataMsg), false));
 
-  auto stream = client.start(&callbacks_, md);
-  ASSERT_FALSE(stream.expired());
+  auto _ = client.start(&callbacks_, md);
 }
 
 TEST_F(ChannelStreamServiceClientTest, OnReceiveMessage) {
@@ -240,7 +225,7 @@ TEST_F(ChannelStreamServiceClientTest, OnReceiveMessage) {
 
   ChannelStreamServiceClient client(client_);
 
-  client.start(&callbacks_, std::nullopt);
+  client.start(&callbacks_, {});
   client.onReceiveMessage(std::make_unique<ChannelMessage>(msg1));
 }
 
@@ -260,7 +245,7 @@ TEST_F(ChannelStreamServiceClientTest, OnReceiveMessage_HandlerReturnsError) {
 
   ChannelStreamServiceClient client(client_);
 
-  client.start(&callbacks_, std::nullopt);
+  client.start(&callbacks_, {});
 
   client.onReceiveMessage(std::make_unique<ChannelMessage>(msg1));
 }
@@ -288,7 +273,7 @@ TEST_F(ChannelStreamServiceClientTest, OnReceiveMessage_HandlerReturnsError_OnRe
     called = true;
   });
 
-  client.start(&callbacks_, std::nullopt);
+  client.start(&callbacks_, {});
 
   client.onReceiveMessage(std::make_unique<ChannelMessage>(msg1));
   EXPECT_TRUE(called);
@@ -310,7 +295,7 @@ TEST_F(ChannelStreamServiceClientTest, OnRemoteClose) {
   EXPECT_CALL(stream_, sendMessageRaw_(Grpc::ProtoBufferEq(expectedMetadataMsg), false));
 
   ChannelStreamServiceClient client(client_);
-  client.start(&callbacks_, std::nullopt);
+  client.start(&callbacks_, {});
 
   bool called = false;
   client.setOnRemoteCloseCallback([&](Grpc::Status::GrpcStatus status, std::string err) {
@@ -338,7 +323,7 @@ TEST_F(ChannelStreamServiceClientTest, OnRemoteClose_NoCallback) {
   EXPECT_CALL(stream_, sendMessageRaw_(Grpc::ProtoBufferEq(expectedMetadataMsg), false));
 
   ChannelStreamServiceClient client(client_);
-  client.start(&callbacks_, std::nullopt);
+  client.start(&callbacks_, {});
 
   callbacks_ref->onRemoteClose(Grpc::Status::InvalidArgument, "test error");
 }
@@ -359,7 +344,7 @@ TEST_F(ChannelStreamServiceClientTest, NoopMetadataCallbacks) {
   EXPECT_CALL(stream_, sendMessageRaw_(Grpc::ProtoBufferEq(expectedMetadataMsg), false));
 
   ChannelStreamServiceClient client(client_);
-  client.start(&callbacks_, std::nullopt);
+  client.start(&callbacks_, {});
 
   auto headers = Http::RequestHeaderMapImpl::create();
   callbacks_ref->onCreateInitialMetadata(*headers);

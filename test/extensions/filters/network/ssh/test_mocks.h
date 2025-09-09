@@ -1,5 +1,6 @@
 #pragma once
 #include "source/extensions/filters/network/ssh/packet_cipher.h"
+#include "source/extensions/filters/network/ssh/service_connection.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/message_handler.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
@@ -26,12 +27,15 @@ public:
   MOCK_METHOD(absl::StatusOr<size_t>, sendMessageToConnection, (wire::Message&&));
   MOCK_METHOD(void, forward, (wire::Message&&, FrameTags));
   MOCK_METHOD(const bytes&, sessionId, (), (const));
-  MOCK_METHOD(AuthState&, authState, ());
+  MOCK_METHOD(AuthInfo&, authInfo, ());
   MOCK_METHOD(const pomerium::extensions::ssh::CodecConfig&, codecConfig, (), (const));
   MOCK_METHOD(stream_id_t, streamId, (), (const));
   MOCK_METHOD(void, updatePeerExtInfo, (std::optional<wire::ExtInfoMsg>));
   MOCK_METHOD(std::optional<wire::ExtInfoMsg>, outgoingExtInfo, ());
   MOCK_METHOD(std::optional<wire::ExtInfoMsg>, peerExtInfo, (), (const));
+  MOCK_METHOD(void, terminate, (absl::Status), (override));
+  MOCK_METHOD(Envoy::OptRef<Envoy::Event::Dispatcher>, connectionDispatcher, (), (const override));
+  MOCK_METHOD(ChannelIDManager&, channelIdManager, (), (override));
 
   MOCK_METHOD(void, writeToConnection, (Envoy::Buffer::Instance&), (const));
   MOCK_METHOD(absl::StatusOr<size_t>, sendMessageDirect, (wire::Message&&));
@@ -45,7 +49,7 @@ public:
   MockDownstreamTransportCallbacks();
   virtual ~MockDownstreamTransportCallbacks();
 
-  MOCK_METHOD(void, initUpstream, (AuthStateSharedPtr));
+  MOCK_METHOD(void, initUpstream, (AuthInfoSharedPtr));
   MOCK_METHOD(void, onServiceAuthenticated, (const std::string&));
   MOCK_METHOD(void, sendMgmtClientMessage, (const ClientMessage&));
 };
@@ -60,6 +64,26 @@ public:
 class MockVersionExchangeCallbacks : public VersionExchangeCallbacks {
 public:
   MOCK_METHOD(void, onVersionExchangeCompleted, (const bytes&, const bytes&, const bytes&));
+};
+
+class MockChannel : public Channel {
+public:
+  MockChannel();
+  virtual ~MockChannel();
+  MOCK_METHOD(void, Die, ());                                          // NOLINT
+  MOCK_METHOD(absl::Status, setChannelCallbacks, (ChannelCallbacks&)); // has a default implementation
+  MOCK_METHOD(absl::Status, readMessage, (wire::Message&&));
+  MOCK_METHOD(absl::Status, onChannelOpened, (wire::ChannelOpenConfirmationMsg&&));
+  MOCK_METHOD(absl::Status, onChannelOpenFailed, (wire::ChannelOpenFailureMsg&&));
+};
+
+class MockHijackedChannelCallbacks : public HijackedChannelCallbacks {
+public:
+  MockHijackedChannelCallbacks();
+  virtual ~MockHijackedChannelCallbacks();
+
+  MOCK_METHOD(void, initHandoff, (pomerium::extensions::ssh::SSHChannelControlAction_HandOffUpstream*));
+  MOCK_METHOD(void, hijackedChannelFailed, (absl::Status));
 };
 
 class MockKexCallbacks : public KexCallbacks {

@@ -2118,6 +2118,7 @@ func (x *Permissions) GetRequireVerify() bool {
 type FilterMetadata struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	StreamId      uint64                 `protobuf:"varint,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
+	ChannelId     uint32                 `protobuf:"varint,2,opt,name=channel_id,json=channelId,proto3" json:"channel_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2155,6 +2156,13 @@ func (*FilterMetadata) Descriptor() ([]byte, []int) {
 func (x *FilterMetadata) GetStreamId() uint64 {
 	if x != nil {
 		return x.StreamId
+	}
+	return 0
+}
+
+func (x *FilterMetadata) GetChannelId() uint32 {
+	if x != nil {
+		return x.ChannelId
 	}
 	return 0
 }
@@ -2431,9 +2439,11 @@ const file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_s
 	"\x0erequire_verify\x18\r \x01(\bR\rrequireVerify\x1a;\n" +
 	"\rForceEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"-\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"L\n" +
 	"\x0eFilterMetadata\x12\x1b\n" +
-	"\tstream_id\x18\x01 \x01(\x04R\bstreamId2\xdc\x01\n" +
+	"\tstream_id\x18\x01 \x01(\x04R\bstreamId\x12\x1d\n" +
+	"\n" +
+	"channel_id\x18\x02 \x01(\rR\tchannelId2\xdc\x01\n" +
 	"\x10StreamManagement\x12b\n" +
 	"\fManageStream\x12&.pomerium.extensions.ssh.ClientMessage\x1a&.pomerium.extensions.ssh.ServerMessage(\x010\x01\x12d\n" +
 	"\fServeChannel\x12'.pomerium.extensions.ssh.ChannelMessage\x1a'.pomerium.extensions.ssh.ChannelMessage(\x010\x01BEZCgithub.com/pomerium/envoy-custom/api/extensions/filters/network/sshb\x06proto3"

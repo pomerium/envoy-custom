@@ -18,12 +18,11 @@ TEST(UserAuthServiceTest, SplitUsername) {
   ASSERT_EQ((std::pair{"foo\0@bar\0"s, "baz"s}), detail::splitUsername("foo\0@bar\0@baz"s));
 }
 
-AuthState newValidAuthState() {
-  AuthState authState;
-  authState.allow_response = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
-  authState.allow_response->set_username("foo");
-  authState.allow_response->mutable_upstream()->set_hostname("example");
-  auto* publicKeyMethod = authState.allow_response->mutable_upstream()->add_allowed_methods();
+AuthInfo newValidAuthInfo() {
+  auto allow_response = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
+  allow_response->set_username("foo");
+  allow_response->mutable_upstream()->set_hostname("example");
+  auto* publicKeyMethod = allow_response->mutable_upstream()->add_allowed_methods();
   publicKeyMethod->set_method("publickey");
   pomerium::extensions::ssh::PublicKeyAllowResponse publicKeyMethodData;
   pomerium::extensions::ssh::Permissions permissions;
@@ -38,7 +37,9 @@ AuthState newValidAuthState() {
     absl::ToUnixNanos(absl::Now() + absl::Hours(1)));
   *publicKeyMethodData.mutable_permissions() = std::move(permissions);
   publicKeyMethod->mutable_method_data()->PackFrom(publicKeyMethodData);
-  return authState;
+  AuthInfo info{};
+  info.allow_response = std::move(allow_response);
+  return info;
 }
 
 class TestSshMessageDispatcher : public SshMessageDispatcher {
@@ -534,7 +535,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowUpstream) {
     .WillOnce(Return(ext_info));
 
   EXPECT_CALL(*transport_, onServiceAuthenticated("ssh-connection"s));
-  AuthStateSharedPtr state;
+  AuthInfoSharedPtr state;
   EXPECT_CALL(*transport_, initUpstream(_))
     .WillOnce(SaveArg<0>(&state));
 
@@ -574,7 +575,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowInternal) {
   EXPECT_CALL(*transport_, peerExtInfo())
     .WillOnce(Return(ext_info));
 
-  AuthStateSharedPtr state;
+  AuthInfoSharedPtr state;
   EXPECT_CALL(*transport_, initUpstream(_))
     .WillOnce(SaveArg<0>(&state));
 
@@ -747,8 +748,8 @@ protected:
   // Simulates a call to onServiceAccepted() in a valid auth state, triggering a
   // UserAuthRequestMsg to be sent.
   void triggerUserAuthRequestMsg(wire::Message* out_req = nullptr) {
-    auto state = newValidAuthState();
-    EXPECT_CALL(*transport_, authState())
+    auto state = newValidAuthInfo();
+    EXPECT_CALL(*transport_, authInfo())
       .WillRepeatedly(ReturnRef(state));
 
     wire::Message req;
@@ -795,44 +796,44 @@ TEST_F(UpstreamUserAuthServiceTest, RequestService) {
   EXPECT_OK(r);
 }
 
-TEST_F(UpstreamUserAuthServiceTest, OnServiceAccepted_AuthStateMissingAllowResponse) {
-  AuthState state;
-  EXPECT_CALL(*transport_, authState())
-    .WillRepeatedly(ReturnRef(state));
+TEST_F(UpstreamUserAuthServiceTest, OnServiceAccepted_AuthInfoMissingAllowResponse) {
+  AuthInfo info;
+  EXPECT_CALL(*transport_, authInfo())
+    .WillRepeatedly(ReturnRef(info));
   auto r = service_->onServiceAccepted();
   ASSERT_EQ(absl::InternalError("missing AllowResponse in auth state"), r);
 }
 
-TEST_F(UpstreamUserAuthServiceTest, OnServiceAccepted_AuthStateMissingPublickeyMethod) {
-  AuthState state;
-  state.allow_response = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
-  state.allow_response->mutable_upstream();
-  *state.allow_response->mutable_upstream()->add_allowed_methods()->mutable_method() = "not-publickey";
-  EXPECT_CALL(*transport_, authState())
-    .WillRepeatedly(ReturnRef(state));
+TEST_F(UpstreamUserAuthServiceTest, OnServiceAccepted_AuthInfoMissingPublickeyMethod) {
+  AuthInfo info;
+  info.allow_response = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
+  info.allow_response->mutable_upstream();
+  *info.allow_response->mutable_upstream()->add_allowed_methods()->mutable_method() = "not-publickey";
+  EXPECT_CALL(*transport_, authInfo())
+    .WillRepeatedly(ReturnRef(info));
   auto r = service_->onServiceAccepted();
   ASSERT_EQ(absl::InternalError("missing publickey method in AllowResponse"), r);
 }
 
 TEST_F(UpstreamUserAuthServiceTest, OnServiceAccepted_ErrorGeneratingCertificate) {
-  auto state = newValidAuthState();
+  auto info = newValidAuthInfo();
   pomerium::extensions::ssh::PublicKeyAllowResponse publickeyResp;
-  state.allow_response->upstream().allowed_methods().at(0).method_data().UnpackTo(&publickeyResp);
+  info.allow_response->upstream().allowed_methods().at(0).method_data().UnpackTo(&publickeyResp);
   publickeyResp.mutable_permissions()->mutable_valid_start_time()->Swap(
     publickeyResp.mutable_permissions()->mutable_valid_end_time());
-  state.allow_response->mutable_upstream()->mutable_allowed_methods()->at(0).mutable_method_data()->PackFrom(publickeyResp);
-  EXPECT_CALL(*transport_, authState())
-    .WillRepeatedly(ReturnRef(state));
+  info.allow_response->mutable_upstream()->mutable_allowed_methods()->at(0).mutable_method_data()->PackFrom(publickeyResp);
+  EXPECT_CALL(*transport_, authInfo())
+    .WillRepeatedly(ReturnRef(info));
   auto r = service_->onServiceAccepted();
   ASSERT_EQ(absl::InvalidArgumentError("error generating user certificate: valid_start_time >= valid_end_time"), r);
 }
 
 TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedEncodingFailure) {
-  AuthState state = newValidAuthState();
+  auto info = newValidAuthInfo();
   std::string username_too_long(wire::MaxPacketSize, 'A');
-  state.allow_response->set_username(username_too_long);
-  EXPECT_CALL(*transport_, authState())
-    .WillRepeatedly(ReturnRef(state));
+  info.allow_response->set_username(username_too_long);
+  EXPECT_CALL(*transport_, authInfo())
+    .WillRepeatedly(ReturnRef(info));
   auto streamId = "stream-id"_bytes;
   EXPECT_CALL(*transport_, sessionId())
     .WillOnce(ReturnRef(streamId));
@@ -1014,10 +1015,10 @@ TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedServerSigAlgsUnsupported) {
 }
 
 TEST_F(UpstreamUserAuthServiceTest, HandleMessageUserAuthBannerChannelNormal) {
-  AuthState state;
-  state.channel_mode = ChannelMode::Normal;
-  EXPECT_CALL(*transport_, authState())
-    .WillOnce(ReturnRef(state));
+  AuthInfo info;
+  info.channel_mode = ChannelMode::Normal;
+  EXPECT_CALL(*transport_, authInfo())
+    .WillOnce(ReturnRef(info));
 
   wire::UserAuthBannerMsg banner{};
   wire::test::populateFields(banner);
@@ -1030,10 +1031,10 @@ TEST_F(UpstreamUserAuthServiceTest, HandleMessageUserAuthBannerChannelNormal) {
 }
 
 TEST_F(UpstreamUserAuthServiceTest, HandleMessageUserAuthBannerChannelHijacked) {
-  AuthState state;
-  state.channel_mode = ChannelMode::Hijacked;
-  EXPECT_CALL(*transport_, authState())
-    .WillOnce(ReturnRef(state));
+  AuthInfo info;
+  info.channel_mode = ChannelMode::Hijacked;
+  EXPECT_CALL(*transport_, authInfo())
+    .WillOnce(ReturnRef(info));
 
   wire::UserAuthBannerMsg banner{};
   wire::test::populateFields(banner);
@@ -1067,9 +1068,9 @@ TEST_F(UpstreamUserAuthServiceTest, HandleMessageAuthSuccessNoPeerExtInfo) {
   service_->registerMessageHandlers(d);
 
   // We need to first call onServiceAccepted() to initialize some internal state.
-  auto state = newValidAuthState();
-  EXPECT_CALL(*transport_, authState())
-    .WillRepeatedly(ReturnRef(state));
+  auto info = newValidAuthInfo();
+  EXPECT_CALL(*transport_, authInfo())
+    .WillRepeatedly(ReturnRef(info));
   auto streamId = "stream-id"_bytes;
   EXPECT_CALL(*transport_, sessionId())
     .WillOnce(ReturnRef(streamId));
@@ -1095,9 +1096,9 @@ TEST_F(UpstreamUserAuthServiceTest, HandleMessageAuthSuccessWithPeerExtInfo) {
   service_->registerMessageHandlers(d);
 
   // We need to first call onServiceAccepted() to initialize some internal state.
-  auto state = newValidAuthState();
-  EXPECT_CALL(*transport_, authState())
-    .WillRepeatedly(ReturnRef(state));
+  auto info = newValidAuthInfo();
+  EXPECT_CALL(*transport_, authInfo())
+    .WillRepeatedly(ReturnRef(info));
   auto streamId = "stream-id"_bytes;
   EXPECT_CALL(*transport_, sessionId())
     .WillOnce(ReturnRef(streamId));
@@ -1116,7 +1117,7 @@ TEST_F(UpstreamUserAuthServiceTest, HandleMessageAuthSuccessWithPeerExtInfo) {
 
   auto r = service_->handleMessage(std::move(msg));
   ASSERT_OK(r);
-  ASSERT_EQ(ext_info, state.upstream_ext_info);
+  ASSERT_EQ(ext_info, info.upstream_ext_info);
 
   EXPECT_EQ(0, d.dispatch_.size());
 }

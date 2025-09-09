@@ -1,37 +1,46 @@
 #include "source/extensions/filters/network/ssh/frame.h"
-#include "source/extensions/filters/network/ssh/transport.h"
 #include "test/test_common/test_common.h"
 #include "gtest/gtest.h"
 #include "absl/random/random.h"
+#include "source/common/stream_info/filter_state_impl.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 static absl::BitGen rng;
 
+class TestFilterStateObject : public StreamInfo::FilterState::Object {};
+
 TEST(SSHRequestHeaderFrameTest, RequestHeaderFrameImpl) {
-  auto authStatePtr = std::make_shared<AuthState>();
+  auto obj1Ptr = std::make_shared<TestFilterStateObject>();
+  auto obj2Ptr = std::make_shared<TestFilterStateObject>();
+  StreamInfo::FilterStateImpl filterState(StreamInfo::FilterState::LifeSpan::FilterChain);
+  filterState.setData("obj1", obj1Ptr, StreamInfo::FilterState::StateType::Mutable,
+                      StreamInfo::FilterState::LifeSpan::FilterChain,
+                      StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
+  filterState.setData("obj2", obj2Ptr, StreamInfo::FilterState::StateType::Mutable,
+                      StreamInfo::FilterState::LifeSpan::FilterChain,
+                      StreamInfo::StreamSharingMayImpactPooling::None);
 
-  SSHRequestHeaderFrame frame(authStatePtr);
-  EXPECT_EQ(authStatePtr.get(), frame.authState().get());
+  SSHRequestHeaderFrame frame("foo", 1234, filterState);
 
-  authStatePtr->allow_response = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
-  EXPECT_EQ("", frame.host());
-  *authStatePtr->allow_response->mutable_upstream()->mutable_hostname() = "foo";
   EXPECT_EQ("foo", frame.host());
+  EXPECT_EQ("ssh", frame.protocol());
   EXPECT_EQ("", frame.path());
   EXPECT_EQ("", frame.method());
-}
-
-TEST(SSHRequestHeaderFrameTest, HeaderFrameImpl) {
-  EXPECT_EQ("ssh", SSHRequestHeaderFrame({}).protocol());
+  EXPECT_EQ(1234, frame.frameFlags().streamId());
+  auto objs = frame.downstreamSharedFilterStateObjects();
+  ASSERT_TRUE(objs.has_value());
+  EXPECT_EQ(1, objs->size());
+  EXPECT_EQ("obj1", objs->at(0).name_);
+  EXPECT_EQ(StreamInfo::FilterState::StateType::Mutable, objs->at(0).state_type_);
+  EXPECT_EQ(StreamInfo::StreamSharingMayImpactPooling::None, objs->at(0).stream_sharing_);
+  EXPECT_EQ(obj1Ptr, objs->at(0).data_);
 }
 
 TEST(SSHRequestHeaderFrameTest, FrameFlags) {
-  auto authStatePtr = std::make_shared<AuthState>();
   auto streamId = absl::Uniform<stream_id_t>(rng);
-  authStatePtr->stream_id = streamId;
 
-  SSHRequestHeaderFrame frame(authStatePtr);
+  SSHRequestHeaderFrame frame("foo", streamId, StreamInfo::FilterStateImpl{StreamInfo::FilterState::LifeSpan::FilterChain});
   auto flags = frame.frameFlags();
   EXPECT_EQ(streamId, flags.streamId());
   EXPECT_EQ(false, flags.endStream());
@@ -169,8 +178,7 @@ TEST(FrameTest, ExtractFrameMessage) {
     EXPECT_EQ(addr, extracted.message.get<wire::DebugMsg>().message->data());
   }
   {
-    auto authStatePtr = std::make_shared<AuthState>();
-    SSHRequestHeaderFrame frame(authStatePtr);
+    SSHRequestHeaderFrame frame("foo", 1234, StreamInfo::FilterStateImpl{StreamInfo::FilterState::LifeSpan::FilterChain});
     EXPECT_THROW_WITH_MESSAGE(extractFrameMessage(frame),
                               EnvoyException,
                               "bug: extractFrameMessage called with RequestHeader frame");

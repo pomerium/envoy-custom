@@ -24,16 +24,43 @@ using namespace std::literals;
 #undef EXPECT_THROW
 #define EXPECT_THROW #warning "use EXPECT_THROW_WITH_MESSAGE instead of EXPECT_THROW"
 
+namespace {
+template <typename S>
+  requires std::same_as<std::decay_t<S>, absl::Status>
+constexpr absl::Status to_status(S&& status) {
+  return std::forward<S>(status);
+}
+template <typename S>
+  requires requires(S s) {
+    { auto(s).status() } -> std::same_as<absl::Status>;
+    { auto(s).ok() } -> std::same_as<bool>;
+  }
+constexpr absl::Status to_status(S&& statusor) {
+  return std::forward<S>(statusor).status();
+}
+} // namespace
+
 #define EXPECT_OK(expr)                                                                                                               \
   do {                                                                                                                                \
-    absl::Status expect_ok_status = (expr);                                                                                           \
+    absl::Status expect_ok_status = to_status(expr);                                                                                  \
     EXPECT_TRUE(expect_ok_status.ok()) << "status code: " << expect_ok_status.code() << "; message: " << expect_ok_status.ToString(); \
   } while (false)
 
 #define ASSERT_OK(expr)                                                                                                               \
   do {                                                                                                                                \
-    absl::Status assert_ok_status = (expr);                                                                                           \
+    absl::Status assert_ok_status = to_status(expr);                                                                                  \
     ASSERT_TRUE(assert_ok_status.ok()) << "status code: " << assert_ok_status.code() << "; message: " << assert_ok_status.ToString(); \
+  } while (false)
+
+#define CALLED \
+  did_call = true
+
+#define CHECK_CALLED(expr)                                            \
+  do {                                                                \
+    bool did_call = false;                                            \
+    expr                                                              \
+        EXPECT_TRUE(did_call)                                         \
+      << "CHECK_CALL failed: the expected statement was not reached"; \
   } while (false)
 
 // NOLINTBEGIN(readability-identifier-naming)

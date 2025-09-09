@@ -165,7 +165,7 @@ absl::StatusOr<SSHKeyPtr> SSHKey::fromPrivateKeyFile(const std::string& filepath
   if (err != 0) {
     return statusFromErr(err);
   }
-  return std::unique_ptr<SSHKey>(new SSHKey(std::move(key), std::move(comment)));
+  return absl::WrapUnique(new SSHKey(std::move(key), std::move(comment)));
 }
 
 absl::StatusOr<std::unique_ptr<SSHKey>> SSHKey::fromPrivateKeyBytes(const std::string& bytes) {
@@ -178,7 +178,7 @@ absl::StatusOr<std::unique_ptr<SSHKey>> SSHKey::fromPrivateKeyBytes(const std::s
       err != 0) {
     return statusFromErr(err);
   }
-  return std::unique_ptr<SSHKey>(new SSHKey(std::move(key), std::move(comment)));
+  return absl::WrapUnique(new SSHKey(std::move(key), std::move(comment)));
 }
 
 absl::StatusOr<std::unique_ptr<SSHKey>> SSHKey::fromPrivateKeyDataSource(const ::corev3::DataSource& ds) {
@@ -201,7 +201,7 @@ absl::StatusOr<SSHKeyPtr> SSHKey::fromPublicKeyBlob(const bytes& public_key) {
   if (auto err = sshkey_from_blob(public_key.data(), public_key.size(), std::out_ptr(key)); err != 0) {
     return statusFromErr(err);
   }
-  return std::unique_ptr<SSHKey>(new SSHKey(std::move(key), nullptr));
+  return absl::WrapUnique(new SSHKey(std::move(key), nullptr));
 }
 
 absl::StatusOr<SSHKeyPtr> SSHKey::generate(sshkey_types type, uint32_t bits) {
@@ -209,7 +209,7 @@ absl::StatusOr<SSHKeyPtr> SSHKey::generate(sshkey_types type, uint32_t bits) {
   if (auto err = sshkey_generate(type, bits, std::out_ptr(key)); err != 0) {
     return statusFromErr(err);
   }
-  return std::unique_ptr<SSHKey>(new SSHKey(std::move(key), nullptr));
+  return absl::WrapUnique(new SSHKey(std::move(key), nullptr));
 }
 
 sshkey_types SSHKey::keyTypeFromName(const std::string& name) {
@@ -331,7 +331,7 @@ std::unique_ptr<SSHKey> SSHKey::toPublicKey() const {
   // only fails on OOM or if the key is in an invalid state
   auto r = sshkey_from_private(key_.get(), std::out_ptr(key));
   RELEASE_ASSERT(r == 0, "sshkey_from_private failed");
-  return std::unique_ptr<SSHKey>(new SSHKey(std::move(key), nullptr));
+  return absl::WrapUnique(new SSHKey(std::move(key), nullptr));
 }
 
 absl::StatusOr<std::string> SSHKey::formatPrivateKey(sshkey_private_format format) const {

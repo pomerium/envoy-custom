@@ -10,11 +10,11 @@
 
 #include "source/common/status.h"
 #include "source/extensions/filters/network/ssh/common.h"
+#include "source/extensions/filters/network/ssh/filter_state_objects.h"
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/kex.h"
 #include "source/extensions/filters/network/ssh/transport_base.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
-#include "source/extensions/filters/network/ssh/service_connection.h"
 #include "source/extensions/filters/network/ssh/service_userauth.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "source/extensions/filters/network/ssh/transport.h"
@@ -26,15 +26,15 @@ extern "C" {
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-SshServerTransport::SshServerTransport(Api::Api& api,
+SshServerTransport::SshServerTransport(Server::Configuration::ServerFactoryContext& context,
                                        std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
                                        CreateGrpcClientFunc create_grpc_client)
-    : TransportBase(api, std::move(config)),
+    : TransportBase(context.api(), std::move(config)),
       DownstreamTransportCallbacks(*this) {
   auto grpcClient = create_grpc_client();
   THROW_IF_NOT_OK_REF(grpcClient.status());
-  mgmt_client_ = std::make_unique<StreamManagementServiceClient>(*grpcClient);
-  channel_client_ = std::make_unique<ChannelStreamServiceClient>(*grpcClient);
+  grpc_client_ = *grpcClient;
+  mgmt_client_ = std::make_unique<StreamManagementServiceClient>(grpc_client_);
 
   wire::ExtInfoMsg extInfo;
   extInfo.extensions->emplace_back(wire::PingExtension{.version = "0"s});
@@ -69,9 +69,21 @@ void SshServerTransport::setCodecCallbacks(Callbacks& callbacks) {
   } else {
     kex_->setHostKeys(std::move(*keys));
   }
+}
+
+void SshServerTransport::onConnected() {
+  auto& conn = *callbacks_->connection();
+  ASSERT(conn.state() == Network::Connection::State::Open);
+  connection_dispatcher_ = conn.dispatcher();
+  channel_id_manager_ = std::make_shared<ChannelIDManager>();
+  conn.streamInfo().filterState()->setData(ChannelIDManagerFilterStateKey,
+                                           channel_id_manager_,
+                                           StreamInfo::FilterState::StateType::Mutable,
+                                           StreamInfo::FilterState::LifeSpan::Request,
+                                           StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
   initServices();
   mgmt_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus, std::string err) {
-    onDecodingFailure(absl::CancelledError(err));
+    terminate(absl::CancelledError(err));
   });
   stream_id_ = api_.randomGenerator().random();
   mgmt_client_->connect(streamId());
@@ -79,7 +91,7 @@ void SshServerTransport::setCodecCallbacks(Callbacks& callbacks) {
 
 void SshServerTransport::initServices() {
   user_auth_service_ = std::make_unique<DownstreamUserAuthService>(*this, api_);
-  connection_service_ = std::make_unique<DownstreamConnectionService>(*this, api_);
+  connection_service_ = std::make_unique<DownstreamConnectionService>(*this);
   ping_handler_ = std::make_unique<PingExtensionHandler>(*this);
 
   services_[user_auth_service_->name()] = user_auth_service_.get();
@@ -93,15 +105,16 @@ GenericProxy::EncodingResult SshServerTransport::encode(const GenericProxy::Stre
     return sendMessageToConnection(extractFrameMessage(frame));
   }
   ASSERT((tags & FrameTags::FrameEffectiveTypeMask) == FrameTags::EffectiveHeader); // 1-bit mask
-  if (authState().handoff_info.handoff_in_progress) {
-    authState().handoff_info.handoff_in_progress = false;
+  if (authInfo().handoff_info.handoff_in_progress) {
+    ENVOY_LOG(debug, "handoff complete, re-enabling reads on downstream connection");
+    authInfo().handoff_info.handoff_in_progress = false;
     callbacks_->connection()->readDisable(false);
   }
   if ((tags & FrameTags::Sentinel) != 0) {
     return 0;
   }
-  if (authState().upstream_ext_info.has_value() &&
-      authState().upstream_ext_info->hasExtension<wire::PingExtension>()) {
+  if (authInfo().upstream_ext_info.has_value() &&
+      authInfo().upstream_ext_info->hasExtension<wire::PingExtension>()) {
     // if the upstream supports the ping extension, we should forward pings to the upstream
     // instead of handling them ourselves
     ping_handler_->enableForward(true);
@@ -226,55 +239,93 @@ void SshServerTransport::onServiceAuthenticated(const std::string& service_name)
   services_[service_name]->registerMessageHandlers(*this);
 }
 
-void SshServerTransport::initUpstream(AuthStateSharedPtr s) {
-  s->server_version = server_version_;
-  auth_state_ = s;
-  switch (auth_state_->channel_mode) {
+void SshServerTransport::initHandoff(pomerium::extensions::ssh::SSHChannelControlAction_HandOffUpstream* handoff_msg) {
+  connection_service_->disableChannelHijack();
+  auto newState = std::make_shared<AuthInfo>();
+  newState->server_version = authInfo().server_version;
+  newState->stream_id = authInfo().stream_id;
+  newState->channel_mode = authInfo().channel_mode;
+  switch (handoff_msg->upstream_auth().target_case()) {
+  case pomerium::extensions::ssh::AllowResponse::kUpstream:
+    newState->handoff_info.handoff_in_progress = true;
+    newState->channel_mode = ChannelMode::Handoff;
+    newState->allow_response.reset(handoff_msg->release_upstream_auth());
+    if (handoff_msg->has_downstream_channel_info()) {
+      newState->handoff_info.channel_info.reset(handoff_msg->release_downstream_channel_info());
+    }
+    if (handoff_msg->has_downstream_pty_info()) {
+      newState->handoff_info.pty_info.reset(handoff_msg->release_downstream_pty_info());
+    }
+    ENVOY_LOG(debug, "starting handoff to upstream {} for internal channel {}",
+              newState->allow_response->upstream().hostname(),
+              newState->handoff_info.channel_info->internal_upstream_channel_id());
+    initUpstream(std::move(newState));
+    break;
+  case pomerium::extensions::ssh::AllowResponse::kMirrorSession:
+    terminate(absl::UnavailableError("session mirroring feature not available"));
+    break;
+  default:
+    terminate(absl::InternalError(fmt::format("received invalid channel message: unexpected target: {}",
+                                              static_cast<int>(handoff_msg->upstream_auth().target_case()))));
+    break;
+  }
+}
+
+void SshServerTransport::initUpstream(AuthInfoSharedPtr auth_info) {
+  auth_info->server_version = server_version_;
+  bool first_init = (auth_info_ == nullptr);
+  auth_info_ = auth_info;
+  callbacks_->connection()->streamInfo().filterState()->setData(
+    AuthInfoFilterStateKey, auth_info_,
+    StreamInfo::FilterState::StateType::Mutable,
+    StreamInfo::FilterState::LifeSpan::Request,
+    StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
+  switch (auth_info_->channel_mode) {
   case ChannelMode::Normal: {
-    auto frame = std::make_unique<SSHRequestHeaderFrame>(auth_state_);
+    ASSERT(auth_info_->allow_response != nullptr);
+    auto frame = std::make_unique<SSHRequestHeaderFrame>(
+      auth_info_->allow_response->upstream().hostname(),
+      stream_id_,
+      *callbacks_->connection()->streamInfo().filterState());
     callbacks_->onDecodingSuccess(std::move(frame));
 
     ClientMessage upstream_connect_msg{};
-    upstream_connect_msg.mutable_event()->mutable_upstream_connected()->set_stream_id(auth_state_->stream_id);
     sendMgmtClientMessage(upstream_connect_msg);
   } break;
   case ChannelMode::Hijacked: {
-    RELEASE_ASSERT(auth_state_->allow_response->target_case() == pomerium::extensions::ssh::AllowResponse::kInternal,
+    ASSERT(auth_info_->allow_response != nullptr);
+    RELEASE_ASSERT(auth_info_->allow_response->target_case() == pomerium::extensions::ssh::AllowResponse::kInternal,
                    "wrong target mode in AllowResponse for internal session");
 
-    const auto& internal = auth_state_->allow_response->internal();
-    std::optional<envoy::config::core::v3::Metadata> optional_metadata;
-    if (internal.has_set_metadata()) {
-      optional_metadata = internal.set_metadata();
-    }
-    channel_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus code, std::string err) {
-      onDecodingFailure(absl::Status(static_cast<absl::StatusCode>(code), err));
-    });
-    auth_state_->hijacked_stream = channel_client_->start(connection_service_.get(), std::move(optional_metadata));
+    const auto& internal = auth_info_->allow_response->internal();
+    connection_service_->enableChannelHijack(*this, internal, grpc_client_);
+
     sendMessageToConnection(wire::UserAuthSuccessMsg{})
       .IgnoreError();
   } break;
   case ChannelMode::Handoff: {
-    channel_client_->setOnRemoteCloseCallback(nullptr);
-    if (auto s = auth_state_->hijacked_stream.lock(); s) {
-      s->resetStream();
-    }
-    auto frame = std::make_unique<SSHRequestHeaderFrame>(auth_state_);
+    auto frame = std::make_unique<SSHRequestHeaderFrame>(
+      auth_info_->allow_response->upstream().hostname(),
+      stream_id_,
+      *callbacks_->connection()->streamInfo().filterState());
+    ENVOY_LOG(debug, "disabling reads on downstream connection for handoff");
     callbacks_->connection()->readDisable(true);
     callbacks_->onDecodingSuccess(std::move(frame));
 
     ClientMessage upstream_connect_msg{};
-    upstream_connect_msg.mutable_event()->mutable_upstream_connected()->set_stream_id(auth_state_->stream_id);
     sendMgmtClientMessage(upstream_connect_msg);
   } break;
   case ChannelMode::Mirror:
     throw EnvoyException("mirroring not supported");
   }
+  if (first_init) {
+    callbacks_->connection()->addConnectionCallbacks(*this);
+  }
 }
 
-AuthState& SshServerTransport::authState() {
+AuthInfo& SshServerTransport::authInfo() {
   ASSERT(upstreamReady());
-  return *auth_state_;
+  return *auth_info_;
 }
 
 void SshServerTransport::forward(wire::Message&& message, [[maybe_unused]] FrameTags tags) {
@@ -331,16 +382,18 @@ void SshServerTransport::sendMgmtClientMessage(const ClientMessage& msg) {
   mgmt_client_->stream().sendMessage(msg, false);
 }
 
-void SshServerTransport::onDecodingFailure(absl::Status status) {
+void SshServerTransport::terminate(absl::Status status) {
   wire::DisconnectMsg msg;
   msg.reason_code = openssh::statusCodeToDisconnectCode(status.code());
-  if (!status.ok()) {
-    msg.description = statusToString(status);
-  }
+  msg.description = statusToString(status);
   sendMessageToConnection(std::move(msg))
     .IgnoreError();
 
-  TransportBase::onDecodingFailure(status);
+  TransportBase::terminate(status);
+}
+
+void SshServerTransport::onEvent(Network::ConnectionEvent event) {
+  (void)event;
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

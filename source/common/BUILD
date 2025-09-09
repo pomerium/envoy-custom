@@ -14,6 +14,7 @@ envoy_cc_library(
         "concepts.h",
         "factory.h",
         "fixed_string.h",
+        "id_alloc.h",
         "math.h",
         "optref.h",
         "span.h",
