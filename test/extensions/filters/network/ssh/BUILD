@@ -341,3 +341,16 @@ envoy_cc_test(
         "@envoy//test/mocks/server:factory_context_mocks",
     ],
 )
+
+envoy_cc_test(
+    name = "id_manager_test",
+    srcs = [
+        "id_manager_test.cc",
+    ],
+    repository = "@envoy",
+    deps = [
+        ":test_mocks",
+        "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "//test/test_common:test_common_lib",
+    ],
+)
