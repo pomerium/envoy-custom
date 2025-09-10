@@ -54,7 +54,8 @@ public:
               }));
 
             return client;
-          }) {}
+          },
+          StreamTracker::fromContext(server_factory_context_, StreamTrackerConfig{})) {}
 
   const wire::KexInitMsg kex_init_ = {
     .cookie = {{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}},
@@ -1486,12 +1487,53 @@ TEST_F(ServerTransportTest, HandleRekey) {
   ASSERT_EQ(0, output_buffer_.length()); // there should be no ExtInfo sent
 }
 
-TEST_F(ServerTransportTest, Placeholders) {
-  // methods not yet used
-  transport_.onEvent({});
+class StreamTrackerConnectionCallbacksTest : public ServerTransportTest,
+                                             public testing::WithParamInterface<Network::ConnectionEvent> {};
+
+TEST_P(StreamTrackerConnectionCallbacksTest, TestDisconnectEvent) {
+  ASSERT_OK(ReadExtInfo());
+
+  auto clientKey = *openssh::SSHKey::generate(KEY_ED25519, 256);
+
+  ASSERT_OK(RequestUserAuthService());
+  auto [authReq, clientMsg] = BuildUserAuthMessages(*clientKey);
+
+  EXPECT_CALL(mock_connection_, addConnectionCallbacks(_));
+  ExpectHandlePomeriumGrpcAuthRequestNormal(clientMsg);
+  ExpectDecodingSuccess();
+  ExpectUpstreamConnectMsg();
+
+  ASSERT_OK(WriteMsg(std::move(authReq)));
+
+  auto st = StreamTracker::fromContext(server_factory_context_);
+  auto streamId = transport_.streamId();
+  // ensure the connection is tracked
+  CHECK_CALLED({
+    st->tryLock(streamId, [&](Envoy::OptRef<StreamContext> sc) {
+      CALLED;
+      ASSERT_TRUE(sc.has_value());
+    });
+  });
+
+  // send a disconnect event (either local or remote should do the same thing)
+  mock_connection_.raiseEvent(GetParam());
+
+  // ensure the tracked connection was ended
+  CHECK_CALLED({
+    st->tryLock(streamId, [&](Envoy::OptRef<StreamContext> sc) {
+      CALLED;
+      ASSERT_FALSE(sc.has_value());
+    });
+  });
+
+  // no-op Network::ConnectionCallbacks methods, for coverage only
   transport_.onAboveWriteBufferHighWatermark();
   transport_.onBelowWriteBufferLowWatermark();
 }
+
+INSTANTIATE_TEST_SUITE_P(StreamTrackerConnectionCallbacks, StreamTrackerConnectionCallbacksTest,
+                         testing::Values(Network::ConnectionEvent::LocalClose,
+                                         Network::ConnectionEvent::RemoteClose));
 
 } // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
