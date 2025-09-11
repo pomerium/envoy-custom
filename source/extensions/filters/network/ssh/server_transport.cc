@@ -193,6 +193,24 @@ absl::Status SshServerTransport::handleMessage(wire::Message&& msg) {
           // server->client only
           return absl::InvalidArgumentError(fmt::format("unexpected global request: {}",
                                                         wire::HostKeysMsg::submsg_key));
+        },
+        [&](wire::TcpipForwardMsg& forward_msg) {
+          if (authInfo().channel_mode == ChannelMode::Hijacked) {
+            ENVOY_LOG(debug, "sending global request to hijacked stream: {}", msg.request_name());
+            ClientMessage clientMsg;
+            auto* streamEvent = clientMsg.mutable_event();
+            auto* globalReq = streamEvent->mutable_global_request();
+            auto* forwardReq = globalReq->mutable_tcpip_forward_request();
+            forwardReq->set_remote_address(forward_msg.remote_address);
+            forwardReq->set_remote_port(forward_msg.remote_port);
+            sendMgmtClientMessage(clientMsg);
+
+            return absl::OkStatus();
+          }
+
+          ENVOY_LOG(debug, "forwarding global request: {}", msg.request_name());
+          forward(std::move(msg));
+          return absl::OkStatus();
         });
     },
     [&](wire::GlobalRequestSuccessMsg& msg) {

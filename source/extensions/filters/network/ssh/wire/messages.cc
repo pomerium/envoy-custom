@@ -279,6 +279,14 @@ absl::StatusOr<size_t> HostKeysMsg::encode(Envoy::Buffer::Instance& buffer) cons
   return encodeSequence(buffer, hostkeys);
 }
 
+// TcpipForwardMsg
+absl::StatusOr<size_t> TcpipForwardMsg::decode(Envoy::Buffer::Instance& buffer, size_t len) noexcept {
+  return decodeSequence(buffer, len, remote_address, remote_port);
+}
+absl::StatusOr<size_t> TcpipForwardMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
+  return encodeSequence(buffer, remote_address, remote_port);
+}
+
 // GlobalRequestMsg
 absl::StatusOr<size_t> GlobalRequestMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
   return decodeMsg(buffer, type, payload_size,

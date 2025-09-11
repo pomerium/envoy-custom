@@ -496,4 +496,26 @@ void DownstreamConnectionService::disableChannelHijack() {
   open_hijacked_channel_middleware_.reset();
 }
 
+void DownstreamConnectionService::sendChannelEvent(const pomerium::extensions::ssh::ChannelEvent& ev) {
+  switch (ev.event_case()) {
+  case pomerium::extensions::ssh::ChannelEvent::kInternalChannelOpened:
+    ENVOY_LOG(debug, "sending channel event: internal_channel_opened {{channel_id: {}, peer_address: {}}}",
+              ev.internal_channel_opened().channel_id(),
+              ev.internal_channel_opened().peer_address());
+    break;
+  case pomerium::extensions::ssh::ChannelEvent::kInternalChannelClosed:
+    ENVOY_LOG(debug, "sending channel event: internal_channel_closed {{channel_id: {}, reason: {}}}",
+              ev.internal_channel_closed().channel_id(),
+              ev.internal_channel_closed().reason());
+    break;
+  case pomerium::extensions::ssh::ChannelEvent::EVENT_NOT_SET:
+    throw Envoy::EnvoyException("invalid channel event");
+  }
+  pomerium::extensions::ssh::StreamEvent stream_ev;
+  *stream_ev.mutable_channel_event() = ev;
+  ClientMessage msg;
+  *msg.mutable_event() = stream_ev;
+  transport_.sendMgmtClientMessage(msg);
+}
+
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

@@ -90,6 +90,8 @@ public:
                            Envoy::Grpc::RawAsyncClientSharedPtr grpc_client);
   void disableChannelHijack();
 
+  void sendChannelEvent(const pomerium::extensions::ssh::ChannelEvent& ev) override;
+
 private:
   DownstreamTransportCallbacks& transport_;
 

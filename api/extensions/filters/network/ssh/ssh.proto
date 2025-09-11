@@ -3,6 +3,7 @@ syntax = "proto3";
 package pomerium.extensions.ssh;
 
 import "envoy/config/core/v3/base.proto";
+import "envoy/config/core/v3/config_source.proto";
 import "envoy/config/core/v3/extension.proto";
 import "envoy/config/core/v3/grpc_service.proto";
 import "google/protobuf/any.proto";
@@ -41,6 +42,11 @@ message CodecConfig {
 
   // Pomerium StreamManagement grpc service.
   envoy.config.core.v3.GrpcService grpc_service = 4 [(validate.rules).message.required = true];
+}
+
+message ReverseTunnelCluster {
+  string                            name       = 1;
+  envoy.config.core.v3.ConfigSource eds_config = 2;
 }
 
 // The StreamManagement service is implemented by the Pomerium Authorize
@@ -97,6 +103,7 @@ message StreamEvent {
     DownstreamDisconnectedEvent downstream_disconnected = 2;
     UpstreamConnectEvent        upstream_connected      = 3;
     ChannelEvent                channel_event           = 4;
+    GlobalRequest               global_request          = 5;
   }
 }
 
@@ -125,6 +132,16 @@ message ChannelEvent {
   oneof event {
     InternalChannelOpenedEvent internal_channel_opened = 2;
     InternalChannelClosedEvent internal_channel_closed = 3;
+  }
+}
+
+message GlobalRequest {
+  message TcpipForwardRequest {
+    string remote_address = 1;
+    uint32 remote_port    = 2;
+  }
+  oneof request {
+    TcpipForwardRequest tcpip_forward_request = 2;
   }
 }
 

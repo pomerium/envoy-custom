@@ -353,6 +353,9 @@ TEST_FIELDS(HostKeysMsg,
 TEST_FIELDS(UserAuthInfoPrompt,
             prompt,
             echo);
+TEST_FIELDS(TcpipForwardMsg,
+            remote_address,
+            remote_port);
 
 namespace wire {
 
