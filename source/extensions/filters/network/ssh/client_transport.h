@@ -29,7 +29,8 @@ class SshClientTransport final : public TransportBase<ClientCodec>,
 
 public:
   SshClientTransport(Envoy::Server::Configuration::ServerFactoryContext& context,
-                     std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config);
+                     std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
+                     const SecretsProvider& secrets_provider);
   void setCodecCallbacks(GenericProxy::ClientCodecCallbacks& callbacks) override;
 
   void decode(Envoy::Buffer::Instance& buffer, bool end_stream) final;

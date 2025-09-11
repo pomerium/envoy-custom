@@ -37,7 +37,7 @@ void Kex::onVersionExchangeCompleted(const bytes& server_version,
   kex_callbacks_.onVersionExchangeCompleted(server_version, client_version, banner);
 }
 
-void Kex::setHostKeys(std::vector<openssh::SSHKeyPtr> host_keys) {
+void Kex::setHostKeys(std::vector<openssh::SSHKeySharedPtr> host_keys) {
   host_keys_ = std::move(host_keys);
 }
 

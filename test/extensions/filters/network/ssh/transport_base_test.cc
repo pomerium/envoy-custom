@@ -1,3 +1,4 @@
+#include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/transport_base.h"
 #include "gtest/gtest.h"
 #include <latch>
@@ -16,8 +17,9 @@ template <typename T>
 class MockBaseTransport : public TransportBase<T> {
 public:
   MockBaseTransport(Api::Api& api,
-                    std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config)
-      : TransportBase<T>(api, config),
+                    std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
+                    const SecretsProvider& secrets_provider)
+      : TransportBase<T>(api, config, secrets_provider),
         dispatcher_(api.allocateDispatcher(std::string(codec_traits<T>::name))) {
     SetVersion(fmt::format("SSH-2.0-{}", codec_traits<T>::name));
   }
@@ -78,7 +80,9 @@ public:
 
   void setCodecCallbacks(codec_traits<T>::callbacks_type& callbacks) override {
     TransportBase<T>::setCodecCallbacks(callbacks);
-    this->kex_->setHostKeys(*openssh::loadHostKeys(this->codecConfig().host_keys()));
+    auto hostKeys = this->secretsProvider().hostKeys();
+    ASSERT(!hostKeys.empty());
+    this->kex_->setHostKeys(std::move(hostKeys));
   }
 
   using TransportBase<T>::outgoingExtInfo;
@@ -201,20 +205,32 @@ class TransportBaseTest : public testing::Test {
 public:
   TransportBaseTest()
       : api_(Api::createApiForTest()),
-        server_config_(std::make_shared<pomerium::extensions::ssh::CodecConfig>()),
-        client_config_(std::make_shared<pomerium::extensions::ssh::CodecConfig>()),
-        server_transport_(*api_, [this] {
-          for (auto keyName : {"rsa_1", "ed25519_1"}) {
-            server_config_->add_host_keys()->set_filename(copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600));
-          }
-          return server_config_;
-        }()),
-        client_transport_(*api_, [this] {
-          for (auto keyName : {"rsa_2", "ed25519_2"}) {
-            client_config_->add_host_keys()->set_filename(copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600));
-          }
-          return client_config_;
-        }()) {}
+        server_config_(newServerConfig()),
+        client_config_(newClientConfig()),
+        server_secrets_provider_(*server_config_),
+        client_secrets_provider_(*client_config_),
+        server_transport_(*api_, server_config_, server_secrets_provider_),
+        client_transport_(*api_, client_config_, client_secrets_provider_) {}
+
+  auto newServerConfig() {
+    auto conf = std::make_shared<pomerium::extensions::ssh::CodecConfig>();
+    for (auto keyName : {"rsa_1", "ed25519_1"}) {
+      conf->add_host_keys()->set_filename(copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600));
+    }
+    auto userCaKeyFile = copyTestdataToWritableTmp("regress/unittests/sshkey/testdata/ecdsa_1", 0600);
+    conf->mutable_user_ca_key()->set_filename(userCaKeyFile);
+    return conf;
+  }
+
+  auto newClientConfig() {
+    auto conf = std::make_shared<pomerium::extensions::ssh::CodecConfig>();
+    for (auto keyName : {"rsa_2", "ed25519_2"}) {
+      conf->add_host_keys()->set_filename(copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600));
+    }
+    auto userCaKeyFile = copyTestdataToWritableTmp("regress/unittests/sshkey/testdata/ecdsa_2", 0600);
+    conf->mutable_user_ca_key()->set_filename(userCaKeyFile);
+    return conf;
+  }
 
   void SetUp() override {
     // wire up the transports to send data to each other; each transport runs its own dispatcher on
@@ -360,6 +376,8 @@ protected:
   Thread::ThreadPtr client_thread_;
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> server_config_;
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> client_config_;
+  TestSecretsProvider server_secrets_provider_;
+  TestSecretsProvider client_secrets_provider_;
   testing::NiceMock<MockBaseTransport<ServerCodec>> server_transport_;
   testing::NiceMock<MockBaseTransport<ClientCodec>> client_transport_;
   testing::StrictMock<MockServerCodecCallbacks> server_codec_callbacks_;

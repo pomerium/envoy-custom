@@ -19,6 +19,28 @@
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 namespace test {
 
+class TestSecretsProvider : public SecretsProvider {
+public:
+  TestSecretsProvider() = default;
+  TestSecretsProvider(std::vector<openssh::SSHKeySharedPtr> host_keys,
+                      openssh::SSHKeySharedPtr user_ca_key)
+      : host_keys_(std::move(host_keys)),
+        user_ca_key_(std::move(user_ca_key)) {}
+  TestSecretsProvider(const pomerium::extensions::ssh::CodecConfig& config)
+      : TestSecretsProvider(*openssh::loadHostKeys(config.host_keys()),
+                            *openssh::SSHKey::fromPrivateKeyDataSource(config.user_ca_key())) {}
+
+  std::vector<openssh::SSHKeySharedPtr> hostKeys() const override {
+    return host_keys_;
+  }
+  openssh::SSHKeySharedPtr userCaKey() const override {
+    return user_ca_key_;
+  }
+
+  std::vector<openssh::SSHKeySharedPtr> host_keys_;
+  openssh::SSHKeySharedPtr user_ca_key_;
+};
+
 class MockTransportCallbacks : public virtual TransportCallbacks {
 public:
   MockTransportCallbacks();
@@ -36,6 +58,7 @@ public:
   MOCK_METHOD(void, terminate, (absl::Status), (override));
   MOCK_METHOD(Envoy::OptRef<Envoy::Event::Dispatcher>, connectionDispatcher, (), (const override));
   MOCK_METHOD(ChannelIDManager&, channelIdManager, (), (override));
+  MOCK_METHOD(const SecretsProvider&, secretsProvider, (), (const override));
 
   MOCK_METHOD(void, writeToConnection, (Envoy::Buffer::Instance&), (const));
   MOCK_METHOD(absl::StatusOr<size_t>, sendMessageDirect, (wire::Message&&));

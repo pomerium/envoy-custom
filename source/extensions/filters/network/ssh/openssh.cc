@@ -22,6 +22,16 @@ namespace openssh {
 
 namespace detail {
 using sshbuf_ptr = Envoy::CSmartPtr<sshbuf, sshbuf_free>;
+
+absl::Status formatDataSourceError(const corev3::DataSource& data_source, std::string_view what, absl::Status err) {
+  std::string where;
+  if (data_source.has_filename()) {
+    where = fmt::format(" from file {}", data_source.filename());
+  } else if (data_source.has_inline_string() || data_source.has_inline_bytes()) {
+    where = fmt::format(" from inline data");
+  }
+  return absl::Status(err.code(), fmt::format("error loading {}{}: {}", what, where, err.message()));
+}
 } // namespace detail
 
 namespace interop {
@@ -41,6 +51,7 @@ char** cloneStringListForC(const std::vector<std::string>& input) {
 absl::StatusCode statusCodeFromErr(int n) {
   switch (n) {
   case SSH_ERR_SUCCESS:                   return absl::StatusCode::kOk;
+  case SSH_ERR_SYSTEM_ERROR:              return absl::ErrnoToStatusCode(errno);
   case SSH_ERR_INTERNAL_ERROR:            return absl::StatusCode::kInternal;
   case SSH_ERR_ALLOC_FAIL:                return absl::StatusCode::kResourceExhausted;
   case SSH_ERR_MESSAGE_INCOMPLETE:        return absl::StatusCode::kInvalidArgument;
@@ -64,7 +75,6 @@ absl::StatusCode statusCodeFromErr(int n) {
   case SSH_ERR_SIGNATURE_INVALID:         return absl::StatusCode::kPermissionDenied;
   case SSH_ERR_LIBCRYPTO_ERROR:           return absl::StatusCode::kInternal;
   case SSH_ERR_UNEXPECTED_TRAILING_DATA:  return absl::StatusCode::kInvalidArgument;
-  case SSH_ERR_SYSTEM_ERROR:              return absl::StatusCode::kInternal;
   case SSH_ERR_KEY_CERT_INVALID:          return absl::StatusCode::kInvalidArgument;
   case SSH_ERR_AGENT_COMMUNICATION:       return absl::StatusCode::kUnavailable;
   case SSH_ERR_AGENT_FAILURE:             return absl::StatusCode::kUnavailable;

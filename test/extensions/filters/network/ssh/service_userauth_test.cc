@@ -58,10 +58,13 @@ public:
   DownstreamUserAuthServiceTest() {
     auto privKeyPath = copyTestdataToWritableTmp("regress/unittests/sshkey/testdata/ed25519_1", 0600);
     codecCfg.mutable_user_ca_key()->set_filename(privKeyPath);
+    secrets_provider_.user_ca_key_ = *openssh::SSHKey::fromPrivateKeyDataSource(codecCfg.user_ca_key());
 
     transport_ = std::make_unique<testing::StrictMock<MockDownstreamTransportCallbacks>>();
     EXPECT_CALL(*transport_, codecConfig())
       .WillRepeatedly(ReturnRef(codecCfg));
+    EXPECT_CALL(*transport_, secretsProvider())
+      .WillRepeatedly(ReturnRef(secrets_provider_));
 
     api_ = std::make_unique<testing::StrictMock<Api::MockApi>>();
     service_ = std::make_unique<DownstreamUserAuthService>(*transport_, *api_);
@@ -106,6 +109,7 @@ public:
 
 protected:
   pomerium::extensions::ssh::CodecConfig codecCfg;
+  TestSecretsProvider secrets_provider_;
   std::unique_ptr<testing::StrictMock<MockDownstreamTransportCallbacks>> transport_;
   std::unique_ptr<testing::StrictMock<Api::MockApi>> api_;
   std::unique_ptr<DownstreamUserAuthService> service_;
@@ -727,12 +731,15 @@ public:
   UpstreamUserAuthServiceTest() {
     auto privKeyPath = copyTestdataToWritableTmp("regress/unittests/sshkey/testdata/ed25519_1", 0600);
     codec_cfg_.mutable_user_ca_key()->set_filename(privKeyPath);
+    secrets_provider_.user_ca_key_ = *openssh::SSHKey::fromPrivateKeyDataSource(codec_cfg_.user_ca_key());
 
     transport_ = std::make_unique<testing::StrictMock<MockTransportCallbacks>>();
     EXPECT_CALL(*transport_, codecConfig())
       .WillRepeatedly(ReturnRef(codec_cfg_));
     EXPECT_CALL(*transport_, peerExtInfo())
       .WillRepeatedly([&] { return peer_ext_info_; });
+    EXPECT_CALL(*transport_, secretsProvider())
+      .WillRepeatedly(ReturnRef(secrets_provider_));
 
     api_ = std::make_unique<testing::StrictMock<Api::MockApi>>();
     service_ = std::make_unique<UpstreamUserAuthService>(*transport_, *api_);
@@ -741,6 +748,7 @@ public:
 protected:
   pomerium::extensions::ssh::CodecConfig codec_cfg_;
   std::optional<wire::ExtInfoMsg> peer_ext_info_;
+  TestSecretsProvider secrets_provider_;
   std::unique_ptr<testing::StrictMock<MockTransportCallbacks>> transport_;
   std::unique_ptr<testing::StrictMock<Api::MockApi>> api_;
   std::unique_ptr<UpstreamUserAuthService> service_;

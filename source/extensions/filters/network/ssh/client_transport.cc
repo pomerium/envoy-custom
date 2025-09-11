@@ -32,8 +32,9 @@ private:
 
 SshClientTransport::SshClientTransport(
   Envoy::Server::Configuration::ServerFactoryContext& context,
-  std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config)
-    : TransportBase(context.api(), std::move(config)) {
+  std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
+  const SecretsProvider& secrets_provider)
+    : TransportBase(context.api(), std::move(config), secrets_provider) {
   wire::ExtInfoMsg extInfo;
   extInfo.extensions->emplace_back(wire::PingExtension{.version = "0"s});
   outgoing_ext_info_ = std::move(extInfo);
@@ -41,11 +42,6 @@ SshClientTransport::SshClientTransport(
 
 void SshClientTransport::setCodecCallbacks(GenericProxy::ClientCodecCallbacks& callbacks) {
   TransportBase::setCodecCallbacks(callbacks);
-  if (auto keys = openssh::loadHostKeys(codecConfig().host_keys()); !keys.ok()) {
-    throw Envoy::EnvoyException(statusToString(keys.status()));
-  } else {
-    kex_->setHostKeys(std::move(*keys));
-  }
   initServices();
 }
 

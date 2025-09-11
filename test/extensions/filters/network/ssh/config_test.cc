@@ -42,6 +42,8 @@ TEST(FactoryTest, FactoryTest) {
   ASSERT_NE(nullptr, serverCodec);
   auto clientCodec = factory->createClientCodec();
   ASSERT_NE(nullptr, clientCodec);
+  ASSERT_EQ(2, dynamic_cast<SshCodecFactory&>(*factory).hostKeys().size());
+  ASSERT_NE(nullptr, dynamic_cast<SshCodecFactory&>(*factory).userCaKey());
 }
 
 TEST(FactoryTest, FactoryTest_Error) {
@@ -61,6 +63,34 @@ TEST(FactoryTest, FactoryTest_Error) {
   EXPECT_THROW_WITH_MESSAGE(factory->createServerCodec(),
                             EnvoyException,
                             "test error");
+}
+
+TEST(FactoryTest, FactoryTest_ErrorLoadingHostKeys) {
+  testing::NiceMock<Server::Configuration::MockServerFactoryContext> context;
+
+  auto* factoryConfig = Registry::FactoryRegistry<CodecFactoryConfig>::getFactory(
+    "envoy.generic_proxy.codecs.ssh");
+  ASSERT_NE(factoryConfig, nullptr);
+
+  auto cfg = newTestConfig();
+  *(cfg->mutable_host_keys()->at(0).mutable_filename()) = "/nonexistent";
+  EXPECT_THROW_WITH_MESSAGE(factoryConfig->createCodecFactory(*cfg, context),
+                            EnvoyException,
+                            "Not Found: error loading ssh host key [1/2] from file /nonexistent: No such file or directory");
+}
+
+TEST(FactoryTest, FactoryTest_ErrorLoadingUserCaKey) {
+  testing::NiceMock<Server::Configuration::MockServerFactoryContext> context;
+
+  auto* factoryConfig = Registry::FactoryRegistry<CodecFactoryConfig>::getFactory(
+    "envoy.generic_proxy.codecs.ssh");
+  ASSERT_NE(factoryConfig, nullptr);
+
+  auto cfg = newTestConfig();
+  *cfg->mutable_user_ca_key()->mutable_filename() = "/nonexistent";
+  EXPECT_THROW_WITH_MESSAGE(factoryConfig->createCodecFactory(*cfg, context),
+                            EnvoyException,
+                            "Not Found: error loading ssh user ca key from file /nonexistent: No such file or directory");
 }
 
 TEST(FactoryTest, ConfigValidation) {

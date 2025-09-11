@@ -58,8 +58,11 @@ class TransportBase : public Codec,
                       public Logger::Loggable<Logger::Id::filter> {
 public:
   TransportBase(Api::Api& api,
-                std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config)
-      : api_(api), config_(config) {
+                std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
+                const SecretsProvider& secrets_provider)
+      : api_(api),
+        config_(config),
+        secrets_provider_(secrets_provider) {
     algorithm_factories_.registerType<Curve25519Sha256KexAlgorithmFactory>();
     cipher_factories_.registerType<Chacha20Poly1305CipherFactory>();
     cipher_factories_.registerType<AESGCM128CipherFactory>();
@@ -74,6 +77,7 @@ public:
     this->callbacks_ = &callbacks;
     kex_ = std::make_unique<Kex>(*this, *this, algorithm_factories_, cipher_factories_, codec_traits<Codec>::kex_mode);
     kex_->registerMessageHandlers(*this);
+    kex_->setHostKeys(secrets_provider_.hostKeys());
     version_exchanger_ = std::make_unique<VersionExchanger>(*this, *kex_, codec_traits<Codec>::version_exchange_mode);
 
     cipher_ = std::make_unique<PacketCipher>(std::make_unique<NoCipher>(), std::make_unique<NoCipher>());
@@ -267,7 +271,7 @@ public:
   }
 
   const bytes& sessionId() const final { return kex_result_->session_id; }
-  const pomerium::extensions::ssh::CodecConfig& codecConfig() const final { return *config_; }
+  const SecretsProvider& secretsProvider() const final { return secrets_provider_; }
 
 protected:
   bool version_exchange_done_{};
@@ -290,6 +294,7 @@ protected:
 
   Api::Api& api_;
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config_;
+  const SecretsProvider& secrets_provider_;
 
   std::string server_version_{"SSH-2.0-Envoy"};
 

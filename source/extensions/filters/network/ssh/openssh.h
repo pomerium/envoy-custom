@@ -31,6 +31,8 @@ using sshcipher_ctx_ptr = Envoy::CSmartPtr<sshcipher_ctx, cipher_free>;
 using ssh_digest_ctx_ptr = Envoy::CSmartPtr<ssh_digest_ctx, ssh_digest_free>;
 
 using c_str_free_type = decltype([](void* p) { ::free(p); });
+
+absl::Status formatDataSourceError(const corev3::DataSource& data_source, std::string_view what, absl::Status err);
 } // namespace detail
 
 template <typename T = char>
@@ -109,20 +111,21 @@ private:
 };
 
 using SSHKeyPtr = std::unique_ptr<SSHKey>;
+using SSHKeySharedPtr = std::shared_ptr<SSHKey>;
 
 // Returns the corresponding "plain" signing algorithm, or nullopt if unknown or unsupported.
 std::optional<std::string> certSigningAlgorithmToPlain(const std::string& alg);
 
 template <std::ranges::range R>
   requires std::same_as<typename R::value_type, corev3::DataSource>
-absl::StatusOr<std::vector<openssh::SSHKeyPtr>> loadHostKeys(const R& data_sources) {
-  std::vector<openssh::SSHKeyPtr> out;
+absl::StatusOr<std::vector<openssh::SSHKeySharedPtr>> loadHostKeys(const R& data_sources) {
+  std::vector<openssh::SSHKeySharedPtr> out;
   std::unordered_map<sshkey_types, std::string> keyTypes;
   for (typename R::size_type i = 0; i < std::size(data_sources); i++) {
     const auto& dataSource = data_sources[i];
     auto key = openssh::SSHKey::fromPrivateKeyDataSource(dataSource);
     if (!key.ok()) {
-      return key.status();
+      return detail::formatDataSourceError(dataSource, fmt::format("ssh host key [{}/{}]", i + 1, std::size(data_sources)), key.status());
     }
     std::string keyName = dataSource.has_filename()
                             ? dataSource.filename()

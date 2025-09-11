@@ -112,7 +112,7 @@ public:
                                   const bytes& client_version,
                                   const bytes& banner) override;
 
-  void setHostKeys(std::vector<openssh::SSHKeyPtr> host_keys);
+  void setHostKeys(std::vector<openssh::SSHKeySharedPtr> host_keys);
 
   KexState& getPendingStateForTest() const { return *pending_state_; }
 
@@ -170,7 +170,7 @@ private:
   std::unique_ptr<KexState> pending_state_;
   std::unique_ptr<KexState> active_state_;
   bool is_server_;
-  std::vector<openssh::SSHKeyPtr> host_keys_;
+  std::vector<openssh::SSHKeySharedPtr> host_keys_;
   Envoy::OptRef<MessageDispatcher<wire::Message>> msg_dispatcher_;
 };
 
