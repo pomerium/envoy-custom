@@ -84,7 +84,7 @@ private:
   std::unique_ptr<PingExtensionHandler> ping_handler_;
 
   std::unique_ptr<StreamManagementServiceClient> mgmt_client_;
-  std::unique_ptr<ChannelStreamServiceClient> channel_client_;
+  std::shared_ptr<ChannelStreamServiceClient> channel_client_;
   std::shared_ptr<Envoy::Grpc::RawAsyncClient> grpc_client_;
   std::shared_ptr<ChannelIDManager> channel_id_manager_;
   stream_id_t stream_id_;

@@ -21,7 +21,7 @@ public:
 class InternalStreamAddressImpl : public Instance {
 public:
   InternalStreamAddressImpl(stream_id_t stream_id,
-                            SshEndpointMetadataConstSharedPtr metadata,
+                            Upstream::MetadataConstSharedPtr metadata,
                             std::shared_ptr<SocketInterfaceFactory> socket_interface_factory);
   InternalStreamAddressImpl(const std::shared_ptr<const InternalStreamAddressImpl>& factory_address,
                             Event::Dispatcher& connection_dispatcher);
@@ -32,7 +32,7 @@ public:
                            Event::Dispatcher& connection_dispatcher);
 
   stream_id_t streamId() const { return stream_id_; }
-  const SshEndpointMetadataConstSharedPtr& endpointMetadata() const { return metadata_; }
+  const Upstream::MetadataConstSharedPtr& endpointMetadata() const { return metadata_; }
 
   bool operator==(const Instance&) const override { return false; }
   const std::string& asString() const override { return stream_address_; }
@@ -83,7 +83,7 @@ public:
 private:
   const stream_id_t stream_id_;
   const std::string stream_address_;
-  SshEndpointMetadataConstSharedPtr metadata_;
+  Upstream::MetadataConstSharedPtr metadata_;
   FakeEnvoyInternalAddress fake_envoy_internal_addr_;
 
   // This is initially created by an SshReverseTunnelCluster, and shared with all hosts in that
