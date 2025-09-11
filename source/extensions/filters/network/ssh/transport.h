@@ -98,6 +98,7 @@ public:
   virtual void terminate(absl::Status status) PURE;
   virtual ChannelIDManager& channelIdManager() PURE;
   virtual const SecretsProvider& secretsProvider() const PURE;
+  virtual Stats::Scope& statsScope() const PURE;
 
   // This function is called at each opportunity to send ext info (once for clients, twice for
   // servers). Iff a value is returned, it will be sent to the peer.

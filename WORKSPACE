@@ -32,6 +32,8 @@ openssh_version = "V_10_0_P2"
 
 magic_enum_version = "a413fcc9c46a020a746907136a384c227f3cd095"
 
+readerwriterqueue_version = "1.0.7"
+
 local_repository(
     name = "envoy_build_config",
     path = "bazel/envoy_build_config",
@@ -147,6 +149,22 @@ envoy_http_archive(
             strip_prefix = "magic_enum-" + magic_enum_version,
             urls = ["https://github.com/Neargye/magic_enum/archive/" + magic_enum_version + ".zip"],
             version = magic_enum_version,
+        ),
+    ),
+)
+
+envoy_http_archive(
+    name = "readerwriterqueue",
+    build_file_content = """cc_library(name = "readerwriterqueue", hdrs = glob(["*.h"]), include_prefix="readerwriterqueue", visibility = ["//visibility:public"])""",
+    locations = dict(
+        readerwriterqueue = dict(
+            license = "BSD",
+            license_url = "https://github.com/cameron314/readerwriterqueue/blob/master/LICENSE.md",
+            project_name = "readerwriterqueue",
+            sha256 = "",
+            strip_prefix = "readerwriterqueue-" + readerwriterqueue_version,
+            urls = ["https://github.com/cameron314/readerwriterqueue/archive/v" + readerwriterqueue_version + ".zip"],
+            version = readerwriterqueue_version,
         ),
     ),
 )

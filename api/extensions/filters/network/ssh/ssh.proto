@@ -4,9 +4,11 @@ package pomerium.extensions.ssh;
 
 import "envoy/config/core/v3/address.proto";
 import "envoy/config/core/v3/base.proto";
+import "envoy/config/core/v3/config_source.proto";
 import "envoy/config/core/v3/extension.proto";
 import "envoy/config/core/v3/grpc_service.proto";
 import "google/protobuf/any.proto";
+import "google/protobuf/duration.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/wrappers.proto";
@@ -42,6 +44,11 @@ message CodecConfig {
 
   // Pomerium StreamManagement grpc service.
   envoy.config.core.v3.GrpcService grpc_service = 4 [(validate.rules).message.required = true];
+}
+
+message ReverseTunnelCluster {
+  string                            name       = 1;
+  envoy.config.core.v3.ConfigSource eds_config = 2;
 }
 
 // The StreamManagement service is implemented by the Pomerium Authorize
@@ -83,9 +90,10 @@ message ChannelControl {
 // server request.
 message ClientMessage {
   oneof message {
-    StreamEvent           event         = 1;
-    AuthenticationRequest auth_request  = 2;
-    InfoResponse          info_response = 3;
+    StreamEvent           event          = 1;
+    AuthenticationRequest auth_request   = 2;
+    InfoResponse          info_response  = 3;
+    GlobalRequest         global_request = 4;
   }
 }
 
@@ -115,19 +123,79 @@ message DownstreamDisconnectedEvent {
 
 message UpstreamConnectEvent {}
 
+message Diagnostic {
+  enum Severity {
+    Unknown = 0;
+    Info    = 1;
+    Warning = 2;
+    Error   = 3;
+  }
+  Severity        severity = 1;
+  string          message  = 2;
+  repeated string hints    = 3;
+}
+
+message ChannelStats {
+  uint64                   rx_bytes_total   = 1;
+  uint64                   tx_bytes_total   = 2;
+  uint64                   rx_packets_total = 3;
+  uint64                   tx_packets_total = 4;
+  google.protobuf.Duration channel_duration = 5;
+}
+
 message ChannelEvent {
   message InternalChannelOpenedEvent {
     uint32 channel_id   = 1;
     string peer_address = 2;
+    string hostname     = 3;
+    string path         = 4;
   }
   message InternalChannelClosedEvent {
-    uint32 channel_id = 1;
-    string reason     = 2;
+    uint32              channel_id  = 1;
+    string              reason      = 2;
+    ChannelStats        stats       = 3;
+    repeated Diagnostic diagnostics = 4;
+  }
+  message InternalChannelStatsEvent {
+    uint32       channel_id = 1;
+    ChannelStats stats      = 2;
   }
   oneof event {
     InternalChannelOpenedEvent internal_channel_opened = 2;
     InternalChannelClosedEvent internal_channel_closed = 3;
+    InternalChannelStatsEvent  internal_channel_stats  = 4;
   }
+}
+
+message GlobalRequest {
+  bool want_reply = 1;
+  oneof request {
+    TcpipForwardRequest       tcpip_forward_request        = 2;
+    CancelTcpipForwardRequest cancel_tcpip_forward_request = 3;
+  }
+}
+
+message TcpipForwardRequest {
+  string remote_address = 1;
+  uint32 remote_port    = 2;
+}
+
+message CancelTcpipForwardRequest {
+  string remote_address = 1;
+  uint32 remote_port    = 2;
+}
+
+message GlobalRequestResponse {
+  bool   success       = 1;
+  string debug_message = 2;
+
+  oneof response {
+    TcpipForwardResponse tcpip_forward_response = 3;
+  }
+}
+
+message TcpipForwardResponse {
+  uint32 server_port = 1;
 }
 
 // AuthenticationRequest is sent by Envoy to Pomerium when the downstream
@@ -154,7 +222,8 @@ message InfoResponse {
 // requests, or to instruct Envoy to take some action on the stream.
 message ServerMessage {
   oneof message {
-    AuthenticationResponse auth_response = 1;
+    AuthenticationResponse auth_response           = 1;
+    GlobalRequestResponse  global_request_response = 2;
   }
 }
 

@@ -12,6 +12,7 @@ envoy_cc_binary(
     features = select({
         "@platforms//os:macos": [],
         "@envoy//bazel:asan_build": [],
+        "@envoy//bazel:tsan_build": [],
         "//conditions:default": ["fully_static_link"],
     }),
     repository = "@envoy",
