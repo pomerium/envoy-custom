@@ -14,6 +14,7 @@
 #include "source/extensions/filters/network/ssh/service_connection.h" // IWYU pragma: keep
 #include "source/extensions/filters/network/ssh/service_userauth.h"   // IWYU pragma: keep
 #include "gtest/gtest.h"
+#include <atomic>
 
 extern "C" {
 #include "openssh/ssh2.h"
@@ -29,11 +30,31 @@ class ServerTransportTest : public testing::Test {
 public:
   ServerTransportTest()
       : client_host_key_(*openssh::SSHKey::generate(KEY_ED25519, 256)),
-        client_(std::make_shared<testing::StrictMock<Grpc::MockAsyncClient>>()),
         transport_(
           server_factory_context_,
           initConfig(),
-          [this] { return this->client_; }) {}
+          [this] {
+            auto client = std::make_shared<testing::NiceMock<Grpc::MockAsyncClient>>();
+            ON_CALL(*client, startRaw("pomerium.extensions.ssh.StreamManagement", "ManageStream", _, _))
+              .WillByDefault(Invoke([this](absl::string_view, absl::string_view,
+                                           Envoy::Grpc::RawAsyncStreamCallbacks& callbacks,
+                                           const Http::AsyncClient::StreamOptions&) {
+                // dynamic cast the reference, not the pointer, so that failures throw an exception instead
+                // of returning nullptr
+                ASSERT(manage_stream_callbacks_ == nullptr);
+                manage_stream_callbacks_ = &dynamic_cast<Envoy::Grpc::AsyncStreamCallbacks<ServerMessage>&>(callbacks);
+                return &manage_stream_stream_;
+              }));
+            ON_CALL(*client, startRaw("pomerium.extensions.ssh.StreamManagement", "ServeChannel", _, _))
+              .WillByDefault(Invoke([this](absl::string_view, absl::string_view,
+                                           Envoy::Grpc::RawAsyncStreamCallbacks& callbacks,
+                                           const Http::AsyncClient::StreamOptions&) {
+                serve_channel_callbacks_.push_back(&dynamic_cast<Envoy::Grpc::AsyncStreamCallbacks<ChannelMessage>&>(callbacks));
+                return &serve_channel_stream_;
+              }));
+
+            return client;
+          }) {}
 
   const wire::KexInitMsg kex_init_ = {
     .cookie = {{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}},
@@ -58,24 +79,6 @@ public:
   };
 
   void SetUp() {
-    ON_CALL(*client_, startRaw("pomerium.extensions.ssh.StreamManagement", "ManageStream", _, _))
-      .WillByDefault(Invoke([this](absl::string_view, absl::string_view,
-                                   Envoy::Grpc::RawAsyncStreamCallbacks& callbacks,
-                                   const Http::AsyncClient::StreamOptions&) {
-        // dynamic cast the reference, not the pointer, so that failures throw an exception instead
-        // of returning nullptr
-        ASSERT(manage_stream_callbacks_ == nullptr);
-        manage_stream_callbacks_ = &dynamic_cast<Envoy::Grpc::AsyncStreamCallbacks<ServerMessage>&>(callbacks);
-        return &manage_stream_stream_;
-      }));
-    ON_CALL(*client_, startRaw("pomerium.extensions.ssh.StreamManagement", "ServeChannel", _, _))
-      .WillByDefault(Invoke([this](absl::string_view, absl::string_view,
-                                   Envoy::Grpc::RawAsyncStreamCallbacks& callbacks,
-                                   const Http::AsyncClient::StreamOptions&) {
-        serve_channel_callbacks_.push_back(&dynamic_cast<Envoy::Grpc::AsyncStreamCallbacks<ChannelMessage>&>(callbacks));
-        return &serve_channel_stream_;
-      }));
-    EXPECT_CALL(*client_, startRaw("pomerium.extensions.ssh.StreamManagement", "ManageStream", _, _));
     transport_.setCodecCallbacks(server_codec_callbacks_);
     ON_CALL(server_codec_callbacks_, writeToConnection(_))
       .WillByDefault([this](Envoy::Buffer::Instance& buffer) {
@@ -299,9 +302,8 @@ public:
     serve_channel_callbacks_[stream_index]->onReceiveMessage(std::move(ptr));
   }
 
-  auto ExpectServeChannelStart() {
-    EXPECT_CALL(*client_, startRaw("pomerium.extensions.ssh.StreamManagement", "ServeChannel", _, _));
-  }
+  testing::NiceMock<Server::Configuration::MockServerFactoryContext> server_factory_context_;
+  std::shared_ptr<pomerium::extensions::ssh::CodecConfig> server_config_;
 
   seqnum_t read_seqnum_{};
   seqnum_t write_seqnum_{};
@@ -309,19 +311,18 @@ public:
   std::unique_ptr<PacketCipher> client_cipher_;
   Envoy::Buffer::OwnedImpl input_buffer_;
   Envoy::Buffer::OwnedImpl output_buffer_;
-  testing::NiceMock<Server::Configuration::MockServerFactoryContext> server_factory_context_;
   openssh::SSHKeyPtr client_host_key_;
-  std::shared_ptr<pomerium::extensions::ssh::CodecConfig> server_config_;
   testing::StrictMock<MockServerCodecCallbacks> server_codec_callbacks_;
   testing::NiceMock<Envoy::Network::MockServerConnection> mock_connection_;
-  testing::NiceMock<Grpc::MockAsyncStream> manage_stream_stream_;
-  testing::NiceMock<Grpc::MockAsyncStream> serve_channel_stream_;
-  std::shared_ptr<testing::StrictMock<Grpc::MockAsyncClient>> client_;
   Envoy::Grpc::AsyncStreamCallbacks<ServerMessage>* manage_stream_callbacks_{};
   std::vector<Envoy::Grpc::AsyncStreamCallbacks<ChannelMessage>*> serve_channel_callbacks_;
+  testing::NiceMock<Grpc::MockAsyncStream> manage_stream_stream_;
+  testing::NiceMock<Grpc::MockAsyncStream> serve_channel_stream_;
   SshServerTransport transport_;
 
 private:
+  std::atomic_int expect_serve_channel_calls_ = 0;
+
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig>& initConfig() {
     server_config_ = std::make_shared<pomerium::extensions::ssh::CodecConfig>();
     for (auto keyName : {"rsa_1", "ed25519_1"}) {
@@ -623,7 +624,6 @@ public:
     open.max_packet_size = wire::ChannelMaxPacketSize;
     if (!expect_failure) {
       IN_SEQUENCE;
-      ExpectServeChannelStart();
       ExpectSendOnServeChannelStream(metadataReq);
       ExpectSendOnServeChannelStream(open);
     }
@@ -650,6 +650,7 @@ public:
     ASSERT(last_downstream_id_ != 0);
     wire::ChannelOpenFailureMsg msg;
     msg.recipient_channel = last_downstream_id_;
+    msg.description = "test error"s;
     auto channelMsg = std::make_unique<ChannelMessage>();
     *channelMsg->mutable_raw_bytes()->mutable_value() = *wire::encodeTo<std::string>(msg);
     serve_channel_callbacks_[stream_index]->onReceiveMessage(std::move(channelMsg));
@@ -731,7 +732,6 @@ TEST_F(HijackedModeTest, HijackedMode_AddWellKnownMetadata) {
   open.max_packet_size = wire::ChannelMaxPacketSize;
   {
     IN_SEQUENCE;
-    ExpectServeChannelStart();
     ExpectSendOnServeChannelStream(metadataReq);
     ExpectSendOnServeChannelStream(open);
   }
@@ -833,6 +833,7 @@ TEST_F(HijackedModeTest, HijackedMode_InvalidMessageFromUpstream) {
 
 TEST_F(HijackedModeTest, HijackedMode_MultipleChannels) {
   ASSERT_OK(SetupHijackedMode());
+
   auto channel1 = StartChannel();
   ASSERT_OK(channel1.status());
   SendChannelOpenConfirmation(*channel1, 0); // grpc stream 0
@@ -882,6 +883,7 @@ TEST_F(HijackedModeTest, HijackedMode_ChannelOpenFailure) {
   ASSERT_OK(SetupHijackedMode());
   auto channel1 = StartChannel();
   ASSERT_OK(channel1.status());
+  EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("test error"));
   SendChannelOpenFailure();
 }
 
@@ -966,7 +968,6 @@ public:
     open.max_packet_size = wire::ChannelMaxPacketSize;
     {
       IN_SEQUENCE;
-      ExpectServeChannelStart();
       ExpectSendOnServeChannelStream(metadataReq);
       ExpectSendOnServeChannelStream(open);
     }
@@ -1026,7 +1027,6 @@ TEST_F(HandoffTest, HandoffMode) {
   *upstream->add_allowed_methods()->mutable_method() = "publickey";
   ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action);
   EXPECT_CALL(mock_connection_, readDisable(true));
-  EXPECT_CALL(serve_channel_stream_, resetStream);
   ExpectDecodingSuccess();
   ReceiveOnServeChannelStream(ctrl);
 
@@ -1054,7 +1054,6 @@ TEST_F(HandoffTest, HandoffMode_Mirror) {
   allow->mutable_mirror_session();
   ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action);
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("session mirroring feature not available"));
-  EXPECT_CALL(serve_channel_stream_, resetStream);
   ReceiveOnServeChannelStream(ctrl);
 }
 
@@ -1069,7 +1068,6 @@ TEST_F(HandoffTest, HandoffMode_Internal) {
   allow->mutable_internal();
   ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action);
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("received invalid channel message: unexpected target: 3"));
-  EXPECT_CALL(serve_channel_stream_, resetStream);
   ReceiveOnServeChannelStream(ctrl);
 }
 
@@ -1080,7 +1078,6 @@ TEST_F(HandoffTest, HandoffMode_StartHandoffBeforeChannelOpenConfirmation) {
   ChannelMessage ctrl;
   ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action);
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("handoff requested before channel open confirmation"));
-  EXPECT_CALL(serve_channel_stream_, resetStream);
   ReceiveOnServeChannelStream(ctrl);
 }
 
@@ -1124,7 +1121,6 @@ TEST_F(ServerTransportTest, HijackedMode_StreamClosed) {
   open.max_packet_size = wire::ChannelMaxPacketSize;
   {
     IN_SEQUENCE;
-    ExpectServeChannelStart();
     ExpectSendOnServeChannelStream(metadataReq);
     ExpectSendOnServeChannelStream(open);
   }
@@ -1325,6 +1321,7 @@ TEST_F(ServerTransportTest, EncodeEffectiveHeaderEnablePingForwarding) {
 
 TEST_F(ServerTransportTest, EncodeEffectiveHeaderHandoffComplete) {
   ASSERT_OK(ReadExtInfo());
+
   auto clientKey = *openssh::SSHKey::generate(KEY_ED25519, 256);
 
   ASSERT_OK(RequestUserAuthService());
@@ -1349,7 +1346,6 @@ TEST_F(ServerTransportTest, EncodeEffectiveHeaderHandoffComplete) {
   open.max_packet_size = wire::ChannelMaxPacketSize;
   {
     IN_SEQUENCE;
-    ExpectServeChannelStart();
     ExpectSendOnServeChannelStream(metadataReq);
     ExpectSendOnServeChannelStream(open);
   }
@@ -1382,7 +1378,6 @@ TEST_F(ServerTransportTest, EncodeEffectiveHeaderHandoffComplete) {
   *upstream->add_allowed_methods()->mutable_method() = "publickey";
   ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action);
   EXPECT_CALL(mock_connection_, readDisable(true));
-  EXPECT_CALL(serve_channel_stream_, resetStream);
   ExpectDecodingSuccess();
   ReceiveOnServeChannelStream(ctrl);
 

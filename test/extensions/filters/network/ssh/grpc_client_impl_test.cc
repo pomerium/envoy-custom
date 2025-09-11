@@ -206,7 +206,30 @@ TEST_F(ChannelStreamServiceClientTest, Start_Metadata) {
   expectedMetadataMsg.mutable_metadata()->CopyFrom(md);
   EXPECT_CALL(stream_, sendMessageRaw_(Grpc::ProtoBufferEq(expectedMetadataMsg), false));
 
-  auto _ = client.start(&callbacks_, md);
+  client.start(&callbacks_, md);
+}
+
+TEST_F(ChannelStreamServiceClientTest, SendMessages) {
+  IN_SEQUENCE;
+  EXPECT_CALL(*client_, startRaw("pomerium.extensions.ssh.StreamManagement", "ServeChannel", _, _))
+    .WillOnce(Return(&stream_));
+  ChannelStreamServiceClient client(client_);
+
+  ChannelMessage expectedMetadataMsg;
+  expectedMetadataMsg.mutable_metadata(); // empty metadata
+  EXPECT_CALL(stream_, sendMessageRaw_(Grpc::ProtoBufferEq(expectedMetadataMsg), false));
+
+  client.start(&callbacks_, {});
+
+  ChannelMessage msg1;
+  *msg1.mutable_raw_bytes()->mutable_value() = "test1";
+  EXPECT_CALL(stream_, sendMessageRaw_(Grpc::ProtoBufferEq(msg1), false));
+  client.sendMessage(msg1);
+
+  ChannelMessage msg2;
+  *msg2.mutable_raw_bytes()->mutable_value() = "test2";
+  EXPECT_CALL(stream_, sendMessageRaw_(Grpc::ProtoBufferEq(msg2), false));
+  client.sendMessage(msg2);
 }
 
 TEST_F(ChannelStreamServiceClientTest, OnReceiveMessage) {
@@ -242,41 +265,32 @@ TEST_F(ChannelStreamServiceClientTest, OnReceiveMessage_HandlerReturnsError) {
   *msg1.mutable_channel_control()->mutable_protocol() = "ssh";
   EXPECT_CALL(callbacks_, onReceiveMessage(testing::Pointee(ProtoEq(msg1))))
     .WillOnce(Return(absl::InvalidArgumentError("test error")));
+  EXPECT_CALL(stream_, resetStream);
 
   ChannelStreamServiceClient client(client_);
 
   client.start(&callbacks_, {});
 
+  EXPECT_CALL(callbacks_, onStreamClosed(absl::InvalidArgumentError("test error")));
   client.onReceiveMessage(std::make_unique<ChannelMessage>(msg1));
 }
 
-TEST_F(ChannelStreamServiceClientTest, OnReceiveMessage_HandlerReturnsError_OnRemoteClose) {
+TEST_F(ChannelStreamServiceClientTest, ErrorStartingStream) {
   IN_SEQUENCE;
   EXPECT_CALL(*client_, startRaw("pomerium.extensions.ssh.StreamManagement", "ServeChannel", _, _))
-    .WillOnce(Return(&stream_));
+    .WillOnce(
+      Invoke([&](std::string_view, std::string_view, Grpc::RawAsyncStreamCallbacks& callbacks,
+                 const Http::AsyncClient::StreamOptions&) {
+        // mirror the expected behavior of the real stream
+        callbacks.onRemoteClose(Grpc::Status::Internal, "test error");
+        return nullptr;
+      }));
 
-  ChannelMessage expectedMetadataMsg;
-  expectedMetadataMsg.mutable_metadata(); // empty metadata
-  EXPECT_CALL(stream_, sendMessageRaw_(Grpc::ProtoBufferEq(expectedMetadataMsg), false));
-
-  ChannelMessage msg1;
-  *msg1.mutable_channel_control()->mutable_protocol() = "ssh";
-  EXPECT_CALL(callbacks_, onReceiveMessage(testing::Pointee(ProtoEq(msg1))))
-    .WillOnce(Return(absl::InvalidArgumentError("test error")));
+  // this should be called before start() returns
+  EXPECT_CALL(callbacks_, onStreamClosed(absl::InternalError("test error")));
 
   ChannelStreamServiceClient client(client_);
-
-  bool called = false;
-  client.setOnRemoteCloseCallback([&](Grpc::Status::GrpcStatus status, std::string err) {
-    EXPECT_EQ(Grpc::Status::InvalidArgument, status);
-    EXPECT_EQ("test error", err);
-    called = true;
-  });
-
   client.start(&callbacks_, {});
-
-  client.onReceiveMessage(std::make_unique<ChannelMessage>(msg1));
-  EXPECT_TRUE(called);
 }
 
 TEST_F(ChannelStreamServiceClientTest, OnRemoteClose) {
@@ -297,17 +311,11 @@ TEST_F(ChannelStreamServiceClientTest, OnRemoteClose) {
   ChannelStreamServiceClient client(client_);
   client.start(&callbacks_, {});
 
-  bool called = false;
-  client.setOnRemoteCloseCallback([&](Grpc::Status::GrpcStatus status, std::string err) {
-    EXPECT_EQ(Grpc::Status::InvalidArgument, status);
-    EXPECT_EQ("test error", err);
-    called = true;
-  });
+  EXPECT_CALL(callbacks_, onStreamClosed(absl::InvalidArgumentError("test error")));
   callbacks_ref->onRemoteClose(Grpc::Status::InvalidArgument, "test error");
-  EXPECT_TRUE(called);
 }
 
-TEST_F(ChannelStreamServiceClientTest, OnRemoteClose_NoCallback) {
+TEST_F(ChannelStreamServiceClientTest, OnRemoteCloseNoError) {
   Envoy::OptRef<Grpc::RawAsyncStreamCallbacks> callbacks_ref{};
   IN_SEQUENCE;
   EXPECT_CALL(*client_, startRaw("pomerium.extensions.ssh.StreamManagement", "ServeChannel", _, _))
@@ -325,7 +333,8 @@ TEST_F(ChannelStreamServiceClientTest, OnRemoteClose_NoCallback) {
   ChannelStreamServiceClient client(client_);
   client.start(&callbacks_, {});
 
-  callbacks_ref->onRemoteClose(Grpc::Status::InvalidArgument, "test error");
+  EXPECT_CALL(callbacks_, onStreamClosed(absl::OkStatus()));
+  callbacks_ref->onRemoteClose(Grpc::Status::Ok, "");
 }
 
 TEST_F(ChannelStreamServiceClientTest, NoopMetadataCallbacks) {

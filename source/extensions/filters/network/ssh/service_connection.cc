@@ -241,9 +241,9 @@ public:
         config_(config),
         channel_open_(channel_open) {}
 
-  ~HijackedChannel() {
-    if (stream_ != nullptr) {
-      unsetCallbacksAndResetStream();
+  void onStreamClosed(absl::Status err) override {
+    if (!handoff_started_) {
+      hijack_callbacks_.hijackedChannelFailed(err);
     }
   }
 
@@ -277,11 +277,8 @@ public:
 
     // send the combined metadata
     typedMetadata["com.pomerium.ssh"].PackFrom(sshMetadata);
-    stream_ = channel_client_->start(this, std::move(metadata));
-    channel_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus code, std::string err) {
-      // This callback is unregistered on handoff.
-      hijack_callbacks_.hijackedChannelFailed(absl::Status(static_cast<absl::StatusCode>(code), err));
-    });
+    channel_client_->start(this, std::move(metadata));
+
     sendMessageToStream(std::move(channel_open_)); // clear channel_open_
     return absl::OkStatus();
   }
@@ -346,8 +343,8 @@ public:
         if (!open_complete_) {
           return absl::FailedPreconditionError("handoff requested before channel open confirmation");
         }
-        // allow the client to be closed without ending the connection
-        unsetCallbacksAndResetStream();
+
+        handoff_started_ = true; // allow the client to be closed without ending the connection
         auto* handOffMsg = ctrl_action.mutable_hand_off();
         hijack_callbacks_.initHandoff(handOffMsg);
         // set handoff complete here; we expect that initHandoff calls readDisable on the
@@ -385,7 +382,6 @@ public:
 
   absl::Status onChannelOpenFailed(wire::ChannelOpenFailureMsg&& msg) override {
     // return an error here to end the connection, instead of going through the grpc callbacks
-    unsetCallbacksAndResetStream();
     return absl::InvalidArgumentError(*msg.description);
   }
 
@@ -400,20 +396,14 @@ private:
     ASSERT(msgData.ok());
     *b.mutable_value() = *msgData;
     *channelMsg.mutable_raw_bytes() = b;
-    stream_->sendMessage(channelMsg, false);
+    channel_client_->sendMessage(channelMsg);
   }
 
-  void unsetCallbacksAndResetStream() {
-    channel_client_->setOnRemoteCloseCallback(nullptr);
-    stream_->resetStream();
-    stream_ = nullptr;
-  }
-
+  bool handoff_started_{false};
   bool handoff_complete_{false};
   bool open_complete_{false};
   HijackedChannelCallbacks& hijack_callbacks_;
   std::unique_ptr<ChannelStreamServiceClient> channel_client_;
-  Grpc::AsyncStream<ChannelMessage> stream_;
   pomerium::extensions::ssh::InternalTarget config_;
   wire::ChannelOpenMsg channel_open_;
 };

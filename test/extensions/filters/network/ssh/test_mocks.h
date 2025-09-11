@@ -140,6 +140,7 @@ public:
   virtual ~MockChannelStreamCallbacks();
 
   MOCK_METHOD(absl::Status, onReceiveMessage, (Grpc::ResponsePtr<ChannelMessage>&&));
+  MOCK_METHOD(void, onStreamClosed, (absl::Status));
 };
 
 } // namespace test

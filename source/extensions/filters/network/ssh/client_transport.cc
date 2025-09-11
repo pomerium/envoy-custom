@@ -284,7 +284,7 @@ public:
     }
 
     ENVOY_LOG(debug, "handoff started");
-    // channel is open, now request a pty
+    // 2: PTY open request
     wire::ChannelRequestMsg channelReq{
       .recipient_channel = callbacks_->channelId(),
       .want_reply = true,
@@ -313,7 +313,7 @@ public:
       return callbacks_->passthrough(std::move(msg));
     }
     return msg.visit(
-      // 3: PTY open request
+      // 3: Shell request
       [&](const wire::ChannelSuccessMsg&) {
         // open a shell; this logic is only reached after requesting a pty
         wire::ChannelRequestMsg shellReq;

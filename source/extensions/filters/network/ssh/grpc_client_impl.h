@@ -64,28 +64,29 @@ class ChannelStreamCallbacks {
 public:
   virtual ~ChannelStreamCallbacks() = default;
   virtual absl::Status onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) PURE;
+  virtual void onStreamClosed(absl::Status) PURE;
 };
 
 class ChannelStreamServiceClient : public Grpc::AsyncStreamCallbacks<ChannelMessage>,
                                    public Logger::Loggable<Logger::Id::filter> {
 public:
   ChannelStreamServiceClient(Grpc::RawAsyncClientSharedPtr client);
-  Grpc::AsyncStream<ChannelMessage> start(ChannelStreamCallbacks* callbacks,
-                                          envoy::config::core::v3::Metadata metadata);
-  void setOnRemoteCloseCallback(std::function<void(Grpc::Status::GrpcStatus, std::string)> cb);
+  void start(ChannelStreamCallbacks* callbacks, envoy::config::core::v3::Metadata metadata);
   void onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) override;
+  void sendMessage(const ChannelMessage& message);
 
 private:
   void onCreateInitialMetadata(Http::RequestHeaderMap&) override {}
   void onReceiveInitialMetadata([[maybe_unused]] Http::ResponseHeaderMapPtr&&) override {}
   void onReceiveTrailingMetadata([[maybe_unused]] Http::ResponseTrailerMapPtr&&) override {}
   void onRemoteClose(Grpc::Status::GrpcStatus, const std::string&) override;
+  void notifyOnStreamClosedOnce(absl::Status stat);
+
   const Protobuf::MethodDescriptor& method_manage_stream_;
-  Grpc::AsyncClient<ChannelMessage, ChannelMessage> client_;
+  Grpc::AsyncClient<ChannelMessage, ChannelMessage> client_; // holds a reference to the client shared_ptr
+  Grpc::AsyncStream<ChannelMessage> stream_;
   ChannelStreamCallbacks* callbacks_;
   std::optional<envoy::config::core::v3::Metadata> metadata_;
-  std::function<void(Grpc::Status::GrpcStatus, std::string)> on_remote_close_;
-  bool on_remote_close_called_{};
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
