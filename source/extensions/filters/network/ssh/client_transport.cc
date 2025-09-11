@@ -91,7 +91,9 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
                                                         GenericProxy::EncodingContext&) {
   switch (frame.frameFlags().frameTags() & FrameTags::FrameTypeMask) {
   case FrameTags::RequestHeader: {
-    auto& filterState = callbacks_->connection()->streamInfo().filterState();
+    auto& conn = *callbacks_->connection();
+    conn.noDelay(true);
+    auto& filterState = conn.streamInfo().filterState();
     const auto& reqHeader = static_cast<const SSHRequestHeaderFrame&>(frame);
     // copy filter state objects shared by the downstream
     if (auto shared = reqHeader.downstreamSharedFilterStateObjects(); shared.has_value()) {
