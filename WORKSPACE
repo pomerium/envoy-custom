@@ -32,6 +32,10 @@ openssh_version = "V_10_0_P2"
 
 magic_enum_version = "a413fcc9c46a020a746907136a384c227f3cd095"
 
+readerwriterqueue_version = "1.0.7"
+
+taskflow_version = "3.10.0"
+
 local_repository(
     name = "envoy_build_config",
     path = "bazel/envoy_build_config",
@@ -50,6 +54,7 @@ http_archive(
         "//patches/envoy:0004-pgv.patch",
         "//patches/envoy:0005-suppress-duplicate-wip-warnings.patch",
         "//patches/envoy:0006-coverage-format.patch",
+        "//patches/envoy:0010-user-space-io-handle.patch",
         "//patches/envoy:tmp-fix-upstream-connection-callbacks.patch",
         "//patches/envoy:tmp-transport-socket-options.patch",
     ],
@@ -145,6 +150,22 @@ envoy_http_archive(
             strip_prefix = "magic_enum-" + magic_enum_version,
             urls = ["https://github.com/Neargye/magic_enum/archive/" + magic_enum_version + ".zip"],
             version = magic_enum_version,
+        ),
+    ),
+)
+
+envoy_http_archive(
+    name = "readerwriterqueue",
+    build_file_content = """cc_library(name = "readerwriterqueue", hdrs = glob(["*.h"]), include_prefix="readerwriterqueue", visibility = ["//visibility:public"])""",
+    locations = dict(
+        readerwriterqueue = dict(
+            license = "BSD",
+            license_url = "https://github.com/cameron314/readerwriterqueue/blob/master/LICENSE.md",
+            project_name = "readerwriterqueue",
+            sha256 = "",
+            strip_prefix = "readerwriterqueue-" + readerwriterqueue_version,
+            urls = ["https://github.com/cameron314/readerwriterqueue/archive/v" + readerwriterqueue_version + ".zip"],
+            version = readerwriterqueue_version,
         ),
     ),
 )

@@ -2,21 +2,16 @@
 
 namespace Envoy::Network::Address {
 
-InternalStreamAddressImpl::InternalStreamAddressImpl(stream_id_t stream_id,
-                                                     SshEndpointMetadataConstSharedPtr metadata,
+InternalStreamAddressImpl::InternalStreamAddressImpl(InternalStreamContext& context,
                                                      std::shared_ptr<SocketInterfaceFactory> socket_interface_factory)
-    : stream_id_(stream_id),
-      stream_address_(fmt::format("ssh:{}", stream_id)),
-      metadata_(metadata),
-      fake_envoy_internal_addr_(stream_address_),
+    : context_(context),
+      fake_envoy_internal_addr_(context_.streamAddress()),
       socket_interface_factory_(socket_interface_factory) {}
 
 InternalStreamAddressImpl::InternalStreamAddressImpl(const InternalStreamAddressConstSharedPtr& factory_address,
                                                      Event::Dispatcher& connection_dispatcher)
-    : stream_id_(factory_address->stream_id_),
-      stream_address_(factory_address->stream_address_),
-      metadata_(factory_address->metadata_),
-      fake_envoy_internal_addr_(factory_address->stream_address_),
+    : context_(factory_address->context_),
+      fake_envoy_internal_addr_(context_.streamAddress()),
       socket_interface_(factory_address->socketInterfaceFactory().createSocketInterface(connection_dispatcher)) {}
 
 InternalStreamAddressImpl::~InternalStreamAddressImpl() = default;

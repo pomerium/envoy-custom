@@ -15,6 +15,7 @@
 #include "test/test_common/test_common.h"
 #include "source/extensions/filters/network/ssh/service_connection.h" // IWYU pragma: keep
 #include "source/extensions/filters/network/ssh/service_userauth.h"   // IWYU pragma: keep
+#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include <atomic>
 
@@ -339,6 +340,14 @@ private:
     return conf;
   }
 };
+MATCHER_P(RequestCommonFrameWithMsg, msg, "") {
+  const auto& actual = dynamic_cast<const SSHRequestCommonFrame&>(*arg).message();
+  if (wire::Message{std::move(msg)} == actual) {
+    return true;
+  }
+  *result_listener << actual;
+  return false;
+}
 // NOLINTEND(readability-identifier-naming)
 
 TEST_F(ServerTransportTest, Disconnect) {
@@ -481,6 +490,22 @@ TEST_F(ServerTransportTest, HostKeysProve_NoKeyForAlgorithm) {
   EXPECT_EQ(disconnect.description, "Invalid Argument: error handling HostKeysProveRequest: requested key is invalid");
 }
 
+TEST_F(ServerTransportTest, TcpipForwardRequest_UpstreamNotReady) {
+  ASSERT_OK(ReadExtInfo());
+  EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("unexpected message received: GlobalRequest (80)"))
+    .Times(2);
+
+  ASSERT_OK(WriteMsg(wire::GlobalRequestMsg{
+    .want_reply = true,
+    .request = wire::TcpipForwardMsg{},
+  }));
+
+  ASSERT_OK(WriteMsg(wire::GlobalRequestMsg{
+    .want_reply = true,
+    .request = wire::CancelTcpipForwardMsg{},
+  }));
+}
+
 class ClientMessagesPreUserAuthTest : public ServerTransportTest, public testing::WithParamInterface<std::tuple<wire::Message, std::string_view>> {
 public:
   void SetUp() override {
@@ -580,6 +605,36 @@ TEST_F(ServerTransportTest, SuccessfulUserAuth_NormalMode) {
   ExpectUpstreamConnectEvent();
 
   ASSERT_OK(WriteMsg(std::move(authReq)));
+}
+
+TEST_F(ServerTransportTest, ForwardGlobalRequests) {
+  ASSERT_OK(ReadExtInfo());
+
+  auto clientKey = *openssh::SSHKey::generate(KEY_ED25519, 256);
+
+  ASSERT_OK(RequestUserAuthService());
+  auto [authReq, clientMsg] = BuildUserAuthMessages(*clientKey);
+
+  ExpectHandlePomeriumGrpcAuthRequestNormal(clientMsg);
+  ExpectDecodingSuccess();
+  ExpectUpstreamConnectEvent();
+
+  ASSERT_OK(WriteMsg(std::move(authReq)));
+
+  // When the upstream is available, some global requests should be forwarded
+  wire::GlobalRequestMsg tcpipForwardMsg{
+    .want_reply = true,
+    .request = wire::TcpipForwardMsg{},
+  };
+  wire::GlobalRequestMsg cancelTcpipForwardMsg{
+    .want_reply = true,
+    .request = wire::CancelTcpipForwardMsg{},
+  };
+  EXPECT_CALL(server_codec_callbacks_, onDecodingSuccess(RequestCommonFrameWithMsg(tcpipForwardMsg)));
+  EXPECT_CALL(server_codec_callbacks_, onDecodingSuccess(RequestCommonFrameWithMsg(cancelTcpipForwardMsg)));
+
+  ASSERT_OK(WriteMsg(auto(tcpipForwardMsg)));
+  ASSERT_OK(WriteMsg(auto(cancelTcpipForwardMsg)));
 }
 
 // NOLINTBEGIN(readability-identifier-naming)
@@ -934,6 +989,189 @@ TEST_F(HijackedModeTest, HijackedMode_NoChannelRequest) {
   // none is sent no connection should be started.
 }
 
+TEST_F(HijackedModeTest, TcpipForwardRequestSuccess) {
+  ASSERT_OK(SetupHijackedMode());
+
+  ClientMessage expectedClientMsg;
+  expectedClientMsg.mutable_global_request()->set_want_reply(true);
+  auto* forwardRequest = expectedClientMsg.mutable_global_request()->mutable_tcpip_forward_request();
+  forwardRequest->set_remote_address("test_address");
+  forwardRequest->set_remote_port(0);
+
+  EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(expectedClientMsg), false))
+    .WillOnce([this](Buffer::InstancePtr&, bool) {
+      // simulate the server responding
+      auto response = std::make_unique<ServerMessage>();
+      response->mutable_global_request_response()->set_success(true);
+      response->mutable_global_request_response()->mutable_tcpip_forward_response()->set_server_port(1234);
+      manage_stream_callbacks_->onReceiveMessage(std::move(response));
+    });
+
+  ASSERT_OK(WriteMsg(wire::GlobalRequestMsg{
+    .want_reply = true,
+    .request = wire::TcpipForwardMsg{
+      .remote_address = "test_address"s,
+      .remote_port = 0,
+    },
+  }));
+
+  wire::GlobalRequestSuccessMsg actualReply;
+  ASSERT_OK(ReadMsg(actualReply));
+  ASSERT_OK(actualReply.resolve<wire::TcpipForwardResponseMsg>());
+
+  wire::GlobalRequestSuccessMsg expectedReply{
+    .response = wire::TcpipForwardResponseMsg{
+      .server_port = 1234,
+    },
+  };
+  ASSERT_EQ(expectedReply, actualReply);
+}
+
+TEST_F(HijackedModeTest, TcpipForwardRequestSuccess_NoExtraData) {
+  ASSERT_OK(SetupHijackedMode());
+
+  ClientMessage expectedClientMsg;
+  expectedClientMsg.mutable_global_request()->set_want_reply(true);
+  auto* forwardRequest = expectedClientMsg.mutable_global_request()->mutable_tcpip_forward_request();
+  forwardRequest->set_remote_address("test_address");
+  forwardRequest->set_remote_port(1234);
+
+  EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(expectedClientMsg), false))
+    .WillOnce([this](Buffer::InstancePtr&, bool) {
+      auto response = std::make_unique<ServerMessage>();
+      response->mutable_global_request_response()->set_success(true);
+      // no message-specific extra data
+      manage_stream_callbacks_->onReceiveMessage(std::move(response));
+    });
+
+  ASSERT_OK(WriteMsg(wire::GlobalRequestMsg{
+    .want_reply = true,
+    .request = wire::TcpipForwardMsg{
+      .remote_address = "test_address"s,
+      .remote_port = 1234,
+    },
+  }));
+
+  wire::GlobalRequestSuccessMsg expectedReply; // should be empty
+  ASSERT_OK(ReadMsg(expectedReply));
+  ASSERT_FALSE(expectedReply.response.has_value());
+  ASSERT_FALSE(expectedReply.response.has_unknown_value());
+}
+
+TEST_F(HijackedModeTest, TcpipForwardRequestFailure) {
+  ASSERT_OK(SetupHijackedMode());
+
+  ClientMessage expectedClientMsg;
+  expectedClientMsg.mutable_global_request()->set_want_reply(true);
+  auto* forwardRequest = expectedClientMsg.mutable_global_request()->mutable_tcpip_forward_request();
+  forwardRequest->set_remote_address("test_address");
+  forwardRequest->set_remote_port(1234);
+
+  EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(expectedClientMsg), false))
+    .WillOnce([this](Buffer::InstancePtr&, bool) {
+      auto response = std::make_unique<ServerMessage>();
+      response->mutable_global_request_response()->set_success(false);
+      manage_stream_callbacks_->onReceiveMessage(std::move(response));
+    });
+
+  ASSERT_OK(WriteMsg(wire::GlobalRequestMsg{
+    .want_reply = true,
+    .request = wire::TcpipForwardMsg{
+      .remote_address = "test_address"s,
+      .remote_port = 1234,
+    },
+  }));
+
+  wire::GlobalRequestFailureMsg expectedReply;
+  ASSERT_OK(ReadMsg(expectedReply));
+}
+
+TEST_F(HijackedModeTest, TcpipForwardRequestFailureWithDebugMessage) {
+  ASSERT_OK(SetupHijackedMode());
+
+  ClientMessage expectedClientMsg;
+  expectedClientMsg.mutable_global_request()->set_want_reply(true);
+  auto* forwardRequest = expectedClientMsg.mutable_global_request()->mutable_tcpip_forward_request();
+  forwardRequest->set_remote_address("test_address");
+  forwardRequest->set_remote_port(1234);
+
+  EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(expectedClientMsg), false))
+    .WillOnce([this](Buffer::InstancePtr&, bool) {
+      auto response = std::make_unique<ServerMessage>();
+      response->mutable_global_request_response()->set_success(false);
+      response->mutable_global_request_response()->set_debug_message("test debug message");
+      manage_stream_callbacks_->onReceiveMessage(std::move(response));
+    });
+
+  ASSERT_OK(WriteMsg(wire::GlobalRequestMsg{
+    .want_reply = true,
+    .request = wire::TcpipForwardMsg{
+      .remote_address = "test_address"s,
+      .remote_port = 1234,
+    },
+  }));
+
+  wire::DebugMsg debugMsg;
+  ASSERT_OK(ReadMsg(debugMsg));
+  EXPECT_EQ("test debug message", *debugMsg.message);
+  EXPECT_TRUE(debugMsg.always_display);
+
+  wire::GlobalRequestFailureMsg expectedReply;
+  ASSERT_OK(ReadMsg(expectedReply));
+}
+
+TEST_F(HijackedModeTest, TcpipForwardRequestInvalidServerMessage) {
+  ASSERT_OK(SetupHijackedMode());
+
+  ClientMessage expectedClientMsg;
+  expectedClientMsg.mutable_global_request()->set_want_reply(true);
+  expectedClientMsg.mutable_global_request()->mutable_tcpip_forward_request();
+
+  EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(expectedClientMsg), false))
+    .WillOnce([this](Buffer::InstancePtr&, bool) {
+      auto response = std::make_unique<ServerMessage>();
+      manage_stream_callbacks_->onReceiveMessage(std::move(response));
+    });
+
+  // this should fail at the message dispatcher level
+  EXPECT_CALL(server_codec_callbacks_, onDecodingFailure(fmt::format("management server error: unexpected message received: {}",
+                                                                     ServerMessage::MessageCase::MESSAGE_NOT_SET)));
+  ASSERT_OK(WriteMsg(wire::GlobalRequestMsg{
+    .want_reply = true,
+    .request = wire::TcpipForwardMsg{},
+  }));
+}
+
+TEST_F(HijackedModeTest, CancelTcpipForwardRequest) {
+  ASSERT_OK(SetupHijackedMode());
+
+  ClientMessage expectedClientMsg;
+  expectedClientMsg.mutable_global_request()->set_want_reply(true);
+  auto* forwardRequest = expectedClientMsg.mutable_global_request()->mutable_cancel_tcpip_forward_request();
+  forwardRequest->set_remote_address("test_address");
+  forwardRequest->set_remote_port(1234);
+
+  EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(expectedClientMsg), false))
+    .WillOnce([this](Buffer::InstancePtr&, bool) {
+      auto response = std::make_unique<ServerMessage>();
+      response->mutable_global_request_response()->set_success(true);
+      manage_stream_callbacks_->onReceiveMessage(std::move(response));
+    });
+
+  ASSERT_OK(WriteMsg(wire::GlobalRequestMsg{
+    .want_reply = true,
+    .request = wire::CancelTcpipForwardMsg{
+      .remote_address = "test_address"s,
+      .remote_port = 1234,
+    },
+  }));
+
+  wire::GlobalRequestSuccessMsg actualReply;
+  ASSERT_OK(ReadMsg(actualReply));
+  ASSERT_FALSE(actualReply.response.has_value());
+  ASSERT_FALSE(actualReply.response.has_unknown_value());
+}
+
 // NOLINTBEGIN(readability-identifier-naming)
 class HandoffTest : public ServerTransportTest {
 public:
@@ -990,14 +1228,7 @@ public:
     serve_channel_callbacks_[0]->onReceiveMessage(std::move(channelMsg));
   }
 };
-MATCHER_P(RequestCommonFrameWithMsg, msg, "") {
-  const auto& actual = dynamic_cast<const SSHRequestCommonFrame&>(*arg).message();
-  if (wire::Message{std::move(msg)} == actual) {
-    return true;
-  }
-  *result_listener << actual;
-  return false;
-}
+
 // NOLINTEND(readability-identifier-naming)
 
 TEST_F(HandoffTest, HandoffMode) {
@@ -1167,7 +1398,7 @@ TEST_F(ServerTransportTest, PomeriumDisconnectsDuringAuth) {
       manage_stream_callbacks_->onRemoteClose(Envoy::Grpc::Status::Internal, "test error");
     });
 
-  EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("test error"));
+  EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("management server error: test error"));
   ASSERT_OK(WriteMsg(std::move(authReq)));
 }
 

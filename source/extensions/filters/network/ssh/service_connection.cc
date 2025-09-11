@@ -128,14 +128,16 @@ absl::Status ConnectionService::handleMessage(wire::Message&& ssh_msg) {
       // and received for a channel to be closed. The Channel object is responsible for tracking
       // whether or not it has already sent a ChannelCloseMsg, and if not, it must send one here
       // before it is destroyed.
-
+      ENVOY_LOG(debug, "received channel close: {}", msg.recipient_channel);
       auto node = channels_.extract(msg.recipient_channel);
       if (node.empty()) {
         // protocol error; end the connection
         return absl::InvalidArgumentError(fmt::format("received message for unknown channel {}: {}", msg.recipient_channel, msg.msg_type()));
       }
       // allow node to go out of scope
-      return node.mapped()->readMessage(std::move(ssh_msg));
+      auto stat = node.mapped()->readMessage(std::move(ssh_msg));
+      ENVOY_LOG(debug, "destroying channel {}", msg.recipient_channel);
+      return stat;
     },
     [&](wire::ChannelMsg auto& msg) -> absl::Status {
       if (auto it = channels_.find(msg.recipient_channel); it != channels_.end()) {
@@ -176,6 +178,21 @@ ConnectionService::ChannelCallbacksImpl::ChannelCallbacksImpl(ConnectionService&
 
 void ConnectionService::ChannelCallbacksImpl::sendMessageLocal(wire::Message&& msg) {
   msg.visit(
+    [&](wire::ChannelCloseMsg& msg) {
+      msg.recipient_channel = channel_id_;
+      auto stat = channel_id_mgr_.processOutgoingChannelMsg(msg, local_peer_);
+      // This should always succeed, since we just set the recipient_channel ourselves.
+      THROW_IF_NOT_OK(stat);
+
+      close_timer_ = parent_.transport_.connectionDispatcher()->createTimer([this] {
+        // If the grace period elapses and we don't receive a channel close reply, terminate the
+        // connection. Protects against misbehaving clients who might ignore channel close to
+        // keep a connection alive longer than they are permitted to, e.g. if we send a channel
+        // close as a way to gracefully signal that the host is being drained.
+        parent_.transport_.terminate(absl::PermissionDeniedError(""));
+      });
+      close_timer_->enableTimer(CloseResponseGracePeriod);
+    },
     [&](wire::ChannelMsg auto& msg) {
       msg.recipient_channel = channel_id_;
       auto stat = channel_id_mgr_.processOutgoingChannelMsg(msg, local_peer_);
@@ -188,6 +205,7 @@ void ConnectionService::ChannelCallbacksImpl::sendMessageLocal(wire::Message&& m
   // this channel via ChannelCloseMsg, so defer to the transport for error handling and cleanup.
   // The channel calling this function wouldn't be able to do much else about an error at this
   // level either (this is not necessarily the case for sendMessageRemote, though).
+  ENVOY_LOG(debug, "sending message to local channel {}: {}", channel_id_, msg.msg_type());
   if (auto stat = parent_.transport_.sendMessageToConnection(std::move(msg)); !stat.ok()) {
     parent_.transport_.terminate(stat.status());
   }
@@ -203,7 +221,7 @@ absl::Status ConnectionService::ChannelCallbacksImpl::sendMessageRemote(wire::Me
       if (!stat.ok()) {
         return stat;
       }
-      ENVOY_LOG(debug, "forwarding channel message: type={}, id={}", msg.msg_type(), *msg.recipient_channel);
+      ENVOY_LOG(debug, "sending messsage to remote channel {}: {}", *msg.recipient_channel, msg.msg_type());
       parent_.transport_.forward(std::move(msg));
       return absl::OkStatus();
     },
@@ -213,6 +231,11 @@ absl::Status ConnectionService::ChannelCallbacksImpl::sendMessageRemote(wire::Me
 }
 
 void ConnectionService::ChannelCallbacksImpl::cleanup() {
+  if (close_timer_ != nullptr) {
+    close_timer_->disableTimer();
+  }
+  ASSERT(parent_.transport_.connectionDispatcher()->isThreadSafe());
+  ENVOY_LOG(debug, "channel {}: cleanup", channel_id_);
   ASSERT(inserted());
   channel_id_mgr_.releaseChannelID(channel_id_, local_peer_);
   removeFromList(parent_.channel_callbacks_);
@@ -481,6 +504,48 @@ DownstreamConnectionService::DownstreamConnectionService(
       transport_(dynamic_cast<DownstreamTransportCallbacks&>(callbacks)),
       stream_tracker_(std::move(stream_tracker)) {}
 
+void DownstreamConnectionService::registerMessageHandlers(StreamMgmtServerMessageDispatcher& dispatcher) {
+  dispatcher.registerHandler(ServerMessage::kGlobalRequestResponse, this);
+}
+
+absl::Status DownstreamConnectionService::handleMessage(Grpc::ResponsePtr<ServerMessage>&& message) {
+  switch (message->message_case()) {
+  case ServerMessage::kGlobalRequestResponse: {
+    const auto& resp = message->global_request_response();
+    if (resp.success()) {
+      switch (resp.response_case()) {
+      case pomerium::extensions::ssh::GlobalRequestResponse::kTcpipForwardResponse:
+        return transport_.sendMessageToConnection(
+                           wire::GlobalRequestSuccessMsg{
+                             .response = wire::TcpipForwardResponseMsg{
+                               .server_port = resp.tcpip_forward_response().server_port(),
+                             },
+                           })
+          .status();
+      case pomerium::extensions::ssh::GlobalRequestResponse::RESPONSE_NOT_SET:
+        [[fallthrough]];
+      default:
+        return transport_.sendMessageToConnection(wire::GlobalRequestSuccessMsg{}).status();
+      }
+    }
+
+    // The global request message doesn't include a description string, but it might still be
+    // helpful to show one to the user.
+    if (const auto& desc = resp.debug_message(); !desc.empty()) {
+      wire::DebugMsg dbg{
+        .always_display = true,
+        .message = desc,
+      };
+      transport_.sendMessageToConnection(std::move(dbg)).IgnoreError();
+    }
+
+    return transport_.sendMessageToConnection(wire::GlobalRequestFailureMsg{}).status();
+  } break;
+  default:
+    return absl::InternalError("invalid server message");
+  }
+}
+
 void DownstreamConnectionService::onStreamBegin(Network::Connection& connection) {
   ASSERT(connection.dispatcher().isThreadSafe());
 
@@ -507,6 +572,32 @@ void DownstreamConnectionService::disableChannelHijack() {
   msg_dispatcher_->uninstallMiddleware(
     static_cast<OpenHijackedChannelMiddleware*>(open_hijacked_channel_middleware_.get()));
   open_hijacked_channel_middleware_.reset();
+}
+
+void DownstreamConnectionService::sendChannelEvent(const pomerium::extensions::ssh::ChannelEvent& ev) {
+  switch (ev.event_case()) {
+  case pomerium::extensions::ssh::ChannelEvent::kInternalChannelOpened:
+    ENVOY_LOG(debug, "sending channel event: internal_channel_opened {{channel_id: {}, peer_address: {}}}",
+              ev.internal_channel_opened().channel_id(),
+              ev.internal_channel_opened().peer_address());
+    break;
+  case pomerium::extensions::ssh::ChannelEvent::kInternalChannelClosed:
+    ENVOY_LOG(debug, "sending channel event: internal_channel_closed {{channel_id: {}, reason: {}}}",
+              ev.internal_channel_closed().channel_id(),
+              ev.internal_channel_closed().reason());
+    break;
+  case pomerium::extensions::ssh::ChannelEvent::kInternalChannelStats:
+    ENVOY_LOG(debug, "sending channel event: internal_channel_stats {{channel_id: {}}}",
+              ev.internal_channel_stats().channel_id());
+    break;
+  case pomerium::extensions::ssh::ChannelEvent::EVENT_NOT_SET:
+    throw Envoy::EnvoyException("invalid channel event");
+  }
+  pomerium::extensions::ssh::StreamEvent stream_ev;
+  *stream_ev.mutable_channel_event() = ev;
+  ClientMessage msg;
+  *msg.mutable_event() = stream_ev;
+  transport_.sendMgmtClientMessage(msg);
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

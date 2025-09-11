@@ -131,6 +131,13 @@ public:
         frame_flags_(value_if_error<FrameFlags::FLAG_DRAIN_CLOSE>(tags)),
         msg_(std::move(msg)) {}
 
+  // Constructs a response header frame for use by respond(), which has unique requirements.
+  SSHResponseHeaderFrame(wire::DisconnectMsg&& msg, const GenericProxy::RequestHeaderFrame& respond_to)
+      : SSHResponseHeaderFrame(std::move(msg), FrameTags{}) {
+    setStreamId(respond_to.frameFlags().streamId());
+    frame_flags_ = FrameFlags::FLAG_DRAIN_CLOSE | FrameFlags::FLAG_END_STREAM;
+  }
+
   void setStreamId(stream_id_t stream_id) { stream_id_ = stream_id; }
 
   std::string_view protocol() const override { return "ssh"; }
