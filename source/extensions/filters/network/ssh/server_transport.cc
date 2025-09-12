@@ -30,7 +30,7 @@ SshServerTransport::SshServerTransport(Server::Configuration::ServerFactoryConte
                                        std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
                                        CreateGrpcClientFunc create_grpc_client,
                                        StreamTrackerSharedPtr stream_tracker)
-    : TransportBase(context.api(), std::move(config)),
+    : TransportBase(context, std::move(config)),
       DownstreamTransportCallbacks(*this),
       stream_tracker_(std::move(stream_tracker)) {
   auto grpcClient = create_grpc_client();
@@ -75,6 +75,7 @@ void SshServerTransport::setCodecCallbacks(Callbacks& callbacks) {
 
 void SshServerTransport::onConnected() {
   auto& conn = *callbacks_->connection();
+
   ASSERT(conn.state() == Network::Connection::State::Open);
   connection_dispatcher_ = conn.dispatcher();
   channel_id_manager_ = std::make_shared<ChannelIDManager>();
@@ -201,6 +202,24 @@ absl::Status SshServerTransport::handleMessage(wire::Message&& msg) {
             auto* streamEvent = clientMsg.mutable_event();
             auto* globalReq = streamEvent->mutable_global_request();
             auto* forwardReq = globalReq->mutable_tcpip_forward_request();
+            forwardReq->set_remote_address(forward_msg.remote_address);
+            forwardReq->set_remote_port(forward_msg.remote_port);
+            sendMgmtClientMessage(clientMsg);
+
+            return absl::OkStatus();
+          }
+
+          ENVOY_LOG(debug, "forwarding global request: {}", msg.request_name());
+          forward(std::move(msg));
+          return absl::OkStatus();
+        },
+        [&](wire::CancelTcpipForwardMsg& forward_msg) {
+          if (authInfo().channel_mode == ChannelMode::Hijacked) {
+            ENVOY_LOG(debug, "sending global request to hijacked stream: {}", msg.request_name());
+            ClientMessage clientMsg;
+            auto* streamEvent = clientMsg.mutable_event();
+            auto* globalReq = streamEvent->mutable_global_request();
+            auto* forwardReq = globalReq->mutable_cancel_tcpip_forward_request();
             forwardReq->set_remote_address(forward_msg.remote_address);
             forwardReq->set_remote_port(forward_msg.remote_port);
             sendMgmtClientMessage(clientMsg);

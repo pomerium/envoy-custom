@@ -33,6 +33,7 @@ public:
       : io_handle_(&dynamic_cast<IoSocket::UserSpace::IoHandleImpl&>(*io_handle.release())),
         connection_dispatcher_(connection_dispatcher),
         event_callbacks_(event_callbacks) {
+
     // Set the downstream buffer high watermark to match the local window size. This allows us to
     // apply backpressure to the upstream ssh channel if the downstream is not reading from the
     // write buffer.
@@ -47,6 +48,12 @@ public:
     ASSERT(stat.ok()); // default implementation always succeeds
 
     channel_id_ = callbacks_->channelId();
+
+    // rx_bytes_total_ = &callbacks.scope().counterFromString("rx_bytes_total");
+    // tx_bytes_total_ = &callbacks.scope().counterFromString("tx_bytes_total");
+    // rx_packets_total_ = &callbacks.scope().counterFromString("rx_packets_total");
+    // tx_packets_total_ = &callbacks.scope().counterFromString("tx_packets_total");
+
     // Build and send the ChannelOpen message to the downstream.
     // Normally channels don't send their own ChannelOpen messages, but this is somewhat of a
     // special case, because the channel is owned internally.
@@ -90,6 +97,7 @@ public:
     auto* opened = ev.mutable_internal_channel_opened();
     opened->set_channel_id(channel_id_);
     opened->set_peer_address(downstream_addr_->asStringView());
+    start_time_ = absl::Now();
     event_callbacks_.sendChannelEvent(ev);
     return absl::OkStatus();
   }
@@ -105,6 +113,7 @@ public:
   absl::Status readMessage(wire::Message&& msg) override {
     return msg.visit(
       [&](wire::ChannelDataMsg& msg) {
+        tx_packets_total_++;
         // subtract from the local window
         if (sub_overflow(&local_window_, static_cast<uint32_t>(msg.data->size()))) {
           // the upstream wrote more bytes than allowed by the local window
@@ -194,9 +203,15 @@ private:
 
     io_handle_->resetFileEvents();
     pomerium::extensions::ssh::ChannelEvent ev;
-    auto* opened = ev.mutable_internal_channel_closed();
-    opened->set_channel_id(channel_id_);
-    opened->set_reason(reason);
+    auto* closed = ev.mutable_internal_channel_closed();
+    closed->set_channel_id(channel_id_);
+    closed->set_reason(reason);
+    auto* stats = closed->mutable_stats();
+    stats->set_rx_bytes_total(rx_bytes_total_);
+    stats->set_tx_bytes_total(tx_bytes_total_);
+    stats->set_rx_packets_total(rx_packets_total_);
+    stats->set_tx_packets_total(tx_packets_total_);
+    *stats->mutable_channel_duration() = Protobuf::util::TimeUtil::NanosecondsToDuration(absl::ToInt64Nanoseconds(absl::Now() - start_time_));
     event_callbacks_.sendChannelEvent(ev);
 
     wire::ChannelCloseMsg close;
@@ -236,6 +251,8 @@ private:
     if (!stat.ok()) {
       return stat;
     }
+    rx_bytes_total_ += r.return_value_;
+    rx_packets_total_++;
     ENVOY_LOG(debug, "channel {}: wrote {} bytes from upstream", channel_id_, len);
     return absl::OkStatus();
   }
@@ -247,8 +264,16 @@ private:
     while (window_buffer_.length() > 0) {
       auto r = io_handle_->write(window_buffer_);
       if (!r.ok() && !r.wouldBlock()) {
+        if (r.err_->getSystemErrorCode() == SOCKET_ERROR_INVAL) {
+          // peer is closed. we could check this ourselves, but the socket write() implementation
+          // does it anyway, so it would be redundant.
+          ENVOY_LOG(debug, "channel {}: downstream closed early, dropping {} bytes", channel_id_, window_buffer_.length());
+          window_buffer_.drain(window_buffer_.length());
+          return absl::OkStatus();
+        }
         return absl::CancelledError(fmt::format("write: io error: {}", r.err_->getErrorDetails()));
       }
+      tx_bytes_total_ += r.return_value_;
       ENVOY_LOG(debug, "channel {}: read {} bytes from downstream", channel_id_, r.return_value_);
     }
     return absl::OkStatus();
@@ -283,6 +308,16 @@ private:
   std::string server_name_;
   Envoy::Network::Address::InstanceConstSharedPtr downstream_addr_;
   ChannelEventCallbacks& event_callbacks_;
+
+  uint64_t rx_bytes_total_{};
+  uint64_t tx_bytes_total_{};
+  uint64_t rx_packets_total_{};
+  uint64_t tx_packets_total_{};
+  // Stats::Counter* rx_bytes_total_{};
+  // Stats::Counter* tx_bytes_total_{};
+  // Stats::Counter* rx_packets_total_{};
+  // Stats::Counter* tx_packets_total_{};
+  absl::Time start_time_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
@@ -412,6 +447,7 @@ public:
     absl::Status creation_status = absl::OkStatus();
     auto ret = absl::WrapUnique(new InternalStreamHost(creation_status, id, cluster, server_context, socket_interface));
     RETURN_IF_NOT_OK(creation_status);
+
     return ret;
   }
 
@@ -506,6 +542,7 @@ absl::Status SshReverseTunnelCluster::onConfigUpdate(const std::vector<Config::D
 
   // TODO: handle endpoint_stale_after
 
+  info_->configUpdateStats().update_success_.inc();
   return update(cluster_load_assignment);
 }
 
@@ -576,7 +613,7 @@ absl::Status SshReverseTunnelCluster::update(const envoy::config::endpoint::v3::
     }
   }
 
-  HostVectorSharedPtr filteredHostSetCopy(new HostVector());
+  auto filteredHostSetCopy = std::make_shared<HostVector>();
   // copy all the existing hosts, except those that have been removed
   std::copy_if(hostSet.begin(), hostSet.end(), std::back_inserter(*filteredHostSetCopy),
                [&](const HostSharedPtr& host) {
@@ -584,6 +621,9 @@ absl::Status SshReverseTunnelCluster::update(const envoy::config::endpoint::v3::
                });
   // copy all the new hosts
   std::copy(hostsToAdd.begin(), hostsToAdd.end(), std::back_inserter(*filteredHostSetCopy));
+
+  // the per-locality host list is required for load stats - it simply contains all the hosts
+  // auto filteredHostSetPerLocality = std::make_shared<HostsPerLocalityImpl>(*filteredHostSetCopy);
 
   ENVOY_LOG(info, "updating endpoints for cluster {}: {} added, {} removed, {} total", edsServiceName(),
             hostsToAdd.size(), hostsToRemove.size(), filteredHostSetCopy->size());

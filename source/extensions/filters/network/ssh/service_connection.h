@@ -50,12 +50,14 @@ public:
     absl::Status sendMessageRemote(wire::Message&& msg) override;
     uint32_t channelId() const override { return channel_id_; }
     void cleanup() override;
+    Stats::Scope& scope() const override;
 
   private:
     ConnectionService& parent_;
     ChannelIDManager& channel_id_mgr_;
     const uint32_t channel_id_;
     const Peer local_peer_;
+    Stats::ScopeSharedPtr scope_;
   };
 
 protected:

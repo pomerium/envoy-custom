@@ -1,6 +1,5 @@
 #pragma once
 
-#include "source/common/id_alloc.h"
 #include "source/extensions/filters/network/ssh/id_manager.h"
 #pragma clang unsafe_buffer_usage begin
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
@@ -90,6 +89,7 @@ public:
   virtual Envoy::OptRef<Envoy::Event::Dispatcher> connectionDispatcher() const PURE;
   virtual void terminate(absl::Status status) PURE;
   virtual ChannelIDManager& channelIdManager() PURE;
+  virtual Stats::Scope& statsScope() const PURE;
 
   // This function is called at each opportunity to send ext info (once for clients, twice for
   // servers). Iff a value is returned, it will be sent to the peer.

@@ -33,7 +33,7 @@ private:
 SshClientTransport::SshClientTransport(
   Envoy::Server::Configuration::ServerFactoryContext& context,
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config)
-    : TransportBase(context.api(), std::move(config)) {
+    : TransportBase(context, std::move(config)) {
   wire::ExtInfoMsg extInfo;
   extInfo.extensions->emplace_back(wire::PingExtension{.version = "0"s});
   outgoing_ext_info_ = std::move(extInfo);

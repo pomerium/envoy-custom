@@ -7,6 +7,7 @@ import "envoy/config/core/v3/config_source.proto";
 import "envoy/config/core/v3/extension.proto";
 import "envoy/config/core/v3/grpc_service.proto";
 import "google/protobuf/any.proto";
+import "google/protobuf/duration.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/wrappers.proto";
@@ -126,8 +127,17 @@ message ChannelEvent {
     string peer_address = 2;
   }
   message InternalChannelClosedEvent {
+    message Stats {
+      uint64                   rx_bytes_total   = 1;
+      uint64                   tx_bytes_total   = 2;
+      uint64                   rx_packets_total = 3;
+      uint64                   tx_packets_total = 4;
+      google.protobuf.Duration channel_duration = 5;
+    }
+
     uint32 channel_id = 1;
     string reason     = 2;
+    Stats  stats      = 3;
   }
   oneof event {
     InternalChannelOpenedEvent internal_channel_opened = 2;
@@ -140,8 +150,13 @@ message GlobalRequest {
     string remote_address = 1;
     uint32 remote_port    = 2;
   }
+  message CancelTcpipForwardRequest {
+    string remote_address = 1;
+    uint32 remote_port    = 2;
+  }
   oneof request {
-    TcpipForwardRequest tcpip_forward_request = 2;
+    TcpipForwardRequest       tcpip_forward_request        = 1;
+    CancelTcpipForwardRequest cancel_tcpip_forward_request = 2;
   }
 }
 

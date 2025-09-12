@@ -171,7 +171,8 @@ ConnectionService::ChannelCallbacksImpl::ChannelCallbacksImpl(ConnectionService&
     : parent_(parent),
       channel_id_mgr_(parent_.transport_.channelIdManager()),
       channel_id_(channel_id),
-      local_peer_(local_peer) {}
+      local_peer_(local_peer),
+      scope_(parent.transport_.statsScope().createScope("channel")) {}
 
 absl::Status ConnectionService::ChannelCallbacksImpl::sendMessageLocal(wire::Message&& msg) {
   auto stat = msg.visit(
@@ -212,6 +213,10 @@ void ConnectionService::ChannelCallbacksImpl::cleanup() {
   ASSERT(inserted());
   channel_id_mgr_.releaseChannelID(channel_id_, local_peer_);
   removeFromList(parent_.channel_callbacks_);
+}
+
+Stats::Scope& ConnectionService::ChannelCallbacksImpl::scope() const {
+  return *scope_;
 }
 
 // UpstreamConnectionService
@@ -326,7 +331,7 @@ public:
             return absl::InternalError(
               fmt::format("expected ChannelOpenConfirmation or ChannelOpenFailure, got {}", anyMsg.msg_type()));
           }
-          ENVOY_LOG(debug, "sending channel message to downstream: {}", anyMsg.msg_type());
+          ENVOY_LOG(debug, "channel {}: sending message to downstream: {}", callbacks_->channelId(), anyMsg.msg_type());
           return callbacks_->sendMessageLocal(std::move(anyMsg));
         });
     }

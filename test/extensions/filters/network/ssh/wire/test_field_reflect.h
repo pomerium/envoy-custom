@@ -356,6 +356,9 @@ TEST_FIELDS(UserAuthInfoPrompt,
 TEST_FIELDS(TcpipForwardMsg,
             remote_address,
             remote_port);
+TEST_FIELDS(CancelTcpipForwardMsg,
+            remote_address,
+            remote_port);
 
 namespace wire {
 

@@ -378,13 +378,24 @@ struct TcpipForwardMsg final : SubMsg<SshMessageType::GlobalRequest, "tcpip-forw
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4254#section-7.1
+struct CancelTcpipForwardMsg final : SubMsg<SshMessageType::GlobalRequest, "cancel-tcpip-forward"> {
+  field<std::string, LengthPrefixed> remote_address;
+  field<uint32_t> remote_port;
+
+  constexpr auto operator<=>(const CancelTcpipForwardMsg&) const = default;
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t len) noexcept;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
+};
+
 // https://datatracker.ietf.org/doc/html/rfc4254#section-4
 struct GlobalRequestMsg final : Msg<SshMessageType::GlobalRequest> {
   constexpr std::string& request_name() { return *request.key_field(); }
   field<bool> want_reply;
   sub_message<HostKeysProveRequestMsg,
               HostKeysMsg,
-              TcpipForwardMsg>
+              TcpipForwardMsg,
+              CancelTcpipForwardMsg>
     request;
 
   constexpr auto operator<=>(const GlobalRequestMsg&) const = default;
