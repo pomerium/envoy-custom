@@ -55,7 +55,7 @@ public:
 
             return client;
           },
-          StreamTracker::fromContext(server_factory_context_, StreamTrackerConfig{})) {}
+          StreamTracker::fromContext(server_factory_context_)) {}
 
   const wire::KexInitMsg kex_init_ = {
     .cookie = {{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}},

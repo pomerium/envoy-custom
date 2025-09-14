@@ -1,93 +1,110 @@
 #include "source/extensions/filters/network/ssh/stream_tracker.h"
+#include "source/common/visit.h"
 #include "source/extensions/filters/network/ssh/channel.h"
-
-#pragma clang unsafe_buffer_usage begin
-#include "source/common/config/utility.h"
-#pragma clang unsafe_buffer_usage end
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-SINGLETON_MANAGER_REGISTRATION(ssh_connection_tracker); // NOLINT
-
-StreamTrackerSharedPtr StreamTracker::fromContext(Server::Configuration::ServerFactoryContext& context,
-                                                  const pomerium::extensions::ssh::StreamTrackerConfig& config) {
-  ASSERT_IS_MAIN_OR_TEST_THREAD();
-  auto tracker = fromContext(context);
-  tracker->initialize(context, config);
-  return tracker;
-}
+SINGLETON_MANAGER_REGISTRATION(ssh_stream_tracker); // NOLINT
 
 StreamTrackerSharedPtr StreamTracker::fromContext(Server::Configuration::ServerFactoryContext& context) {
   ASSERT_IS_MAIN_OR_TEST_THREAD();
   return context.singletonManager().getTyped<StreamTracker>(
-    SINGLETON_MANAGER_REGISTERED_NAME(ssh_connection_tracker), [&] { // NOLINT
-      return std::shared_ptr<StreamTracker>(new StreamTracker);
+    SINGLETON_MANAGER_REGISTERED_NAME(ssh_stream_tracker), [&] { // NOLINT
+      return std::make_shared<StreamTracker>(context);
     });
 }
 
+StreamTracker::StreamTracker(Server::Configuration::ServerFactoryContext& context)
+    : thread_local_stream_table_(context.threadLocal()),
+      main_thread_dispatcher_(context.mainThreadDispatcher()),
+      scope_(context.scope()),
+      stat_names_(scope_.symbolTable()),
+      stats_(stat_names_, scope_, stat_names_.ssh_) {
+  thread_local_stream_table_.set([](Event::Dispatcher&) {
+    return std::make_shared<ThreadLocalStreamTable>();
+  });
+}
+
 void StreamTracker::tryLock(stream_id_t key, absl::AnyInvocable<void(Envoy::OptRef<StreamContext>)> cb) {
-  Thread::ReleasableLockGuard lock(mu_);
-  if (auto it = active_connection_handles_.find(key); it != active_connection_handles_.end()) {
-    auto& dispatcher = it->second->connection().dispatcher();
-    lock.release();
-    dispatcher.post([this, key, cb = std::move(cb)] mutable {
-      Thread::LockGuard lock(mu_);
-      if (auto it = active_connection_handles_.find(key); it != active_connection_handles_.end()) {
-        cb(*it->second);
-      } else {
-        cb({});
-      }
-    });
+  ASSERT(thread_local_stream_table_.get().has_value());
+  auto& table = thread_local_stream_table_->get();
+  if (auto&& it = table.find(key); it != table.end()) {
+    basic_visit(
+      it->second,
+      [&](Event::Dispatcher* d) {
+        d->post([this, key, cb = std::move(cb)] mutable {
+          tryLock(key, std::move(cb));
+        });
+      },
+      [&](StreamContext& ctx) {
+        // Note: the StreamContext cannot be invalidated during the callback, because
+        // this runs in the connection's thread.
+        cb(ctx);
+      });
   } else {
     cb({});
   }
 }
 
-size_t StreamTracker::numActiveConnectionHandles() {
-  Thread::LockGuard lock(mu_);
-  return active_connection_handles_.size();
-}
+std::unique_ptr<StreamHandle> StreamTracker::onStreamBegin(stream_id_t stream_id,
+                                                           Network::Connection& connection,
+                                                           StreamCallbacks& stream_callbacks,
+                                                           ChannelEventCallbacks& event_callbacks,
+                                                           const std::function<void()>& on_sync_complete) {
+  ASSERT(thread_local_stream_table_.get().has_value());
+  ASSERT(connection.dispatcher().isThreadSafe());
 
-std::unique_ptr<StreamHandle> StreamTracker::onStreamBegin(stream_id_t stream_id, Network::Connection& connection,
-                                                           StreamCallbacks& stream_callbacks, ChannelEventCallbacks& event_callbacks) {
-  Thread::ReleasableLockGuard lock(mu_);
-  auto intf = std::make_unique<StreamContext>(stream_id, connection, stream_callbacks, event_callbacks);
   ENVOY_LOG(debug, "tracking new ssh stream: id={}", stream_id);
-  ASSERT(!active_connection_handles_.contains(stream_id));
-  for (auto& filter : filters_) {
-    filter->onStreamBegin(*intf);
-  }
-  active_connection_handles_.insert({stream_id, std::move(intf)});
-  lock.release();
-  return std::make_unique<StreamHandle>(stream_id, [this, stream_id] {
-    onStreamEnd(stream_id);
+  stats_.total_streams_.inc();
+  stats_.active_streams_.inc();
+
+  // Note: stream IDs are random, not sequential
+  thread_local_stream_table_->get()
+    .try_emplace(stream_id, StreamContext(stream_id, connection, stream_callbacks, event_callbacks));
+
+  main_thread_dispatcher_.post([self = weak_from_this(), stream_id, dispatcher = &connection.dispatcher(), on_sync_complete] {
+    if (auto st = self.lock(); st != nullptr &&
+                               !st->thread_local_stream_table_.isShutdown()) {
+      const auto update = [stream_id, dispatcher](Envoy::OptRef<ThreadLocalStreamTable> obj) {
+        obj->get().try_emplace(stream_id, dispatcher);
+      };
+      if (on_sync_complete == nullptr) {
+        st->thread_local_stream_table_.runOnAllThreads(update);
+      } else {
+        st->thread_local_stream_table_.runOnAllThreads(update, on_sync_complete);
+      }
+    }
   });
+  return absl::WrapUnique(new StreamHandle(stream_id, weak_from_this()));
 }
 
 void StreamTracker::onStreamEnd(stream_id_t stream_id) {
-  Thread::LockGuard lock(mu_);
-  // onStreamEnd is a no-op if called twice (e.g. called directly, then indirectly from the handle)
-  if (auto node = active_connection_handles_.extract(stream_id); !node.empty()) {
-    ENVOY_LOG(debug, "tracked ssh stream ended: id={}", stream_id);
-    for (auto& filter : filters_) {
-      filter->onStreamEnd(*node.mapped());
+  ASSERT(thread_local_stream_table_.get().has_value());
+  auto n = thread_local_stream_table_->get().erase(stream_id);
+  ASSERT(n == 1);
+  ENVOY_LOG(debug, "tracked ssh stream ended: id={}", stream_id);
+  stats_.active_streams_.dec();
+  main_thread_dispatcher_.post([self = weak_from_this(), stream_id] {
+    if (auto st = self.lock(); st != nullptr &&
+                               !st->thread_local_stream_table_.isShutdown()) {
+      st->thread_local_stream_table_.runOnAllThreads(
+        [stream_id](Envoy::OptRef<ThreadLocalStreamTable> obj) {
+          auto node = obj->get().extract(stream_id);
+          ASSERT(node.empty() || std::holds_alternative<::Envoy::Event::Dispatcher*>(node.mapped()));
+        });
     }
-  }
+  });
 }
 
-void StreamTracker::initialize(Server::Configuration::ServerFactoryContext& context, const StreamTrackerConfig& config) {
-  Thread::LockGuard lock(mu_);
-  std::vector<StreamTrackerFilterPtr> filters;
+StreamHandle::StreamHandle(stream_id_t id, std::weak_ptr<StreamTracker> parent)
+    : id_(id),
+      parent_(std::move(parent)) {
+}
 
-  for (const auto& filter_config : config.filters()) {
-    auto& factory = Config::Utility::getAndCheckFactory<StreamTrackerFilterFactory>(filter_config);
-    ProtobufTypes::MessagePtr message = factory.createEmptyConfigProto();
-    THROW_IF_NOT_OK(Envoy::Config::Utility::translateOpaqueConfig(
-      filter_config.typed_config(), context.messageValidationVisitor(), *message));
-    filters.push_back(factory.createStreamTrackerFilter(*message, context));
+StreamHandle::~StreamHandle() {
+  if (auto st = parent_.lock(); st != nullptr) {
+    st->onStreamEnd(id_);
   }
-
-  std::swap(filters, filters_);
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

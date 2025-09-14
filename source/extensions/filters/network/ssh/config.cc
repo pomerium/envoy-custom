@@ -20,8 +20,7 @@ CodecFactoryPtr SshCodecFactoryConfig::createCodecFactory(
     return (*factory)->createUncachedRawAsyncClient();
   };
 
-  return std::make_unique<SshCodecFactory>(context, conf, createClient,
-                                           StreamTracker::fromContext(context, typed_config.stream_tracker()));
+  return std::make_unique<SshCodecFactory>(context, conf, createClient, StreamTracker::fromContext(context));
 }
 
 REGISTER_FACTORY(SshCodecFactoryConfig, CodecFactoryConfig);

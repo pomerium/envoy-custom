@@ -6,7 +6,7 @@
 #pragma clang unsafe_buffer_usage begin
 #include "source/common/buffer/buffer_impl.h" // IWYU pragma: keep
 #include "absl/random/random.h"
-#include "absl/status/statusor.h" // IWYU pragma: keep
+#include "test/test_common/status_utility.h" // IWYU pragma: keep
 
 #if defined(NDEBUG) || defined(ENVOY_CONFIG_COVERAGE)
 #include "test/test_common/logging.h"
@@ -40,16 +40,15 @@ constexpr absl::Status to_status(S&& statusor) {
 }
 } // namespace
 
-#define EXPECT_OK(expr)                                                                                                               \
-  do {                                                                                                                                \
-    absl::Status expect_ok_status = to_status(expr);                                                                                  \
-    EXPECT_TRUE(expect_ok_status.ok()) << "status code: " << expect_ok_status.code() << "; message: " << expect_ok_status.ToString(); \
-  } while (false)
+#define CALLED \
+  did_call = true
 
-#define ASSERT_OK(expr)                                                                                                               \
-  do {                                                                                                                                \
-    absl::Status assert_ok_status = to_status(expr);                                                                                  \
-    ASSERT_TRUE(assert_ok_status.ok()) << "status code: " << assert_ok_status.code() << "; message: " << assert_ok_status.ToString(); \
+#define CHECK_CALLED(expr)                                            \
+  do {                                                                \
+    bool did_call = false;                                            \
+    expr;                                                             \
+    EXPECT_TRUE(did_call)                                             \
+      << "CHECK_CALL failed: the expected statement was not reached"; \
   } while (false)
 
 // NOLINTBEGIN(readability-identifier-naming)

@@ -1,8 +1,9 @@
 #pragma once
 
 #include "source/extensions/filters/network/ssh/channel.h"
+
 #pragma clang unsafe_buffer_usage begin
-#include "source/common/common/thread.h"
+#include "envoy/event/dispatcher.h"
 #include "envoy/server/factory_context.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.validate.h"
@@ -15,7 +16,6 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 using Envoy::Event::Dispatcher;
 using Envoy::Event::FileReadyType;
 using Envoy::Event::PlatformDefaultTriggerType;
-using pomerium::extensions::ssh::StreamTrackerConfig;
 
 class StreamCallbacks {
 public:
@@ -30,6 +30,10 @@ public:
         connection_(connection),
         stream_callbacks_(stream_callbacks),
         event_callbacks_(event_callbacks) {}
+  StreamContext(StreamContext&&) noexcept = default;
+  StreamContext& operator=(StreamContext&&) noexcept = delete;
+  StreamContext(const StreamContext&) = delete;
+  StreamContext& operator=(const StreamContext&) = delete;
 
   stream_id_t streamId() { return stream_id_; }
   Network::Connection& connection() { return connection_; }
@@ -43,69 +47,84 @@ private:
   ChannelEventCallbacks& event_callbacks_;
 };
 
-class StreamHandle : public Cleanup {
-public:
-  StreamHandle(stream_id_t id, std::function<void()> f)
-      : Cleanup(std::move(f)), id_(id) {}
+#define ALL_STREAM_TRACKER_STATS(COUNTER, GAUGE, HISTOGRAM, TEXT_READOUT, STATNAME) \
+  COUNTER(total_streams)                                                            \
+  GAUGE(active_streams, Accumulate)                                                 \
+  STATNAME(ssh)
 
-  stream_id_t streamId() const { return id_; }
+MAKE_STAT_NAMES_STRUCT(StreamTrackerStatNames, ALL_STREAM_TRACKER_STATS);
+MAKE_STATS_STRUCT(StreamTrackerStats, StreamTrackerStatNames, ALL_STREAM_TRACKER_STATS);
 
-private:
-  stream_id_t id_;
-};
+class StreamHandle;
 using StreamHandlePtr = std::unique_ptr<StreamHandle>;
 
-class StreamTrackerFilter {
-public:
-  virtual ~StreamTrackerFilter() = default;
-  virtual void onStreamBegin(StreamContext& ctx) PURE;
-  virtual void onStreamEnd(StreamContext& ctx) PURE;
-};
-using StreamTrackerFilterPtr = std::unique_ptr<StreamTrackerFilter>;
+class StreamTracker : public Singleton::Instance,
+                      public std::enable_shared_from_this<StreamTracker>,
+                      public Logger::Loggable<Logger::Id::filter> {
+  friend class StreamHandle;
 
-class StreamTracker : public Singleton::Instance, public Logger::Loggable<Logger::Id::filter> {
 public:
-  static std::shared_ptr<StreamTracker> fromContext(Server::Configuration::ServerFactoryContext& context,
-                                                    const StreamTrackerConfig& config);
+  explicit StreamTracker(Server::Configuration::ServerFactoryContext& context);
   static std::shared_ptr<StreamTracker> fromContext(Server::Configuration::ServerFactoryContext& context);
 
   // If a stream with the given key is active, invokes the given callback in the stream's thread
   // with a valid StreamContext. Otherwise, invokes the callback with an empty context.
+  // Does not block.
   void tryLock(stream_id_t key, absl::AnyInvocable<void(Envoy::OptRef<StreamContext>)> cb);
-  size_t numActiveConnectionHandles();
 
-  [[nodiscard]]
-  StreamHandlePtr onStreamBegin(stream_id_t stream_id, Network::Connection& connection,
-                                StreamCallbacks& stream_callbacks, ChannelEventCallbacks& event_callbacks);
-  void onStreamEnd(stream_id_t stream_id);
+  // Adds the stream to the stream tracker, and returns a handle which removes the stream from
+  // the stream tracker when deleted. The caller must arrange for the handle to live no longer than
+  // the connection or the callback references passed to this function.
+  // This function must be called from the same thread as the given connection, and the stream
+  // handle must also be deleted in the same thread.
+  [[nodiscard]] StreamHandlePtr onStreamBegin(stream_id_t stream_id,
+                                              Network::Connection& connection,
+                                              StreamCallbacks& stream_callbacks,
+                                              ChannelEventCallbacks& event_callbacks,
+                                              const std::function<void()>& on_sync_complete = nullptr);
 
-  size_t visitFiltersForTest(absl::AnyInvocable<void(StreamTrackerFilter&)> cb) {
-    Thread::LockGuard lock(mu_);
-    for (auto& filter : filters_) {
-      cb(*filter);
-    }
-    return filters_.size();
-  }
+  StreamTrackerStats& stats() { return stats_; }
 
 private:
-  StreamTracker() = default;
-  void initialize(Server::Configuration::ServerFactoryContext& context,
-                  const StreamTrackerConfig& config);
+  class ThreadLocalStreamTable : public ThreadLocal::ThreadLocalObject {
+  public:
+    using StreamTable = absl::flat_hash_map<stream_id_t, std::variant<StreamContext, ::Envoy::Event::Dispatcher*>>;
+    inline StreamTable& get() { return data_; }
 
-  Thread::MutexBasicLockable mu_;
-  std::vector<StreamTrackerFilterPtr> filters_ ABSL_GUARDED_BY(mu_);
-  absl::node_hash_map<stream_id_t, std::unique_ptr<StreamContext>> active_connection_handles_ ABSL_GUARDED_BY(mu_);
+  private:
+    StreamTable data_;
+  };
+
+  void onStreamEnd(stream_id_t stream_id);
+
+  ThreadLocal::TypedSlot<ThreadLocalStreamTable> thread_local_stream_table_;
+  Dispatcher& main_thread_dispatcher_;
+
+  Stats::Scope& scope_;
+  StreamTrackerStatNames stat_names_;
+  StreamTrackerStats stats_;
 };
 using StreamTrackerPtr = std::unique_ptr<StreamTracker>;
 using StreamTrackerSharedPtr = std::shared_ptr<StreamTracker>;
 
-class StreamTrackerFilterFactory : public Config::TypedFactory {
-public:
-  std::string category() const override { return "pomerium.ssh.stream_tracker.filters"; }
+class StreamHandle {
+  friend class StreamTracker;
 
-  virtual StreamTrackerFilterPtr createStreamTrackerFilter(
-    const Protobuf::Message&, Server::Configuration::ServerFactoryContext&) PURE;
+public:
+  ~StreamHandle();
+
+  StreamHandle(StreamHandle&&) noexcept = default;
+  StreamHandle& operator=(StreamHandle&&) noexcept = default;
+  StreamHandle(const StreamHandle&) = delete;
+  StreamHandle& operator=(const StreamHandle&) = delete;
+
+  stream_id_t streamId() const { return id_; }
+
+private:
+  StreamHandle(stream_id_t id, std::weak_ptr<StreamTracker> parent);
+
+  stream_id_t id_;
+  std::weak_ptr<StreamTracker> parent_;
 };
-using StreamTrackerFilterFactoryPtr = std::unique_ptr<StreamTrackerFilterFactory>;
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

@@ -339,6 +339,7 @@ envoy_cc_test(
         "//source/extensions/filters/network/ssh:pomerium_ssh",
         "//test/test_common:test_common_lib",
         "@envoy//test/mocks/server:factory_context_mocks",
+        "@envoy//test/test_common:real_threads_test_helper_lib",
     ],
 )
 
