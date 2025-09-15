@@ -1,15 +1,18 @@
 #pragma once
 
 #include "source/extensions/filters/network/ssh/channel.h"
+#include "source/extensions/filters/network/ssh/stream_tracker.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/service.h"
 #include "source/extensions/filters/network/ssh/transport.h"
+#include "source/common/common/linked_object.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 using Envoy::Event::Dispatcher;
 
 class ConnectionService : public virtual Service,
+                          public virtual StreamCallbacks,
                           public Logger::Loggable<Logger::Id::filter> {
 public:
   std::string name() override { return "ssh-connection"; };
@@ -34,7 +37,7 @@ public:
   // one sent previously).
   //
   //
-  absl::StatusOr<uint32_t> startChannel(std::unique_ptr<Channel> channel, std::optional<uint32_t> channel_id = std::nullopt);
+  absl::StatusOr<uint32_t> startChannel(std::unique_ptr<Channel> channel, std::optional<uint32_t> channel_id = std::nullopt) final;
   absl::Status handleMessage(wire::Message&& ssh_msg) override;
   absl::Status maybeStartPassthroughChannel(uint32_t internal_id);
   void registerMessageHandlers(SshMessageDispatcher& dispatcher) override;
@@ -77,8 +80,11 @@ class DownstreamConnectionService final : public ConnectionService,
   friend class OpenHijackedChannelMiddleware;
 
 public:
-  DownstreamConnectionService(TransportCallbacks& callbacks);
+  DownstreamConnectionService(TransportCallbacks& callbacks,
+                              std::shared_ptr<StreamTracker> stream_tracker);
 
+  void onStreamBegin(Network::Connection& connection);
+  void onStreamEnd();
   void enableChannelHijack(HijackedChannelCallbacks& hijack_callbacks,
                            const pomerium::extensions::ssh::InternalTarget& config,
                            Envoy::Grpc::RawAsyncClientSharedPtr grpc_client);
@@ -87,6 +93,8 @@ public:
 private:
   DownstreamTransportCallbacks& transport_;
 
+  std::shared_ptr<StreamTracker> stream_tracker_;
+  std::unique_ptr<StreamHandle> stream_handle_;
   std::unique_ptr<SshMessageMiddleware> open_hijacked_channel_middleware_;
 };
 

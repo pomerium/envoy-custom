@@ -462,9 +462,21 @@ absl::StatusOr<MiddlewareResult> OpenHijackedChannelMiddleware::interceptMessage
 }
 
 DownstreamConnectionService::DownstreamConnectionService(
-  TransportCallbacks& callbacks)
+  TransportCallbacks& callbacks,
+  std::shared_ptr<StreamTracker> stream_tracker)
     : ConnectionService(callbacks, Peer::Downstream),
-      transport_(dynamic_cast<DownstreamTransportCallbacks&>(callbacks)) {}
+      transport_(dynamic_cast<DownstreamTransportCallbacks&>(callbacks)),
+      stream_tracker_(std::move(stream_tracker)) {}
+
+void DownstreamConnectionService::onStreamBegin(Network::Connection& connection) {
+  ASSERT(connection.dispatcher().isThreadSafe());
+
+  stream_handle_ = stream_tracker_->onStreamBegin(transport_.streamId(), connection, *this, *this);
+}
+
+void DownstreamConnectionService::onStreamEnd() {
+  stream_handle_.reset();
+}
 
 void DownstreamConnectionService::enableChannelHijack(
   HijackedChannelCallbacks& hijack_callbacks,

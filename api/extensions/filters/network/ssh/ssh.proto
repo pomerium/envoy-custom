@@ -96,6 +96,7 @@ message StreamEvent {
     DownstreamConnectEvent      downstream_connected    = 1;
     DownstreamDisconnectedEvent downstream_disconnected = 2;
     UpstreamConnectEvent        upstream_connected      = 3;
+    ChannelEvent                channel_event           = 4;
   }
 }
 
@@ -110,8 +111,21 @@ message DownstreamDisconnectedEvent {
   // [other disconnect info as needed]
 }
 
-message UpstreamConnectEvent {
-  uint64 stream_id = 1;
+message UpstreamConnectEvent {}
+
+message ChannelEvent {
+  message InternalChannelOpenedEvent {
+    uint32 channel_id   = 1;
+    string peer_address = 2;
+  }
+  message InternalChannelClosedEvent {
+    uint32 channel_id = 1;
+    string reason     = 2;
+  }
+  oneof event {
+    InternalChannelOpenedEvent internal_channel_opened = 2;
+    InternalChannelClosedEvent internal_channel_closed = 3;
+  }
 }
 
 // AuthenticationRequest is sent by Envoy to Pomerium when the downstream

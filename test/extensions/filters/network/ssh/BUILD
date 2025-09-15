@@ -329,6 +329,21 @@ envoy_cc_test(
 )
 
 envoy_cc_test(
+    name = "stream_tracker_test",
+    srcs = [
+        "stream_tracker_test.cc",
+    ],
+    repository = "@envoy",
+    deps = [
+        ":test_mocks",
+        "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "//test/test_common:test_common_lib",
+        "@envoy//test/mocks/server:factory_context_mocks",
+        "@envoy//test/test_common:real_threads_test_helper_lib",
+    ],
+)
+
+envoy_cc_test(
     name = "id_manager_test",
     srcs = [
         "id_manager_test.cc",

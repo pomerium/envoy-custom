@@ -19,5 +19,6 @@ envoy_cc_test_library(
         "//source/common:common_lib",
         "@com_google_absl//absl/random",
         "@envoy//test/test_common:logging_lib",
+        "@envoy//test/test_common:status_utility_lib",
     ],
 )

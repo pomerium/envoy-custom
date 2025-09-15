@@ -7,6 +7,7 @@
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
 
 #include "source/extensions/filters/network/ssh/service.h"
+#include "source/extensions/filters/network/ssh/stream_tracker.h"
 #include "source/extensions/filters/network/ssh/extension_ping.h"
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
@@ -27,7 +28,8 @@ class SshServerTransport final : public TransportBase<ServerCodec>,
 public:
   SshServerTransport(Server::Configuration::ServerFactoryContext& context,
                      std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                     CreateGrpcClientFunc create_grpc_client);
+                     CreateGrpcClientFunc create_grpc_client,
+                     StreamTrackerSharedPtr active_stream_tracker);
 
   void setCodecCallbacks(GenericProxy::ServerCodecCallbacks& callbacks) override;
   void onConnected() override;
@@ -87,6 +89,7 @@ private:
   stream_id_t stream_id_;
 
   Envoy::OptRef<Envoy::Event::Dispatcher> connection_dispatcher_;
+  StreamTrackerSharedPtr stream_tracker_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

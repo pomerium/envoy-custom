@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <concepts>
+#include <variant>
 
 #include "source/common/concepts.h"
 #include "source/common/type_traits.h"
@@ -80,6 +81,11 @@ template <template <bool, typename> typename visitor_type = basic_visitor,
           typename... Fs>
 constexpr auto make_overloads_no_validation(Fs... fs) {
   return overloads<visitor_type, void, Fs...>{tags::no_validation{}, fs...};
+}
+
+template <typename Variant, typename... Fs>
+constexpr auto basic_visit(Variant&& v, Fs... fs) {
+  return std::visit(make_overloads<basic_visitor, Variant>(fs...), std::forward<Variant>(v));
 }
 
 // Validates the argument types of the visitor lambdas to ensure that there is no unexpected

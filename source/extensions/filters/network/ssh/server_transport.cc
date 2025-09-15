@@ -28,9 +28,11 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 SshServerTransport::SshServerTransport(Server::Configuration::ServerFactoryContext& context,
                                        std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                                       CreateGrpcClientFunc create_grpc_client)
+                                       CreateGrpcClientFunc create_grpc_client,
+                                       StreamTrackerSharedPtr stream_tracker)
     : TransportBase(context.api(), std::move(config)),
-      DownstreamTransportCallbacks(*this) {
+      DownstreamTransportCallbacks(*this),
+      stream_tracker_(std::move(stream_tracker)) {
   auto grpcClient = create_grpc_client();
   THROW_IF_NOT_OK_REF(grpcClient.status());
   grpc_client_ = *grpcClient;
@@ -91,7 +93,7 @@ void SshServerTransport::onConnected() {
 
 void SshServerTransport::initServices() {
   user_auth_service_ = std::make_unique<DownstreamUserAuthService>(*this, api_);
-  connection_service_ = std::make_unique<DownstreamConnectionService>(*this);
+  connection_service_ = std::make_unique<DownstreamConnectionService>(*this, stream_tracker_);
   ping_handler_ = std::make_unique<PingExtensionHandler>(*this);
 
   services_[user_auth_service_->name()] = user_auth_service_.get();
@@ -319,6 +321,7 @@ void SshServerTransport::initUpstream(AuthInfoSharedPtr auth_info) {
     throw EnvoyException("mirroring not supported");
   }
   if (first_init) {
+    connection_service_->onStreamBegin(callbacks_->connection().ref());
     callbacks_->connection()->addConnectionCallbacks(*this);
   }
 }
@@ -393,7 +396,9 @@ void SshServerTransport::terminate(absl::Status status) {
 }
 
 void SshServerTransport::onEvent(Network::ConnectionEvent event) {
-  (void)event;
+  if (event == Network::ConnectionEvent::LocalClose || event == Network::ConnectionEvent::RemoteClose) {
+    connection_service_->onStreamEnd();
+  }
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
