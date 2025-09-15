@@ -63,16 +63,17 @@ std::unique_ptr<StreamHandle> StreamTracker::onStreamBegin(stream_id_t stream_id
     .try_emplace(stream_id, StreamContext(stream_id, connection, stream_callbacks, event_callbacks));
 
   main_thread_dispatcher_.post([self = weak_from_this(), stream_id, dispatcher = &connection.dispatcher(), on_sync_complete] {
-    if (auto st = self.lock(); st != nullptr &&
-                               !st->thread_local_stream_table_.isShutdown()) {
-      const auto update = [stream_id, dispatcher](Envoy::OptRef<ThreadLocalStreamTable> obj) {
-        obj->get().try_emplace(stream_id, dispatcher);
-      };
-      if (on_sync_complete == nullptr) {
-        st->thread_local_stream_table_.runOnAllThreads(update);
-      } else {
-        st->thread_local_stream_table_.runOnAllThreads(update, on_sync_complete);
-      }
+    auto st = self.lock();
+    if (st == nullptr || st->thread_local_stream_table_.isShutdown()) {
+      return;
+    }
+    const auto update = [stream_id, dispatcher](Envoy::OptRef<ThreadLocalStreamTable> obj) {
+      obj->get().try_emplace(stream_id, dispatcher);
+    };
+    if (on_sync_complete == nullptr) {
+      st->thread_local_stream_table_.runOnAllThreads(update);
+    } else {
+      st->thread_local_stream_table_.runOnAllThreads(update, on_sync_complete);
     }
   });
   return absl::WrapUnique(new StreamHandle(stream_id, weak_from_this()));
@@ -85,14 +86,15 @@ void StreamTracker::onStreamEnd(stream_id_t stream_id) {
   ENVOY_LOG(debug, "tracked ssh stream ended: id={}", stream_id);
   stats_.active_streams_.dec();
   main_thread_dispatcher_.post([self = weak_from_this(), stream_id] {
-    if (auto st = self.lock(); st != nullptr &&
-                               !st->thread_local_stream_table_.isShutdown()) {
-      st->thread_local_stream_table_.runOnAllThreads(
-        [stream_id](Envoy::OptRef<ThreadLocalStreamTable> obj) {
-          auto node = obj->get().extract(stream_id);
-          ASSERT(node.empty() || std::holds_alternative<::Envoy::Event::Dispatcher*>(node.mapped()));
-        });
+    auto st = self.lock();
+    if (st == nullptr || st->thread_local_stream_table_.isShutdown()) {
+      return;
     }
+    st->thread_local_stream_table_.runOnAllThreads(
+      [stream_id](Envoy::OptRef<ThreadLocalStreamTable> obj) {
+        auto node = obj->get().extract(stream_id);
+        ASSERT(node.empty() || std::holds_alternative<::Envoy::Event::Dispatcher*>(node.mapped()));
+      });
   });
 }
 

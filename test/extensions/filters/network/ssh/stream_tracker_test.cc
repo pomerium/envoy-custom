@@ -11,6 +11,7 @@
 #include "envoy/stats/stats.h"
 #include "gtest/gtest.h"
 #include "gmock/gmock.h"
+#include <atomic>
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 namespace test {
@@ -126,6 +127,77 @@ TEST_F(StreamTrackerTest, TryLock) {
       ASSERT_FALSE(sc.has_value());
     });
   });
+}
+
+// When onStreamBegin or onStreamEnd is called, a callback is posted to the main thread which
+// will broadcast the update to all worker threads. If the StreamTracker is destroyed or
+// threading is shut down before the main thread has a chance to run that callback, it should
+// do nothing. This should cover all branches in the main thread callbacks.
+class StreamTrackerShutdownTest : public testing::Test, public Event::TestUsingSimulatedTime {
+public:
+  void SetUp() {
+    api_ = Api::createApiForTest();
+    dispatcher_ = api_->allocateDispatcher("test_thread");
+    ON_CALL(context_, mainThreadDispatcher).WillByDefault(ReturnRef(*dispatcher_));
+    ON_CALL(context_, api).WillByDefault(ReturnRef(*api_));
+    stream_tracker_ = StreamTracker::fromContext(context_);
+  }
+
+  Api::ApiPtr api_;
+  Event::DispatcherPtr dispatcher_;
+  testing::NiceMock<Server::Configuration::MockServerFactoryContext> context_;
+
+  StreamTrackerSharedPtr stream_tracker_;
+  TestStreamCallbacks stream_callbacks_;
+  testing::NiceMock<Network::MockConnection> conn_;
+};
+
+TEST_F(StreamTrackerShutdownTest, OnStreamBegin_StreamTrackerDeleteRace) {
+  std::atomic_bool called{};
+  auto handle = stream_tracker_->onStreamBegin(1, conn_, stream_callbacks_, stream_callbacks_, [&called] {
+    called.store(true);
+  });
+  // Destroy the stream tracker
+  stream_tracker_.reset();
+  dispatcher_->run(Event::Dispatcher::RunType::Block);
+  EXPECT_FALSE(called);
+}
+
+TEST_F(StreamTrackerShutdownTest, OnStreamEnd_StreamTrackerDeleteRace) {
+  std::atomic_bool called{};
+  auto handle = stream_tracker_->onStreamBegin(1, conn_, stream_callbacks_, stream_callbacks_, [&called] {
+    called.store(true);
+  });
+  dispatcher_->run(Event::Dispatcher::RunType::Block);
+  EXPECT_TRUE(called);
+  // Destroy the stream tracker
+  handle.reset();
+  stream_tracker_.reset();
+  dispatcher_->run(Event::Dispatcher::RunType::Block);
+}
+
+TEST_F(StreamTrackerShutdownTest, OnStreamBegin_ThreadLocalShutdownRace) {
+  std::atomic_bool called{};
+  auto handle = stream_tracker_->onStreamBegin(1, conn_, stream_callbacks_, stream_callbacks_, [&called] {
+    called.store(true);
+  });
+  // Shut down threading
+  context_.threadLocal().shutdownGlobalThreading();
+  dispatcher_->run(Event::Dispatcher::RunType::Block);
+  EXPECT_FALSE(called);
+}
+
+TEST_F(StreamTrackerShutdownTest, OnStreamEnd_ThreadLocalShutdownRace) {
+  std::atomic_bool called{};
+  auto handle = stream_tracker_->onStreamBegin(1, conn_, stream_callbacks_, stream_callbacks_, [&called] {
+    called.store(true);
+  });
+  dispatcher_->run(Event::Dispatcher::RunType::Block);
+  EXPECT_TRUE(called);
+  // Shut down threading
+  handle.reset();
+  context_.threadLocal().shutdownGlobalThreading();
+  dispatcher_->run(Event::Dispatcher::RunType::Block);
 }
 
 class StreamTrackerThreadingTest : public testing::Test,
