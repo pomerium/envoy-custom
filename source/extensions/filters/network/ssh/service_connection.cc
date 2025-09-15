@@ -173,7 +173,7 @@ ConnectionService::ChannelCallbacksImpl::ChannelCallbacksImpl(ConnectionService&
       channel_id_(channel_id),
       local_peer_(local_peer) {}
 
-absl::Status ConnectionService::ChannelCallbacksImpl::sendMessageToConnection(wire::Message&& msg) {
+absl::Status ConnectionService::ChannelCallbacksImpl::sendMessageLocal(wire::Message&& msg) {
   auto stat = msg.visit(
     [&](wire::ChannelMsg auto& msg) {
       // TODO: should we populate channel IDs here or require the caller to fill them in?
@@ -190,7 +190,7 @@ absl::Status ConnectionService::ChannelCallbacksImpl::sendMessageToConnection(wi
     .status();
 }
 
-absl::Status ConnectionService::ChannelCallbacksImpl::passthrough(wire::Message&& msg) {
+absl::Status ConnectionService::ChannelCallbacksImpl::sendMessageRemote(wire::Message&& msg) {
   return msg.visit(
     [&](wire::ChannelMsg auto& msg) {
       auto stat = channel_id_mgr_.processOutgoingChannelMsg(msg, local_peer_ == Peer::Downstream
@@ -204,7 +204,7 @@ absl::Status ConnectionService::ChannelCallbacksImpl::passthrough(wire::Message&
       return absl::OkStatus();
     },
     [&](auto&) -> absl::Status {
-      throw Envoy::EnvoyException("bug: invalid message passed to passthrough()");
+      throw Envoy::EnvoyException("bug: invalid message passed to sendMessageRemote()");
     });
 }
 
@@ -327,7 +327,7 @@ public:
               fmt::format("expected ChannelOpenConfirmation or ChannelOpenFailure, got {}", anyMsg.msg_type()));
           }
           ENVOY_LOG(debug, "sending channel message to downstream: {}", anyMsg.msg_type());
-          return callbacks_->sendMessageToConnection(std::move(anyMsg));
+          return callbacks_->sendMessageLocal(std::move(anyMsg));
         });
     }
     case pomerium::extensions::ssh::ChannelMessage::kChannelControl: {
@@ -370,14 +370,14 @@ public:
         "unexpected message received before channel open confirmation: {}", msg.msg_type()));
     }
     if (handoff_complete_) {
-      return callbacks_->passthrough(std::move(msg));
+      return callbacks_->sendMessageRemote(std::move(msg));
     }
     sendMessageToStream(std::move(msg));
     return absl::OkStatus();
   }
 
   absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&& msg) override {
-    return callbacks_->sendMessageToConnection(std::move(msg));
+    return callbacks_->sendMessageLocal(std::move(msg));
   }
 
   absl::Status onChannelOpenFailed(wire::ChannelOpenFailureMsg&& msg) override {

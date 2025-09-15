@@ -52,17 +52,6 @@ constexpr absl::Status to_status(S&& statusor) {
     ASSERT_TRUE(assert_ok_status.ok()) << "status code: " << assert_ok_status.code() << "; message: " << assert_ok_status.ToString(); \
   } while (false)
 
-#define CALLED \
-  did_call = true
-
-#define CHECK_CALLED(expr)                                            \
-  do {                                                                \
-    bool did_call = false;                                            \
-    expr                                                              \
-        EXPECT_TRUE(did_call)                                         \
-      << "CHECK_CALL failed: the expected statement was not reached"; \
-  } while (false)
-
 // NOLINTBEGIN(readability-identifier-naming)
 template <typename T>
 class WhenResolvedAsMatcher {

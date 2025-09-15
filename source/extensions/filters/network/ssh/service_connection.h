@@ -43,8 +43,8 @@ public:
                                      public LinkedObject<ChannelCallbacksImpl> {
   public:
     ChannelCallbacksImpl(ConnectionService& parent, uint32_t channel_id, Peer local_peer);
-    absl::Status sendMessageToConnection(wire::Message&& msg) override;
-    absl::Status passthrough(wire::Message&& msg) override;
+    absl::Status sendMessageLocal(wire::Message&& msg) override;
+    absl::Status sendMessageRemote(wire::Message&& msg) override;
     uint32_t channelId() const override { return channel_id_; }
     void cleanup() override;
 

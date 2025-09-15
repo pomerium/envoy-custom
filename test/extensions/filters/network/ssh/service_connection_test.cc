@@ -418,9 +418,9 @@ TEST_P(ConnectionServiceTest, PassthroughNonChannelData) {
   IN_SEQUENCE;
   EXPECT_CALL(*ch1, setChannelCallbacks)
     .WillOnce([](ChannelCallbacks& cb) {
-      EXPECT_THROW_WITH_MESSAGE(cb.passthrough(wire::IgnoreMsg{}).IgnoreError(),
+      EXPECT_THROW_WITH_MESSAGE(cb.sendMessageRemote(wire::IgnoreMsg{}).IgnoreError(),
                                 Envoy::EnvoyException,
-                                "bug: invalid message passed to passthrough()");
+                                "bug: invalid message passed to sendMessageRemote()");
       return absl::OkStatus();
     });
   EXPECT_CALL(*ch1, Die);
@@ -432,7 +432,7 @@ TEST_P(ConnectionServiceTest, SendNonChannelDataInternal) {
   auto& c1 = EXPECT_CALL(*ch1, setChannelCallbacks)
                .WillOnce([&](ChannelCallbacks& cb) {
                  EXPECT_CALL(transport_, sendMessageToConnection(MSG(wire::IgnoreMsg, _)));
-                 return cb.sendMessageToConnection(wire::IgnoreMsg{});
+                 return cb.sendMessageLocal(wire::IgnoreMsg{});
                });
   EXPECT_CALL(*ch1, Die)
     .After(c1);
@@ -445,7 +445,7 @@ TEST_P(ConnectionServiceTest, SendChannelDataInternalForUnknownChannel) {
                .WillOnce([this](ChannelCallbacks& cb) {
                  EXPECT_EQ(
                    absl::InvalidArgumentError(fmt::format("error processing outgoing message of type ChannelData (94): internal channel 100 is not known to {} (state: Unbound)", LocalPeer())),
-                   cb.sendMessageToConnection(wire::ChannelDataMsg{}));
+                   cb.sendMessageLocal(wire::ChannelDataMsg{}));
                  return absl::OkStatus();
                });
   EXPECT_CALL(*ch1, Die)
