@@ -130,6 +130,12 @@ public:
           ADD_FAILURE() << "timeout";
         });
         timer->enableTimer(absl::ToChronoMilliseconds(timeout));
+        dispatcher_->post([this] {
+          // run() will execute this callback before starting the event loop, but after setting
+          // run_tid_. Calls to isThreadSafe can cause a data race on run_tid_ if called shortly
+          // after StartThread.
+          started_.count_down();
+        });
         dispatcher_->run(::Envoy::Event::Dispatcher::RunType::RunUntilExit);
         timer->disableTimer();
       },
@@ -137,16 +143,19 @@ public:
   }
 
   size_t InitiateVersionExchange() {
+    started_.wait();
     RELEASE_ASSERT(dispatcher_->isThreadSafe(), "test bug: not thread-safe");
     return this->version_exchanger_->writeVersion(this->server_version_);
   }
 
   absl::Status InitiateRekey() {
+    started_.wait();
     RELEASE_ASSERT(dispatcher_->isThreadSafe(), "test bug: not thread-safe");
     return this->kex_->initiateKex();
   }
 
   void Exit() {
+    started_.wait();
     closed_ = true;
     if (!dispatcher_->isThreadSafe()) {
       dispatcher_->post([this] {
@@ -160,6 +169,7 @@ public:
   template <typename F>
     requires std::is_void_v<callable_arg_type_t<F>>
   void Post(F fn) {
+    started_.wait();
     dispatcher_->post([this, fn] {
       if (closed_) {
         return;
@@ -171,6 +181,7 @@ public:
   template <typename F>
     requires std::is_invocable_v<F, MockBaseTransport<T>&>
   void Post(F fn) {
+    started_.wait();
     dispatcher_->post([this, fn = std::move(fn)] mutable {
       if (closed_) {
         return;
@@ -184,6 +195,7 @@ public:
   }
 
 private:
+  std::latch started_{1};
   std::atomic_bool closed_{false};
   ::Envoy::Event::DispatcherPtr dispatcher_;
   ChannelIDManager channel_id_manager_;
