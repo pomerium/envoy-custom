@@ -8,6 +8,7 @@
 #include "test/test_common/test_common.h"
 #include "test/test_common/utility.h"
 #include "absl/synchronization/notification.h"
+#include "test/mocks/server/server_factory_context.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 namespace test {
@@ -15,10 +16,10 @@ namespace test {
 template <typename T>
 class MockBaseTransport : public TransportBase<T> {
 public:
-  MockBaseTransport(Api::Api& api,
+  MockBaseTransport(Server::Configuration::ServerFactoryContext& context,
                     std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config)
-      : TransportBase<T>(api, config),
-        dispatcher_(api.allocateDispatcher(std::string(codec_traits<T>::name))) {
+      : TransportBase<T>(context, config),
+        dispatcher_(context.api().allocateDispatcher(std::string(codec_traits<T>::name))) {
     SetVersion(fmt::format("SSH-2.0-{}", codec_traits<T>::name));
   }
 
@@ -200,16 +201,20 @@ template <typename TestOptions>
 class TransportBaseTest : public testing::Test {
 public:
   TransportBaseTest()
-      : api_(Api::createApiForTest()),
+      : api_([this] {
+          auto api = Api::createApiForTest();
+          ON_CALL(context_, api()).WillByDefault(ReturnRef(*api.get()));
+          return api;
+        }()),
         server_config_(std::make_shared<pomerium::extensions::ssh::CodecConfig>()),
         client_config_(std::make_shared<pomerium::extensions::ssh::CodecConfig>()),
-        server_transport_(*api_, [this] {
+        server_transport_(context_, [this] {
           for (auto keyName : {"rsa_1", "ed25519_1"}) {
             server_config_->add_host_keys()->set_filename(copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600));
           }
           return server_config_;
         }()),
-        client_transport_(*api_, [this] {
+        client_transport_(context_, [this] {
           for (auto keyName : {"rsa_2", "ed25519_2"}) {
             client_config_->add_host_keys()->set_filename(copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600));
           }
@@ -355,6 +360,7 @@ public:
   }
 
 protected:
+  testing::NiceMock<Envoy::Server::Configuration::MockServerFactoryContext> context_;
   Api::ApiPtr api_;
   Thread::ThreadPtr server_thread_;
   Thread::ThreadPtr client_thread_;

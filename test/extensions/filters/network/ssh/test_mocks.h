@@ -8,7 +8,7 @@
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/kex.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
-
+#include "test/mocks/stats/mocks.h"
 #pragma clang unsafe_buffer_usage begin
 #include "envoy/buffer/buffer.h"
 #include "absl/status/statusor.h"
@@ -36,11 +36,15 @@ public:
   MOCK_METHOD(void, terminate, (absl::Status), (override));
   MOCK_METHOD(Envoy::OptRef<Envoy::Event::Dispatcher>, connectionDispatcher, (), (const override));
   MOCK_METHOD(ChannelIDManager&, channelIdManager, (), (override));
+  MOCK_METHOD(Stats::Scope&, statsScope, (), (const));
 
   MOCK_METHOD(void, writeToConnection, (Envoy::Buffer::Instance&), (const));
   MOCK_METHOD(absl::StatusOr<size_t>, sendMessageDirect, (wire::Message&&));
   MOCK_METHOD(uint64_t, resetReadSequenceNumber, ());
   MOCK_METHOD(uint64_t, resetWriteSequenceNumber, ());
+
+  testing::NiceMock<Stats::MockStore> mock_store_;
+  Stats::MockScope& mock_scope_{mock_store_.mockScope()};
 };
 
 class MockDownstreamTransportCallbacks : public DownstreamTransportCallbacks,

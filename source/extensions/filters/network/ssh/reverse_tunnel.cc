@@ -73,7 +73,7 @@ public:
     wire::write<uint32_t>(extra, downstream_addr_->ip()->port());
     open.extra = wire::flushTo<bytes>(extra);
 
-    return callbacks.sendMessageToConnection(std::move(open));
+    return callbacks.sendMessageLocal(std::move(open));
   }
 
   absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&& confirm) override {
@@ -137,7 +137,7 @@ public:
           ENVOY_LOG(debug, "channel {}: flow control: increasing local window size ({} -> {})",
                     channel_id_, local_window_, local_window_ + wire::ChannelWindowSize);
           local_window_ += wire::ChannelWindowSize;
-          return callbacks_->sendMessageToConnection(wire::ChannelWindowAdjustMsg{
+          return callbacks_->sendMessageLocal(wire::ChannelWindowAdjustMsg{
             .recipient_channel = channel_id_,
             .bytes_to_add = wire::ChannelWindowSize,
           });
@@ -216,7 +216,7 @@ private:
 
     wire::ChannelCloseMsg close;
     close.recipient_channel = channel_id_;
-    callbacks_->sendMessageToConnection(std::move(close)).IgnoreError();
+    callbacks_->sendMessageLocal(std::move(close)).IgnoreError();
   }
 
   absl::Status readReady() {
@@ -247,7 +247,7 @@ private:
     dataMsg.recipient_channel = channel_id_;
     dataMsg.data = wire::flushTo<bytes>(buffer);
     size_t len = dataMsg.data->size();
-    auto stat = callbacks_->sendMessageToConnection(wire::Message{std::move(dataMsg)});
+    auto stat = callbacks_->sendMessageLocal(wire::Message{std::move(dataMsg)});
     if (!stat.ok()) {
       return stat;
     }

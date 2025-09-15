@@ -270,7 +270,7 @@ public:
 
   const bytes& sessionId() const final { return kex_result_->session_id; }
   const pomerium::extensions::ssh::CodecConfig& codecConfig() const final { return *config_; }
-  Stats::Scope& statsScope() const final { return *scope_; }
+  Stats::Scope& statsScope() const override { return *scope_; }
 
 protected:
   bool version_exchange_done_{};

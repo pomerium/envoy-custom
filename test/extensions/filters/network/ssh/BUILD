@@ -18,6 +18,7 @@ envoy_cc_mock(
     deps = [
         "//:openssh",
         "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "@envoy//test/mocks/stats:stats_mocks",
     ],
 )
 
@@ -270,6 +271,7 @@ envoy_cc_test(
         "//test/test_common:test_common_lib",
         "@envoy//test/extensions/filters/network/generic_proxy/mocks:codec_mocks",
         "@envoy//test/mocks/buffer:buffer_mocks",
+        "@envoy//test/mocks/server:factory_context_mocks",
     ],
 )
 

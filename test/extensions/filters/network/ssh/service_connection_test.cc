@@ -29,6 +29,8 @@ public:
       : service_(transport_, GetParam()) {
     EXPECT_CALL(transport_, channelIdManager)
       .WillRepeatedly(ReturnRef(channel_id_manager_));
+    EXPECT_CALL(transport_, statsScope)
+      .Times(AnyNumber());
   }
 
   Peer LocalPeer() const {
