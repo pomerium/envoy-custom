@@ -81,22 +81,66 @@ absl::StatusOr<size_t> ServiceAcceptMsg::encode(Envoy::Buffer::Instance& buffer)
                    service_name);
 }
 
+// X11ChannelOpenMsg
+absl::StatusOr<size_t> X11ChannelOpenMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
+  return decodeSequence(buffer, payload_size,
+                        originator_address,
+                        originator_port);
+}
+absl::StatusOr<size_t> X11ChannelOpenMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
+  return encodeSequence(buffer,
+                        originator_address,
+                        originator_port);
+}
+
+// ForwardedTcpipChannelOpenMsg
+absl::StatusOr<size_t> ForwardedTcpipChannelOpenMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
+  return decodeSequence(buffer, payload_size,
+                        address_connected,
+                        port_connected,
+                        originator_address,
+                        originator_port);
+}
+absl::StatusOr<size_t> ForwardedTcpipChannelOpenMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
+  return encodeSequence(buffer,
+                        address_connected,
+                        port_connected,
+                        originator_address,
+                        originator_port);
+}
+
+// DirectTcpipChannelOpenMsg
+absl::StatusOr<size_t> DirectTcpipChannelOpenMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
+  return decodeSequence(buffer, payload_size,
+                        host_to_connect,
+                        port_to_connect,
+                        originator_address,
+                        originator_port);
+}
+absl::StatusOr<size_t> DirectTcpipChannelOpenMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
+  return encodeSequence(buffer,
+                        host_to_connect,
+                        port_to_connect,
+                        originator_address,
+                        originator_port);
+}
+
 // ChannelOpenMsg
 absl::StatusOr<size_t> ChannelOpenMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
   return decodeMsg(buffer, type, payload_size,
-                   channel_type,
+                   request.key_field(),
                    sender_channel,
                    initial_window_size,
                    max_packet_size,
-                   extra);
+                   request);
 }
 absl::StatusOr<size_t> ChannelOpenMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
   return encodeMsg(buffer, type,
-                   channel_type,
+                   request.key_field(),
                    sender_channel,
                    initial_window_size,
                    max_packet_size,
-                   extra);
+                   request);
 }
 
 // PtyReqChannelRequestMsg

@@ -99,11 +99,11 @@ TEST_P(ConnectionServiceTest, StartChannel_ChannelCallbacksError) {
 TEST_P(ConnectionServiceTest, OpenPassthroughChannelOnChannelOpen) {
   EXPECT_CALL(transport_, forward(MSG(wire::ChannelOpenMsg,
                                       FIELD_EQ(sender_channel, 100u), // the new internal ID
-                                      FIELD_EQ(channel_type, "session"s)),
+                                      FIELD(request, SUB_MSG(wire::SessionChannelOpenMsg, _))),
                                   _));
   ASSERT_OK(service_.handleMessage(wire::ChannelOpenMsg{
-    .channel_type = "session"s,
     .sender_channel = 1,
+    .request = wire::SessionChannelOpenMsg{},
   }));
 
   auto owner = channel_id_manager_.owner(100);
@@ -118,8 +118,8 @@ TEST_P(ConnectionServiceTest, OpenPassthroughChannel_ErrorAllocatingID) {
   ASSERT_EQ(
     absl::ResourceExhaustedError("error starting passthrough channel: failed to allocate ID"),
     service_.handleMessage(wire::ChannelOpenMsg{
-      .channel_type = "session"s,
       .sender_channel = 1,
+      .request = wire::SessionChannelOpenMsg{},
     }));
 }
 
@@ -166,11 +166,11 @@ TEST_P(ConnectionServiceTest, OpenPassthroughChannel_ChannelOpenConfirm_InvalidS
 TEST_P(ConnectionServiceTest, OpenPassthroughChannel_ChannelOpenConfirm_AlreadyKnown) {
   EXPECT_CALL(transport_, forward(MSG(wire::ChannelOpenMsg,
                                       FIELD_EQ(sender_channel, 100u),
-                                      FIELD_EQ(channel_type, "session"s)),
+                                      FIELD(request, SUB_MSG(wire::SessionChannelOpenMsg, _))),
                                   _));
   ASSERT_OK(service_.handleMessage(wire::ChannelOpenMsg{
-    .channel_type = "session"s,
     .sender_channel = 3,
+    .request = wire::SessionChannelOpenMsg{},
   }));
   ASSERT_EQ(
     absl::InvalidArgumentError(fmt::format("received invalid ChannelOpenConfirmation message: channel 100 is already known to {}", LocalPeer())),
@@ -293,12 +293,12 @@ TEST_P(ConnectionServiceTest, CloseInternalChannel) {
 TEST_P(ConnectionServiceTest, CloseLocalPassthroughChannelWithNoRemoteRef) {
   EXPECT_CALL(transport_, forward(MSG(wire::ChannelOpenMsg,
                                       FIELD_EQ(sender_channel, 100u),
-                                      FIELD_EQ(channel_type, "session"s)),
+                                      FIELD(request, SUB_MSG(wire::SessionChannelOpenMsg, _))),
                                   _));
 
   ASSERT_OK(service_.handleMessage(wire::ChannelOpenMsg{
-    .channel_type = "session"s,
     .sender_channel = 1, // local peer's ID
+    .request = wire::SessionChannelOpenMsg{},
   }));
   ASSERT_EQ(1, channel_id_manager_.numActiveChannels());
   ASSERT_EQ(
@@ -315,11 +315,11 @@ TEST_P(ConnectionServiceTest, CloseLocalPassthroughChannelWithRemoteRef) {
   IN_SEQUENCE;
   EXPECT_CALL(transport_, forward(MSG(wire::ChannelOpenMsg,
                                       FIELD_EQ(sender_channel, 100u),
-                                      FIELD_EQ(channel_type, "session"s)),
+                                      FIELD(request, SUB_MSG(wire::SessionChannelOpenMsg, _))),
                                   _));
   ASSERT_OK(service_.handleMessage(wire::ChannelOpenMsg{
-    .channel_type = "session"s,
     .sender_channel = 1, // local peer's ID
+    .request = wire::SessionChannelOpenMsg{},
   }));
   ASSERT_EQ(1, channel_id_manager_.numActiveChannels());
   ASSERT_OK(channel_id_manager_.bindChannelID(100, PeerLocalID{

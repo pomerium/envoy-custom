@@ -615,7 +615,7 @@ public:
 
     // when the downstream sends messages, they should be written to the hijacked stream
     wire::ChannelOpenMsg open;
-    open.channel_type = "session"s;
+    open.request = wire::SessionChannelOpenMsg{};
     open.sender_channel = ++last_downstream_id_;
     open.initial_window_size = wire::ChannelWindowSize;
     open.max_packet_size = wire::ChannelMaxPacketSize;
@@ -723,7 +723,7 @@ TEST_F(HijackedModeTest, HijackedMode_AddWellKnownMetadata) {
   (*metadataReq.mutable_metadata()->mutable_typed_filter_metadata())["com.pomerium.ssh"].PackFrom(sshMetadata);
 
   wire::ChannelOpenMsg open;
-  open.channel_type = "session"s;
+  open.request = wire::SessionChannelOpenMsg{};
   open.sender_channel = 1;
   open.initial_window_size = wire::ChannelWindowSize;
   open.max_packet_size = wire::ChannelMaxPacketSize;
@@ -792,7 +792,7 @@ TEST_F(HijackedModeTest, HijackedMode_OpenChannelFromUpstreamUnimplemented) {
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("cannot open channels from a hijacked stream"));
   wire::ChannelOpenMsg msg;
   msg.sender_channel = 12345;
-  msg.channel_type = "foo"s;
+  msg.channel_type() = "foo"s;
   auto channelMsg = std::make_unique<ChannelMessage>();
   *channelMsg->mutable_raw_bytes()->mutable_value() = *wire::encodeTo<std::string>(msg);
   serve_channel_callbacks_[0]->onReceiveMessage(std::move(channelMsg));
@@ -959,7 +959,7 @@ public:
 
     // when the downstream opens a channel, it should start a new stream
     wire::ChannelOpenMsg open;
-    open.channel_type = "session"s;
+    open.request = wire::SessionChannelOpenMsg{};
     open.sender_channel = 1;
     open.initial_window_size = wire::ChannelWindowSize;
     open.max_packet_size = wire::ChannelMaxPacketSize;
@@ -1112,7 +1112,7 @@ TEST_F(ServerTransportTest, HijackedMode_StreamClosed) {
 
   // open a new channel to start the hijacked connection
   wire::ChannelOpenMsg open;
-  open.channel_type = "session"s;
+  open.request = wire::SessionChannelOpenMsg{};
   open.sender_channel = 1;
   open.initial_window_size = wire::ChannelWindowSize;
   open.max_packet_size = wire::ChannelMaxPacketSize;
@@ -1337,7 +1337,7 @@ TEST_F(ServerTransportTest, EncodeEffectiveHeaderHandoffComplete) {
   (*metadataReq.mutable_metadata()->mutable_typed_filter_metadata())["com.pomerium.ssh"].PackFrom(sshMetadata);
 
   wire::ChannelOpenMsg open;
-  open.channel_type = "session"s;
+  open.request = wire::SessionChannelOpenMsg{};
   open.sender_channel = 1;
   open.initial_window_size = wire::ChannelWindowSize;
   open.max_packet_size = wire::ChannelMaxPacketSize;

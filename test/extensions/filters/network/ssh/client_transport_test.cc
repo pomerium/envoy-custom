@@ -548,7 +548,7 @@ TEST_F(ClientTransportTest, OpenChannelFromDownstream) {
                                                                 .local_peer = Peer::Downstream,
                                                               }));
     wire::ChannelOpenMsg from_downstream;
-    from_downstream.channel_type = "session"s;
+    from_downstream.request = wire::SessionChannelOpenMsg{};
     from_downstream.sender_channel = internal_id;
     from_downstream.initial_window_size = wire::ChannelWindowSize;
     from_downstream.max_packet_size = wire::ChannelMaxPacketSize;
@@ -708,7 +708,7 @@ TEST_F(ClientTransportTest, Handoff) {
   {
     wire::ChannelOpenMsg req;
     ASSERT_OK(ReadMsg(req));
-    ASSERT_EQ("session", *req.channel_type);
+    ASSERT_EQ("session", req.channel_type());
     ASSERT_EQ(*internalId, *req.sender_channel);
     ASSERT_EQ(wire::ChannelWindowSize, *req.initial_window_size);
     ASSERT_EQ(wire::ChannelMaxPacketSize, *req.max_packet_size);
