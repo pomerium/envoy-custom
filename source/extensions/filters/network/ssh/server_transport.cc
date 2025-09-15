@@ -74,6 +74,7 @@ void SshServerTransport::setCodecCallbacks(Callbacks& callbacks) {
 void SshServerTransport::onConnected() {
   auto& conn = *callbacks_->connection();
   ASSERT(conn.state() == Network::Connection::State::Open);
+  conn.noDelay(true);
   connection_dispatcher_ = conn.dispatcher();
   channel_id_manager_ = std::make_shared<ChannelIDManager>();
   conn.streamInfo().filterState()->setData(ChannelIDManagerFilterStateKey,
