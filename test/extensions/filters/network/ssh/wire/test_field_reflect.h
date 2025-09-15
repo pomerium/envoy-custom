@@ -240,12 +240,25 @@ TEST_FIELDS(GlobalRequestMsg,
 TEST_FIELDS(GlobalRequestSuccessMsg,
             response);
 TEST_FIELDS(GlobalRequestFailureMsg);
+TEST_FIELDS(SessionChannelOpenMsg);
+TEST_FIELDS(X11ChannelOpenMsg,
+            originator_address,
+            originator_port);
+TEST_FIELDS(ForwardedTcpipChannelOpenMsg,
+            address_connected,
+            port_connected,
+            originator_address,
+            originator_port);
+TEST_FIELDS(DirectTcpipChannelOpenMsg,
+            host_to_connect,
+            port_to_connect,
+            originator_address,
+            originator_port);
 TEST_FIELDS(ChannelOpenMsg,
-            channel_type,
             sender_channel,
             initial_window_size,
             max_packet_size,
-            extra);
+            request);
 TEST_FIELDS(ChannelOpenConfirmationMsg,
             recipient_channel,
             sender_channel,

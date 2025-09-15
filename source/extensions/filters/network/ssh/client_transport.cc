@@ -365,7 +365,7 @@ absl::StatusOr<MiddlewareResult> HandoffMiddleware::interceptMessage(wire::Messa
       }
       // Build and send the ChannelOpen message to the upstream
       wire::ChannelOpenMsg open;
-      open.channel_type = "session";
+      open.request = wire::SessionChannelOpenMsg{};
       open.sender_channel = *internalId;
       open.initial_window_size = info.channel_info->initial_window_size();
       open.max_packet_size = info.channel_info->max_packet_size();

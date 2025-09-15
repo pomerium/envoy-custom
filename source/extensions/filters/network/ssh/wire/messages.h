@@ -192,13 +192,58 @@ struct EmptyMsg : Msg<T> {
   }
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4254#section-6.1
+struct SessionChannelOpenMsg : SubMsg<SshMessageType::ChannelOpen, "session"> {
+  constexpr auto operator<=>(const SessionChannelOpenMsg&) const = default;
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance&, size_t) noexcept { return 0; }
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance&) const noexcept { return 0; }
+};
+
+// https://datatracker.ietf.org/doc/html/rfc4254#section-6.3.2
+struct X11ChannelOpenMsg : SubMsg<SshMessageType::ChannelOpen, "x11"> {
+  field<std::string, LengthPrefixed> originator_address;
+  field<uint32_t> originator_port;
+
+  constexpr auto operator<=>(const X11ChannelOpenMsg&) const = default;
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
+};
+
+// https://datatracker.ietf.org/doc/html/rfc4254#section-7.2
+struct ForwardedTcpipChannelOpenMsg : SubMsg<SshMessageType::ChannelOpen, "forwarded-tcpip"> {
+  field<std::string, LengthPrefixed> address_connected;
+  field<uint32_t> port_connected;
+  field<std::string, LengthPrefixed> originator_address;
+  field<uint32_t> originator_port;
+
+  constexpr auto operator<=>(const ForwardedTcpipChannelOpenMsg&) const = default;
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
+};
+
+// https://datatracker.ietf.org/doc/html/rfc4254#section-7.2
+struct DirectTcpipChannelOpenMsg : SubMsg<SshMessageType::ChannelOpen, "direct-tcpip"> {
+  field<std::string, LengthPrefixed> host_to_connect;
+  field<uint32_t> port_to_connect;
+  field<std::string, LengthPrefixed> originator_address;
+  field<uint32_t> originator_port;
+
+  constexpr auto operator<=>(const DirectTcpipChannelOpenMsg&) const = default;
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
+};
+
 // https://datatracker.ietf.org/doc/html/rfc4254#section-5.1
 struct ChannelOpenMsg final : Msg<SshMessageType::ChannelOpen> {
-  field<std::string, LengthPrefixed> channel_type;
+  constexpr std::string& channel_type() { return *request.key_field(); }
   field<uint32_t> sender_channel;
   field<uint32_t> initial_window_size;
   field<uint32_t> max_packet_size;
-  field<bytes> extra;
+  sub_message<SessionChannelOpenMsg,
+              X11ChannelOpenMsg,
+              ForwardedTcpipChannelOpenMsg,
+              DirectTcpipChannelOpenMsg>
+    request;
 
   constexpr auto operator<=>(const ChannelOpenMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
