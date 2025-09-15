@@ -4,11 +4,9 @@
 #include "source/extensions/filters/network/generic_proxy/interface/stream.h"
 #pragma clang unsafe_buffer_usage end
 
-#include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/common.h"
 #include "source/common/type_traits.h"
-#include <utility>
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -56,19 +54,28 @@ enum FrameTags : frame_tags_type {
   Error = 1 << 5,
 };
 
-struct AuthState;
-using AuthStateSharedPtr = std::shared_ptr<AuthState>;
-
 class SSHRequestHeaderFrame final : public GenericProxy::RequestHeaderFrame {
 public:
-  SSHRequestHeaderFrame(AuthStateSharedPtr auth_state);
-  std::string_view host() const override;
+  SSHRequestHeaderFrame(const std::string& host,
+                        stream_id_t stream_id,
+                        const StreamInfo::FilterState& filter_state)
+      : host_(host),
+        stream_id_(stream_id),
+        filter_state_objects_(filter_state.objectsSharedWithUpstreamConnection()) {}
+  std::string_view host() const override { return host_; }
   std::string_view protocol() const override { return "ssh"; }
-  const AuthStateSharedPtr& authState() const;
-  FrameFlags frameFlags() const override;
+  FrameFlags frameFlags() const override {
+    return {stream_id_, 0, FrameTags::RequestHeader | FrameTags::EffectiveHeader};
+  }
+
+  Envoy::OptRef<StreamInfo::FilterState::Objects> downstreamSharedFilterStateObjects() const {
+    return makeOptRefFromPtr(filter_state_objects_.get());
+  }
 
 private:
-  AuthStateSharedPtr auth_state_;
+  std::string host_;
+  stream_id_t stream_id_;
+  StreamInfo::FilterState::ObjectsPtr filter_state_objects_;
 };
 
 // Branchless conversion from FrameTags to matching FrameTags.

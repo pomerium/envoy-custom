@@ -4,10 +4,11 @@ load(
 )
 
 envoy_cc_test(
-    name = "status_test",
+    name = "common_test",
     srcs = [
         "factory_test.cc",
         "fixed_string_test.cc",
+        "id_alloc_test.cc",
         "math_test.cc",
         "span_test.cc",
         "status_test.cc",

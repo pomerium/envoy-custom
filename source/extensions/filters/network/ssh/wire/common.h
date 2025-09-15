@@ -74,6 +74,8 @@ constexpr inline SshMessageType operator|(SshMessageType l, SshMessageType r) {
 
 constexpr uint32_t MaxPacketSize = 256 * 1024;
 constexpr uint32_t MinPacketSize = 4 + 1;
+constexpr uint32_t ChannelMaxPacketSize = 1 << 15;
+constexpr uint32_t ChannelWindowSize = 64 * ChannelMaxPacketSize;
 
 // List of allowed integer types that can be used in SSH messages.
 // See RFC4251 § 5

@@ -303,5 +303,6 @@ message Permissions {
 }
 
 message FilterMetadata {
-  uint64 stream_id = 1;
+  uint64 stream_id  = 1;
+  uint32 channel_id = 2;
 }

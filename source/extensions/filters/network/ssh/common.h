@@ -100,3 +100,11 @@ struct Algorithms {
 
   auto operator<=>(const Algorithms&) const = default;
 };
+
+#define DECL_BASIC_ENUM_FORMATTER(Enum)                                              \
+  template <>                                                                        \
+  struct fmt::formatter<Enum> : fmt::formatter<string_view> {                        \
+    auto format(Enum value, format_context& ctx) const -> format_context::iterator { \
+      return fmt::formatter<string_view>::format(magic_enum::enum_name(value), ctx); \
+    }                                                                                \
+  }

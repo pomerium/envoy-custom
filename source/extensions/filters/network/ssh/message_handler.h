@@ -10,6 +10,7 @@
 #include "fmt/format.h"
 
 #include "envoy/common/pure.h"
+#include "source/common/common/linked_object.h"
 
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 
@@ -91,6 +92,12 @@ public:
   // the corresponding message handler.
   void installMiddleware(MessageMiddleware<T>* middleware) {
     middlewares_.push_back(middleware);
+  }
+
+  // FIXME: this method should not need to exist; refactor to use LinkedObjects instead
+  // This must not be called from within interceptMessage
+  void uninstallMiddleware(MessageMiddleware<T>* middleware) {
+    middlewares_.remove(middleware);
   }
 
 protected:
