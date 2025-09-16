@@ -566,9 +566,9 @@ TEST_F(ServerTransportLoadHostKeysTest, LoadHostKeysError) {
     ASSERT_TRUE(hostKey.has_filename()); // sanity check; this test should configure the host keys by filename
     chmod(hostKey.filename().c_str(), 0644);
   }
-  EXPECT_THROW_WITH_MESSAGE(transport_.setCodecCallbacks(server_codec_callbacks_),
-                            EnvoyException,
-                            "Invalid Argument: bad permissions");
+  EXPECT_THROW_WITH_REGEX(transport_.setCodecCallbacks(server_codec_callbacks_),
+                          EnvoyException,
+                          "Invalid Argument: failed to load ssh private key.*bad permissions");
 }
 
 TEST_F(ServerTransportTest, SuccessfulUserAuth_NormalMode) {
