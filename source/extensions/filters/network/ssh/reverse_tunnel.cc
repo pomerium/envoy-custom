@@ -2,10 +2,12 @@
 #include "source/common/status.h"
 #include "source/common/math.h"
 #include "source/extensions/filters/network/ssh/passthrough_state.h"
+#include "source/extensions/filters/network/ssh/socks5.h"
 #include "source/extensions/filters/network/ssh/stream_address.h"
 #include "source/extensions/filters/network/ssh/filter_state_objects.h"
 #include "source/extensions/filters/network/ssh/passthrough_state.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
+#include "source/extensions/filters/network/ssh/wire/messages.h"
 
 #pragma clang unsafe_buffer_usage begin
 #include "source/common/upstream/cluster_factory_impl.h"
@@ -13,6 +15,7 @@
 #include "envoy/config/endpoint/v3/endpoint.pb.validate.h"
 #include "source/extensions/io_socket/user_space/io_handle_impl.h"
 #include "source/common/network/connection_impl.h"
+#include "source/common/network/resolver_impl.h"
 #include "envoy/network/client_connection_factory.h"
 #include "source/common/stream_info/filter_state_impl.h"
 #include "source/common/http/utility.h"
@@ -28,10 +31,12 @@ class InternalDownstreamChannel : public Channel,
                                   public Logger::Loggable<Logger::Id::filter> {
 public:
   InternalDownstreamChannel(Network::IoHandlePtr io_handle,
+                            std::shared_ptr<const envoy::config::core::v3::Address> upstream_address,
                             ChannelEventCallbacks& event_callbacks,
                             Envoy::Event::Dispatcher& connection_dispatcher)
       : io_handle_(&dynamic_cast<IoSocket::UserSpace::IoHandleImpl&>(*io_handle.release())),
         connection_dispatcher_(connection_dispatcher),
+        upstream_address_(upstream_address),
         event_callbacks_(event_callbacks) {
 
     // Set the downstream buffer high watermark to match the local window size. This allows us to
@@ -57,21 +62,20 @@ public:
     // Build and send the ChannelOpen message to the downstream.
     // Normally channels don't send their own ChannelOpen messages, but this is somewhat of a
     // special case, because the channel is owned internally.
+    auto addrData = Envoy::Http::Utility::parseAuthority(server_name_);
+
     wire::ChannelOpenMsg open{
-      .channel_type = "forwarded-tcpip"s,
       .sender_channel = channel_id_,
       .initial_window_size = local_window_,
       .max_packet_size = MaxPacketSize,
+      .request = wire::ForwardedTcpipChannelOpenMsg{
+        .address_connected = std::string(addrData.host_),
+        .port_connected = addrData.port_.value_or(443),
+        .originator_address = downstream_address_->ip()->addressAsString(),
+        .originator_port = downstream_address_->ip()->port(),
+      },
     };
     ENVOY_LOG(debug, "channel {}: flow control: local window initialized to {}", channel_id_, local_window_);
-
-    Buffer::OwnedImpl extra;
-    auto addrData = Envoy::Http::Utility::parseAuthority(server_name_);
-    wire::write_opt<wire::LengthPrefixed>(extra, std::string(addrData.host_));
-    wire::write<uint32_t>(extra, 443);
-    wire::write_opt<wire::LengthPrefixed>(extra, downstream_addr_->ip()->addressAsString());
-    wire::write<uint32_t>(extra, downstream_addr_->ip()->port());
-    open.extra = wire::flushTo<bytes>(extra);
 
     return callbacks.sendMessageLocal(std::move(open));
   }
@@ -90,13 +94,13 @@ public:
         Event::PlatformDefaultTriggerType,
         Event::FileReadyType::Read | Event::FileReadyType::Write | Event::FileReadyType::Closed);
     });
-    if (downstream_addr_->ip()->port() == 0) {
-      // channel->demoSendSocks5Connect();
+    if (downstream_address_->ip()->port() == 0) {
+      startSocks5Handshake();
     }
     pomerium::extensions::ssh::ChannelEvent ev;
     auto* opened = ev.mutable_internal_channel_opened();
     opened->set_channel_id(channel_id_);
-    opened->set_peer_address(downstream_addr_->asStringView());
+    opened->set_peer_address(downstream_address_->asStringView());
     start_time_ = absl::Now();
     event_callbacks_.sendChannelEvent(ev);
     return absl::OkStatus();
@@ -120,9 +124,8 @@ public:
           ENVOY_LOG(debug, "channel {}: flow control: remote exceeded local window", channel_id_);
           return absl::InvalidArgumentError(fmt::format("channel {}: local window exceeded", channel_id_));
         }
-        // write to the local window buffer, then flush to downstream
-        window_buffer_.add(msg.data->data(), msg.data->size());
-        if (auto stat = writeReady(); !stat.ok()) {
+        // process the channel data message
+        if (auto stat = readChannelData(msg); !stat.ok()) {
           return stat;
         }
         // check if we need to increase the local window
@@ -176,6 +179,31 @@ public:
   }
 
 private:
+  absl::Status readChannelData(const wire::ChannelDataMsg& msg) {
+    if (socks5_handshaker_.has_value()) {
+      auto stat = socks5_handshaker_->onChannelData(msg);
+      if (!stat.ok()) {
+        return statusf("socks5 handshake error: {}", stat);
+      }
+      if (socks5_handshaker_->done()) {
+        ENVOY_LOG(debug, "channel {}: socks5 handshake completed", channel_id_);
+        socks5_handshaker_.reset();
+      }
+      return absl::OkStatus();
+    }
+
+    // write to the local window buffer, then flush to downstream
+    window_buffer_.add(msg.data->data(), msg.data->size());
+    if (auto stat = writeReady(); !stat.ok()) {
+      return stat;
+    }
+    return absl::OkStatus();
+  }
+
+  void startSocks5Handshake() {
+    socks5_handshaker_.emplace(*callbacks_, upstream_address_);
+  }
+
   void onFileEvent(uint32_t events) {
     ASSERT(connection_dispatcher_.isThreadSafe());
     if ((events & Envoy::Event::FileReadyType::Closed) != 0) {
@@ -293,7 +321,7 @@ private:
 
     auto* addr = passthrough_filter_state.getDataReadOnly<Network::AddressObject>(DownstreamSourceAddressFilterStateFactory::key());
     ASSERT(addr != nullptr);
-    downstream_addr_ = addr->address();
+    downstream_address_ = addr->address();
   }
 
   bool closed_{false};
@@ -305,8 +333,11 @@ private:
   Envoy::Event::Dispatcher& connection_dispatcher_;
   Buffer::OwnedImpl window_buffer_;
 
+  std::optional<Socks5ClientHandshaker> socks5_handshaker_;
+
   std::string server_name_;
-  Envoy::Network::Address::InstanceConstSharedPtr downstream_addr_;
+  Envoy::Network::Address::InstanceConstSharedPtr downstream_address_;
+  std::shared_ptr<const envoy::config::core::v3::Address> upstream_address_;
   ChannelEventCallbacks& event_callbacks_;
 
   uint64_t rx_bytes_total_{};
@@ -330,8 +361,15 @@ using Extensions::NetworkFilters::GenericProxy::Codec::StreamContext;
 class InternalStreamSocketInterface : public Network::SocketInterface,
                                       public Logger::Loggable<Logger::Id::filter> {
 public:
-  explicit InternalStreamSocketInterface(std::shared_ptr<StreamTracker> stream_tracker)
+  explicit InternalStreamSocketInterface(std::shared_ptr<StreamTracker> stream_tracker,
+                                         const envoy::config::endpoint::v3::ClusterLoadAssignment& route_to)
       : stream_tracker_(std::move(stream_tracker)) {
+
+    for (const auto& endpoint : route_to.endpoints()) {
+      for (const auto& lb_endpoint : endpoint.lb_endpoints()) {
+        upstream_addresses_.push_back(std::make_shared<const envoy::config::core::v3::Address>(lb_endpoint.endpoint().address()));
+      }
+    }
     ASSERT(stream_tracker_ != nullptr);
   }
 
@@ -349,10 +387,13 @@ public:
 
     auto [local, remote] = IoHandleFactory::createIoHandlePair(std::make_unique<InternalStreamPassthroughState>());
     auto passthroughState = Network::InternalStreamPassthroughState::fromIoHandle(*local);
+    auto upstreamAddr = chooseAddress();
 
     passthroughState->setOnInitializedCallback(
-      [this, streamId, io_handle = std::move(local)] mutable {
-        stream_tracker_->tryLock(streamId, [streamId, io_handle = std::move(io_handle)](Envoy::OptRef<StreamContext> ctx) mutable {
+      [this, streamId, io_handle = std::move(local), upstreamAddr = std::move(upstreamAddr)] mutable {
+        stream_tracker_->tryLock(streamId, [streamId,
+                                            io_handle = std::move(io_handle),
+                                            upstreamAddr = std::move(upstreamAddr)](Envoy::OptRef<StreamContext> ctx) mutable {
           if (!ctx.has_value()) {
             ENVOY_LOG_MISC(error, "error requesting channel: stream with ID {} not found", streamId);
             io_handle->close();
@@ -360,7 +401,7 @@ public:
           }
           ASSERT(ctx->connection().dispatcher().isThreadSafe());
           auto c = std::make_unique<InternalDownstreamChannel>(
-            std::move(io_handle), ctx->eventCallbacks(), ctx->connection().dispatcher());
+            std::move(io_handle), upstreamAddr, ctx->eventCallbacks(), ctx->connection().dispatcher());
           auto id = ctx->streamCallbacks().startChannel(std::move(c), std::nullopt);
           if (!id.ok()) {
             ENVOY_LOG(error, "failed to start channel: {}", statusToString(id.status()));
@@ -374,7 +415,14 @@ public:
   bool ipFamilySupported(int) override { return true; }
 
 private:
+  std::shared_ptr<const envoy::config::core::v3::Address> chooseAddress() const {
+    auto addr = upstream_addresses_[round_robin_index_];
+    round_robin_index_ = (round_robin_index_ + 1) % upstream_addresses_.size();
+    return addr;
+  }
   mutable std::shared_ptr<StreamTracker> stream_tracker_;
+  std::vector<std::shared_ptr<const envoy::config::core::v3::Address>> upstream_addresses_;
+  mutable size_t round_robin_index_{0};
 };
 
 // This is only required to avoid an ASSERT in the default client connection factory which doesn't
@@ -482,13 +530,18 @@ SshReverseTunnelCluster::create(const envoy::config::cluster::v3::Cluster& clust
                                 const pomerium::extensions::ssh::ReverseTunnelCluster& proto_config,
                                 ClusterFactoryContext& cluster_context) {
   absl::Status creation_status = absl::OkStatus();
-  auto ret = absl::WrapUnique(new SshReverseTunnelCluster(cluster, proto_config, cluster_context, creation_status));
+  // make a copy of the cluster config, clearing the original cluster load assignment
+  envoy::config::cluster::v3::Cluster clone;
+  clone.CopyFrom(cluster);
+  clone.clear_load_assignment();
+  auto ret = absl::WrapUnique(new SshReverseTunnelCluster(clone, proto_config, cluster.load_assignment(), cluster_context, creation_status));
   RETURN_IF_NOT_OK(creation_status);
   return ret;
 }
 
 SshReverseTunnelCluster::SshReverseTunnelCluster(const envoy::config::cluster::v3::Cluster& cluster,
                                                  const pomerium::extensions::ssh::ReverseTunnelCluster& proto_config,
+                                                 const envoy::config::endpoint::v3::ClusterLoadAssignment& load_assignment,
                                                  ClusterFactoryContext& cluster_context,
                                                  absl::Status& creation_status)
     : ClusterImplBase(cluster, cluster_context, creation_status),
@@ -498,7 +551,7 @@ SshReverseTunnelCluster::SshReverseTunnelCluster(const envoy::config::cluster::v
       server_context_(cluster_context.serverFactoryContext()),
       config_(proto_config),
       stream_tracker_(StreamTracker::fromContext(cluster_context.serverFactoryContext())),
-      socket_interface_(std::make_shared<Network::InternalStreamSocketInterface>(stream_tracker_)),
+      socket_interface_(std::make_shared<Network::InternalStreamSocketInterface>(stream_tracker_, load_assignment)),
       dispatcher_(cluster_context.serverFactoryContext().mainThreadDispatcher()) {
   ASSERT_IS_MAIN_OR_TEST_THREAD();
   RETURN_ONLY_IF_NOT_OK_REF(creation_status);

@@ -47,6 +47,7 @@ protected:
   // NB: ClusterFactoryContext is short-lived, it cannot be stored as a member here
   SshReverseTunnelCluster(const envoy::config::cluster::v3::Cluster& cluster,
                           const pomerium::extensions::ssh::ReverseTunnelCluster& proto_config,
+                          const envoy::config::endpoint::v3::ClusterLoadAssignment& load_assignment,
                           ClusterFactoryContext& cluster_context,
                           absl::Status& creation_status);
 
