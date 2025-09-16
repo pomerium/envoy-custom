@@ -18,7 +18,7 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 template <typename Sink>
 void AbslStringify(Sink& sink, const Peer& peer) {
-  absl::Format(sink, fmt::to_string(peer));
+  absl::Format(&sink, "%s", fmt::to_string(peer));
 }
 
 namespace test {
