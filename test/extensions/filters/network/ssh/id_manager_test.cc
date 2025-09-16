@@ -233,7 +233,7 @@ TEST_P(ChannelIDManagerFormatTest, Formatting) {
     .peer_states = {stateA, stateB},
     .owner = owner,
   };
-  ASSERT_NO_THROW(fmt::to_string(info));
+  ASSERT_NO_THROW((void)fmt::to_string(info));
 }
 
 INSTANTIATE_TEST_SUITE_P(ChannelIDManagerFormat, ChannelIDManagerFormatTest,
