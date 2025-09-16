@@ -5,6 +5,7 @@
 #include "gmock/gmock.h"
 #include "test/test_common/test_common.h"
 #include "test/test_common/utility.h"
+#include "test/test_common/proto_equal.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
@@ -26,7 +27,7 @@ TEST_F(StreamManagementServiceClientTest, Connect) {
     .WillOnce(Return(&stream_));
   ClientMessage expectedInitMsg;
   expectedInitMsg.mutable_event()->mutable_downstream_connected()->set_stream_id(1);
-  EXPECT_CALL(stream_, sendMessageRaw_(Grpc::ProtoBufferEq(expectedInitMsg), false));
+  EXPECT_CALL(stream_, sendMessageRaw_(ProtoBufferStrictEq(expectedInitMsg), false));
   StreamManagementServiceClient client(client_);
   client.connect(1);
 }
@@ -204,7 +205,7 @@ TEST_F(ChannelStreamServiceClientTest, Start_Metadata) {
 
   ChannelMessage expectedMetadataMsg;
   expectedMetadataMsg.mutable_metadata()->CopyFrom(md);
-  EXPECT_CALL(stream_, sendMessageRaw_(Grpc::ProtoBufferEq(expectedMetadataMsg), false));
+  EXPECT_CALL(stream_, sendMessageRaw_(ProtoBufferStrictEq(expectedMetadataMsg), false));
 
   client.start(&callbacks_, md);
 }
@@ -217,18 +218,18 @@ TEST_F(ChannelStreamServiceClientTest, SendMessages) {
 
   ChannelMessage expectedMetadataMsg;
   expectedMetadataMsg.mutable_metadata(); // empty metadata
-  EXPECT_CALL(stream_, sendMessageRaw_(Grpc::ProtoBufferEq(expectedMetadataMsg), false));
+  EXPECT_CALL(stream_, sendMessageRaw_(ProtoBufferStrictEq(expectedMetadataMsg), false));
 
   client.start(&callbacks_, {});
 
   ChannelMessage msg1;
   *msg1.mutable_raw_bytes()->mutable_value() = "test1";
-  EXPECT_CALL(stream_, sendMessageRaw_(Grpc::ProtoBufferEq(msg1), false));
+  EXPECT_CALL(stream_, sendMessageRaw_(ProtoBufferStrictEq(msg1), false));
   client.sendMessage(msg1);
 
   ChannelMessage msg2;
   *msg2.mutable_raw_bytes()->mutable_value() = "test2";
-  EXPECT_CALL(stream_, sendMessageRaw_(Grpc::ProtoBufferEq(msg2), false));
+  EXPECT_CALL(stream_, sendMessageRaw_(ProtoBufferStrictEq(msg2), false));
   client.sendMessage(msg2);
 }
 
@@ -239,7 +240,7 @@ TEST_F(ChannelStreamServiceClientTest, OnReceiveMessage) {
 
   ChannelMessage expectedMetadataMsg;
   expectedMetadataMsg.mutable_metadata(); // empty metadata
-  EXPECT_CALL(stream_, sendMessageRaw_(Grpc::ProtoBufferEq(expectedMetadataMsg), false)).RetiresOnSaturation();
+  EXPECT_CALL(stream_, sendMessageRaw_(ProtoBufferStrictEq(expectedMetadataMsg), false)).RetiresOnSaturation();
 
   ChannelMessage msg1;
   *msg1.mutable_channel_control()->mutable_protocol() = "ssh";
@@ -259,7 +260,7 @@ TEST_F(ChannelStreamServiceClientTest, OnReceiveMessage_HandlerReturnsError) {
 
   ChannelMessage expectedMetadataMsg;
   expectedMetadataMsg.mutable_metadata(); // empty metadata
-  EXPECT_CALL(stream_, sendMessageRaw_(Grpc::ProtoBufferEq(expectedMetadataMsg), false));
+  EXPECT_CALL(stream_, sendMessageRaw_(ProtoBufferStrictEq(expectedMetadataMsg), false));
 
   ChannelMessage msg1;
   *msg1.mutable_channel_control()->mutable_protocol() = "ssh";
@@ -306,7 +307,7 @@ TEST_F(ChannelStreamServiceClientTest, OnRemoteClose) {
 
   ChannelMessage expectedMetadataMsg;
   expectedMetadataMsg.mutable_metadata(); // empty metadata
-  EXPECT_CALL(stream_, sendMessageRaw_(Grpc::ProtoBufferEq(expectedMetadataMsg), false));
+  EXPECT_CALL(stream_, sendMessageRaw_(ProtoBufferStrictEq(expectedMetadataMsg), false));
 
   ChannelStreamServiceClient client(client_);
   client.start(&callbacks_, {});
@@ -328,7 +329,7 @@ TEST_F(ChannelStreamServiceClientTest, OnRemoteCloseNoError) {
 
   ChannelMessage expectedMetadataMsg;
   expectedMetadataMsg.mutable_metadata(); // empty metadata
-  EXPECT_CALL(stream_, sendMessageRaw_(Grpc::ProtoBufferEq(expectedMetadataMsg), false));
+  EXPECT_CALL(stream_, sendMessageRaw_(ProtoBufferStrictEq(expectedMetadataMsg), false));
 
   ChannelStreamServiceClient client(client_);
   client.start(&callbacks_, {});
@@ -350,7 +351,7 @@ TEST_F(ChannelStreamServiceClientTest, NoopMetadataCallbacks) {
 
   ChannelMessage expectedMetadataMsg;
   expectedMetadataMsg.mutable_metadata(); // empty metadata
-  EXPECT_CALL(stream_, sendMessageRaw_(Grpc::ProtoBufferEq(expectedMetadataMsg), false));
+  EXPECT_CALL(stream_, sendMessageRaw_(ProtoBufferStrictEq(expectedMetadataMsg), false));
 
   ChannelStreamServiceClient client(client_);
   client.start(&callbacks_, {});

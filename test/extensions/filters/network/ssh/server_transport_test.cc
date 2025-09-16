@@ -10,6 +10,7 @@
 #include "test/mocks/network/connection.h"
 #include "test/mocks/grpc/mocks.h"
 #include "test/mocks/server/server_factory_context.h"
+#include "test/test_common/proto_equal.h"
 #include "test/test_common/test_common.h"
 #include "source/extensions/filters/network/ssh/service_connection.h" // IWYU pragma: keep
 #include "source/extensions/filters/network/ssh/service_userauth.h"   // IWYU pragma: keep
@@ -240,7 +241,7 @@ public:
   }
 
   void ExpectHandlePomeriumGrpcAuthRequestNormal(const ClientMessage& clientMsg) {
-    EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(Envoy::Grpc::ProtoBufferEq(clientMsg), false))
+    EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(clientMsg), false))
       .WillOnce([this](Buffer::InstancePtr&, bool) {
         auto response = std::make_unique<ServerMessage>();
         auto* allow = response->mutable_auth_response()->mutable_allow();
@@ -253,7 +254,7 @@ public:
   }
 
   void ExpectHandlePomeriumGrpcAuthRequestHijack(const ClientMessage& clientMsg, bool add_well_known_metadata = false) {
-    EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(Envoy::Grpc::ProtoBufferEq(clientMsg), false))
+    EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(clientMsg), false))
       .WillOnce([this, add_well_known_metadata](Buffer::InstancePtr&, bool) {
         auto response = std::make_unique<ServerMessage>();
         auto* allow = response->mutable_auth_response()->mutable_allow();
@@ -272,7 +273,7 @@ public:
   void ExpectUpstreamConnectMsg() {
     ClientMessage upstreamConnectMsg{};
     upstreamConnectMsg.mutable_event()->mutable_upstream_connected();
-    EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(Envoy::Grpc::ProtoBufferEq(upstreamConnectMsg), false));
+    EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(upstreamConnectMsg), false));
   }
 
   void ExpectDecodingSuccess() {
@@ -287,13 +288,13 @@ public:
   }
 
   void ExpectSendOnServeChannelStream(const ChannelMessage& msg) {
-    EXPECT_CALL(serve_channel_stream_, sendMessageRaw_(Envoy::Grpc::ProtoBufferEq(msg), false));
+    EXPECT_CALL(serve_channel_stream_, sendMessageRaw_(ProtoBufferStrictEq(msg), false));
   }
 
   void ExpectSendOnServeChannelStream(wire::Encoder auto const& msg) {
     ChannelMessage channelMsg;
     *channelMsg.mutable_raw_bytes()->mutable_value() = *wire::encodeTo<std::string>(msg);
-    EXPECT_CALL(serve_channel_stream_, sendMessageRaw_(Envoy::Grpc::ProtoBufferEq(channelMsg), false));
+    EXPECT_CALL(serve_channel_stream_, sendMessageRaw_(ProtoBufferStrictEq(channelMsg), false));
   }
 
   // stream_index identifies the specific stream (in order of creation), if multiple streams are
@@ -1142,7 +1143,7 @@ TEST_F(ServerTransportTest, PomeriumDisconnectsDuringAuth) {
   ASSERT_OK(RequestUserAuthService());
   auto [authReq, clientMsg] = BuildUserAuthMessages(*clientKey);
 
-  EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(Envoy::Grpc::ProtoBufferEq(clientMsg), false))
+  EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(clientMsg), false))
     .WillOnce([this](Buffer::InstancePtr&, bool) {
       manage_stream_callbacks_->onRemoteClose(Envoy::Grpc::Status::Internal, "test error");
     });

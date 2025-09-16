@@ -292,6 +292,7 @@ void SshServerTransport::initUpstream(AuthInfoSharedPtr auth_info) {
     callbacks_->onDecodingSuccess(std::move(frame));
 
     ClientMessage upstream_connect_msg{};
+    upstream_connect_msg.mutable_event()->mutable_upstream_connected();
     sendMgmtClientMessage(upstream_connect_msg);
   } break;
   case ChannelMode::Hijacked: {
@@ -315,6 +316,7 @@ void SshServerTransport::initUpstream(AuthInfoSharedPtr auth_info) {
     callbacks_->onDecodingSuccess(std::move(frame));
 
     ClientMessage upstream_connect_msg{};
+    upstream_connect_msg.mutable_event()->mutable_upstream_connected();
     sendMgmtClientMessage(upstream_connect_msg);
   } break;
   case ChannelMode::Mirror:
@@ -382,6 +384,7 @@ SshServerTransport::handleHostKeysProve(const wire::HostKeysProveRequestMsg& msg
 }
 
 void SshServerTransport::sendMgmtClientMessage(const ClientMessage& msg) {
+  ASSERT(msg.message_case() != ClientMessage::MessageCase::MESSAGE_NOT_SET, "empty ClientMessage sent");
   mgmt_client_->stream().sendMessage(msg, false);
 }
 

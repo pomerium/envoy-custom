@@ -12,6 +12,7 @@ envoy_cc_test_library(
     name = "test_common_lib",
     srcs = [],
     hdrs = [
+        "proto_equal.h",
         "test_common.h",
     ],
     repository = "@envoy",
