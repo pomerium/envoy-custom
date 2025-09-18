@@ -12,10 +12,14 @@ class ChannelCallbacks {
 public:
   virtual ~ChannelCallbacks() = default;
 
-  // Sends a message to the local peer.
-  virtual absl::Status sendMessageLocal(wire::Message&& msg) PURE;
+  // Sends a message to the local peer. For channel messages (see wire::ChannelMsg), the
+  // recipient_channel field does not need to be set. It will be set to the current internal
+  // channel ID automatically.
+  virtual void sendMessageLocal(wire::Message&& msg) PURE;
 
-  // Sends a message to the remote peer.
+  // Sends a message to the remote peer. For channel messages (see wire::ChannelMsg), the
+  // recipient_channel field does not need to be set. It will be set to the current internal
+  // channel ID automatically.
   virtual absl::Status sendMessageRemote(wire::Message&& msg) PURE;
 
   // Returns the channel's internal ID.

@@ -431,21 +431,24 @@ TEST_P(ConnectionServiceTest, SendNonChannelDataInternal) {
   auto ch1 = std::make_unique<testing::StrictMock<MockChannel>>();
   auto& c1 = EXPECT_CALL(*ch1, setChannelCallbacks)
                .WillOnce([&](ChannelCallbacks& cb) {
-                 EXPECT_CALL(transport_, sendMessageToConnection(MSG(wire::IgnoreMsg, _)));
-                 return cb.sendMessageLocal(wire::IgnoreMsg{});
+                 EXPECT_CALL(transport_, sendMessageToConnection(MSG(wire::IgnoreMsg, _)))
+                   .WillOnce(Return(0));
+                 cb.sendMessageLocal(wire::IgnoreMsg{});
+                 return absl::OkStatus();
                });
   EXPECT_CALL(*ch1, Die)
     .After(c1);
   auto id = service_.startChannel(std::move(ch1));
 }
 
-TEST_P(ConnectionServiceTest, SendChannelDataInternalForUnknownChannel) {
+TEST_P(ConnectionServiceTest, SendNonChannelDataInternal_ErrorSendingMessageLocal) {
   auto ch1 = std::make_unique<testing::StrictMock<MockChannel>>();
   auto& c1 = EXPECT_CALL(*ch1, setChannelCallbacks)
-               .WillOnce([this](ChannelCallbacks& cb) {
-                 EXPECT_EQ(
-                   absl::InvalidArgumentError(fmt::format("error processing outgoing message of type ChannelData (94): internal channel 100 is not known to {} (state: Unbound)", LocalPeer())),
-                   cb.sendMessageLocal(wire::ChannelDataMsg{}));
+               .WillOnce([&](ChannelCallbacks& cb) {
+                 EXPECT_CALL(transport_, sendMessageToConnection(MSG(wire::IgnoreMsg, _)))
+                   .WillOnce(Return(absl::InternalError("test error")));
+                 EXPECT_CALL(transport_, terminate(absl::InternalError("test error")));
+                 cb.sendMessageLocal(wire::IgnoreMsg{});
                  return absl::OkStatus();
                });
   EXPECT_CALL(*ch1, Die)

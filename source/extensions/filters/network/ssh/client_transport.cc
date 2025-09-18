@@ -297,10 +297,7 @@ public:
         .modes = info_.pty_info->modes(),
       },
     };
-    auto stat = callbacks_->sendMessageLocal(std::move(channelReq));
-    if (!stat.ok()) {
-      return statusf("error requesting pty: {}", stat);
-    }
+    callbacks_->sendMessageLocal(std::move(channelReq));
     return absl::OkStatus();
   }
   absl::Status onChannelOpenFailed(wire::ChannelOpenFailureMsg&& msg) override {
@@ -320,8 +317,7 @@ public:
         shellReq.recipient_channel = callbacks_->channelId();
         shellReq.request = wire::ShellChannelRequestMsg{};
         shellReq.want_reply = false;
-        auto r = callbacks_->sendMessageLocal(std::move(shellReq));
-        RELEASE_ASSERT(r.ok(), "failed to send ShellChannelRequestMsg");
+        callbacks_->sendMessageLocal(std::move(shellReq));
 
         ENVOY_LOG(debug, "handoff complete");
         handoff_complete_ = true;

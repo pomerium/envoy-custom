@@ -881,7 +881,7 @@ TEST_F(ClientTransportTest, Handoff_SendPtyRequestFailure) {
   wire::ChannelOpenMsg req;
   ASSERT_OK(ReadMsg(req));
 
-  ExpectDisconnectAsHeader(absl::AbortedError("error opening channel: error requesting pty: error encoding packet: message size too large"));
+  ExpectDisconnectAsHeader(absl::AbortedError("error encoding packet: message size too large"));
   ASSERT_OK(WriteMsg(wire::ChannelOpenConfirmationMsg{
     .recipient_channel = authInfo->handoff_info.channel_info->internal_upstream_channel_id(),
     .sender_channel = 300,
