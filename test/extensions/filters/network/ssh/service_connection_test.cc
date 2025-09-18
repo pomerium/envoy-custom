@@ -29,6 +29,8 @@ public:
       : service_(transport_, GetParam()) {
     EXPECT_CALL(transport_, channelIdManager)
       .WillRepeatedly(ReturnRef(channel_id_manager_));
+    EXPECT_CALL(transport_, secretsProvider)
+      .WillRepeatedly(ReturnRef(secrets_provider_));
   }
 
   Peer LocalPeer() const {
@@ -39,6 +41,7 @@ public:
   }
 
   ChannelIDManager channel_id_manager_{100, 100};
+  TestSecretsProvider secrets_provider_;
   testing::StrictMock<MockTransportCallbacks> transport_;
   ConnectionService service_;
 };

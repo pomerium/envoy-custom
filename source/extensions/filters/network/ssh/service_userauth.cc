@@ -286,11 +286,8 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
 
 UpstreamUserAuthService::UpstreamUserAuthService(TransportCallbacks& callbacks, Api::Api& api)
     : UserAuthService(callbacks, api) {
-  {
-    auto privKey = openssh::SSHKey::fromPrivateKeyDataSource(transport_.codecConfig().user_ca_key());
-    THROW_IF_NOT_OK_REF(privKey.status());
-    ca_user_key_ = std::move(*privKey);
-  }
+  user_ca_key_ = callbacks.secretsProvider().userCaKey();
+  ASSERT(user_ca_key_ != nullptr);
 }
 
 void UpstreamUserAuthService::registerMessageHandlers(SshMessageDispatcher& dispatcher) {
@@ -382,7 +379,7 @@ absl::Status UpstreamUserAuthService::onServiceAccepted() {
     extensions,
     validStartTime,
     validEndTime,
-    *ca_user_key_);
+    *user_ca_key_);
   if (!stat.ok()) {
     return statusf("error generating user certificate: {}", stat);
   }

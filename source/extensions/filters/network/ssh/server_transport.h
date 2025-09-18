@@ -6,6 +6,7 @@
 #pragma clang unsafe_buffer_usage end
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
 
+#include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/service.h"
 #include "source/extensions/filters/network/ssh/stream_tracker.h"
 #include "source/extensions/filters/network/ssh/extension_ping.h"
@@ -29,9 +30,9 @@ public:
   SshServerTransport(Server::Configuration::ServerFactoryContext& context,
                      std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
                      CreateGrpcClientFunc create_grpc_client,
-                     StreamTrackerSharedPtr active_stream_tracker);
+                     StreamTrackerSharedPtr active_stream_tracker,
+                     const SecretsProvider& secrets_provider);
 
-  void setCodecCallbacks(GenericProxy::ServerCodecCallbacks& callbacks) override;
   void onConnected() override;
 
   GenericProxy::EncodingResult encode(const GenericProxy::StreamFrame& frame,

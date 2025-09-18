@@ -279,7 +279,7 @@ public:
   }
 
   auto newServerHostKeys() {
-    std::vector<openssh::SSHKeyPtr> hostKeys;
+    std::vector<openssh::SSHKeySharedPtr> hostKeys;
     hostKeys.push_back(*openssh::SSHKey::generate(KEY_ED25519, 256));
     hostKeys.push_back(*openssh::SSHKey::generate(KEY_ECDSA, 256));
     hostKeys.push_back(*openssh::SSHKey::generate(KEY_ECDSA, 384));

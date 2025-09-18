@@ -63,7 +63,7 @@ public:
 private:
   key_params_t getUpstreamKeyParams();
 
-  openssh::SSHKeyPtr ca_user_key_;
+  openssh::SSHKeySharedPtr user_ca_key_;
   std::unique_ptr<wire::UserAuthRequestMsg> pending_req_;
   bool ext_info_received_{};
 };

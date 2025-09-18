@@ -1,10 +1,11 @@
 #pragma once
 
-#include "source/common/id_alloc.h"
-#include "source/extensions/filters/network/ssh/id_manager.h"
 #pragma clang unsafe_buffer_usage begin
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #pragma clang unsafe_buffer_usage end
+#include "source/common/id_alloc.h"
+#include "source/extensions/filters/network/ssh/id_manager.h"
+#include "source/extensions/filters/network/ssh/openssh.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
@@ -69,6 +70,13 @@ struct AuthInfo : public StreamInfo::FilterState::Object {
 
 using AuthInfoSharedPtr = std::shared_ptr<AuthInfo>;
 
+class SecretsProvider {
+public:
+  virtual ~SecretsProvider() = default;
+  virtual std::vector<openssh::SSHKeySharedPtr> hostKeys() const PURE;
+  virtual openssh::SSHKeySharedPtr userCaKey() const PURE;
+};
+
 class TransportCallbacks {
   friend class Kex;              // uses reset{Read|Write}SequenceNumber and sendMessageDirect
   friend class VersionExchanger; // uses writeToConnection
@@ -84,12 +92,12 @@ public:
 
   virtual const bytes& sessionId() const PURE;
   virtual AuthInfo& authInfo() PURE;
-  virtual const pomerium::extensions::ssh::CodecConfig& codecConfig() const PURE;
   virtual stream_id_t streamId() const PURE;
   virtual void updatePeerExtInfo(std::optional<wire::ExtInfoMsg> msg) PURE;
   virtual Envoy::OptRef<Envoy::Event::Dispatcher> connectionDispatcher() const PURE;
   virtual void terminate(absl::Status status) PURE;
   virtual ChannelIDManager& channelIdManager() PURE;
+  virtual const SecretsProvider& secretsProvider() const PURE;
 
   // This function is called at each opportunity to send ext info (once for clients, twice for
   // servers). Iff a value is returned, it will be sent to the peer.

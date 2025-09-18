@@ -1,5 +1,6 @@
 #include "source/extensions/filters/network/ssh/config.h"
 
+#include "source/extensions/filters/network/ssh/openssh.h"
 #include "source/extensions/filters/network/ssh/client_transport.h"   // IWYU pragma: keep
 #include "source/extensions/filters/network/ssh/server_transport.h"   // IWYU pragma: keep
 #include "source/extensions/filters/network/ssh/service_connection.h" // IWYU pragma: keep
@@ -13,6 +14,7 @@ CodecFactoryPtr SshCodecFactoryConfig::createCodecFactory(
   MessageUtil::validate(typed_config, context.messageValidationVisitor());
   auto conf = std::make_shared<pomerium::extensions::ssh::CodecConfig>();
   conf->CopyFrom(typed_config);
+
   auto createClient = [&context, conf]() {
     auto factory = context.clusterManager().grpcAsyncClientManager().factoryForGrpcService(
       conf->grpc_service(), context.scope(), true);
@@ -33,15 +35,27 @@ SshCodecFactory::SshCodecFactory(Envoy::Server::Configuration::ServerFactoryCont
       config_(config),
       create_grpc_client_(create_grpc_client),
       stream_tracker_(std::move(stream_tracker)) {
+  auto userCaKey = openssh::SSHKey::fromPrivateKeyDataSource(config->user_ca_key());
+  if (!userCaKey.ok()) {
+    throw Envoy::EnvoyException(statusToString(openssh::detail::formatDataSourceError(
+      config->user_ca_key(), "ssh user ca key", userCaKey.status())));
+  }
+  user_ca_key_ = std::move(userCaKey).value();
+
+  auto hostKeys = openssh::loadHostKeys(config->host_keys());
+  if (!hostKeys.ok()) {
+    throw Envoy::EnvoyException(statusToString(hostKeys.status()));
+  }
+  host_keys_ = std::move(hostKeys).value();
 }
 
 ServerCodecPtr SshCodecFactory::createServerCodec() const {
   return std::make_unique<SshServerTransport>(context_, config_, create_grpc_client_,
-                                              stream_tracker_);
+                                              stream_tracker_, *this);
 }
 
 ClientCodecPtr SshCodecFactory::createClientCodec() const {
-  return std::make_unique<SshClientTransport>(context_, config_);
+  return std::make_unique<SshClientTransport>(context_, config_, *this);
 }
 
 ProtobufTypes::MessagePtr SshCodecFactoryConfig::createEmptyConfigProto() {

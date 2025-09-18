@@ -29,8 +29,9 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 SshServerTransport::SshServerTransport(Server::Configuration::ServerFactoryContext& context,
                                        std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
                                        CreateGrpcClientFunc create_grpc_client,
-                                       StreamTrackerSharedPtr stream_tracker)
-    : TransportBase(context.api(), std::move(config)),
+                                       StreamTrackerSharedPtr stream_tracker,
+                                       const SecretsProvider& secrets_provider)
+    : TransportBase(context.api(), std::move(config), secrets_provider),
       DownstreamTransportCallbacks(*this),
       stream_tracker_(std::move(stream_tracker)) {
   auto grpcClient = create_grpc_client();
@@ -62,15 +63,6 @@ void SshServerTransport::registerMessageHandlers(MessageDispatcher<wire::Message
 
   ping_handler_->registerMessageHandlers(*this);
   user_auth_service_->registerMessageHandlers(*mgmt_client_);
-}
-
-void SshServerTransport::setCodecCallbacks(Callbacks& callbacks) {
-  TransportBase::setCodecCallbacks(callbacks);
-  if (auto keys = openssh::loadHostKeys(codecConfig().host_keys()); !keys.ok()) {
-    throw Envoy::EnvoyException(statusToString(keys.status()));
-  } else {
-    kex_->setHostKeys(std::move(*keys));
-  }
 }
 
 void SshServerTransport::onConnected() {

@@ -72,8 +72,10 @@ class ClientTransportTest : public testing::Test {
 public:
   ClientTransportTest()
       : downstream_filter_state_(StreamInfo::FilterState::LifeSpan::FilterChain),
+        config_(newConfig()),
         server_host_key_(*openssh::SSHKey::generate(KEY_ED25519, 256)),
-        transport_(server_factory_context_, initConfig()) {}
+        secrets_provider_(*config_),
+        transport_(server_factory_context_, config_, secrets_provider_) {}
 
   const wire::KexInitMsg kex_init_ = {
     .cookie = {{16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1}},
@@ -130,7 +132,7 @@ public:
       StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
   }
 
-  void StartTransportNormal() {
+  absl::Status StartTransportNormal() {
     // start the client transport by simulating a SSHRequestHeaderFrame forwarded from the
     // server transport
     auto authInfo = std::make_shared<AuthInfo>();
@@ -157,8 +159,9 @@ public:
     publicKeyMethod->mutable_method_data()->PackFrom(publicKeyMethodData);
     GenericProxy::MockEncodingContext ctx;
     SSHRequestHeaderFrame reqHeaderFrame("example", 0, downstream_filter_state_);
-    ASSERT_OK(transport_.encode(reqHeaderFrame, ctx).status());
-    DoKeyExchange();
+    RETURN_IF_NOT_OK(transport_.encode(reqHeaderFrame, ctx).status());
+    RETURN_IF_NOT_OK(DoKeyExchange());
+    return absl::OkStatus();
   }
 
   AuthInfoSharedPtr BuildHandoffAuthInfo() {
@@ -200,20 +203,20 @@ public:
     return authInfo;
   }
 
-  [[nodiscard]] uint32_t StartTransportHandoff() {
+  absl::StatusOr<uint32_t> StartTransportHandoff() {
     GenericProxy::MockEncodingContext ctx;
     auto authInfo = BuildHandoffAuthInfo();
     SetDownstreamAuthInfo(authInfo);
     SSHRequestHeaderFrame reqHeaderFrame("example", 0, downstream_filter_state_);
     EXPECT_OK(transport_.encode(reqHeaderFrame, ctx).status());
-    DoKeyExchange();
+    RETURN_IF_NOT_OK(DoKeyExchange());
     return authInfo->handoff_info.channel_info->internal_upstream_channel_id();
   }
 
-  [[nodiscard]] uint32_t StartTransportDirectTcpip() {
+  absl::StatusOr<uint32_t> StartTransportDirectTcpip() {
     GenericProxy::MockEncodingContext ctx;
     auto authInfo = BuildHandoffAuthInfo();
-    EXPECT_OK(channel_id_manager_->bindChannelID(
+    RETURN_IF_NOT_OK(channel_id_manager_->bindChannelID(
       authInfo->handoff_info.channel_info->internal_upstream_channel_id(),
       PeerLocalID{
         .channel_id = 1,
@@ -230,8 +233,11 @@ public:
     expectedMsg.max_packet_size = authInfo->handoff_info.channel_info->max_packet_size();
     EXPECT_CALL(client_codec_callbacks_, onDecodingSuccess(FrameContainingMsg(wire::Message{expectedMsg}), _));
     auto r = transport_.encode(reqHeaderFrame, ctx);
-    EXPECT_OK(r.status());
+    RETURN_IF_NOT_OK(r.status());
     EXPECT_EQ(0, *r); // nothing sent to the upstream
+    if (HasFailure()) {
+      return absl::InternalError("test failed");
+    }
     return authInfo->handoff_info.channel_info->internal_upstream_channel_id();
   }
 
@@ -289,7 +295,7 @@ public:
     return absl::OkStatus();
   }
 
-  void DoKeyExchange() {
+  absl::Status DoKeyExchange() {
     // perform version exchange
     input_buffer_.add("SSH-2.0-TestServer\r\n");
     EXPECT_TRUE(output_buffer_.startsWith("SSH-2.0-Envoy\r\n"));
@@ -298,8 +304,8 @@ public:
 
     // perform manual key exchange as the server
     wire::KexInitMsg clientKexInit;
-    ASSERT_OK(wire::decodePacket(output_buffer_, clientKexInit).status());
-    ASSERT_OK(wire::encodePacket(input_buffer_, kex_init_, 8, 0).status());
+    RETURN_IF_NOT_OK(wire::decodePacket(output_buffer_, clientKexInit).status());
+    RETURN_IF_NOT_OK(wire::encodePacket(input_buffer_, kex_init_, 8, 0).status());
     transport_.decode(input_buffer_, false);
     HandshakeMagics magics{
       .client_version = "SSH-2.0-Envoy"_bytes,
@@ -313,22 +319,29 @@ public:
     Curve25519Sha256KexAlgorithmFactory f;
     auto kexAlg = f.create(&magics, &kex_algs_, server_host_key_.get());
     wire::Message clientEcdhInit;
-    ASSERT_OK(wire::decodePacket(output_buffer_, clientEcdhInit).status());
+    RETURN_IF_NOT_OK(wire::decodePacket(output_buffer_, clientEcdhInit).status());
     auto r = kexAlg->handleServerRecv(clientEcdhInit);
-    ASSERT_OK(r.status());
-    ASSERT_TRUE(r->has_value());
+    RETURN_IF_NOT_OK(r.status());
+    EXPECT_TRUE(r->has_value());
+    if (HasFailure()) {
+      return absl::InternalError("test failed");
+    }
     (**r)->session_id = (**r)->exchange_hash; // this needs to be set manually
     current_session_id_ = (**r)->session_id;
 
     server_cipher_ = makePacketCipherFromKexResult<ServerCodec>(reg, (*r)->get());
-    ASSERT_NE(nullptr, server_cipher_);
+    EXPECT_NE(nullptr, server_cipher_);
+    if (HasFailure()) {
+      return absl::InternalError("test failed");
+    }
 
-    ASSERT_OK(wire::encodePacket(input_buffer_, kexAlg->buildServerReply(***r), 8, 0).status());
-    ASSERT_OK(wire::encodePacket(input_buffer_, wire::NewKeysMsg{}, 8, 0).status());
+    RETURN_IF_NOT_OK(wire::encodePacket(input_buffer_, kexAlg->buildServerReply(***r), 8, 0).status());
+    RETURN_IF_NOT_OK(wire::encodePacket(input_buffer_, wire::NewKeysMsg{}, 8, 0).status());
     transport_.decode(input_buffer_, false);
 
     wire::NewKeysMsg clientNewKeys;
-    ASSERT_OK(wire::decodePacket(output_buffer_, clientNewKeys).status());
+    RETURN_IF_NOT_OK(wire::decodePacket(output_buffer_, clientNewKeys).status());
+    return absl::OkStatus();
   }
 
   absl::Status WriteMsg(wire::Message&& msg) {
@@ -365,12 +378,17 @@ public:
     wire::ExtInfoMsg clientExtInfo;
     RETURN_IF_NOT_OK(ReadMsg(clientExtInfo));
     EXPECT_TRUE(clientExtInfo.hasExtension<wire::PingExtension>());
-
+    if (HasFailure()) {
+      return absl::InternalError("test failed");
+    }
     wire::ExtInfoMsg serverExtInfo;
     serverExtInfo.extensions->emplace_back(wire::PingExtension{.version = "0"s});
     serverExtInfo.extensions->emplace_back(wire::ExtInfoInAuthExtension{.version = "0"s});
     RETURN_IF_NOT_OK(WriteMsg(wire::Message{serverExtInfo}));
     EXPECT_EQ(serverExtInfo, transport_.peerExtInfo());
+    if (HasFailure()) {
+      return absl::InternalError("test failed");
+    }
     return absl::OkStatus();
   }
 
@@ -482,40 +500,41 @@ public:
   testing::NiceMock<Server::Configuration::MockServerFactoryContext> server_factory_context_;
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config_;
   openssh::SSHKeyPtr server_host_key_;
+  TestSecretsProvider secrets_provider_;
   testing::NiceMock<Envoy::Network::MockServerConnection> mock_connection_;
   testing::StrictMock<MockClientCodecCallbacks> client_codec_callbacks_;
   std::shared_ptr<ChannelIDManager> channel_id_manager_;
   SshClientTransport transport_;
 
 private:
-  std::shared_ptr<pomerium::extensions::ssh::CodecConfig>& initConfig() {
-    config_ = std::make_shared<pomerium::extensions::ssh::CodecConfig>();
+  std::shared_ptr<pomerium::extensions::ssh::CodecConfig> newConfig() {
+    auto conf = std::make_shared<pomerium::extensions::ssh::CodecConfig>();
     for (auto keyName : {"rsa_1", "ed25519_1"}) {
       auto hostKeyFile = copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600);
-      config_->add_host_keys()->set_filename(hostKeyFile);
+      conf->add_host_keys()->set_filename(hostKeyFile);
     }
     auto userCaKeyFile = copyTestdataToWritableTmp("regress/unittests/sshkey/testdata/ed25519_2", 0600);
-    config_->mutable_user_ca_key()->set_filename(userCaKeyFile);
-    return config_;
+    conf->mutable_user_ca_key()->set_filename(userCaKeyFile);
+    return conf;
   }
 };
 // NOLINTEND(readability-identifier-naming)
 
 TEST_F(ClientTransportTest, ExchangeExtInfo) {
-  StartTransportNormal();
+  ASSERT_OK(StartTransportNormal());
 
   ASSERT_OK(ExchangeExtInfo());
 }
 
 TEST_F(ClientTransportTest, UserAuthServiceRequest) {
-  StartTransportNormal();
+  ASSERT_OK(StartTransportNormal());
 
   ASSERT_OK(ExchangeExtInfo());
   ASSERT_OK(HandleUserAuth());
 }
 
 TEST_F(ClientTransportTest, OpenChannelFromDownstream) {
-  StartTransportNormal();
+  ASSERT_OK(StartTransportNormal());
 
   ASSERT_OK(ExchangeExtInfo());
   ASSERT_OK(HandleUserAuth());
@@ -569,7 +588,7 @@ TEST_F(ClientTransportTest, OpenChannelFromDownstream) {
 }
 
 TEST_F(ClientTransportTest, ForwardGlobalRequestToDownstream) {
-  StartTransportNormal();
+  ASSERT_OK(StartTransportNormal());
 
   ASSERT_OK(ExchangeExtInfo());
   ASSERT_OK(HandleUserAuth());
@@ -581,7 +600,7 @@ TEST_F(ClientTransportTest, ForwardGlobalRequestToDownstream) {
 }
 
 TEST_F(ClientTransportTest, HandleHostKeysMsgGlobalRequest) {
-  StartTransportNormal();
+  ASSERT_OK(StartTransportNormal());
 
   ASSERT_OK(ExchangeExtInfo());
   ASSERT_OK(HandleUserAuth());
@@ -604,7 +623,7 @@ TEST_F(ClientTransportTest, InvalidUserAuthAllowState) {
   GenericProxy::MockEncodingContext ctx;
   SSHRequestHeaderFrame reqHeaderFrame("example", 0, downstream_filter_state_);
   ASSERT_OK(transport_.encode(reqHeaderFrame, ctx).status());
-  DoKeyExchange();
+  ASSERT_OK(DoKeyExchange());
 
   ASSERT_OK(ExchangeExtInfo());
 
@@ -617,7 +636,7 @@ TEST_F(ClientTransportTest, InvalidUserAuthAllowState) {
 }
 
 TEST_F(ClientTransportTest, HandleInvalidServiceAccept) {
-  StartTransportNormal();
+  ASSERT_OK(StartTransportNormal());
 
   ASSERT_OK(ExchangeExtInfo());
   wire::ServiceRequestMsg clientUserAuthServiceRequest;
@@ -631,7 +650,7 @@ TEST_F(ClientTransportTest, HandleInvalidServiceAccept) {
 }
 
 TEST_F(ClientTransportTest, HandleIgnoredMessages) {
-  StartTransportNormal();
+  ASSERT_OK(StartTransportNormal());
   ASSERT_OK(ExchangeExtInfo());
 
   // These messages should be logged and ignored
@@ -641,7 +660,7 @@ TEST_F(ClientTransportTest, HandleIgnoredMessages) {
 }
 
 TEST_F(ClientTransportTest, HandleUpstreamDisconnect) {
-  StartTransportNormal();
+  ASSERT_OK(StartTransportNormal());
   ASSERT_OK(ExchangeExtInfo());
 
   wire::DisconnectMsg dc{
@@ -658,13 +677,14 @@ TEST_F(ClientTransportTest, HandleInvalidMessage) {
 }
 
 TEST_F(ClientTransportTest, Terminate) {
-  StartTransportNormal();
+  ASSERT_OK(StartTransportNormal());
   ExpectDisconnectAsHeader(absl::ResourceExhaustedError("test error"));
   transport_.terminate(absl::ResourceExhaustedError("test error"));
 }
 
 TEST_F(ClientTransportTest, Handoff) {
   auto internalId = StartTransportHandoff();
+  ASSERT_OK(internalId);
   ASSERT_OK(ExchangeExtInfo());
 
   wire::ServiceRequestMsg clientUserAuthServiceRequest;
@@ -689,12 +709,12 @@ TEST_F(ClientTransportTest, Handoff) {
     wire::ChannelOpenMsg req;
     ASSERT_OK(ReadMsg(req));
     ASSERT_EQ("session", *req.channel_type);
-    ASSERT_EQ(internalId, *req.sender_channel);
+    ASSERT_EQ(*internalId, *req.sender_channel);
     ASSERT_EQ(wire::ChannelWindowSize, *req.initial_window_size);
     ASSERT_EQ(wire::ChannelMaxPacketSize, *req.max_packet_size);
 
     ASSERT_OK(WriteMsg(wire::ChannelOpenConfirmationMsg{
-      .recipient_channel = internalId,
+      .recipient_channel = *internalId,
       .sender_channel = 300,
       .initial_window_size = wire::ChannelWindowSize,
       .max_packet_size = wire::ChannelMaxPacketSize,
@@ -737,7 +757,7 @@ TEST_F(ClientTransportTest, Handoff) {
     });
 
   ASSERT_OK(WriteMsg(wire::ChannelSuccessMsg{
-    .recipient_channel = internalId,
+    .recipient_channel = *internalId,
   }));
 
   {
@@ -804,7 +824,7 @@ TEST_F(ClientTransportTest, Handoff) {
 
   {
     wire::ChannelDataMsg fromUpstream{
-      .recipient_channel = internalId,
+      .recipient_channel = *internalId,
       .data = "bar"_bytes,
     };
     wire::ChannelDataMsg toDownstream = fromUpstream;
@@ -814,7 +834,7 @@ TEST_F(ClientTransportTest, Handoff) {
   }
 
   {
-    wire::ChannelSuccessMsg fromUpstream{.recipient_channel = internalId};
+    wire::ChannelSuccessMsg fromUpstream{.recipient_channel = *internalId};
     wire::ChannelSuccessMsg toDownstream = fromUpstream;
     ASSERT_OK(channel_id_manager_->processOutgoingChannelMsg(toDownstream, Peer::Downstream));
     EXPECT_CALL(client_codec_callbacks_, onDecodingSuccess(FrameContainingMsg(wire::Message{toDownstream})));
@@ -822,7 +842,7 @@ TEST_F(ClientTransportTest, Handoff) {
   }
 
   {
-    wire::ChannelFailureMsg fromUpstream{.recipient_channel = internalId};
+    wire::ChannelFailureMsg fromUpstream{.recipient_channel = *internalId};
     wire::ChannelFailureMsg toDownstream = fromUpstream;
     ASSERT_OK(channel_id_manager_->processOutgoingChannelMsg(toDownstream, Peer::Downstream));
     EXPECT_CALL(client_codec_callbacks_, onDecodingSuccess(FrameContainingMsg(wire::Message{toDownstream})));
@@ -836,7 +856,8 @@ TEST_F(ClientTransportTest, Handoff) {
 }
 
 TEST_F(ClientTransportTest, Handoff_UserAuthFailure) {
-  auto _ = StartTransportHandoff();
+  auto internalId = StartTransportHandoff();
+  ASSERT_OK(internalId);
   ASSERT_OK(ExchangeExtInfo());
 
   wire::ServiceRequestMsg clientUserAuthServiceRequest;
@@ -862,7 +883,7 @@ TEST_F(ClientTransportTest, Handoff_SendPtyRequestFailure) {
   GenericProxy::MockEncodingContext ctx;
   SSHRequestHeaderFrame reqHeaderFrame("example", 0, downstream_filter_state_);
   ASSERT_OK(transport_.encode(reqHeaderFrame, ctx).status());
-  DoKeyExchange();
+  ASSERT_OK(DoKeyExchange());
   ASSERT_OK(ExchangeExtInfo());
 
   wire::ServiceRequestMsg clientUserAuthServiceRequest;
@@ -898,7 +919,7 @@ TEST_F(ClientTransportTest, Handoff_NoDownstreamPty) {
 
   SSHRequestHeaderFrame reqHeaderFrame("example", 0, downstream_filter_state_);
   ASSERT_OK(transport_.encode(reqHeaderFrame, ctx).status());
-  DoKeyExchange();
+  ASSERT_OK(DoKeyExchange());
 
   ASSERT_OK(ExchangeExtInfo());
 
@@ -928,6 +949,7 @@ TEST_F(ClientTransportTest, Handoff_NoDownstreamPty) {
 
 TEST_F(ClientTransportTest, Handoff_ChannelOpenFailure) {
   auto internalId = StartTransportHandoff();
+  ASSERT_OK(internalId);
   ASSERT_OK(ExchangeExtInfo());
 
   wire::ServiceRequestMsg clientUserAuthServiceRequest;
@@ -947,13 +969,14 @@ TEST_F(ClientTransportTest, Handoff_ChannelOpenFailure) {
   ASSERT_OK(ReadMsg(req));
   ExpectDisconnectAsHeader(absl::UnavailableError("test error"));
   ASSERT_OK(WriteMsg(wire::ChannelOpenFailureMsg{
-    .recipient_channel = internalId,
+    .recipient_channel = *internalId,
     .description = "test error"s,
   }));
 }
 
 TEST_F(ClientTransportTest, Handoff_PtyOpenFailure) {
   auto internalId = StartTransportHandoff();
+  ASSERT_OK(internalId);
   ASSERT_OK(ExchangeExtInfo());
 
   wire::ServiceRequestMsg clientUserAuthServiceRequest;
@@ -972,7 +995,7 @@ TEST_F(ClientTransportTest, Handoff_PtyOpenFailure) {
   wire::ChannelOpenMsg req;
   ASSERT_OK(ReadMsg(req));
   ASSERT_OK(WriteMsg(wire::ChannelOpenConfirmationMsg{
-    .recipient_channel = internalId,
+    .recipient_channel = *internalId,
     .sender_channel = 300,
     .initial_window_size = wire::ChannelWindowSize,
     .max_packet_size = wire::ChannelMaxPacketSize,
@@ -983,12 +1006,13 @@ TEST_F(ClientTransportTest, Handoff_PtyOpenFailure) {
 
   ExpectDisconnectAsHeader(absl::InternalError("failed to open upstream tty"));
   ASSERT_OK(WriteMsg(wire::ChannelFailureMsg{
-    .recipient_channel = internalId,
+    .recipient_channel = *internalId,
   }));
 }
 
 TEST_F(ClientTransportTest, Handoff_InvalidMessageReceived) {
   auto internalId = StartTransportHandoff();
+  ASSERT_OK(internalId);
   ASSERT_OK(ExchangeExtInfo());
 
   wire::ServiceRequestMsg clientUserAuthServiceRequest;
@@ -1003,7 +1027,7 @@ TEST_F(ClientTransportTest, Handoff_InvalidMessageReceived) {
   wire::ChannelOpenMsg req;
   ASSERT_OK(ReadMsg(req));
   ASSERT_OK(WriteMsg(wire::ChannelOpenConfirmationMsg{
-    .recipient_channel = internalId,
+    .recipient_channel = *internalId,
     .sender_channel = 300,
     .initial_window_size = wire::ChannelWindowSize,
     .max_packet_size = wire::ChannelMaxPacketSize,
@@ -1012,12 +1036,13 @@ TEST_F(ClientTransportTest, Handoff_InvalidMessageReceived) {
   ExpectDisconnectAsHeader(absl::InternalError(
     "invalid message received during handoff: ChannelRequest (98)"));
   ASSERT_OK(WriteMsg(wire::ChannelRequestMsg{
-    .recipient_channel = internalId,
+    .recipient_channel = *internalId,
   }));
 }
 
 TEST_F(ClientTransportTest, Handoff_StartHandoffChannelFailed_IdAlreadyBound) {
   auto internalId = StartTransportHandoff();
+  ASSERT_OK(internalId);
   ASSERT_OK(ExchangeExtInfo());
 
   wire::ServiceRequestMsg clientUserAuthServiceRequest;
@@ -1028,13 +1053,13 @@ TEST_F(ClientTransportTest, Handoff_StartHandoffChannelFailed_IdAlreadyBound) {
   EXPECT_OK(ReadMsg(clientUserAuthRequest));
 
   // make the channel already bound
-  ASSERT_OK(channel_id_manager_->bindChannelID(internalId,
+  ASSERT_OK(channel_id_manager_->bindChannelID(*internalId,
                                                PeerLocalID{
                                                  .channel_id = 1234, // doesn't matter
                                                  .local_peer = Peer::Downstream,
                                                }));
   ExpectDisconnectAsHeader(absl::InvalidArgumentError(fmt::format(
-    "error during handoff: channel {} is already known to Downstream", internalId)));
+    "error during handoff: channel {} is already known to Downstream", *internalId)));
   ASSERT_OK(WriteMsg(wire::UserAuthSuccessMsg{}));
 }
 
@@ -1060,21 +1085,6 @@ TEST_F(ClientTransportTest, Handoff_IgnoredMessages) {
   ASSERT_OK(ReadMsg(req));
 }
 
-class ClientTransportLoadHostKeysTest : public ClientTransportTest {
-public:
-  void SetUp() override {}
-};
-
-TEST_F(ClientTransportLoadHostKeysTest, LoadHostKeysError) {
-  for (auto hostKey : config_->host_keys()) {
-    ASSERT_TRUE(hostKey.has_filename()); // sanity check
-    chmod(hostKey.filename().c_str(), 0644);
-  }
-  EXPECT_THROW_WITH_MESSAGE(transport_.setCodecCallbacks(client_codec_callbacks_),
-                            EnvoyException,
-                            "Invalid Argument: bad permissions");
-}
-
 TEST_F(ClientTransportTest, EncodeInvalidFrameType) {
   GenericProxy::MockEncodingContext ctx;
 
@@ -1086,7 +1096,7 @@ TEST_F(ClientTransportTest, EncodeInvalidFrameType) {
 }
 
 TEST_F(ClientTransportTest, HandleRekey) {
-  StartTransportNormal();
+  ASSERT_OK(StartTransportNormal());
   ASSERT_OK(ExchangeExtInfo());
   ASSERT_OK(HandleUserAuth());
 
@@ -1099,6 +1109,7 @@ TEST_F(ClientTransportTest, HandleRekey) {
 
 TEST_F(ClientTransportTest, HandleRekeyDuringHandoff) {
   auto internalId = StartTransportHandoff();
+  ASSERT_OK(internalId);
   ASSERT_OK(ExchangeExtInfo());
 
   wire::ServiceRequestMsg clientUserAuthServiceRequest;
@@ -1118,7 +1129,7 @@ TEST_F(ClientTransportTest, HandleRekeyDuringHandoff) {
   ASSERT_OK(DoRekey());
 
   ASSERT_OK(WriteMsg(wire::ChannelOpenConfirmationMsg{
-    .recipient_channel = internalId,
+    .recipient_channel = *internalId,
     .sender_channel = 300,
     .initial_window_size = 64 * wire::MaxPacketSize,
     .max_packet_size = wire::MaxPacketSize,
@@ -1144,7 +1155,7 @@ TEST_F(ClientTransportTest, HandleRekeyDuringHandoff) {
       transport_.authInfo().handoff_info.handoff_in_progress = false;
     });
 
-  ASSERT_OK(WriteMsg(wire::ChannelSuccessMsg{.recipient_channel = internalId}));
+  ASSERT_OK(WriteMsg(wire::ChannelSuccessMsg{.recipient_channel = *internalId}));
 
   wire::ChannelRequestMsg shellChannelRequest;
   ASSERT_OK(ReadMsg(shellChannelRequest));
@@ -1171,7 +1182,7 @@ TEST_F(ClientTransportTest, HandleRekeyAfterHandoff) {
   ASSERT_OK(ReadMsg(req));
 
   ASSERT_OK(WriteMsg(wire::ChannelOpenConfirmationMsg{
-    .recipient_channel = internalId,
+    .recipient_channel = *internalId,
     .sender_channel = 300,
     .initial_window_size = wire::ChannelWindowSize,
     .max_packet_size = wire::ChannelMaxPacketSize,
@@ -1195,7 +1206,7 @@ TEST_F(ClientTransportTest, HandleRekeyAfterHandoff) {
       transport_.authInfo().handoff_info.handoff_in_progress = false;
     });
 
-  ASSERT_OK(WriteMsg(wire::ChannelSuccessMsg{.recipient_channel = internalId}));
+  ASSERT_OK(WriteMsg(wire::ChannelSuccessMsg{.recipient_channel = *internalId}));
 
   wire::ChannelRequestMsg shellChannelRequest;
   ASSERT_OK(ReadMsg(shellChannelRequest));
@@ -1218,12 +1229,13 @@ TEST_F(ClientTransportTest, DirectTcpipMode) {
   server_cipher_ = std::make_unique<PacketCipher>(std::make_unique<NoCipher>(),
                                                   std::make_unique<NoCipher>());
   auto internalId = StartTransportDirectTcpip();
+  ASSERT_OK(internalId);
 
-  ASSERT_OK(DoSendRecvDirectTcpip(internalId));
+  ASSERT_OK(DoSendRecvDirectTcpip(*internalId));
 
   // close the channel from the downstream
   {
-    wire::ChannelCloseMsg close{.recipient_channel = internalId};
+    wire::ChannelCloseMsg close{.recipient_channel = *internalId};
 
     SSHRequestCommonFrame frame(wire::Message{close});
     GenericProxy::MockEncodingContext ctx;
@@ -1235,12 +1247,13 @@ TEST_F(ClientTransportTest, DirectTcpipMode_HandleEOF) {
   server_cipher_ = std::make_unique<PacketCipher>(std::make_unique<NoCipher>(),
                                                   std::make_unique<NoCipher>());
   auto internalId = StartTransportDirectTcpip();
+  ASSERT_OK(internalId);
 
-  ASSERT_OK(DoSendRecvDirectTcpip(internalId));
+  ASSERT_OK(DoSendRecvDirectTcpip(*internalId));
 
   // send EOF from the downstream
   {
-    wire::ChannelEOFMsg eof{.recipient_channel = internalId};
+    wire::ChannelEOFMsg eof{.recipient_channel = *internalId};
 
     SSHRequestCommonFrame frame(wire::Message{eof});
     GenericProxy::MockEncodingContext ctx;

@@ -1,5 +1,6 @@
 #include "source/extensions/filters/network/ssh/filter_state_objects.h"
 #include "source/extensions/filters/network/ssh/id_manager.h"
+#include "source/extensions/filters/network/ssh/openssh.h"
 #include "source/extensions/filters/network/ssh/server_transport.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
@@ -29,10 +30,12 @@ using namespace pomerium::extensions::ssh;
 class ServerTransportTest : public testing::Test {
 public:
   ServerTransportTest()
-      : client_host_key_(*openssh::SSHKey::generate(KEY_ED25519, 256)),
+      : server_config_(newConfig()),
+        client_host_key_(*openssh::SSHKey::generate(KEY_ED25519, 256)),
+        secrets_provider_(*server_config_),
         transport_(
           server_factory_context_,
-          initConfig(),
+          server_config_,
           [this] {
             auto client = std::make_shared<testing::NiceMock<Grpc::MockAsyncClient>>();
             ON_CALL(*client, startRaw("pomerium.extensions.ssh.StreamManagement", "ManageStream", _, _))
@@ -55,7 +58,8 @@ public:
 
             return client;
           },
-          StreamTracker::fromContext(server_factory_context_)) {}
+          StreamTracker::fromContext(server_factory_context_),
+          secrets_provider_) {}
 
   const wire::KexInitMsg kex_init_ = {
     .cookie = {{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}},
@@ -313,6 +317,7 @@ public:
   Envoy::Buffer::OwnedImpl input_buffer_;
   Envoy::Buffer::OwnedImpl output_buffer_;
   openssh::SSHKeyPtr client_host_key_;
+  TestSecretsProvider secrets_provider_;
   testing::StrictMock<MockServerCodecCallbacks> server_codec_callbacks_;
   testing::NiceMock<Envoy::Network::MockServerConnection> mock_connection_;
   Envoy::Grpc::AsyncStreamCallbacks<ServerMessage>* manage_stream_callbacks_{};
@@ -322,15 +327,15 @@ public:
   SshServerTransport transport_;
 
 private:
-  std::atomic_int expect_serve_channel_calls_ = 0;
-
-  std::shared_ptr<pomerium::extensions::ssh::CodecConfig>& initConfig() {
-    server_config_ = std::make_shared<pomerium::extensions::ssh::CodecConfig>();
+  std::shared_ptr<pomerium::extensions::ssh::CodecConfig> newConfig() {
+    auto conf = std::make_shared<pomerium::extensions::ssh::CodecConfig>();
     for (auto keyName : {"rsa_1", "ed25519_1"}) {
       auto hostKeyFile = copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600);
-      server_config_->add_host_keys()->set_filename(hostKeyFile);
+      conf->add_host_keys()->set_filename(hostKeyFile);
     }
-    return server_config_;
+    auto userCaKeyFile = copyTestdataToWritableTmp("regress/unittests/sshkey/testdata/ed25519_2", 0600);
+    conf->mutable_user_ca_key()->set_filename(userCaKeyFile);
+    return conf;
   }
 };
 // NOLINTEND(readability-identifier-naming)
@@ -560,16 +565,6 @@ class ServerTransportLoadHostKeysTest : public ServerTransportTest {
 public:
   void SetUp() override {}
 };
-
-TEST_F(ServerTransportLoadHostKeysTest, LoadHostKeysError) {
-  for (auto hostKey : server_config_->host_keys()) {
-    ASSERT_TRUE(hostKey.has_filename()); // sanity check; this test should configure the host keys by filename
-    chmod(hostKey.filename().c_str(), 0644);
-  }
-  EXPECT_THROW_WITH_MESSAGE(transport_.setCodecCallbacks(server_codec_callbacks_),
-                            EnvoyException,
-                            "Invalid Argument: bad permissions");
-}
 
 TEST_F(ServerTransportTest, SuccessfulUserAuth_NormalMode) {
   ASSERT_OK(ReadExtInfo());
