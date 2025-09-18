@@ -29,11 +29,18 @@ constexpr uint32_t MaxPacketSize = IoSocket::UserSpace::FRAGMENT_SIZE * IoSocket
 
 using MessageQueue = moodycamel::ReaderWriterQueue<std::unique_ptr<wire::Message>>;
 
+class RemoteStreamHandlerCallbacks {
+public:
+  virtual ~RemoteStreamHandlerCallbacks() = default;
+  virtual void scheduleQueueCallback() PURE;
+  virtual void scheduleErrorCallback(absl::Status error) PURE;
+};
+
 class RemoteStreamHandler : public Logger::Loggable<Logger::Id::filter>,
                             public Event::DispatcherThreadDeletable,
                             public Socks5ChannelCallbacks {
 public:
-  RemoteStreamHandler(Event::SchedulableCallbackPtr local_queue_callback,
+  RemoteStreamHandler(RemoteStreamHandlerCallbacks& callbacks,
                       Envoy::Event::Dispatcher& remote_dispatcher,
                       IoSocket::UserSpace::IoHandleImplPtr r_io_handle,
                       bool is_dynamic,
@@ -44,11 +51,13 @@ public:
         upstream_window_(confirm.initial_window_size),
         io_handle_(std::move(r_io_handle)),
         remote_dispatcher_(remote_dispatcher),
-        local_queue_callback_(std::move(local_queue_callback)),
+        callbacks_(callbacks),
         upstream_address_(upstream_address) {
     *local_queue = &local_queue_;
     remote_dispatcher_.post([this, is_dynamic] {
-      remote_queue_callback_ = remote_dispatcher_.createSchedulableCallback([this] { onRemoteQueueReadyRead(); });
+      remote_queue_callback_ = remote_dispatcher_.createSchedulableCallback([this] {
+        onRemoteQueueReadyRead();
+      });
       // Set the downstream buffer high watermark to match the local window size. This allows us to
       // apply backpressure to the upstream ssh channel if the downstream is not reading from the
       // write buffer.
@@ -63,9 +72,17 @@ public:
       }
     });
   }
+
   ~RemoteStreamHandler() {
-    remote_queue_callback_->cancel();
+    onRemoteQueueReadyRead();
     maybeCloseIoHandle();
+  }
+
+  static void detach(std::unique_ptr<RemoteStreamHandler> self) {
+    self->detach_lock_.Lock();
+    self->detached_ = true;
+    self->detach_lock_.Unlock();
+    self->remote_dispatcher_.deleteInDispatcherThread(std::move(self));
   }
 
   void enqueueMessage(std::unique_ptr<wire::Message> msg) {
@@ -74,9 +91,15 @@ public:
     remote_queue_callback_->scheduleCallbackNextIteration();
   }
 
+private:
   void onError(absl::Status err) {
-    setStatus(err);
     maybeCloseIoHandle();
+
+    detach_lock_.Lock();
+    if (!detached_) {
+      callbacks_.scheduleErrorCallback(err);
+    }
+    detach_lock_.Unlock();
   }
 
   void enableIoHandleEvents() {
@@ -91,22 +114,10 @@ public:
       Event::FileReadyType::Read | Event::FileReadyType::Write | Event::FileReadyType::Closed);
   }
 
-  void setStatus(absl::Status status) {
-    Thread::LockGuard lock(status_mu_);
-    status_ = status;
-  }
-
-  std::optional<absl::Status> status() {
-    Thread::LockGuard lock(status_mu_);
-    return status_;
-  }
-
-private:
   void onFileEvent(uint32_t events) {
     ASSERT(remote_dispatcher_.isThreadSafe());
     if ((events & Envoy::Event::FileReadyType::Closed) != 0) {
-      setStatus(absl::CancelledError("closed by upstream"));
-      onIoHandleClosed();
+      onError(absl::CancelledError("closed by upstream"));
       return;
     }
 
@@ -176,7 +187,12 @@ private:
           return;
         },
         [&](wire::ChannelEOFMsg&) {
-          io_handle_->shutdown(ENVOY_SHUT_WR);
+          // Note: we won't intentionally close the io handle ourselves until this object is about
+          // to be destroyed, and all messages have been read from the queue. However, it could
+          // still be closed by the peer. shutdown() can only be called if the handle is open.
+          if (io_handle_->isOpen()) {
+            io_handle_->shutdown(ENVOY_SHUT_WR);
+          }
         },
         [&](auto& msg) {
           IS_ENVOY_BUG(fmt::format("channel {}: unexpected message type: {}", channel_id_, msg.msg_type()));
@@ -185,18 +201,10 @@ private:
   }
 
   void maybeCloseIoHandle() {
+    ASSERT(remote_dispatcher_.isThreadSafe());
     if (io_handle_->isOpen()) {
       io_handle_->close();
-      onIoHandleClosed();
     }
-  }
-
-  void onIoHandleClosed() {
-    Thread::LockGuard lock(status_mu_);
-    ASSERT(remote_dispatcher_.isThreadSafe());
-
-    io_handle_->resetFileEvents();
-    enqueueLocalMessage(std::make_unique<wire::Message>(wire::ChannelCloseMsg{}));
   }
 
   absl::Status readReady() {
@@ -269,7 +277,12 @@ private:
     ASSERT(remote_dispatcher_.isThreadSafe());
     bool ok = local_queue_.enqueue(std::move(msg));
     ASSERT(ok);
-    local_queue_callback_->scheduleCallbackNextIteration();
+
+    detach_lock_.Lock();
+    if (!detached_) [[likely]] {
+      callbacks_.scheduleQueueCallback();
+    }
+    detach_lock_.Unlock();
   }
 
   void onSocks5HandshakeComplete() override {
@@ -306,15 +319,17 @@ private:
   moodycamel::ReaderWriterQueue<std::unique_ptr<wire::Message>> remote_queue_;
   moodycamel::ReaderWriterQueue<std::unique_ptr<wire::Message>> local_queue_;
   Event::SchedulableCallbackPtr remote_queue_callback_;
-  Event::SchedulableCallbackPtr local_queue_callback_;
+  RemoteStreamHandlerCallbacks& callbacks_;
   std::optional<Socks5ClientHandshaker> socks5_handshaker_;
   std::shared_ptr<const envoy::config::core::v3::Address> upstream_address_;
   Buffer::OwnedImpl window_buffer_;
-  Thread::MutexBasicLockable status_mu_;
-  std::optional<absl::Status> status_;
+
+  absl::Mutex detach_lock_;
+  bool detached_ ABSL_GUARDED_BY(detach_lock_);
 };
 
 class InternalDownstreamChannel final : public Channel,
+                                        public RemoteStreamHandlerCallbacks,
                                         public Logger::Loggable<Logger::Id::filter> {
 public:
   InternalDownstreamChannel(Network::IoHandlePtr io_handle,
@@ -330,19 +345,23 @@ public:
         remote_dispatcher_(remote_dispatcher),
         r_io_handle_(&dynamic_cast<IoSocket::UserSpace::IoHandleImpl&>(*io_handle.release())),
         upstream_address_(upstream_address),
-        event_callbacks_(event_callbacks) {
+        event_callbacks_(event_callbacks),
+        local_queue_callback_(local_dispatcher_.createSchedulableCallback([this] {
+          onLocalQueueReadyRead();
+        })),
+        error_callback_(local_dispatcher_.createSchedulableCallback([this] {
+          onErrorCallback();
+        })) {
     loadPassthroughMetadata();
   }
 
   ~InternalDownstreamChannel() {
-    maybeShutdown();
-  }
-
-  void maybeShutdown() {
-    if (remote_ != nullptr) {
-      *shutdown_ = true;
-      remote_dispatcher_.deleteInDispatcherThread(std::move(remote_));
+    ASSERT(local_dispatcher_.isThreadSafe());
+    if (remote_ != nullptr) { // XXX: test this branch
+      RemoteStreamHandler::detach(std::move(remote_));
     }
+    local_queue_callback_->cancel();
+    error_callback_->cancel();
   }
 
   // Local thread
@@ -372,20 +391,23 @@ public:
     return callbacks.sendMessageLocal(std::move(open));
   }
 
+  // RemoteStreamHandlerCallbacks
+  void scheduleQueueCallback() final {
+    ASSERT(remote_dispatcher_.isThreadSafe());
+    local_queue_callback_->scheduleCallbackNextIteration();
+  }
+
+  // RemoteStreamHandlerCallbacks
+  void scheduleErrorCallback(absl::Status error) final {
+    ASSERT(remote_dispatcher_.isThreadSafe());
+    error_ = error;
+    error_callback_->scheduleCallbackNextIteration();
+  }
+
   // Local thread
   absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&& confirm) override {
-    auto shutdown = std::make_shared<bool>(false);
-    shutdown_ = shutdown.get();
     // Note that createSchedulableCallback accepts a std::function, which must be copyable
-    auto localQueueCb = local_dispatcher_.createSchedulableCallback([this, shutdown = std::move(shutdown)] {
-      // NB: 'this' MAY BE DELETED if it has released the remote handler to be deleted on its own
-      // thread. If so, the shutdown flag will be set to true.
-      if (*shutdown) {
-        return;
-      }
-      onLocalQueueReadyRead();
-    });
-    remote_ = std::make_unique<RemoteStreamHandler>(std::move(localQueueCb),
+    remote_ = std::make_unique<RemoteStreamHandler>(*this,
                                                     remote_dispatcher_,
                                                     std::move(r_io_handle_),
                                                     is_dynamic_,
@@ -419,8 +441,7 @@ public:
       },
       [&](const wire::ChannelCloseMsg&) {
         ENVOY_LOG(debug, "channel {}: downstream closed", channel_id_);
-        maybeSendChannelClose();
-        maybeShutdown();
+        maybeSendChannelClose(absl::OkStatus());
       },
       [&](const auto&) {
         remote_->enqueueMessage(std::make_unique<wire::Message>(std::move(msg)));
@@ -448,13 +469,18 @@ private:
     downstream_address_ = addr->address();
   }
 
-  bool maybeSendChannelClose() {
+  void onErrorCallback() {
+    ASSERT(local_dispatcher_.isThreadSafe());
+    maybeSendChannelClose(error_);
+  }
+
+  bool maybeSendChannelClose(absl::Status status) {
     if (channel_close_sent_) {
       return false;
     }
     channel_close_sent_ = true;
 
-    sendChannelCloseEvent();
+    sendChannelCloseEvent(status);
     callbacks_->sendMessageLocal(
                 wire::ChannelCloseMsg{
                   .recipient_channel = channel_id_,
@@ -463,13 +489,12 @@ private:
     return true;
   }
 
-  void sendChannelCloseEvent() {
+  void sendChannelCloseEvent(absl::Status status) {
     pomerium::extensions::ssh::ChannelEvent ev;
     auto* closed = ev.mutable_internal_channel_closed();
     closed->set_channel_id(channel_id_);
-    auto status = remote_->status();
-    if (status.has_value() && !status.value().ok()) {
-      closed->set_reason(statusToString(*status));
+    if (!status.ok()) {
+      closed->set_reason(statusToString(status));
     }
     auto* stats = closed->mutable_stats();
     stats->set_rx_bytes_total(rx_bytes_total_);
@@ -484,9 +509,6 @@ private:
     std::unique_ptr<wire::Message> msg;
     while (local_queue_->try_dequeue(msg)) {
       msg->visit(
-        [&](wire::ChannelCloseMsg&) {
-          maybeSendChannelClose();
-        },
         [&](wire::ChannelDataMsg& msg) {
           rx_bytes_total_ += msg.data->size();
           rx_packets_total_++;
@@ -515,13 +537,16 @@ private:
   ChannelEventCallbacks& event_callbacks_;
 
   bool channel_close_sent_{false};
-  bool* shutdown_{}; // reads/writes to shutdown_ only happen on the local thread
+  Event::SchedulableCallbackPtr local_queue_callback_;
+  Event::SchedulableCallbackPtr error_callback_;
 
   uint64_t rx_bytes_total_{};
   uint64_t tx_bytes_total_{};
   uint64_t rx_packets_total_{};
   uint64_t tx_packets_total_{};
   absl::Time start_time_;
+
+  absl::Status error_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
