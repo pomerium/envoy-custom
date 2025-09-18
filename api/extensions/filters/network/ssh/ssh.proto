@@ -89,9 +89,10 @@ message ChannelControl {
 // server request.
 message ClientMessage {
   oneof message {
-    StreamEvent           event         = 1;
-    AuthenticationRequest auth_request  = 2;
-    InfoResponse          info_response = 3;
+    StreamEvent           event          = 1;
+    AuthenticationRequest auth_request   = 2;
+    InfoResponse          info_response  = 3;
+    GlobalRequest         global_request = 4;
   }
 }
 
@@ -104,7 +105,6 @@ message StreamEvent {
     DownstreamDisconnectedEvent downstream_disconnected = 2;
     UpstreamConnectEvent        upstream_connected      = 3;
     ChannelEvent                channel_event           = 4;
-    GlobalRequest               global_request          = 5;
   }
 }
 
@@ -146,18 +146,34 @@ message ChannelEvent {
 }
 
 message GlobalRequest {
-  message TcpipForwardRequest {
-    string remote_address = 1;
-    uint32 remote_port    = 2;
-  }
-  message CancelTcpipForwardRequest {
-    string remote_address = 1;
-    uint32 remote_port    = 2;
-  }
+  bool want_reply = 1;
   oneof request {
-    TcpipForwardRequest       tcpip_forward_request        = 1;
-    CancelTcpipForwardRequest cancel_tcpip_forward_request = 2;
+    TcpipForwardRequest       tcpip_forward_request        = 2;
+    CancelTcpipForwardRequest cancel_tcpip_forward_request = 3;
   }
+}
+
+message TcpipForwardRequest {
+  string remote_address = 1;
+  uint32 remote_port    = 2;
+}
+
+message CancelTcpipForwardRequest {
+  string remote_address = 1;
+  uint32 remote_port    = 2;
+}
+
+message GlobalRequestResponse {
+  bool   success       = 1;
+  string debug_message = 2;
+
+  oneof response {
+    TcpipForwardResponse tcpip_forward_response = 3;
+  }
+}
+
+message TcpipForwardResponse {
+  uint32 virtual_port = 1;
 }
 
 // AuthenticationRequest is sent by Envoy to Pomerium when the downstream
@@ -184,7 +200,8 @@ message InfoResponse {
 // requests, or to instruct Envoy to take some action on the stream.
 message ServerMessage {
   oneof message {
-    AuthenticationResponse auth_response = 1;
+    AuthenticationResponse auth_response           = 1;
+    GlobalRequestResponse  global_request_response = 2;
   }
 }
 
@@ -351,4 +368,8 @@ message Permissions {
 message FilterMetadata {
   uint64 stream_id  = 1;
   uint32 channel_id = 2;
+}
+
+message EndpointMetadata {
+  bool is_dynamic = 1;
 }

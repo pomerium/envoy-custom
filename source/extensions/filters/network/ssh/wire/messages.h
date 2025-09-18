@@ -456,9 +456,19 @@ struct HostKeysProveResponseMsg final : SubMsg<SshMessageType::RequestSuccess, "
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+struct TcpipForwardResponseMsg final : SubMsg<SshMessageType::RequestSuccess, "tcpip-forward"> {
+  field<uint32_t> server_port;
+
+  constexpr auto operator<=>(const TcpipForwardResponseMsg&) const = default;
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t len) noexcept;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
+};
+
 // // https://datatracker.ietf.org/doc/html/rfc4254#section-4
 struct GlobalRequestSuccessMsg final : Msg<SshMessageType::RequestSuccess> {
-  sub_message<HostKeysProveResponseMsg> response;
+  sub_message<HostKeysProveResponseMsg,
+              TcpipForwardResponseMsg>
+    response;
 
   template <typename T>
     requires (decltype(response)::has_option<T>())

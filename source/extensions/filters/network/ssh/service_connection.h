@@ -78,6 +78,7 @@ public:
 };
 
 class DownstreamConnectionService final : public ConnectionService,
+                                          public StreamMgmtServerMessageHandler,
                                           public ChannelEventCallbacks {
   friend class OpenHijackedChannelMiddleware;
 
@@ -93,6 +94,12 @@ public:
   void disableChannelHijack();
 
   void sendChannelEvent(const pomerium::extensions::ssh::ChannelEvent& ev) override;
+
+  using ConnectionService::handleMessage;
+  using ConnectionService::registerMessageHandlers;
+
+  void registerMessageHandlers(StreamMgmtServerMessageDispatcher& dispatcher) override;
+  absl::Status handleMessage(Grpc::ResponsePtr<ServerMessage>&& message) override;
 
 private:
   DownstreamTransportCallbacks& transport_;

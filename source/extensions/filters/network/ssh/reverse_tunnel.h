@@ -1,6 +1,7 @@
 #pragma once
 
 #include "source/extensions/filters/network/ssh/common.h"
+#include "source/extensions/filters/network/ssh/stream_address.h"
 #include "source/extensions/filters/network/ssh/stream_tracker.h"
 
 #pragma clang unsafe_buffer_usage begin
@@ -19,6 +20,25 @@ namespace clusterv3 = envoy::config::cluster::v3;
 namespace endpointv3 = envoy::config::endpoint::v3;
 
 namespace Envoy::Upstream {
+
+class InternalStreamSocketInterfaceFactory : public Network::Address::SocketInterfaceFactory {
+public:
+  InternalStreamSocketInterfaceFactory(std::shared_ptr<StreamTracker> stream_tracker, const envoy::config::endpoint::v3::ClusterLoadAssignment& load_assignment)
+      : stream_tracker_(stream_tracker) {
+    for (const auto& endpoint : load_assignment.endpoints()) {
+      for (const auto& lb_endpoint : endpoint.lb_endpoints()) {
+        upstream_addresses_.push_back(std::make_shared<const envoy::config::core::v3::Address>(lb_endpoint.endpoint().address()));
+      }
+    }
+  }
+  virtual ~InternalStreamSocketInterfaceFactory() = default;
+
+  std::unique_ptr<Network::SocketInterface> createSocketInterface(Event::Dispatcher& connection_dispatcher) override;
+
+private:
+  std::shared_ptr<StreamTracker> stream_tracker_;
+  std::vector<std::shared_ptr<const envoy::config::core::v3::Address>> upstream_addresses_;
+};
 
 class SshReverseTunnelCluster : public ClusterImplBase,
                                 public Envoy::Config::SubscriptionBase<endpointv3::ClusterLoadAssignment>,
@@ -51,7 +71,7 @@ protected:
                           ClusterFactoryContext& cluster_context,
                           absl::Status& creation_status);
 
-  absl::StatusOr<HostSharedPtr> newHostForStreamId(stream_id_t id);
+  absl::StatusOr<HostSharedPtr> newHostForStreamIdAndPort(stream_id_t id, uint32_t virtual_port, bool is_dynamic);
 
 private:
   absl::Status update(const envoy::config::endpoint::v3::ClusterLoadAssignment& cluster_load_assignment);
@@ -65,7 +85,7 @@ private:
   Server::Configuration::ServerFactoryContext& server_context_;
   pomerium::extensions::ssh::ReverseTunnelCluster config_;
   std::shared_ptr<StreamTracker> stream_tracker_;
-  std::shared_ptr<Network::SocketInterface> socket_interface_;
+  std::shared_ptr<InternalStreamSocketInterfaceFactory> socket_interface_factory_;
   Event::Dispatcher& dispatcher_;
   Config::SubscriptionPtr eds_subscription_;
 };

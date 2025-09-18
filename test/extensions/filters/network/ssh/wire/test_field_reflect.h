@@ -343,6 +343,8 @@ TEST_FIELDS(HostKeysProveRequestMsg,
             hostkeys);
 TEST_FIELDS(HostKeysProveResponseMsg,
             signatures);
+TEST_FIELDS(TcpipForwardResponseMsg,
+            server_port);
 TEST_FIELDS(KeyboardInteractiveUserAuthRequestMsg,
             language_tag,
             submethods);

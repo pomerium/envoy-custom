@@ -473,6 +473,50 @@ DownstreamConnectionService::DownstreamConnectionService(
       transport_(dynamic_cast<DownstreamTransportCallbacks&>(callbacks)),
       stream_tracker_(std::move(stream_tracker)) {}
 
+void DownstreamConnectionService::registerMessageHandlers(StreamMgmtServerMessageDispatcher& dispatcher) {
+  dispatcher.registerHandler(ServerMessage::kGlobalRequestResponse, this);
+}
+
+absl::Status DownstreamConnectionService::handleMessage(Grpc::ResponsePtr<ServerMessage>&& message) {
+  switch (message->message_case()) {
+  case ServerMessage::kGlobalRequestResponse: {
+    const auto& resp = message->global_request_response();
+    if (resp.success()) {
+      switch (resp.response_case()) {
+      case pomerium::extensions::ssh::GlobalRequestResponse::kTcpipForwardResponse:
+        return transport_.sendMessageToConnection(
+                           wire::GlobalRequestSuccessMsg{
+                             .response = wire::TcpipForwardResponseMsg{
+                               .server_port = resp.tcpip_forward_response().virtual_port(),
+                             },
+                           })
+          .status();
+      case pomerium::extensions::ssh::GlobalRequestResponse::RESPONSE_NOT_SET:
+        return transport_.sendMessageToConnection(wire::GlobalRequestSuccessMsg{}).status();
+      default:
+        return absl::InternalError("invalid response case");
+      }
+    }
+
+    if (auto stat = transport_.sendMessageToConnection(wire::GlobalRequestFailureMsg{}); !stat.ok()) {
+      return stat.status();
+    }
+    // The global request message doesn't include a description string, but it might still be
+    // helpful to show one to the user.
+    if (const auto& desc = resp.debug_message(); !desc.empty()) {
+      wire::DebugMsg dbg{
+        .always_display = true,
+        .message = desc,
+      };
+      return transport_.sendMessageToConnection(std::move(dbg)).status();
+    }
+    return absl::OkStatus();
+  } break;
+  default:
+    return absl::InternalError("invalid message");
+  }
+}
+
 void DownstreamConnectionService::onStreamBegin(Network::Connection& connection) {
   ASSERT(connection.dispatcher().isThreadSafe());
 

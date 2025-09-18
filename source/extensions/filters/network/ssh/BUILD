@@ -28,6 +28,7 @@ envoy_cc_library(
         "server_transport.cc",
         "service_connection.cc",
         "service_userauth.cc",
+        "stream_address.cc",
         "stream_tracker.cc",
         "version_exchange.cc",
     ],
@@ -85,11 +86,11 @@ envoy_cc_library(
         "@envoy//source/common/grpc:async_client_lib",
         "@envoy//source/common/grpc:typed_async_client_lib",
         "@envoy//source/common/network:filter_state_dst_address_lib",
-        # "@envoy//source/common/network:ip_address_parsing_lib",
         "@envoy//source/common/upstream:upstream_lib",
         "@envoy//source/extensions/filters/network/generic_proxy/interface:codec_interface",
         "@envoy//source/extensions/filters/network/generic_proxy/interface:filter_interface",
         "@envoy//source/extensions/io_socket/user_space:io_handle_impl_lib",
+        "@readerwriterqueue",
     ],
 )
 

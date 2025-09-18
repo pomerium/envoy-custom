@@ -49,8 +49,8 @@ enum FrameTags : frame_tags_type {
   // The frame is an implementation-specific signal, and should be dropped by the receiving codec
   // after it is processed.
   Sentinel = 1 << 4,
-  // The frame contains details about an error that has occurred. Enables the FLAG_END_STREAM and
-  // FLAG_DRAIN_CLOSE frame flags if set.
+  // The frame contains details about an error that has occurred. Enables the FLAG_END_STREAM or
+  // FLAG_DRAIN_CLOSE frame flags if set, depending on the frame type.
   Error = 1 << 5,
 };
 
@@ -78,14 +78,15 @@ private:
   StreamInfo::FilterState::ObjectsPtr filter_state_objects_;
 };
 
-// Branchless conversion from FrameTags to matching FrameTags.
-// Returns (FLAG_END_STREAM | FLAG_DRAIN_CLOSE) if tags has the Error bit set, otherwise 0.
+// Branchless conversion from FrameTags to matching FrameFlags. The expected FrameFlags value is
+// 0 if there is no error, otherwise an error should be set depending on the frame type. This
+// function returns the value of ErrorBits if tags has the Error bit set, otherwise 0.
 //
-// Note: this is '((tags & Error) >> 5) * 5' with the current values of Error and FrameFlags, but
-// will not need to be updated if those ever change.
-constexpr inline uint32_t to_frame_flags(FrameTags tags) {
-  return ((tags & Error) >> std::countr_zero(std::to_underlying(Error))) *
-         (FrameFlags::FLAG_END_STREAM | FrameFlags::FLAG_DRAIN_CLOSE);
+// Note: this is '((tags & Error) >> 5) * ErrorBits' with the current value of Error, but will not
+// need to be updated if it ever changes.
+template <uint32_t ErrorBits>
+constexpr inline uint32_t value_if_error(FrameTags tags) {
+  return ((tags & Error) >> std::countr_zero(std::to_underlying(Error))) * ErrorBits;
 }
 
 class SSHResponseCommonFrame final : public GenericProxy::ResponseCommonFrame {
@@ -94,7 +95,7 @@ class SSHResponseCommonFrame final : public GenericProxy::ResponseCommonFrame {
 public:
   SSHResponseCommonFrame(wire::Message&& msg, FrameTags tags)
       : frame_tags_(tags),
-        frame_flags_(to_frame_flags(tags)),
+        frame_flags_(value_if_error<FrameFlags::FLAG_END_STREAM>(tags)),
         msg_(std::move(msg)) {}
 
   void setStreamId(stream_id_t stream_id) { stream_id_ = stream_id; }
@@ -125,7 +126,7 @@ class SSHResponseHeaderFrame final : public GenericProxy::ResponseHeaderFrame {
 public:
   SSHResponseHeaderFrame(wire::Message&& msg, FrameTags tags)
       : frame_tags_(tags),
-        frame_flags_(to_frame_flags(tags)),
+        frame_flags_(value_if_error<FrameFlags::FLAG_DRAIN_CLOSE>(tags)),
         msg_(std::move(msg)) {}
 
   void setStreamId(stream_id_t stream_id) { stream_id_ = stream_id; }

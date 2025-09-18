@@ -62,6 +62,7 @@ void SshServerTransport::registerMessageHandlers(MessageDispatcher<wire::Message
 
   ping_handler_->registerMessageHandlers(*this);
   user_auth_service_->registerMessageHandlers(*mgmt_client_);
+  connection_service_->registerMessageHandlers(*mgmt_client_);
 }
 
 void SshServerTransport::setCodecCallbacks(Callbacks& callbacks) {
@@ -199,8 +200,8 @@ absl::Status SshServerTransport::handleMessage(wire::Message&& msg) {
           if (authInfo().channel_mode == ChannelMode::Hijacked) {
             ENVOY_LOG(debug, "sending global request to hijacked stream: {}", msg.request_name());
             ClientMessage clientMsg;
-            auto* streamEvent = clientMsg.mutable_event();
-            auto* globalReq = streamEvent->mutable_global_request();
+            auto* globalReq = clientMsg.mutable_global_request();
+            globalReq->set_want_reply(msg.want_reply);
             auto* forwardReq = globalReq->mutable_tcpip_forward_request();
             forwardReq->set_remote_address(forward_msg.remote_address);
             forwardReq->set_remote_port(forward_msg.remote_port);
@@ -217,8 +218,7 @@ absl::Status SshServerTransport::handleMessage(wire::Message&& msg) {
           if (authInfo().channel_mode == ChannelMode::Hijacked) {
             ENVOY_LOG(debug, "sending global request to hijacked stream: {}", msg.request_name());
             ClientMessage clientMsg;
-            auto* streamEvent = clientMsg.mutable_event();
-            auto* globalReq = streamEvent->mutable_global_request();
+            auto* globalReq = clientMsg.mutable_global_request();
             auto* forwardReq = globalReq->mutable_cancel_tcpip_forward_request();
             forwardReq->set_remote_address(forward_msg.remote_address);
             forwardReq->set_remote_port(forward_msg.remote_port);

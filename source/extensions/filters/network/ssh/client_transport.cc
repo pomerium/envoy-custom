@@ -262,7 +262,7 @@ stream_id_t SshClientTransport::streamId() const {
 }
 
 void SshClientTransport::terminate(absl::Status err) {
-  ENVOY_LOG(error, "ssh: stream {} closing with error: {}", streamId(), err.message());
+  ENVOY_LOG(error, "ssh: stream {} closing with error: {}", streamId(), statusToString(err));
 
   wire::DisconnectMsg msg;
   msg.reason_code = openssh::statusCodeToDisconnectCode(err.code());
@@ -355,14 +355,14 @@ absl::StatusOr<MiddlewareResult> HandoffMiddleware::interceptMessage(wire::Messa
         std::move(channel), info.channel_info->internal_upstream_channel_id());
       ASSERT(internalId.ok()); // should not be able to fail
 
-      if (auto stat = parent_.channel_id_manager_->bindChannelID(
-            *internalId, PeerLocalID{
-                           .channel_id = info.channel_info->downstream_channel_id(),
-                           .local_peer = Peer::Downstream,
-                         });
-          !stat.ok()) {
-        return statusf("error during handoff: {}", stat);
-      }
+      // if (auto stat = parent_.channel_id_manager_->bindChannelID(
+      //       *internalId, PeerLocalID{
+      //                      .channel_id = info.channel_info->downstream_channel_id(),
+      //                      .local_peer = Peer::Downstream,
+      //                    });
+      //     !stat.ok()) {
+      //   return statusf("error during handoff: {}", stat);
+      // }
       // Build and send the ChannelOpen message to the upstream
       wire::ChannelOpenMsg open;
       open.request = wire::SessionChannelOpenMsg{};

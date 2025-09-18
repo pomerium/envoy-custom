@@ -4,19 +4,26 @@
 
 #pragma clang unsafe_buffer_usage begin
 #include "envoy/network/address.h"
+#include "envoy/event/dispatcher.h"
 #pragma clang unsafe_buffer_usage end
 
 namespace Envoy::Network::Address {
 
+class SocketInterfaceFactory {
+public:
+  virtual ~SocketInterfaceFactory() = default;
+  virtual std::unique_ptr<Network::SocketInterface> createSocketInterface(Event::Dispatcher& connection_dispatcher) PURE;
+};
+
 class InternalStreamAddressImpl : public Instance {
 public:
-  InternalStreamAddressImpl(stream_id_t stream_id, std::shared_ptr<Network::SocketInterface> socket_interface)
-      : stream_id_(stream_id),
-        stream_address_(fmt::format("ssh:{}", stream_id)),
-        fake_envoy_internal_addr_(stream_address_),
-        socket_interface_(socket_interface) {}
+  InternalStreamAddressImpl(stream_id_t stream_id, uint32_t port, bool is_dynamic, std::shared_ptr<SocketInterfaceFactory> socket_interface_factory);
+  InternalStreamAddressImpl(stream_id_t stream_id, uint32_t port, bool is_dynamic, std::unique_ptr<Network::SocketInterface> socket_interface);
+  ~InternalStreamAddressImpl();
 
   stream_id_t streamId() const { return stream_id_; }
+  uint32_t virtualPort() const { return port_; }
+  bool isDynamic() const { return is_dynamic_; }
 
   bool operator==(const Instance&) const override { return false; }
   const std::string& asString() const override { return stream_address_; }
@@ -44,6 +51,9 @@ public:
   const Network::SocketInterface& socketInterface() const override {
     return *socket_interface_;
   }
+  SocketInterfaceFactory& socketInterfaceFactory() const {
+    return *socket_interface_factory_;
+  }
 
   // XXX uncomment this when updating envoy
   // absl::optional<std::string> networkNamespace() const override { return absl::nullopt; }
@@ -62,12 +72,15 @@ public:
 
 private:
   const stream_id_t stream_id_;
+  const uint32_t port_;
+  const bool is_dynamic_;
   const std::string stream_address_;
   FakeEnvoyInternalAddress fake_envoy_internal_addr_;
 
   // This is initially created by an SshReverseTunnelCluster, and shared with all hosts in that
-  // cluster. The concrete type is always InternalStreamSocketInterface.
-  std::shared_ptr<Network::SocketInterface> socket_interface_;
+  // cluster. The concrete type is always InternalStreamSocketInterfaceFactory.
+  std::shared_ptr<SocketInterfaceFactory> socket_interface_factory_;
+  std::unique_ptr<Network::SocketInterface> socket_interface_;
 };
 
 using InternalStreamAddressConstSharedPtr = std::shared_ptr<const InternalStreamAddressImpl>;
