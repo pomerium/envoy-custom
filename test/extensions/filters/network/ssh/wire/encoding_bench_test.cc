@@ -1,9 +1,12 @@
 
+#include "source/extensions/filters/network/ssh/wire/encoding.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/wire/util.h"
 #include "test/benchmark/main.h"
 #include "benchmark/benchmark.h"
 #include "test/extensions/filters/network/ssh/wire/test_field_reflect.h"
+#include "test/test_common/test_common.h"
+#include "test/mocks/buffer/mocks.h"
 
 namespace wire::test {
 
@@ -48,5 +51,18 @@ static void BenchmarkDecodeKexInitMsg(benchmark::State& state) {
   }
 }
 BENCHMARK(BenchmarkDecodeKexInitMsg);
+
+// NOLINTNEXTLINE(readability-identifier-naming)
+static void BenchmarkEncodeBytesLengthPrefixed(benchmark::State& state) {
+  auto b = randomBytes(1024);
+
+  Buffer::OwnedImpl buffer;
+
+  for (auto _ : state) {
+    write_opt<LengthPrefixed>(buffer, b);
+    buffer.drain(buffer.length());
+  }
+}
+BENCHMARK(BenchmarkEncodeBytesLengthPrefixed);
 
 } // namespace wire::test
