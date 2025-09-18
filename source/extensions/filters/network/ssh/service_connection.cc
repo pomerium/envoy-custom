@@ -173,26 +173,29 @@ ConnectionService::ChannelCallbacksImpl::ChannelCallbacksImpl(ConnectionService&
       channel_id_(channel_id),
       local_peer_(local_peer) {}
 
-absl::Status ConnectionService::ChannelCallbacksImpl::sendMessageLocal(wire::Message&& msg) {
-  auto stat = msg.visit(
+void ConnectionService::ChannelCallbacksImpl::sendMessageLocal(wire::Message&& msg) {
+  msg.visit(
     [&](wire::ChannelMsg auto& msg) {
-      // TODO: should we populate channel IDs here or require the caller to fill them in?
       msg.recipient_channel = channel_id_;
-      return channel_id_mgr_.processOutgoingChannelMsg(msg, local_peer_);
+      auto stat = channel_id_mgr_.processOutgoingChannelMsg(msg, local_peer_);
+      // This should always succeed, since we just set the recipient_channel ourselves.
+      THROW_IF_NOT_OK(stat);
     },
-    [](auto&) {
-      return absl::OkStatus();
-    });
-  if (!stat.ok()) {
-    return stat;
+    [](auto&) {});
+  // Errors here should always terminate the connection - this would either be a protocol error
+  // or connection lost, etc. If the local peer isn't reachable, we can't "gracefully" close
+  // this channel via ChannelCloseMsg, so defer to the transport for error handling and cleanup.
+  // The channel calling this function wouldn't be able to do much else about an error at this
+  // level either (this is not necessarily the case for sendMessageRemote, though).
+  if (auto stat = parent_.transport_.sendMessageToConnection(std::move(msg)); !stat.ok()) {
+    parent_.transport_.terminate(stat.status());
   }
-  return parent_.transport_.sendMessageToConnection(std::move(msg))
-    .status();
 }
 
 absl::Status ConnectionService::ChannelCallbacksImpl::sendMessageRemote(wire::Message&& msg) {
   return msg.visit(
     [&](wire::ChannelMsg auto& msg) {
+      msg.recipient_channel = channel_id_;
       auto stat = channel_id_mgr_.processOutgoingChannelMsg(msg, local_peer_ == Peer::Downstream
                                                                    ? Peer::Upstream
                                                                    : Peer::Downstream);
@@ -326,8 +329,9 @@ public:
             return absl::InternalError(
               fmt::format("expected ChannelOpenConfirmation or ChannelOpenFailure, got {}", anyMsg.msg_type()));
           }
-          ENVOY_LOG(debug, "sending channel message to downstream: {}", anyMsg.msg_type());
-          return callbacks_->sendMessageLocal(std::move(anyMsg));
+          ENVOY_LOG(debug, "channel {}: sending message to downstream: {}", callbacks_->channelId(), anyMsg.msg_type());
+          callbacks_->sendMessageLocal(std::move(anyMsg));
+          return absl::OkStatus();
         });
     }
     case pomerium::extensions::ssh::ChannelMessage::kChannelControl: {
@@ -377,7 +381,8 @@ public:
   }
 
   absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&& msg) override {
-    return callbacks_->sendMessageLocal(std::move(msg));
+    callbacks_->sendMessageLocal(std::move(msg));
+    return absl::OkStatus();
   }
 
   absl::Status onChannelOpenFailed(wire::ChannelOpenFailureMsg&& msg) override {
