@@ -1,16 +1,13 @@
 #include "source/extensions/filters/network/ssh/reverse_tunnel.h"
 #include "source/common/status.h"
 #include "source/common/math.h"
-#include "source/extensions/filters/network/ssh/passthrough_state.h"
 #include "source/extensions/filters/network/ssh/socks5.h"
 #include "source/extensions/filters/network/ssh/stream_address.h"
 #include "source/extensions/filters/network/ssh/filter_state_objects.h"
-#include "source/extensions/filters/network/ssh/passthrough_state.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 
 #pragma clang unsafe_buffer_usage begin
-#include "source/common/upstream/cluster_factory_impl.h"
 #include "envoy/config/endpoint/v3/endpoint.pb.h"
 #include "envoy/config/endpoint/v3/endpoint.pb.validate.h"
 #include "source/extensions/io_socket/user_space/io_handle_impl.h"
@@ -20,6 +17,43 @@
 #include "source/common/http/utility.h"
 #include "readerwriterqueue/readerwriterqueue.h"
 #pragma clang unsafe_buffer_usage end
+
+namespace Envoy::Network {
+
+class InternalStreamPassthroughState : public Envoy::Extensions::IoSocket::UserSpace::PassthroughStateImpl {
+public:
+  using enum PassthroughStateImpl::State;
+
+  void initialize(std::unique_ptr<envoy::config::core::v3::Metadata> metadata,
+                  const StreamInfo::FilterState::Objects& filter_state_objects) override {
+    ASSERT(state_ == State::Created);
+    PassthroughStateImpl::initialize(std::move(metadata), filter_state_objects);
+    ASSERT(state_ == State::Initialized);
+    if (init_callback_ == nullptr) {
+      return;
+    }
+    std::exchange(init_callback_, nullptr)();
+  }
+
+  void setOnInitializedCallback(absl::AnyInvocable<void()> callback) {
+    ASSERT(init_callback_ == nullptr && state_ < State::Done);
+    if (state_ == State::Created) {
+      init_callback_ = std::move(callback);
+      return;
+    }
+    callback();
+  }
+
+  static std::shared_ptr<InternalStreamPassthroughState> fromIoHandle(Network::IoHandle& io_handle) {
+    return std::dynamic_pointer_cast<Network::InternalStreamPassthroughState>(
+      dynamic_cast<Extensions::IoSocket::UserSpace::IoHandleImpl&>(io_handle).passthroughState());
+  }
+
+private:
+  absl::AnyInvocable<void()> init_callback_;
+};
+
+} // namespace Envoy::Network
 
 using Envoy::Extensions::IoSocket::UserSpace::IoHandleFactory;
 
