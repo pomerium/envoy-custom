@@ -203,6 +203,17 @@ consteval void check_incompatible_options() {
 }
 } // namespace detail
 
+template <typename T>
+constexpr size_t size_or_sizeof(const T& t) {
+  if constexpr (requires { std::size(t); }) {
+    // if std::size is available, use it
+    return std::size(t);
+  } else if constexpr (std::integral<T>) {
+    // otherwise fall back to sizeof (for integer/enum types)
+    return sizeof(t);
+  }
+}
+
 // read_opt is a wrapper around read() that supports additional encoding options.
 // This specialization handles non-list types as well as strings and 'bytes' (vector<uint8_t>).
 template <EncodingOptions Opt, typename T>
@@ -240,11 +251,11 @@ size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT(re
   detail::check_supported_options<LengthPrefixed, Opt>();
 
   if constexpr (Opt & LengthPrefixed) {
-    Envoy::Buffer::OwnedImpl tmp;
-    auto size = write(tmp, value);
+    const auto size = size_or_sizeof(value);
     buffer.writeBEInt(static_cast<uint32_t>(size));
-    buffer.move(tmp);
-    return 4 + size;
+    auto n = write(buffer, value);
+    ASSERT(size == n);
+    return n + 4;
   } else {
     return write(buffer, value);
   }
@@ -428,11 +439,8 @@ size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT(re
       }
     }
   } else if constexpr (Opt & LengthPrefixed) {
-    Envoy::Buffer::OwnedImpl tmp;
     for (const auto& elem : value) {
-      total += sizeof(uint32_t) + write(tmp, elem);
-      buffer.writeBEInt(static_cast<uint32_t>(tmp.length()));
-      buffer.move(tmp);
+      total += write_opt<LengthPrefixed>(buffer, elem);
     }
   } else {
     for (Writer auto const& entry : value) {
