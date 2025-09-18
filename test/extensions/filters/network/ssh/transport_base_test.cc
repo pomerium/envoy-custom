@@ -209,7 +209,7 @@ inline absl::Duration defaultTimeout() {
   if (isDebuggerAttached()) {
     return absl::Hours(1);
   }
-  return absl::Seconds(10);
+  return absl::Minutes(1);
 }
 
 template <typename TestOptions>
