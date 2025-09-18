@@ -208,6 +208,8 @@ TEST_F(ChannelStreamServiceClientTest, Start_Metadata) {
   EXPECT_CALL(stream_, sendMessageRaw_(ProtoBufferStrictEq(expectedMetadataMsg), false));
 
   client.start(&callbacks_, md);
+
+  EXPECT_CALL(stream_, resetStream);
 }
 
 TEST_F(ChannelStreamServiceClientTest, SendMessages) {
@@ -231,6 +233,8 @@ TEST_F(ChannelStreamServiceClientTest, SendMessages) {
   *msg2.mutable_raw_bytes()->mutable_value() = "test2";
   EXPECT_CALL(stream_, sendMessageRaw_(ProtoBufferStrictEq(msg2), false));
   client.sendMessage(msg2);
+
+  EXPECT_CALL(stream_, resetStream);
 }
 
 TEST_F(ChannelStreamServiceClientTest, OnReceiveMessage) {
@@ -251,6 +255,8 @@ TEST_F(ChannelStreamServiceClientTest, OnReceiveMessage) {
 
   client.start(&callbacks_, {});
   client.onReceiveMessage(std::make_unique<ChannelMessage>(msg1));
+
+  EXPECT_CALL(stream_, resetStream);
 }
 
 TEST_F(ChannelStreamServiceClientTest, OnReceiveMessage_HandlerReturnsError) {
@@ -361,6 +367,8 @@ TEST_F(ChannelStreamServiceClientTest, NoopMetadataCallbacks) {
   EXPECT_TRUE(headers->empty());
   callbacks_ref->onReceiveInitialMetadata(Http::ResponseHeaderMapImpl::create());
   callbacks_ref->onReceiveTrailingMetadata(Http::ResponseTrailerMapImpl::create());
+
+  EXPECT_CALL(stream_, resetStream);
 }
 
 } // namespace test
