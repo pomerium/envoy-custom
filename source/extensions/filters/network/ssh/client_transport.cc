@@ -347,14 +347,6 @@ absl::StatusOr<MiddlewareResult> HandoffMiddleware::interceptMessage(wire::Messa
         std::move(channel), info.channel_info->internal_upstream_channel_id());
       ASSERT(internalId.ok()); // should not be able to fail
 
-      if (auto stat = parent_.channel_id_manager_->bindChannelID(
-            *internalId, PeerLocalID{
-                           .channel_id = info.channel_info->downstream_channel_id(),
-                           .local_peer = Peer::Downstream,
-                         });
-          !stat.ok()) {
-        return statusf("error during handoff: {}", stat);
-      }
       // Build and send the ChannelOpen message to the upstream
       wire::ChannelOpenMsg open;
       open.request = wire::SessionChannelOpenMsg{};
