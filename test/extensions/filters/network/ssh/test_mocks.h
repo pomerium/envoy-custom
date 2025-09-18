@@ -187,4 +187,21 @@ constexpr decltype(auto) get(Message&& msg) {
   return std::move(msg).message.template get<T>();
 }
 
+template <typename T, typename... Opts>
+constexpr bool holds_alternative(const sub_message<Opts...>& msg) {
+  return msg.template holds_alternative<T>();
+}
+template <typename T, typename... Opts>
+constexpr bool holds_alternative(sub_message<Opts...>&& msg) {
+  return std::move(msg).template holds_alternative<T>();
+}
+template <typename T, typename... Opts>
+constexpr decltype(auto) get(const sub_message<Opts...>& msg) {
+  return msg.template get<T>();
+}
+template <typename T, typename... Opts>
+constexpr decltype(auto) get(sub_message<Opts...>&& msg) {
+  return std::move(msg).template get<T>();
+}
+
 } // namespace wire

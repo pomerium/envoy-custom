@@ -97,12 +97,19 @@ WhenResolvedAs(const testing::Matcher<T>& inner_matcher) {
       return VariantWith<MsgType_>(AllOf(__VA_ARGS__));                                                                                  \
     }                                                                                                                                    \
   }()
+
+#define SUB_MSG(submsg_type, ...) \
+  VariantWith<submsg_type>(AllOf(__VA_ARGS__))
+
 // NOLINTEND(readability-identifier-naming)
 
 #define FIELD_EQ(name, ...) FIELD_EQ_IMPL_(name, (__VA_ARGS__))
 
 #define FIELD_EQ_IMPL_(name, ...) \
   Field(#name, &MsgType_::name, Eq(__VA_ARGS__))
+
+#define FIELD(name, ...) \
+  Field(#name, &MsgType_::name, (__VA_ARGS__))
 
 #define CONCATENATE_IMPL_(a, b) a##b
 #define CONCATENATE(a, b) CONCATENATE_IMPL_(a, b)
