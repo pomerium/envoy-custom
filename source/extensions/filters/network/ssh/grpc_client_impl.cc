@@ -49,6 +49,12 @@ ChannelStreamServiceClient::ChannelStreamServiceClient(Grpc::RawAsyncClientShare
         "pomerium.extensions.ssh.StreamManagement.ServeChannel")),
       client_(client) {}
 
+ChannelStreamServiceClient::~ChannelStreamServiceClient() {
+  if (stream_ != nullptr) {
+    stream_.resetStream();
+  }
+}
+
 void ChannelStreamServiceClient::start(ChannelStreamCallbacks* callbacks, envoy::config::core::v3::Metadata metadata) {
   callbacks_ = callbacks;
   Http::AsyncClient::StreamOptions opts;

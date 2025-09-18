@@ -71,6 +71,7 @@ class ChannelStreamServiceClient : public Grpc::AsyncStreamCallbacks<ChannelMess
                                    public Logger::Loggable<Logger::Id::filter> {
 public:
   ChannelStreamServiceClient(Grpc::RawAsyncClientSharedPtr client);
+  ~ChannelStreamServiceClient();
   void start(ChannelStreamCallbacks* callbacks, envoy::config::core::v3::Metadata metadata);
   void onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) override;
   void sendMessage(const ChannelMessage& message);
