@@ -154,7 +154,6 @@ private:
           }
           // check if we need to increase the local window
           if (local_window_ < wire::ChannelWindowSize / 2) {
-            // FIXME
             if (!io_handle_->isPeerWritable()) {
               ENVOY_LOG(debug, "channel {}: flow control: not increasing local window size", channel_id_);
               // Only increase the window size for the upstream if the downstream is writable. We
@@ -174,7 +173,7 @@ private:
         },
         [&](wire::ChannelWindowAdjustMsg& msg) {
           if (add_overflow(&upstream_window_, *msg.bytes_to_add)) {
-            // return absl::InvalidArgumentError("invalid window adjust") FIXME
+            onError(absl::InvalidArgumentError("invalid window adjust"));
             return;
           }
           ENVOY_LOG(debug, "channel {}: flow control: remote window adjusted by {} bytes", channel_id_, *msg.bytes_to_add);
@@ -388,7 +387,8 @@ public:
     };
     ENVOY_LOG(debug, "channel {}: flow control: local window initialized to {}", channel_id_, wire::ChannelWindowSize);
 
-    return callbacks.sendMessageLocal(std::move(open));
+    callbacks.sendMessageLocal(std::move(open));
+    return absl::OkStatus();
   }
 
   // RemoteStreamHandlerCallbacks
@@ -474,19 +474,16 @@ private:
     maybeSendChannelClose(error_);
   }
 
-  bool maybeSendChannelClose(absl::Status status) {
+  void maybeSendChannelClose(absl::Status status) {
     if (channel_close_sent_) {
-      return false;
+      return;
     }
     channel_close_sent_ = true;
 
     sendChannelCloseEvent(status);
-    callbacks_->sendMessageLocal(
-                wire::ChannelCloseMsg{
-                  .recipient_channel = channel_id_,
-                })
-      .IgnoreError(); // FIXME
-    return true;
+    callbacks_->sendMessageLocal(wire::ChannelCloseMsg{
+      .recipient_channel = channel_id_,
+    });
   }
 
   void sendChannelCloseEvent(absl::Status status) {
@@ -512,12 +509,10 @@ private:
         [&](wire::ChannelDataMsg& msg) {
           rx_bytes_total_ += msg.data->size();
           rx_packets_total_++;
-          auto stat = callbacks_->sendMessageLocal(std::move(msg));
-          stat.IgnoreError(); // FIXME
+          callbacks_->sendMessageLocal(std::move(msg));
         },
         [&](auto& msg) {
-          auto stat = callbacks_->sendMessageLocal(std::move(msg));
-          stat.IgnoreError(); // FIXME
+          callbacks_->sendMessageLocal(std::move(msg));
         });
     }
   }
