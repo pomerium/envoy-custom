@@ -1397,10 +1397,9 @@ TEST_F(ServerTransportTest, EncodeEffectiveCommon) {
 }
 
 class ServerTransportResponseCodeTest : public ServerTransportTest,
-                                        public testing::WithParamInterface<std::tuple<std::string_view, uint32_t>> {
-};
+                                        public testing::WithParamInterface<std::tuple<std::string_view, uint32_t>> {};
 
-TEST_P(ServerTransportResponseCodeTest, Respond) {
+TEST_P(ServerTransportResponseCodeTest, ErrorFlagInHeaderFrame) {
   auto [msg, expectedCode] = GetParam();
   auto authInfo = std::make_shared<AuthInfo>();
   authInfo->stream_id = 1234;
@@ -1411,9 +1410,9 @@ TEST_P(ServerTransportResponseCodeTest, Respond) {
   ASSERT_EQ(ResponseHeader | EffectiveCommon | Error,
             responseFrame->frameFlags().frameTags());
   ASSERT_EQ(1234, responseFrame->frameFlags().streamId());
-  ASSERT_TRUE(responseFrame->frameFlags().endStream()); // required by generic proxy
-  // drainClose is optional, but we always enable it since it closes the connection using
-  // Network::ConnectionCloseType::FlushWrite
+
+  // The response frame should be a header
+  ASSERT_FALSE(responseFrame->frameFlags().endStream());
   ASSERT_TRUE(responseFrame->frameFlags().drainClose());
 
   auto dc = extractFrameMessage(*responseFrame);

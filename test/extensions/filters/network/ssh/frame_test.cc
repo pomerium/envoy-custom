@@ -79,7 +79,7 @@ TEST(SSHResponseHeaderFrameTest, FrameFlags) {
     frame.setStreamId(streamId);
     auto flags = frame.frameFlags();
     EXPECT_EQ(streamId, flags.streamId());
-    EXPECT_EQ(extraTag == Error, flags.endStream());
+    EXPECT_EQ(false, flags.endStream());
     EXPECT_EQ(false, flags.oneWayStream());
     EXPECT_EQ(extraTag == Error, flags.drainClose());
     EXPECT_EQ(false, flags.heartbeat());
@@ -128,7 +128,7 @@ TEST(SSHResponseCommonFrameTest, FrameFlags) {
     EXPECT_EQ(streamId, flags.streamId());
     EXPECT_EQ(extraTag == Error, flags.endStream());
     EXPECT_EQ(false, flags.oneWayStream());
-    EXPECT_EQ(extraTag == Error, flags.drainClose());
+    EXPECT_EQ(false, flags.drainClose());
     EXPECT_EQ(false, flags.heartbeat());
     EXPECT_EQ(ResponseCommon | extraTag, flags.frameTags());
   }
