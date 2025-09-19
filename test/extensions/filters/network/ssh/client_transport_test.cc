@@ -708,6 +708,14 @@ TEST_F(ClientTransportTest, Handoff) {
   {
     wire::ChannelOpenMsg req;
     ASSERT_OK(ReadMsg(req));
+    // simulate the downstream OpenHijackedChannelMiddleware binding the downstream channel ID
+    ASSERT_OK(transport_.channelIdManager().bindChannelID(
+      *internalId,
+      PeerLocalID{
+        .channel_id = 1,
+        .local_peer = Peer::Downstream,
+      }));
+
     ASSERT_EQ("session", req.channel_type());
     ASSERT_EQ(*internalId, *req.sender_channel);
     ASSERT_EQ(wire::ChannelWindowSize, *req.initial_window_size);
@@ -1038,29 +1046,6 @@ TEST_F(ClientTransportTest, Handoff_InvalidMessageReceived) {
   ASSERT_OK(WriteMsg(wire::ChannelRequestMsg{
     .recipient_channel = *internalId,
   }));
-}
-
-TEST_F(ClientTransportTest, Handoff_StartHandoffChannelFailed_IdAlreadyBound) {
-  auto internalId = StartTransportHandoff();
-  ASSERT_OK(internalId);
-  ASSERT_OK(ExchangeExtInfo());
-
-  wire::ServiceRequestMsg clientUserAuthServiceRequest;
-  EXPECT_OK(ReadMsg(clientUserAuthServiceRequest));
-  EXPECT_OK(WriteMsg(wire::Message{wire::ServiceAcceptMsg{.service_name = "ssh-userauth"s}}));
-
-  wire::UserAuthRequestMsg clientUserAuthRequest;
-  EXPECT_OK(ReadMsg(clientUserAuthRequest));
-
-  // make the channel already bound
-  ASSERT_OK(channel_id_manager_->bindChannelID(*internalId,
-                                               PeerLocalID{
-                                                 .channel_id = 1234, // doesn't matter
-                                                 .local_peer = Peer::Downstream,
-                                               }));
-  ExpectDisconnectAsHeader(absl::InvalidArgumentError(fmt::format(
-    "error during handoff: channel {} is already known to Downstream", *internalId)));
-  ASSERT_OK(WriteMsg(wire::UserAuthSuccessMsg{}));
 }
 
 TEST_F(ClientTransportTest, Handoff_IgnoredMessages) {
