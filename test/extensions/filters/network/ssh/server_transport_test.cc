@@ -274,20 +274,20 @@ public:
       });
   }
 
-  void ExpectUpstreamConnectMsg() {
+  void ExpectUpstreamConnectEvent() {
     ClientMessage upstreamConnectMsg{};
     upstreamConnectMsg.mutable_event()->mutable_upstream_connected();
     EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(upstreamConnectMsg), false));
   }
 
-  void ExpectDecodingSuccess() {
+  void ExpectDecodingSuccess(std::string host = "example") {
     EXPECT_CALL(server_codec_callbacks_, onDecodingSuccess(_, _)) // header frame overload
-      .WillOnce(Invoke([this](RequestHeaderFramePtr frame, absl::optional<StartTime>) {
-        ASSERT_EQ("example", frame->host());
-        ASSERT_EQ("ssh", frame->protocol());
-        ASSERT_EQ(transport_.streamId(), frame->frameFlags().streamId());
-        ASSERT_EQ(0, frame->frameFlags().rawFlags());
-        ASSERT_EQ(FrameTags::RequestHeader | FrameTags::EffectiveHeader, frame->frameFlags().frameTags());
+      .WillOnce(Invoke([this, host](RequestHeaderFramePtr frame, absl::optional<StartTime>) {
+        EXPECT_EQ(host, frame->host());
+        EXPECT_EQ("ssh", frame->protocol());
+        EXPECT_EQ(transport_.streamId(), frame->frameFlags().streamId());
+        EXPECT_EQ(0, frame->frameFlags().rawFlags());
+        EXPECT_EQ(FrameTags::RequestHeader | FrameTags::EffectiveHeader, frame->frameFlags().frameTags());
       }));
   }
 
@@ -577,7 +577,7 @@ TEST_F(ServerTransportTest, SuccessfulUserAuth_NormalMode) {
 
   ExpectHandlePomeriumGrpcAuthRequestNormal(clientMsg);
   ExpectDecodingSuccess();
-  ExpectUpstreamConnectMsg();
+  ExpectUpstreamConnectEvent();
 
   ASSERT_OK(WriteMsg(std::move(authReq)));
 }
@@ -1003,7 +1003,7 @@ MATCHER_P(RequestCommonFrameWithMsg, msg, "") {
 TEST_F(HandoffTest, HandoffMode) {
   ASSERT_OK(PrepareHandoff());
   SendChannelOpenConfirmation();
-  ExpectUpstreamConnectMsg();
+  ExpectUpstreamConnectEvent();
   ChannelMessage ctrl;
   SSHChannelControlAction action;
   auto* handoff = action.mutable_hand_off();
@@ -1075,6 +1075,28 @@ TEST_F(HandoffTest, HandoffMode_StartHandoffBeforeChannelOpenConfirmation) {
   ChannelMessage ctrl;
   ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action);
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("handoff requested before channel open confirmation"));
+  ReceiveOnServeChannelStream(ctrl);
+}
+
+TEST_F(HandoffTest, HandoffMode_StartDirectTcpipHandoffBeforeChannelOpenConfirmation) {
+  ASSERT_OK(PrepareHandoff());
+  SSHChannelControlAction action;
+  action.mutable_hand_off()->mutable_upstream_auth()->mutable_upstream()->set_direct_tcpip(true);
+  ChannelMessage ctrl;
+  ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action);
+  ExpectUpstreamConnectEvent();
+  ExpectDecodingSuccess(""); // empty host for direct-tcpip
+  ReceiveOnServeChannelStream(ctrl);
+}
+
+TEST_F(HandoffTest, HandoffMode_StartDirectTcpipHandoffAfterChannelOpenConfirmation) {
+  ASSERT_OK(PrepareHandoff());
+  SendChannelOpenConfirmation();
+  SSHChannelControlAction action;
+  action.mutable_hand_off()->mutable_upstream_auth()->mutable_upstream()->set_direct_tcpip(true);
+  ChannelMessage ctrl;
+  ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action);
+  EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("direct-tcpip handoff requested after channel open confirmation"));
   ReceiveOnServeChannelStream(ctrl);
 }
 
@@ -1166,7 +1188,7 @@ class ClientMessagesPostUserAuthTest : public ServerTransportTest,
 
     ExpectHandlePomeriumGrpcAuthRequestNormal(clientMsg);
     ExpectDecodingSuccess();
-    ExpectUpstreamConnectMsg();
+    ExpectUpstreamConnectEvent();
 
     ASSERT_OK(WriteMsg(std::move(authReq)));
   }
@@ -1265,7 +1287,7 @@ TEST_F(ServerTransportTest, EncodeEffectiveHeader) {
 
   ExpectHandlePomeriumGrpcAuthRequestNormal(clientMsg);
   ExpectDecodingSuccess();
-  ExpectUpstreamConnectMsg();
+  ExpectUpstreamConnectEvent();
   ASSERT_OK(WriteMsg(std::move(authReq)));
 
   GenericProxy::MockEncodingContext ctx;
@@ -1284,7 +1306,7 @@ TEST_F(ServerTransportTest, EncodeEffectiveHeaderSentinel) {
 
   ExpectHandlePomeriumGrpcAuthRequestNormal(clientMsg);
   ExpectDecodingSuccess();
-  ExpectUpstreamConnectMsg();
+  ExpectUpstreamConnectEvent();
   ASSERT_OK(WriteMsg(std::move(authReq)));
 
   GenericProxy::MockEncodingContext ctx;
@@ -1303,7 +1325,7 @@ TEST_F(ServerTransportTest, EncodeEffectiveHeaderEnablePingForwarding) {
 
   ExpectHandlePomeriumGrpcAuthRequestNormal(clientMsg);
   ExpectDecodingSuccess();
-  ExpectUpstreamConnectMsg();
+  ExpectUpstreamConnectEvent();
   ASSERT_OK(WriteMsg(std::move(authReq)));
 
   // cheat: this is normally set by upstream user auth service
@@ -1364,7 +1386,7 @@ TEST_F(ServerTransportTest, EncodeEffectiveHeaderHandoffComplete) {
   *channelMsg->mutable_raw_bytes()->mutable_value() = *wire::encodeTo<std::string>(confirmation);
   serve_channel_callbacks_[0]->onReceiveMessage(std::move(channelMsg));
 
-  ExpectUpstreamConnectMsg();
+  ExpectUpstreamConnectEvent();
 
   ChannelMessage ctrl;
   SSHChannelControlAction action;
@@ -1496,7 +1518,7 @@ TEST_P(StreamTrackerConnectionCallbacksTest, TestDisconnectEvent) {
   EXPECT_CALL(mock_connection_, addConnectionCallbacks(_));
   ExpectHandlePomeriumGrpcAuthRequestNormal(clientMsg);
   ExpectDecodingSuccess();
-  ExpectUpstreamConnectMsg();
+  ExpectUpstreamConnectEvent();
 
   ASSERT_OK(WriteMsg(std::move(authReq)));
 

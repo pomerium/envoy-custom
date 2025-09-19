@@ -344,6 +344,12 @@ public:
       }
       switch (ctrl_action.action_case()) {
       case pomerium::extensions::ssh::SSHChannelControlAction::kHandOff: {
+        if (ctrl_action.hand_off().upstream_auth().upstream().direct_tcpip()) {
+          if (open_complete_) {
+            return absl::FailedPreconditionError("direct-tcpip handoff requested after channel open confirmation");
+          }
+          open_complete_ = true;
+        }
         if (!open_complete_) {
           return absl::FailedPreconditionError("handoff requested before channel open confirmation");
         }
@@ -368,7 +374,8 @@ public:
     }
   }
 
-  absl::Status readMessage(wire::Message&& msg) override {
+  absl::Status
+  readMessage(wire::Message&& msg) override {
     if (!open_complete_) [[unlikely]] {
       return absl::InvalidArgumentError(fmt::format(
         "unexpected message received before channel open confirmation: {}", msg.msg_type()));
