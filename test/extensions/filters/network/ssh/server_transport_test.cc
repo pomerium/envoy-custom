@@ -1424,7 +1424,7 @@ TEST_P(ServerTransportResponseCodeTest, ErrorFlagInHeaderFrame) {
   auto authInfo = std::make_shared<AuthInfo>();
   authInfo->stream_id = 1234;
   SetAuthInfo(authInfo);
-  SSHRequestHeaderFrame mockHeaderFrame("example", 1234, *mock_connection_.streamInfo().filterState());
+  SSHRequestHeaderFrame mockHeaderFrame("example", 1234);
   auto status = absl::Status(absl::StatusCode::kInternal, msg);
   auto responseFrame = transport_.respond(status, "", mockHeaderFrame);
   ASSERT_EQ(ResponseHeader | EffectiveCommon | Error,
@@ -1451,7 +1451,7 @@ TEST_P(ServerTransportResponseCodeTest, RespondAdditionalMessage) {
   auto authInfo = std::make_shared<AuthInfo>();
   authInfo->stream_id = 1234;
   SetAuthInfo(authInfo);
-  SSHRequestHeaderFrame mockHeaderFrame("example", 1234, *mock_connection_.streamInfo().filterState());
+  SSHRequestHeaderFrame mockHeaderFrame("example", 1234);
   auto status = absl::Status(absl::StatusCode::kInternal, msg);
   auto responseFrame = transport_.respond(status, "additional message", mockHeaderFrame);
   auto dc = extractFrameMessage(*responseFrame);

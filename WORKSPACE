@@ -53,6 +53,7 @@ http_archive(
         "//patches/envoy:0007-userspace-socket-40748.patch",
         "//patches/envoy:0008-downstream-connected-40747.patch",
         "//patches/envoy:tmp-fix-upstream-connection-callbacks.patch",
+        "//patches/envoy:tmp-transport-socket-options.patch",
     ],
     sha256 = "332684aa4eb7a5613aa6e995231543e92d801128ae1f145cc58b24b24f25844c",
     strip_prefix = "envoy-" + envoy_version,

@@ -14,6 +14,7 @@
 #include "source/extensions/filters/network/ssh/common.h"
 #include "source/extensions/filters/network/ssh/filter_state_objects.h"
 #include "source/extensions/filters/network/ssh/frame.h"
+#include "source/extensions/filters/network/ssh/id_manager.h"
 #include "source/extensions/filters/network/ssh/kex.h"
 #include "source/extensions/filters/network/ssh/transport_base.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
@@ -27,6 +28,32 @@ extern "C" {
 }
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
+
+namespace {
+void setRequestedServerName(const StreamInfo::FilterStateSharedPtr& filter_state, const std::string& name) {
+  filter_state->setData(RequestedServerName::key(),
+                        std::make_shared<RequestedServerName>(name),
+                        StreamInfo::FilterState::StateType::ReadOnly,
+                        StreamInfo::FilterState::LifeSpan::Request,
+                        StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
+}
+
+void setDownstreamSourceAddress(const StreamInfo::FilterStateSharedPtr& filter_state, const Network::Address::InstanceConstSharedPtr& addr) {
+  filter_state->setData(DownstreamSourceAddressFilterStateFactory::key(),
+                        std::make_shared<Network::AddressObject>(addr),
+                        StreamInfo::FilterState::StateType::ReadOnly,
+                        StreamInfo::FilterState::LifeSpan::Request,
+                        StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
+}
+
+void setChannelIdManager(const StreamInfo::FilterStateSharedPtr& filter_state, std::shared_ptr<ChannelIDManager> channel_id_mgr) {
+  filter_state->setData(ChannelIDManagerFilterStateKey,
+                        channel_id_mgr,
+                        StreamInfo::FilterState::StateType::Mutable,
+                        StreamInfo::FilterState::LifeSpan::Request,
+                        StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
+}
+} // namespace
 
 SshServerTransport::SshServerTransport(Server::Configuration::ServerFactoryContext& context,
                                        std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
@@ -72,11 +99,7 @@ void SshServerTransport::onConnected() {
   ASSERT(conn.state() == Network::Connection::State::Open);
   connection_dispatcher_ = conn.dispatcher();
   channel_id_manager_ = std::make_shared<ChannelIDManager>();
-  conn.streamInfo().filterState()->setData(ChannelIDManagerFilterStateKey,
-                                           channel_id_manager_,
-                                           StreamInfo::FilterState::StateType::Mutable,
-                                           StreamInfo::FilterState::LifeSpan::Request,
-                                           StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
+  setChannelIdManager(conn.streamInfo().filterState(), channel_id_manager_);
   initServices();
   mgmt_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus status, std::string message) {
     terminate({static_cast<absl::StatusCode>(status), message});
@@ -275,7 +298,8 @@ void SshServerTransport::initUpstream(AuthInfoSharedPtr auth_info) {
   auth_info->server_version = server_version_;
   bool first_init = (auth_info_ == nullptr);
   auth_info_ = auth_info;
-  callbacks_->connection()->streamInfo().filterState()->setData(
+  auto& filterState = callbacks_->connection()->streamInfo().filterState();
+  filterState->setData(
     AuthInfoFilterStateKey, auth_info_,
     StreamInfo::FilterState::StateType::Mutable,
     StreamInfo::FilterState::LifeSpan::Request,
@@ -283,10 +307,11 @@ void SshServerTransport::initUpstream(AuthInfoSharedPtr auth_info) {
   switch (auth_info_->channel_mode) {
   case ChannelMode::Normal: {
     ASSERT(auth_info_->allow_response != nullptr);
-    auto frame = std::make_unique<SSHRequestHeaderFrame>(
-      auth_info_->allow_response->upstream().hostname(),
-      stream_id_,
-      *callbacks_->connection()->streamInfo().filterState());
+    auto hostname = auth_info_->allow_response->upstream().hostname();
+    setRequestedServerName(filterState, hostname);
+    setDownstreamSourceAddress(filterState, callbacks_->connection()->streamInfo().downstreamAddressProvider().remoteAddress());
+
+    auto frame = std::make_unique<SSHRequestHeaderFrame>(hostname, stream_id_);
     callbacks_->onDecodingSuccess(std::move(frame));
 
     ClientMessage upstream_connect_msg{};
@@ -305,10 +330,11 @@ void SshServerTransport::initUpstream(AuthInfoSharedPtr auth_info) {
       .IgnoreError();
   } break;
   case ChannelMode::Handoff: {
-    auto frame = std::make_unique<SSHRequestHeaderFrame>(
-      auth_info_->allow_response->upstream().hostname(),
-      stream_id_,
-      *callbacks_->connection()->streamInfo().filterState());
+    auto hostname = auth_info_->allow_response->upstream().hostname();
+    setRequestedServerName(filterState, hostname);
+    setDownstreamSourceAddress(filterState, callbacks_->connection()->streamInfo().downstreamAddressProvider().remoteAddress());
+
+    auto frame = std::make_unique<SSHRequestHeaderFrame>(hostname, stream_id_);
     ENVOY_LOG(debug, "disabling reads on downstream connection for handoff");
     callbacks_->connection()->readDisable(true);
     callbacks_->onDecodingSuccess(std::move(frame));

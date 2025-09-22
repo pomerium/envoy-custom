@@ -357,6 +357,18 @@ envoy_cc_test(
 )
 
 envoy_cc_test(
+    name = "filter_state_objects_test",
+    srcs = [
+        "filter_state_objects_test.cc",
+    ],
+    repository = "@envoy",
+    deps = [
+        "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "//test/test_common:test_common_lib",
+    ],
+)
+
+envoy_cc_test(
     name = "socks5_test",
     srcs = [
         "socks5_test.cc",

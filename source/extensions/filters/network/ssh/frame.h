@@ -66,25 +66,18 @@ enum FrameTags : frame_tags_type {
 class SSHRequestHeaderFrame final : public GenericProxy::RequestHeaderFrame {
 public:
   SSHRequestHeaderFrame(const std::string& host,
-                        stream_id_t stream_id,
-                        const StreamInfo::FilterState& filter_state)
+                        stream_id_t stream_id)
       : host_(host),
-        stream_id_(stream_id),
-        filter_state_objects_(filter_state.objectsSharedWithUpstreamConnection()) {}
+        stream_id_(stream_id) {}
   std::string_view host() const override { return host_; }
   std::string_view protocol() const override { return "ssh"; }
   FrameFlags frameFlags() const override {
     return {stream_id_, 0, FrameTags::RequestHeader | FrameTags::EffectiveHeader};
   }
 
-  Envoy::OptRef<StreamInfo::FilterState::Objects> downstreamSharedFilterStateObjects() const {
-    return makeOptRefFromPtr(filter_state_objects_.get());
-  }
-
 private:
   std::string host_;
   stream_id_t stream_id_;
-  StreamInfo::FilterState::ObjectsPtr filter_state_objects_;
 };
 
 // Branchless conversion from FrameTags to matching FrameFlags. The expected FrameFlags value is

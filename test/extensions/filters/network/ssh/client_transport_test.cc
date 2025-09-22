@@ -12,6 +12,7 @@
 #include "test/test_common/test_common.h"
 #include "source/extensions/filters/network/ssh/service_connection.h" // IWYU pragma: keep
 #include "source/extensions/filters/network/ssh/service_userauth.h"   // IWYU pragma: keep
+#include "source/common/network/address_impl.h"
 #include "gtest/gtest.h"
 
 extern "C" {
@@ -71,8 +72,7 @@ MATCHER(SentinelFrame, "") {
 class ClientTransportTest : public testing::Test {
 public:
   ClientTransportTest()
-      : downstream_filter_state_(StreamInfo::FilterState::LifeSpan::FilterChain),
-        config_(newConfig()),
+      : config_(newConfig()),
         server_host_key_(*openssh::SSHKey::generate(KEY_ED25519, 256)),
         secrets_provider_(*config_),
         transport_(server_factory_context_, config_, secrets_provider_) {}
@@ -109,6 +109,18 @@ public:
       StreamInfo::FilterState::StateType::Mutable,
       StreamInfo::FilterState::LifeSpan::Connection,
       StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
+    mock_connection_.streamInfo().filterState()->setData(
+      RequestedServerName::key(),
+      std::make_shared<RequestedServerName>("example_server_name"),
+      StreamInfo::FilterState::StateType::ReadOnly,
+      StreamInfo::FilterState::LifeSpan::Request,
+      StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
+    mock_connection_.streamInfo().filterState()->setData(
+      DownstreamSourceAddressFilterStateFactory::key(),
+      std::make_shared<Network::AddressObject>(std::make_shared<Network::Address::Ipv4Instance>("127.0.0.1", 12345)),
+      StreamInfo::FilterState::StateType::ReadOnly,
+      StreamInfo::FilterState::LifeSpan::Request,
+      StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
 
     transport_.setCodecCallbacks(client_codec_callbacks_);
     ON_CALL(client_codec_callbacks_, writeToConnection(_))
@@ -124,8 +136,8 @@ public:
   }
 
   void SetDownstreamAuthInfo(AuthInfoSharedPtr info) {
-    ASSERT(!downstream_filter_state_.hasDataWithName(AuthInfoFilterStateKey));
-    downstream_filter_state_.setData(
+    ASSERT(!mock_connection_.streamInfo().filterState()->hasDataWithName(AuthInfoFilterStateKey));
+    mock_connection_.streamInfo().filterState()->setData(
       AuthInfoFilterStateKey, info,
       StreamInfo::FilterState::StateType::Mutable,
       StreamInfo::FilterState::LifeSpan::Request,
@@ -158,7 +170,7 @@ public:
     *publicKeyMethodData.mutable_permissions() = std::move(permissions);
     publicKeyMethod->mutable_method_data()->PackFrom(publicKeyMethodData);
     GenericProxy::MockEncodingContext ctx;
-    SSHRequestHeaderFrame reqHeaderFrame("example", 0, downstream_filter_state_);
+    SSHRequestHeaderFrame reqHeaderFrame("example", 0);
     RETURN_IF_NOT_OK(transport_.encode(reqHeaderFrame, ctx).status());
     RETURN_IF_NOT_OK(DoKeyExchange());
     return absl::OkStatus();
@@ -207,7 +219,7 @@ public:
     GenericProxy::MockEncodingContext ctx;
     auto authInfo = BuildHandoffAuthInfo();
     SetDownstreamAuthInfo(authInfo);
-    SSHRequestHeaderFrame reqHeaderFrame("example", 0, downstream_filter_state_);
+    SSHRequestHeaderFrame reqHeaderFrame("example", 0);
     EXPECT_OK(transport_.encode(reqHeaderFrame, ctx).status());
     RETURN_IF_NOT_OK(DoKeyExchange());
     return authInfo->handoff_info.channel_info->internal_upstream_channel_id();
@@ -225,7 +237,7 @@ public:
     authInfo->handoff_info.channel_info->set_channel_type("direct-tcpip");
     authInfo->allow_response->mutable_upstream()->set_direct_tcpip(true);
     SetDownstreamAuthInfo(authInfo);
-    SSHRequestHeaderFrame reqHeaderFrame("example", 0, downstream_filter_state_);
+    SSHRequestHeaderFrame reqHeaderFrame("example", 0);
     wire::ChannelOpenConfirmationMsg expectedMsg;
     expectedMsg.recipient_channel = authInfo->handoff_info.channel_info->downstream_channel_id();
     expectedMsg.sender_channel = authInfo->handoff_info.channel_info->internal_upstream_channel_id();
@@ -496,7 +508,6 @@ public:
   std::unique_ptr<PacketCipher> server_cipher_;
   Envoy::Buffer::OwnedImpl input_buffer_;
   Envoy::Buffer::OwnedImpl output_buffer_;
-  StreamInfo::FilterStateImpl downstream_filter_state_;
   testing::NiceMock<Server::Configuration::MockServerFactoryContext> server_factory_context_;
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config_;
   openssh::SSHKeyPtr server_host_key_;
@@ -621,7 +632,7 @@ TEST_F(ClientTransportTest, InvalidUserAuthAllowState) {
 
   // omit the publickey allow response
   GenericProxy::MockEncodingContext ctx;
-  SSHRequestHeaderFrame reqHeaderFrame("example", 0, downstream_filter_state_);
+  SSHRequestHeaderFrame reqHeaderFrame("example", 0);
   ASSERT_OK(transport_.encode(reqHeaderFrame, ctx).status());
   ASSERT_OK(DoKeyExchange());
 
@@ -889,7 +900,7 @@ TEST_F(ClientTransportTest, Handoff_SendPtyRequestFailure) {
   SetDownstreamAuthInfo(authInfo);
 
   GenericProxy::MockEncodingContext ctx;
-  SSHRequestHeaderFrame reqHeaderFrame("example", 0, downstream_filter_state_);
+  SSHRequestHeaderFrame reqHeaderFrame("example", 0);
   ASSERT_OK(transport_.encode(reqHeaderFrame, ctx).status());
   ASSERT_OK(DoKeyExchange());
   ASSERT_OK(ExchangeExtInfo());
@@ -925,7 +936,7 @@ TEST_F(ClientTransportTest, Handoff_NoDownstreamPty) {
   authInfo->handoff_info.pty_info = nullptr;
   SetDownstreamAuthInfo(authInfo);
 
-  SSHRequestHeaderFrame reqHeaderFrame("example", 0, downstream_filter_state_);
+  SSHRequestHeaderFrame reqHeaderFrame("example", 0);
   ASSERT_OK(transport_.encode(reqHeaderFrame, ctx).status());
   ASSERT_OK(DoKeyExchange());
 
