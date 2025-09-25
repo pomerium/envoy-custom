@@ -80,7 +80,8 @@ void SshServerTransport::onConnected() {
     terminate(absl::CancelledError(err));
   });
   stream_id_ = api_.randomGenerator().random();
-  mgmt_client_->connect(streamId());
+  auto downstreamAddr = conn.streamInfo().downstreamAddressProvider().remoteAddress()->asString();
+  mgmt_client_->connect(streamId(), downstreamAddr);
 }
 
 void SshServerTransport::initServices() {
