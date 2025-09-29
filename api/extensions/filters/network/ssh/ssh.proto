@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package pomerium.extensions.ssh;
 
+import "envoy/config/core/v3/address.proto";
 import "envoy/config/core/v3/base.proto";
 import "envoy/config/core/v3/extension.proto";
 import "envoy/config/core/v3/grpc_service.proto";
@@ -101,8 +102,9 @@ message StreamEvent {
 }
 
 message DownstreamConnectEvent {
-  uint64 stream_id      = 1;
-  string source_address = 2;
+  uint64 stream_id = 1;
+  reserved 2;
+  envoy.config.core.v3.Address source_address = 3;
   // [other connection info as needed]
 }
 
