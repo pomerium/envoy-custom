@@ -1,9 +1,7 @@
 #pragma once
 
-#pragma clang unsafe_buffer_usage begin
 #include "source/extensions/filters/network/generic_proxy/codec_callbacks.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
-#pragma clang unsafe_buffer_usage end
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
 
 #include "source/extensions/filters/network/ssh/transport.h"

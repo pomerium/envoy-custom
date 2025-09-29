@@ -3,11 +3,9 @@
 #include <cerrno>
 #include <unistd.h>
 
-#pragma clang unsafe_buffer_usage begin
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.validate.h"
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
-#pragma clang unsafe_buffer_usage end
 
 #include "source/extensions/filters/network/ssh/openssh.h"
 #include "source/extensions/filters/network/ssh/transport.h"

@@ -4,9 +4,7 @@
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "gtest/gtest.h" // IWYU pragma: keep
 
-#pragma clang unsafe_buffer_usage begin
 #include "absl/random/random.h"
-#pragma clang unsafe_buffer_usage end
 
 namespace wire::test {
 

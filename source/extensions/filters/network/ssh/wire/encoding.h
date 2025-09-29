@@ -13,10 +13,8 @@
 #include <string>
 #include <utility>
 
-#pragma clang unsafe_buffer_usage begin
 #include "absl/status/statusor.h"
 #include "source/common/buffer/buffer_impl.h"
-#pragma clang unsafe_buffer_usage end
 
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/validation.h"

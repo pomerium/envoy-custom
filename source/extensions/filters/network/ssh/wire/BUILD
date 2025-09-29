@@ -27,6 +27,11 @@ envoy_cc_library(
         "-Wimplicit-fallthrough",
         "-Wimplicit-int-conversion",
         "-Wunsafe-buffer-usage",
+        "--system-header-prefix=envoy/",
+        "--system-header-prefix=absl/",
+        "--system-header-prefix=api/",
+        "--system-header-prefix=source/common/common/",
+        "--system-header-prefix=source/common/buffer/",
     ],
     repository = "@envoy",
     deps = [

@@ -3,7 +3,6 @@
 #include "source/common/optref.h"
 #include "source/common/types.h"
 #include "source/common/type_traits.h"
-#pragma clang unsafe_buffer_usage begin
 #include "source/common/buffer/buffer_impl.h" // IWYU pragma: keep
 #include "absl/random/random.h"
 #include "test/test_common/status_utility.h" // IWYU pragma: keep
@@ -11,7 +10,6 @@
 #if defined(NDEBUG) || defined(ENVOY_CONFIG_COVERAGE)
 #include "test/test_common/logging.h"
 #endif
-#pragma clang unsafe_buffer_usage end
 
 #include "gtest/gtest.h"
 #include "gmock/gmock.h" // IWYU pragma: keep

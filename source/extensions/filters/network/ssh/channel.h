@@ -2,9 +2,7 @@
 
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 
-#pragma clang unsafe_buffer_usage begin
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
-#pragma clang unsafe_buffer_usage end
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 

@@ -6,9 +6,7 @@
 
 #include "source/extensions/filters/network/ssh/common.h"
 
-#pragma clang unsafe_buffer_usage begin
 #include "envoy/buffer/buffer.h"
-#pragma clang unsafe_buffer_usage end
 
 extern "C" {
 #include "openssh/sshkey.h"

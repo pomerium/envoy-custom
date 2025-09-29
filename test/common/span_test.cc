@@ -1,9 +1,7 @@
 #include "source/common/span.h"
 #include "gtest/gtest.h"
 
-#pragma clang unsafe_buffer_usage begin
 #include "source/common/buffer/buffer_impl.h"
-#pragma clang unsafe_buffer_usage end
 
 TEST(SpanTest, UnsafeForgeSpan) {
   uint8_t* x = new uint8_t[10]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10};

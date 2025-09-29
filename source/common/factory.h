@@ -7,9 +7,7 @@
 #include <ranges>
 #include "fmt/format.h"
 
-#pragma clang unsafe_buffer_usage begin
 #include "envoy/common/exception.h"
-#pragma clang unsafe_buffer_usage end
 
 // algorithm priority index (0 is highest priority)
 using priority_t = uint32_t;
