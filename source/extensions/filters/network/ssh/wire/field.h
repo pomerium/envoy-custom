@@ -7,10 +7,8 @@
 #include <utility>
 #include <variant>
 
-#pragma clang unsafe_buffer_usage begin
 #include "absl/strings/escaping.h"
 #include "fmt/ranges.h"
-#pragma clang unsafe_buffer_usage end
 
 #include "source/common/common/fmt.h" // IWYU pragma: keep
 #include "source/common/visit.h"

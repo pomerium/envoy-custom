@@ -2,12 +2,10 @@
 
 #include "source/extensions/filters/network/ssh/channel.h"
 
-#pragma clang unsafe_buffer_usage begin
 #include "envoy/event/dispatcher.h"
 #include "envoy/server/factory_context.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.validate.h"
-#pragma clang unsafe_buffer_usage end
 
 #include "source/extensions/filters/network/ssh/common.h"
 

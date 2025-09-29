@@ -2,10 +2,8 @@
 #include "test/mocks/server/server_factory_context.h"
 #include "test/extensions/filters/network/ssh/test_env_util.h"
 
-#pragma clang unsafe_buffer_usage begin
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
-#pragma clang unsafe_buffer_usage end
 
 #include "gtest/gtest.h"
 #include "gmock/gmock.h"

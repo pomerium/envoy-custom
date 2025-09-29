@@ -4,10 +4,8 @@
 #include <unordered_set>
 #include <unordered_map>
 
-#include "fmt/std.h" // IWYU pragma: keep
-#pragma clang unsafe_buffer_usage begin
+#include "fmt/std.h"              // IWYU pragma: keep
 #include "absl/status/statusor.h" // IWYU pragma: keep
-#pragma clang unsafe_buffer_usage end
 
 #include "source/common/types.h" // IWYU pragma: keep
 
