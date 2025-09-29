@@ -8,6 +8,8 @@
 #include <sshkey.h>
 #include <unistd.h>
 
+#include "source/common/network/utility.h"
+
 #include "source/common/status.h"
 #include "source/extensions/filters/network/ssh/common.h"
 #include "source/extensions/filters/network/ssh/filter_state_objects.h"
@@ -80,8 +82,11 @@ void SshServerTransport::onConnected() {
     terminate(absl::CancelledError(err));
   });
   stream_id_ = api_.randomGenerator().random();
-  auto downstreamAddr = conn.streamInfo().downstreamAddressProvider().remoteAddress()->asString();
-  mgmt_client_->connect(streamId(), downstreamAddr);
+
+  auto downstreamAddr = conn.streamInfo().downstreamAddressProvider().remoteAddress();
+  envoy::config::core::v3::Address protoAddress;
+  Network::Utility::addressToProtobufAddress(*downstreamAddr, protoAddress);
+  mgmt_client_->connect(streamId(), protoAddress);
 }
 
 void SshServerTransport::initServices() {
