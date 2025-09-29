@@ -76,8 +76,8 @@ void SshServerTransport::onConnected() {
                                            StreamInfo::FilterState::LifeSpan::Request,
                                            StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
   initServices();
-  mgmt_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus, std::string err) {
-    terminate(absl::CancelledError(err));
+  mgmt_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus status, std::string message) {
+    terminate({static_cast<absl::StatusCode>(status), message});
   });
   stream_id_ = api_.randomGenerator().random();
   auto downstreamAddr = conn.streamInfo().downstreamAddressProvider().remoteAddress()->asString();

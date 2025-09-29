@@ -1150,6 +1150,8 @@ TEST_F(ServerTransportTest, HijackedMode_StreamClosed) {
   serve_channel_callbacks_[0]->onRemoteClose(Envoy::Grpc::Status::Internal, "test error");
   wire::DisconnectMsg serverDisconnect;
   ASSERT_OK(ReadMsg(serverDisconnect));
+  EXPECT_EQ(statusToString(absl::InternalError("test error")), serverDisconnect.description);
+  EXPECT_EQ(openssh::statusCodeToDisconnectCode(absl::StatusCode::kInternal), serverDisconnect.reason_code);
 }
 
 TEST_F(ServerTransportTest, PomeriumDisconnectsDuringAuth) {
