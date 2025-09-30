@@ -355,3 +355,15 @@ envoy_cc_test(
         "//test/test_common:test_common_lib",
     ],
 )
+
+envoy_cc_test(
+    name = "socks5_test",
+    srcs = [
+        "socks5_test.cc",
+    ],
+    repository = "@envoy",
+    deps = [
+        "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "//test/test_common:test_common_lib",
+    ],
+)
