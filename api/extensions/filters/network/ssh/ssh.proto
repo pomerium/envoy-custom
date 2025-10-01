@@ -322,3 +322,18 @@ message FilterMetadata {
   uint64 stream_id  = 1;
   uint32 channel_id = 2;
 }
+
+message ServerPort {
+  uint32 value      = 1;
+  bool   is_dynamic = 2;
+}
+
+message PortForwardPermission {
+  string requested_host = 1;
+  uint32 requested_port = 2;
+}
+
+message EndpointMetadata {
+  ServerPort            server_port        = 1;
+  PortForwardPermission matched_permission = 2;
+}
