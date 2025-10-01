@@ -181,6 +181,19 @@ inline bool isDebuggerAttached() {
   return false;
 }
 
+struct TestParameterNames {
+  TestParameterNames(std::initializer_list<std::string_view> names)
+      : names_(names) {}
+
+  template <typename ParamType>
+  std::string operator()(const testing::TestParamInfo<ParamType>& info) const {
+    ASSERT(info.index < names_.size());
+    return std::string(names_[info.index]);
+  }
+
+  std::vector<std::string_view> names_;
+};
+
 // =================================================================================================
 // code below vendored from envoy test/test_common/utility.h, which pulls in too many dependencies
 // to include directly
