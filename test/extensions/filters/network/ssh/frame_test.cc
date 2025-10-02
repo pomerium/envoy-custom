@@ -2,7 +2,6 @@
 #include "test/test_common/test_common.h"
 #include "gtest/gtest.h"
 #include "absl/random/random.h"
-#include "source/common/stream_info/filter_state_impl.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -11,36 +10,19 @@ static absl::BitGen rng;
 class TestFilterStateObject : public StreamInfo::FilterState::Object {};
 
 TEST(SSHRequestHeaderFrameTest, RequestHeaderFrameImpl) {
-  auto obj1Ptr = std::make_shared<TestFilterStateObject>();
-  auto obj2Ptr = std::make_shared<TestFilterStateObject>();
-  StreamInfo::FilterStateImpl filterState(StreamInfo::FilterState::LifeSpan::FilterChain);
-  filterState.setData("obj1", obj1Ptr, StreamInfo::FilterState::StateType::Mutable,
-                      StreamInfo::FilterState::LifeSpan::FilterChain,
-                      StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
-  filterState.setData("obj2", obj2Ptr, StreamInfo::FilterState::StateType::Mutable,
-                      StreamInfo::FilterState::LifeSpan::FilterChain,
-                      StreamInfo::StreamSharingMayImpactPooling::None);
-
-  SSHRequestHeaderFrame frame("foo", 1234, filterState);
+  SSHRequestHeaderFrame frame("foo", 1234);
 
   EXPECT_EQ("foo", frame.host());
   EXPECT_EQ("ssh", frame.protocol());
   EXPECT_EQ("", frame.path());
   EXPECT_EQ("", frame.method());
   EXPECT_EQ(1234, frame.frameFlags().streamId());
-  auto objs = frame.downstreamSharedFilterStateObjects();
-  ASSERT_TRUE(objs.has_value());
-  EXPECT_EQ(1, objs->size());
-  EXPECT_EQ("obj1", objs->at(0).name_);
-  EXPECT_EQ(StreamInfo::FilterState::StateType::Mutable, objs->at(0).state_type_);
-  EXPECT_EQ(StreamInfo::StreamSharingMayImpactPooling::None, objs->at(0).stream_sharing_);
-  EXPECT_EQ(obj1Ptr, objs->at(0).data_);
 }
 
 TEST(SSHRequestHeaderFrameTest, FrameFlags) {
   auto streamId = absl::Uniform<stream_id_t>(rng);
 
-  SSHRequestHeaderFrame frame("foo", streamId, StreamInfo::FilterStateImpl{StreamInfo::FilterState::LifeSpan::FilterChain});
+  SSHRequestHeaderFrame frame("foo", streamId);
   auto flags = frame.frameFlags();
   EXPECT_EQ(streamId, flags.streamId());
   EXPECT_EQ(false, flags.endStream());
@@ -178,7 +160,7 @@ TEST(FrameTest, ExtractFrameMessage) {
     EXPECT_EQ(addr, extracted.message.get<wire::DebugMsg>().message->data());
   }
   {
-    SSHRequestHeaderFrame frame("foo", 1234, StreamInfo::FilterStateImpl{StreamInfo::FilterState::LifeSpan::FilterChain});
+    SSHRequestHeaderFrame frame("foo", 1234);
     EXPECT_THROW_WITH_MESSAGE(extractFrameMessage(frame),
                               EnvoyException,
                               "bug: extractFrameMessage called with RequestHeader frame");

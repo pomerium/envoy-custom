@@ -13,6 +13,7 @@ envoy_cc_library(
         "client_transport.cc",
         "config.cc",
         "extension_ping.cc",
+        "filter_state_objects.cc",
         "grpc_client_impl.cc",
         "id_manager.cc",
         "kex.cc",

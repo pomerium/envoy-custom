@@ -88,16 +88,11 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
   switch (frame.frameFlags().frameTags() & FrameTags::FrameTypeMask) {
   case FrameTags::RequestHeader: {
     auto& filterState = callbacks_->connection()->streamInfo().filterState();
-    const auto& reqHeader = static_cast<const SSHRequestHeaderFrame&>(frame);
-    // copy filter state objects shared by the downstream
-    if (auto shared = reqHeader.downstreamSharedFilterStateObjects(); shared.has_value()) {
-      for (auto obj : *shared) {
-        filterState->setData(
-          obj.name_, obj.data_, obj.state_type_, StreamInfo::FilterState::LifeSpan::Request);
-      }
-    }
+
     ASSERT(filterState->hasDataWithName(ChannelIDManagerFilterStateKey));
     ASSERT(filterState->hasDataWithName(AuthInfoFilterStateKey));
+    ASSERT(filterState->hasDataWithName(RequestedServerName::key()));
+    ASSERT(filterState->hasDataWithName(DownstreamSourceAddressFilterStateFactory::key()));
 
     auth_info_ = std::dynamic_pointer_cast<AuthInfo>(
       filterState->getDataSharedMutableGeneric(AuthInfoFilterStateKey));
