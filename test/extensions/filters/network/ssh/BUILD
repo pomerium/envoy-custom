@@ -394,3 +394,29 @@ envoy_cc_test(
         "@envoy//test/mocks/event:event_mocks",
     ],
 )
+
+envoy_cc_test_library(
+    name = "integration_lib",
+    srcs = ["ssh_integration_test.cc"],
+    hdrs = ["ssh_integration_test.h"],
+    repository = "@envoy",
+    deps = [
+        "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "//test/test_common:test_common_lib",
+        "@envoy//source/extensions/filters/network/generic_proxy:config",
+        "@envoy//source/extensions/filters/network/generic_proxy/router:config",
+        "@envoy//source/extensions/transport_sockets/internal_upstream:config",
+        "@envoy//test/integration:http_integration_lib",
+    ],
+)
+
+envoy_cc_test(
+    name = "reverse_tunnel_test",
+    srcs = [
+        "reverse_tunnel_test.cc",
+    ],
+    repository = "@envoy",
+    deps = [
+        ":integration_lib",
+    ],
+)

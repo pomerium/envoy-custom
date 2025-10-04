@@ -22,8 +22,10 @@ void StreamManagementServiceClient::connect(stream_id_t stream_id, const envoy::
   msg.mutable_event()->mutable_downstream_connected()->set_stream_id(stream_id);
   msg.mutable_event()->mutable_downstream_connected()->mutable_source_address()->CopyFrom(downstream_addr);
   stream_ = client_.start(method_manage_stream_, *this, Http::AsyncClient::StreamOptions{});
-  ASSERT(stream_ != nullptr);
-  stream_.sendMessage(msg, false);
+  if (stream_ != nullptr) {
+    // If start fails, it will invoke onRemoteClose and return nullptr
+    stream_.sendMessage(msg, false);
+  }
 }
 
 void StreamManagementServiceClient::onReceiveMessage(Grpc::ResponsePtr<ServerMessage>&& message) {
