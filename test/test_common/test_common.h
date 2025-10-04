@@ -25,7 +25,7 @@ using namespace std::literals;
 #undef EXPECT_THROW
 #define EXPECT_THROW #warning "use EXPECT_THROW_WITH_MESSAGE instead of EXPECT_THROW"
 
-namespace {
+namespace test::detail {
 template <typename S>
   requires std::same_as<std::decay_t<S>, absl::Status>
 constexpr absl::Status to_status(S&& status) {
@@ -39,7 +39,7 @@ template <typename S>
 constexpr absl::Status to_status(S&& statusor) {
   return std::forward<S>(statusor).status();
 }
-} // namespace
+} // namespace test::detail
 
 #define CALLED \
   did_call = true

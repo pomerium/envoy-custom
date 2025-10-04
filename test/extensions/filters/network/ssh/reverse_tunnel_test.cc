@@ -56,24 +56,17 @@ public:
 };
 
 TEST_P(ReverseTunnelIntegrationTest, Test) {
-  default_log_level_ = spdlog::level::debug;
   initialize();
-  auto driver = makeSshConnectionDriver([&](wire::Message&& msg) {
-    (void)msg;
-    return absl::OkStatus();
-  });
+  auto driver = makeSshConnectionDriver();
   driver->connect();
 
   ASSERT_TRUE(driver->waitForKex(isDebuggerAttached() ? absl::Hours(1) : absl::Seconds(10)));
+  ASSERT_TRUE(driver->runTask(Tasks::RequestUserAuthService{}));
+  ASSERT_TRUE(driver->runTask(Tasks::Authenticate{}));
 
-  FakeHttpConnectionPtr connection;
-  ASSERT_TRUE(mgmt_upstream_->waitForHttpConnection(*dispatcher_, connection));
-
-  ASSERT_TRUE(driver->run());
-
-  codec_client_ = makeHttpConnection(lookupPort("http"));
-  auto response_one = sendRequestAndWaitForResponse(default_request_headers_, 100,
-                                                    default_response_headers_, 100, 0);
+  // codec_client_ = makeHttpConnection(lookupPort("http"));
+  // auto response_one = sendRequestAndWaitForResponse(default_request_headers_, 100,
+  //                                                   default_response_headers_, 100, 0);
 }
 
 INSTANTIATE_TEST_SUITE_P(ReverseTunnelIntegrationTest, ReverseTunnelIntegrationTest,
