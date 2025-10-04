@@ -60,7 +60,7 @@ SshServerTransport::SshServerTransport(Server::Configuration::ServerFactoryConte
                                        CreateGrpcClientFunc create_grpc_client,
                                        StreamTrackerSharedPtr stream_tracker,
                                        const SecretsProvider& secrets_provider)
-    : TransportBase(context.api(), std::move(config), secrets_provider),
+    : TransportBase(context, std::move(config), secrets_provider),
       DownstreamTransportCallbacks(*this),
       stream_tracker_(std::move(stream_tracker)) {
   auto grpcClient = create_grpc_client();
@@ -92,13 +92,15 @@ void SshServerTransport::registerMessageHandlers(MessageDispatcher<wire::Message
 
   ping_handler_->registerMessageHandlers(*this);
   user_auth_service_->registerMessageHandlers(*mgmt_client_);
+  connection_service_->registerMessageHandlers(*mgmt_client_);
 }
 
 void SshServerTransport::onConnected() {
   auto& conn = *callbacks_->connection();
+
   ASSERT(conn.state() == Network::Connection::State::Open);
   connection_dispatcher_ = conn.dispatcher();
-  channel_id_manager_ = std::make_shared<ChannelIDManager>();
+  channel_id_manager_ = std::make_shared<ChannelIDManager>(100);
   setChannelIdManager(conn.streamInfo().filterState(), channel_id_manager_);
   initServices();
   mgmt_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus status, std::string message) {
@@ -214,6 +216,48 @@ absl::Status SshServerTransport::handleMessage(wire::Message&& msg) {
           // server->client only
           return absl::InvalidArgumentError(fmt::format("unexpected global request: {}",
                                                         wire::HostKeysMsg::submsg_key));
+        },
+        [&](wire::TcpipForwardMsg& forward_msg) {
+          if (!upstreamReady()) {
+            return absl::InvalidArgumentError(fmt::format("unexpected message received: {}", msg.msg_type()));
+          }
+          if (authInfo().channel_mode == ChannelMode::Hijacked) {
+            ENVOY_LOG(debug, "sending global request to hijacked stream: {}", msg.request_name());
+            ClientMessage clientMsg;
+            auto* globalReq = clientMsg.mutable_global_request();
+            globalReq->set_want_reply(msg.want_reply);
+            auto* forwardReq = globalReq->mutable_tcpip_forward_request();
+            forwardReq->set_remote_address(forward_msg.remote_address);
+            forwardReq->set_remote_port(forward_msg.remote_port);
+            sendMgmtClientMessage(clientMsg);
+
+            return absl::OkStatus();
+          }
+
+          ENVOY_LOG(debug, "forwarding global request: {}", msg.request_name());
+          forward(std::move(msg));
+          return absl::OkStatus();
+        },
+        [&](wire::CancelTcpipForwardMsg& forward_msg) {
+          if (!upstreamReady()) {
+            return absl::InvalidArgumentError(fmt::format("unexpected message received: {}", msg.msg_type()));
+          }
+          if (authInfo().channel_mode == ChannelMode::Hijacked) {
+            ENVOY_LOG(debug, "sending global request to hijacked stream: {}", msg.request_name());
+            ClientMessage clientMsg;
+            auto* globalReq = clientMsg.mutable_global_request();
+            globalReq->set_want_reply(msg.want_reply);
+            auto* forwardReq = globalReq->mutable_cancel_tcpip_forward_request();
+            forwardReq->set_remote_address(forward_msg.remote_address);
+            forwardReq->set_remote_port(forward_msg.remote_port);
+            sendMgmtClientMessage(clientMsg);
+
+            return absl::OkStatus();
+          }
+
+          ENVOY_LOG(debug, "forwarding global request: {}", msg.request_name());
+          forward(std::move(msg));
+          return absl::OkStatus();
         });
     },
     [&](wire::GlobalRequestSuccessMsg& msg) {

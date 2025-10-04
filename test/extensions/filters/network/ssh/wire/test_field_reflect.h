@@ -343,6 +343,8 @@ TEST_FIELDS(HostKeysProveRequestMsg,
             hostkeys);
 TEST_FIELDS(HostKeysProveResponseMsg,
             signatures);
+TEST_FIELDS(TcpipForwardResponseMsg,
+            server_port);
 TEST_FIELDS(KeyboardInteractiveUserAuthRequestMsg,
             language_tag,
             submethods);
@@ -366,6 +368,12 @@ TEST_FIELDS(HostKeysMsg,
 TEST_FIELDS(UserAuthInfoPrompt,
             prompt,
             echo);
+TEST_FIELDS(TcpipForwardMsg,
+            remote_address,
+            remote_port);
+TEST_FIELDS(CancelTcpipForwardMsg,
+            remote_address,
+            remote_port);
 
 namespace wire {
 

@@ -49,13 +49,15 @@ public:
     void sendMessageLocal(wire::Message&& msg) override;
     absl::Status sendMessageRemote(wire::Message&& msg) override;
     uint32_t channelId() const override { return channel_id_; }
-    void cleanup() override;
+    Stats::Scope& scope() const override;
 
   private:
+    void cleanup() override;
     ConnectionService& parent_;
     ChannelIDManager& channel_id_mgr_;
     const uint32_t channel_id_;
     const Peer local_peer_;
+    Stats::ScopeSharedPtr scope_;
   };
 
 protected:
@@ -76,6 +78,7 @@ public:
 };
 
 class DownstreamConnectionService final : public ConnectionService,
+                                          public StreamMgmtServerMessageHandler,
                                           public ChannelEventCallbacks {
   friend class OpenHijackedChannelMiddleware;
 
@@ -89,6 +92,14 @@ public:
                            const pomerium::extensions::ssh::InternalTarget& config,
                            Envoy::Grpc::RawAsyncClientSharedPtr grpc_client);
   void disableChannelHijack();
+
+  void sendChannelEvent(const pomerium::extensions::ssh::ChannelEvent& ev) override;
+
+  using ConnectionService::handleMessage;
+  using ConnectionService::registerMessageHandlers;
+
+  void registerMessageHandlers(StreamMgmtServerMessageDispatcher& dispatcher) override;
+  absl::Status handleMessage(Grpc::ResponsePtr<ServerMessage>&& message) override;
 
 private:
   DownstreamTransportCallbacks& transport_;
