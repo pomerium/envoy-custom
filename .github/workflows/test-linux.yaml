@@ -11,6 +11,7 @@ on:
 
 jobs:
   test-coverage:
+    if: ${{ github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready') }}
     strategy:
       fail-fast: false
       matrix:
@@ -51,6 +52,7 @@ jobs:
           file: lcov
 
   test-asan:
+    if: ${{ github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready') }}
     strategy:
       fail-fast: false
       matrix:
