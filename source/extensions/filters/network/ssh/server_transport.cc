@@ -104,7 +104,7 @@ void SshServerTransport::onConnected() {
   setChannelIdManager(conn.streamInfo().filterState(), channel_id_manager_);
   initServices();
   mgmt_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus status, std::string message) {
-    terminate({static_cast<absl::StatusCode>(status), message});
+    terminate({static_cast<absl::StatusCode>(status), fmt::format("management server error: {}", message)});
   });
   stream_id_ = api_.randomGenerator().random();
 

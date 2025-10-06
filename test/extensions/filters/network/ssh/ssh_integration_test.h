@@ -137,6 +137,10 @@ public:
     server_version_ = "SSH-2.0-SshConnectionDriver";
   }
 
+  ~SshConnectionDriver() {
+    client_connection_->dispatcher().clearDeferredDeleteList();
+  }
+
   void connect() {
     codec_callbacks_ = std::make_unique<CodecCallbacks>(*client_connection_);
     setCodecCallbacks(*codec_callbacks_);
@@ -165,8 +169,17 @@ public:
     return client_connection_->dispatcher();
   }
 
-  void close() {
-    client_connection_->close(Network::ConnectionCloseType::FlushWrite);
+  AssertionResult disconnect() {
+    codec_callbacks_->expect_decoding_failure_ = true;
+    sendMessage(wire::DisconnectMsg{
+      .reason_code = 11,
+    });
+    // Run the event loop to process the disconnect message, which should tear down the
+    // filter chain
+    if (auto res = run(Envoy::Event::Dispatcher::RunType::RunUntilExit, defaultTimeout()); !res) {
+      return res;
+    }
+    return AssertionResult(true);
   }
 
   void sendMessage(wire::Message&& msg) {
@@ -236,7 +249,7 @@ public:
     while (bound.withinBound()) {
       // Wake up periodically to run the client dispatcher.
       if (time_system.waitFor(lock_, absl::Condition(&condition), 5ms * TIMEOUT_FACTOR)) {
-        return AssertionResult(testing::Test::HasFailure());
+        return AssertionResult(!testing::Test::HasFailure());
       }
       connectionDispatcher()->run(Envoy::Event::Dispatcher::RunType::NonBlock);
     }
@@ -256,7 +269,16 @@ protected:
       version_exchanger_->writeVersion(server_version_);
       return;
     }
+    if (event == Network::ConnectionEvent::RemoteClose) {
+      EXPECT_TRUE(expect_remote_close_) << "unexpected remote close";
+    }
+    connectionDispatcher()->exit();
+
+    // Disconnect the management server after the server transport is done, otherwise the server
+    // transport will trigger an error
+    EXPECT_TRUE(mgmt_connection_->close(Network::ConnectionCloseType::FlushWrite));
   }
+
   void onAboveWriteBufferHighWatermark() override {}
   void onBelowWriteBufferLowWatermark() override {}
 
@@ -296,6 +318,7 @@ protected:
   }
 
   absl::Status handleMessage(wire::Message&& msg) override {
+    expect_remote_close_ = true;
     auto dc = msg.message.get<wire::DisconnectMsg>();
     auto desc = *dc.description;
     return absl::CancelledError(fmt::format("received disconnect: {}{}{}",
@@ -374,14 +397,17 @@ protected:
     explicit CodecCallbacks(Network::ClientConnection& client_connection)
         : client_connection_(client_connection) {}
     void onDecodingFailure(absl::string_view reason = {}) override {
-      FAIL() << reason;
-      client_connection_.close(Network::ConnectionCloseType::AbortReset, reason);
+      if (!expect_decoding_failure_) {
+        FAIL() << reason;
+      }
+      client_connection_.close(Network::ConnectionCloseType::FlushWrite, reason);
     }
 
     void writeToConnection(Buffer::Instance& buffer) override {
       client_connection_.write(buffer, false);
     }
 
+    bool expect_decoding_failure_{};
     Network::ClientConnection& client_connection_;
   };
 
@@ -403,6 +429,7 @@ protected:
 
 private:
   absl::Mutex lock_;
+  bool expect_remote_close_{};
 };
 
 namespace test {

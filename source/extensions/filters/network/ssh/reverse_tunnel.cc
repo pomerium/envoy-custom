@@ -80,7 +80,7 @@ public:
 };
 
 class RemoteStreamHandler : public Logger::Loggable<Logger::Id::filter>,
-                            public Event::DispatcherThreadDeletable,
+                            public Event::DeferredDeletable,
                             public Socks5ChannelCallbacks {
 public:
   RemoteStreamHandler(RemoteStreamHandlerCallbacks& callbacks,
@@ -126,16 +126,19 @@ public:
     });
   }
 
-  ~RemoteStreamHandler() {
-    ENVOY_LOG(debug, "channel {}: destroying remote stream handler", channel_id_);
-    maybeCloseIoHandle();
-  }
+  // ~RemoteStreamHandler() {
+  //   ENVOY_LOG(debug, "channel {}: destroying remote stream handler", channel_id_);
+  //   maybeCloseIoHandle();
+  // }
 
   static void detach(std::unique_ptr<RemoteStreamHandler> self) {
     self->detach_lock_.Lock();
     self->detached_ = true;
     self->detach_lock_.Unlock();
-    self->remote_dispatcher_.deleteInDispatcherThread(std::move(self));
+    // self->remote_dispatcher_.deleteInDispatcherThread(std::move(self));
+    self->remote_dispatcher_.post([self = std::move(self)] mutable {
+      self->onDetached(std::move(self));
+    });
   }
 
   void enqueueMessage(std::unique_ptr<wire::Message> msg) {
@@ -167,6 +170,40 @@ private:
     detach_lock_.Unlock();
   }
 
+  void onDetached(std::unique_ptr<RemoteStreamHandler> self) {
+    // This object is now keeping itself alive. Once the remote queue is fully
+    // drained, then it should submit itself for deletion.
+
+    // Cancel the queue callback to make sure it doesn't fire again after we run it manually.
+    remote_queue_callback_->cancel();
+
+    // If the io handle is closed, there is nothing left to do.
+    if (!io_handle_->isOpen()) {
+      remote_dispatcher_.deferredDelete(std::move(self));
+      return;
+    }
+
+    // If the io handle is still open, it may still contain channel data we need to write, and it
+    // also might end with a channel close message. We need to drain all messages from the queue,
+    // ensure we have sent the shutdown event, and wait until the downstream response is fully
+    // complete before closing.
+    onRemoteQueueReadyRead();
+
+    // If we didn't receive a channel close by this point, close it and submit ourselves for
+    // deletion. This should trigger a LateUpstreamReset.
+    if (!received_channel_close_) {
+      ENVOY_LOG(debug, "channel {}: local peer exited without sending a ChannelClose message");
+      maybeCloseIoHandle();
+      remote_dispatcher_.deferredDelete(std::move(self));
+      return;
+    }
+
+    // If we did receive a channel close, allow the response to be received by the downstream.
+    // Once that happens, we will receive a close event on the io handle, where the deferred
+    // deletion is submitted.
+    detached_self_ = std::move(self);
+  }
+
   void initializeIoHandleEvents(uint32_t events) {
     io_handle_->initializeFileEvent(
       remote_dispatcher_,
@@ -182,6 +219,16 @@ private:
   void onFileEvent(uint32_t events) {
     ASSERT(remote_dispatcher_.isThreadSafe());
     if ((events & Envoy::Event::FileReadyType::Closed) != 0) {
+      if ((events & Envoy::Event::FileReadyType::Read) != 0) {
+        // EOF
+      }
+      detach_lock_.Lock();
+      if (detached_) {
+        detach_lock_.Unlock();
+        remote_dispatcher_.deferredDelete(std::move(detached_self_));
+        return;
+      }
+      detach_lock_.Unlock();
       onError(absl::CancelledError("closed by upstream"));
       return;
     }
@@ -256,6 +303,12 @@ private:
           // Note: we won't intentionally close the io handle ourselves until this object is about
           // to be destroyed, and all messages have been read from the queue. However, it could
           // still be closed by the peer. shutdown() can only be called if the handle is open.
+          // if (io_handle_->isOpen()) {
+          //   io_handle_->shutdown(ENVOY_SHUT_WR);
+          // }
+        },
+        [&](wire::ChannelCloseMsg&) {
+          received_channel_close_ = true;
           if (io_handle_->isOpen()) {
             io_handle_->shutdown(ENVOY_SHUT_WR);
           }
@@ -436,7 +489,8 @@ private:
   Buffer::OwnedImpl window_buffer_;
   Network::Address::SshEndpointMetadataConstSharedPtr metadata_;
   uint64_t num_local_window_adjustments_{};
-
+  bool received_channel_close_{};
+  std::unique_ptr<RemoteStreamHandler> detached_self_;
   absl::Mutex detach_lock_;
   bool detached_ ABSL_GUARDED_BY(detach_lock_) = false;
 };
@@ -578,6 +632,7 @@ public:
       },
       [&](const wire::ChannelCloseMsg&) {
         ENVOY_LOG(debug, "channel {}: downstream closed", channel_id_);
+        remote_->enqueueMessage(std::make_unique<wire::Message>(std::move(msg)));
         maybeSendChannelClose(absl::OkStatus());
       },
       [&](const auto&) {

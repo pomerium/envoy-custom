@@ -122,13 +122,14 @@ TEST_P(ReverseTunnelIntegrationTest, Test) {
     1, "GET / HTTP/1.1\r\nhost: http-cluster-1\r\nx-forwarded-proto: http\r\n"));
   driver->sendMessage(wire::ChannelDataMsg{
     .recipient_channel = remote_channel_id,
-    .data = "HTTP/1.1 200 OK\r\n\r\n"_bytes,
+    .data = "HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n"_bytes,
   });
   driver->startTask<Tasks::SendChannelCloseAndWait>(1, remote_channel_id);
   ASSERT_TRUE(response->waitForEndStream(defaultTimeout()));
-  ASSERT_EQ(200, response->headers().Status());
+  ASSERT_EQ("200", response->headers().Status()->value().getStringView());
   codec_client_->close(Network::ConnectionCloseType::FlushWrite);
   ASSERT_TRUE(driver->waitAllTasksComplete());
+  ASSERT_TRUE(driver->disconnect());
 }
 
 INSTANTIATE_TEST_SUITE_P(ReverseTunnelIntegrationTest, ReverseTunnelIntegrationTest,
