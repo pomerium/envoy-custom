@@ -1,3 +1,5 @@
+#include "source/extensions/filters/network/ssh/filter_state_objects.h"
+#include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "test/extensions/filters/network/ssh/ssh_integration_test.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "envoy/extensions/transport_sockets/raw_buffer/v3/raw_buffer.pb.h"
@@ -11,27 +13,17 @@ class ReverseTunnelIntegrationTest : public testing::TestWithParam<Network::Addr
                                      public SshIntegrationTest {
 public:
   ReverseTunnelIntegrationTest()
-      : SshIntegrationTest({{"http-tunnel", "http_tunnel"}}, Http::CodecType::HTTP1, GetParam()) {
+      : SshIntegrationTest({"unused"}, Http::CodecType::HTTP1, GetParam()) {
     concurrency_ = 3;
 
     config_helper_.addConfigModifier([this](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
-      ASSERT(bootstrap.mutable_static_resources()->clusters_size() == 2);
-      auto* tunnel_cluster = bootstrap.mutable_static_resources()->add_clusters();
-      tunnel_cluster->MergeFrom(bootstrap.static_resources().clusters()[0]);
-      configureUpstreamTunnelCluster(*tunnel_cluster);
-      tunnel_cluster->set_name("http_tunnel");
-
-      eds_helper_.setEds({});
+      configureUpstreamTunnelCluster(*bootstrap.mutable_static_resources()->mutable_clusters(1)); // http_cluster_1
     });
-  }
-
-  void createUpstreams() override {
-    SshIntegrationTest::createUpstreams();
-    http_tunnel_upstream_ = &addFakeUpstream(Http::CodecType::HTTP1);
   }
 
   void configureUpstreamTunnelCluster(envoy::config::cluster::v3::Cluster& cluster) {
     cluster.clear_upstream_bind_config();
+    cluster.clear_type();
     if (!cluster.has_transport_socket()) {
       envoy::extensions::transport_sockets::raw_buffer::v3::RawBuffer raw_buffer;
       cluster.mutable_transport_socket()->set_name("envoy.transport_sockets.raw_buffer");
@@ -51,7 +43,6 @@ public:
     cluster.mutable_cluster_type()->mutable_typed_config()->PackFrom(reverse_tunnel_cluster);
   }
 
-  Envoy::FakeUpstream* http_tunnel_upstream_;
   EdsHelper eds_helper_;
 };
 
@@ -60,13 +51,53 @@ TEST_P(ReverseTunnelIntegrationTest, Test) {
   auto driver = makeSshConnectionDriver();
   driver->connect();
 
-  ASSERT_TRUE(driver->waitForKex(isDebuggerAttached() ? absl::Hours(1) : absl::Seconds(10)));
+  const auto httpPort = lookupPort("http");
+  ASSERT_TRUE(driver->waitForKex());
   ASSERT_TRUE(driver->runTask(Tasks::RequestUserAuthService{}));
-  ASSERT_TRUE(driver->runTask(Tasks::Authenticate{}));
+  ASSERT_TRUE(driver->runTask(Tasks::Authenticate{"user", true}));
+  ASSERT_TRUE(driver->runTask(Tasks::RequestReversePortForward{"http-cluster-1", httpPort, httpPort}));
 
-  // codec_client_ = makeHttpConnection(lookupPort("http"));
-  // auto response_one = sendRequestAndWaitForResponse(default_request_headers_, 100,
-  //                                                   default_response_headers_, 100, 0);
+  envoy::config::endpoint::v3::ClusterLoadAssignment load;
+  load.set_cluster_name("http_cluster_1");
+  auto* endpoint = load.add_endpoints()->add_lb_endpoints();
+  auto* socketAddress = endpoint->mutable_endpoint()->mutable_address()->mutable_socket_address();
+  socketAddress->set_address(fmt::format("ssh:{}", driver->streamId()));
+  socketAddress->set_port_value(httpPort);
+
+  pomerium::extensions::ssh::EndpointMetadata endpointMetadata;
+  endpointMetadata.mutable_matched_permission()->set_requested_host("http-cluster-1");
+  endpointMetadata.mutable_matched_permission()->set_requested_port(httpPort);
+  endpointMetadata.mutable_server_port()->set_value(httpPort);
+  endpointMetadata.mutable_server_port()->set_is_dynamic(false);
+  (*endpoint
+      ->mutable_metadata()
+      ->mutable_typed_filter_metadata())["com.pomerium.ssh.endpoint"]
+    .PackFrom(endpointMetadata);
+  endpoint->set_health_status(envoy::config::core::v3::HealthStatus::HEALTHY);
+  eds_helper_.setEds({load});
+
+  codec_client_ = makeHttpConnection(lookupPort("http"));
+  auto requestHeaders = Http::TestRequestHeaderMapImpl{
+    {":method", "GET"},
+    {":path", "/"},
+    {":scheme", "http"},
+    {":authority", "http-cluster-1"},
+  };
+
+  auto response = codec_client_->makeHeaderOnlyRequest(requestHeaders);
+
+  // once the request is sent, we should see a new channel open
+  uint32_t remote_channel_id{};
+  ASSERT_TRUE(driver->runTask(Tasks::AcceptReversePortForward{"http-cluster-1", httpPort, 1, &remote_channel_id}));
+  ASSERT_TRUE(driver->runTask(Tasks::WaitForChannelData{
+    1, "GET / HTTP/1.1\r\nhost: http-cluster-1\r\nx-forwarded-proto: http\r\n"}));
+  driver->sendMessage(wire::ChannelDataMsg{
+    .recipient_channel = remote_channel_id,
+    .data = "HTTP/1.1 200 OK\r\nconnection: close\r\n\r\n"_bytes,
+  });
+  ASSERT_TRUE(response->waitForEndStream(defaultTimeout()));
+  ASSERT_TRUE(driver->runTask(Tasks::WaitForChannelClose{1}));
+  codec_client_->close();
 }
 
 INSTANTIATE_TEST_SUITE_P(ReverseTunnelIntegrationTest, ReverseTunnelIntegrationTest,

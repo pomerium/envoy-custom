@@ -404,6 +404,7 @@ envoy_cc_test_library(
         "//source/extensions/filters/network/ssh:pomerium_ssh",
         "//test/extensions/filters/network/ssh/wire:wire_test_util",
         "//test/test_common:test_common_lib",
+        "@envoy//source/extensions/filters/http/set_filter_state:config",
         "@envoy//source/extensions/filters/network/generic_proxy:config",
         "@envoy//source/extensions/filters/network/generic_proxy/router:config",
         "@envoy//source/extensions/transport_sockets/internal_upstream:config",

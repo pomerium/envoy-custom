@@ -9,6 +9,7 @@
 #include "test/integration/http_integration.h"
 #include "test/test_common/test_common.h"
 #include "gtest/gtest.h"
+#include <chrono>
 #include <memory>
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
@@ -61,18 +62,20 @@ public:
   virtual openssh::SSHKey& clientKey() PURE;
   virtual void waitForManagementRequest(Protobuf::Message& req) PURE;
   virtual void sendManagementResponse(const Protobuf::Message& resp) PURE;
+  virtual void setTimeout(std::chrono::milliseconds timeout) PURE;
 };
 
-#define FAIL_IF_NOT_OK(status)                                 \
-  if (auto s = ::test::detail::to_status((status)); !s.ok()) { \
-    callbacks_->taskFailure(s);                                \
-    return;                                                    \
+#define OR_FAIL                                                           \
+  [&](const auto& msg) {                                                  \
+    ADD_FAILURE() << fmt::format("received unexpected message: {}", msg); \
   }
 
-#define OR_FAIL                                                                                        \
-  [&](const auto& msg) {                                                                               \
-    callbacks_->taskFailure(absl::InternalError(fmt::format("received unexpected message: {}", msg))); \
-  }
+inline std::chrono::milliseconds defaultTimeout() {
+  CONSTRUCT_ON_FIRST_USE(std::chrono::milliseconds,
+                         isDebuggerAttached()
+                           ? std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::hours(1))
+                           : std::chrono::milliseconds(10000));
+}
 
 class Task : public SshMessageMiddleware {
   friend class SshConnectionDriver;
@@ -85,7 +88,12 @@ public:
 
 protected:
   virtual void start() PURE;
-  virtual void onMessageReceived(const wire::Message& msg) PURE;
+  virtual void onMessageReceived(wire::Message& msg) PURE;
+
+  // Can be overridden to provide more details/current state on failure
+  virtual absl::Status errorDetails() {
+    return absl::InternalError("task failed via assertion");
+  }
 
   TaskCallbacks* callbacks_;
   stream_id_t stream_id_;
@@ -95,8 +103,17 @@ private:
     callbacks_ = &cb;
     stream_id_ = stream_id;
   }
+  void startInternal() {
+    start();
+    if (testing::Test::HasFailure()) {
+      callbacks_->taskFailure(errorDetails());
+    }
+  }
   absl::StatusOr<MiddlewareResult> interceptMessage(wire::Message& msg) final {
     onMessageReceived(msg);
+    if (testing::Test::HasFailure()) {
+      callbacks_->taskFailure(errorDetails());
+    }
     return MiddlewareResult::Break;
   }
 };
@@ -159,7 +176,7 @@ public:
     }
   }
   void waitForManagementRequest(Protobuf::Message& req) override {
-    auto res = mgmt_stream_->waitForGrpcMessage(*connectionDispatcher(), req);
+    auto res = mgmt_stream_->waitForGrpcMessage(*connectionDispatcher(), req, defaultTimeout());
     if (!res) {
       terminate(absl::InternalError("waitForManagementRequest failed"));
     }
@@ -168,11 +185,11 @@ public:
     mgmt_stream_->sendGrpcMessage(resp);
   }
 
-  AssertionResult waitForKex(absl::Duration timeout) {
-    auto start = absl::Now();
+  AssertionResult waitForKex(std::chrono::milliseconds timeout = defaultTimeout()) {
+    auto start = std::chrono::system_clock::now();
     while ((client_connection_->connecting() || client_connection_->state() == Network::Connection::State::Open) &&
            !on_kex_completed_.HasBeenNotified()) {
-      if ((absl::Now() - start) > timeout) {
+      if ((std::chrono::system_clock::now() - start) > timeout) {
         return AssertionResult(false) << "timed out";
       }
       auto res = run(Envoy::Event::Dispatcher::RunType::NonBlock);
@@ -181,17 +198,17 @@ public:
       }
     }
 
-    auto res = mgmt_upstream_->waitForHttpConnection(*connectionDispatcher(), mgmt_connection_);
+    auto res = mgmt_upstream_->waitForHttpConnection(*connectionDispatcher(), mgmt_connection_, timeout);
     if (!res) {
       return res;
     }
-    res = mgmt_connection_->waitForNewStream(*connectionDispatcher(), mgmt_stream_);
+    res = mgmt_connection_->waitForNewStream(*connectionDispatcher(), mgmt_stream_, timeout);
     if (!res) {
       return res;
     }
     mgmt_stream_->startGrpcStream();
     pomerium::extensions::ssh::ClientMessage connected;
-    res = mgmt_stream_->waitForGrpcMessage(*connectionDispatcher(), connected);
+    res = mgmt_stream_->waitForGrpcMessage(*connectionDispatcher(), connected, timeout);
     if (!res) {
       return res;
     }
@@ -203,7 +220,7 @@ public:
   AssertionResult runTask(Task&& t) {
     t.setTaskCallbacks(*this, streamId());
     installMiddleware(&t);
-    connectionDispatcher()->post([&] { t.start(); });
+    connectionDispatcher()->post([&] { t.startInternal(); });
     auto timeoutStatus = run(Envoy::Event::Dispatcher::RunType::RunUntilExit);
     uninstallMiddleware(&t);
 
@@ -213,6 +230,11 @@ public:
     }
     ASSERT(task_result_.has_value());
     return std::exchange(task_result_, {}).value();
+  }
+
+  stream_id_t streamId() const override {
+    ASSERT(stream_id_ != 0);
+    return stream_id_;
   }
 
 protected:
@@ -247,10 +269,6 @@ protected:
   AuthInfo& authInfo() override {
     PANIC("unused");
   }
-  stream_id_t streamId() const override {
-    ASSERT(stream_id_ != 0);
-    return stream_id_;
-  }
 
   ChannelIDManager& channelIdManager() override {
     return channel_id_manager_;
@@ -276,10 +294,17 @@ protected:
 
   // TaskCallbacks
   void taskSuccess() override {
+    ASSERT(!testing::Test::HasFailure());
+    if (timeout_timer_ != nullptr) {
+      timeout_timer_->disableTimer();
+    }
     task_result_ = AssertionResult(true);
     connectionDispatcher()->exit();
   }
   void taskFailure(absl::Status stat) override {
+    if (timeout_timer_ != nullptr) {
+      timeout_timer_->disableTimer();
+    }
     ADD_FAILURE() << statusToString(stat);
     task_result_ = AssertionResult(false);
     connectionDispatcher()->exit();
@@ -289,6 +314,15 @@ protected:
   }
   openssh::SSHKey& clientKey() override {
     return *host_key_;
+  }
+  void setTimeout(std::chrono::milliseconds timeout) override {
+    if (timeout_timer_ != nullptr) {
+      timeout_timer_->disableTimer();
+    }
+    timeout_timer_ = connectionDispatcher()->createTimer([this] {
+      taskFailure(absl::DeadlineExceededError("task timed out"));
+    });
+    timeout_timer_->enableTimer(timeout);
   }
 
   class CodecCallbacks : public SshConnectionDriverCodecCallbacks {
@@ -323,6 +357,8 @@ protected:
   FakeStreamPtr mgmt_stream_;
 
   stream_id_t stream_id_;
+
+  Envoy::Event::TimerPtr timeout_timer_;
 };
 
 namespace test {
@@ -338,31 +374,48 @@ class SshIntegrationTest : public SecretsProviderImpl,
   // constructor completes.
 protected:
   template <typename... Args>
-  SshIntegrationTest(const std::vector<std::pair<std::string, std::string>>& routes, Args&&... base_args)
-      : HttpIntegrationTest(std::forward<Args>(base_args)..., defaultConfig(routes)) {
-    // setUpstreamCount(1); // upstream 0 = default http server, upstream 1 = management grpc server
-    config_helper_.addConfigModifier([](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
-      ASSERT(bootstrap.mutable_static_resources()->clusters_size() == 1);
-      auto* mgmt_cluster = bootstrap.mutable_static_resources()->add_clusters();
-      mgmt_cluster->MergeFrom(bootstrap.static_resources().clusters()[0]);
-      mgmt_cluster->set_name("fake_mgmt");
-      mgmt_cluster->mutable_load_assignment()->set_cluster_name("fake_mgmt");
-      ConfigHelper::setHttp2(*mgmt_cluster);
+  SshIntegrationTest(std::vector<std::string> ssh_routes, Args&&... base_args)
+      : HttpIntegrationTest(std::forward<Args>(base_args)..., defaultConfig(ssh_routes)) {
+    fake_upstreams_count_ = 0; // add our upstreams manually
+    config_helper_.addConfigModifier([ssh_routes](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+      ASSERT(bootstrap.mutable_static_resources()->clusters_size() == 0);
+      auto fakeMgmtCluster = ConfigHelper::buildStaticCluster("fake_mgmt", 0, "127.0.0.1");
+      ConfigHelper::setHttp2(fakeMgmtCluster);
+      bootstrap.mutable_static_resources()->add_clusters()->CopyFrom(fakeMgmtCluster);
+
+      ConfigHelper::HttpProtocolOptions http1_protocol_options;
+      http1_protocol_options.mutable_explicit_http_config()->clear_http2_protocol_options();
+      http1_protocol_options.mutable_explicit_http_config()->mutable_http_protocol_options();
+
+      auto httpCluster1 = ConfigHelper::buildStaticCluster("http_cluster_1", 0, "127.0.0.1");
+      ConfigHelper::setProtocolOptions(httpCluster1, http1_protocol_options);
+      bootstrap.mutable_static_resources()->add_clusters()->CopyFrom(httpCluster1);
+
+      auto httpCluster2 = ConfigHelper::buildStaticCluster("http_cluster_2", 0, "127.0.0.1");
+      ConfigHelper::setHttp2(httpCluster2);
+      bootstrap.mutable_static_resources()->add_clusters()->CopyFrom(httpCluster2);
+
+      for (const auto& route : ssh_routes) {
+        auto c = ConfigHelper::buildStaticCluster("ssh_upstream_" + route, 0, "127.0.0.1");
+        bootstrap.mutable_static_resources()->add_clusters()->CopyFrom(c);
+      }
     });
+    mgmt_upstream_ = &addFakeUpstream(Http::CodecType::HTTP2);
+    http_upstream_1_ = &addFakeUpstream(Http::CodecType::HTTP1);
+    http_upstream_2_ = &addFakeUpstream(Http::CodecType::HTTP1);
+    for (size_t i = 0; i < ssh_routes.size(); i++) {
+      ssh_upstreams_.push_back(&addFakeUpstream(Http::CodecType::HTTP1)); // codec type is unused here
+    }
   }
 
   void initialize() override {
     HttpIntegrationTest::initialize();
-    registerTestServerPorts({"http", "ssh"}, test_server_);
+    registerTestServerPorts({"http", "ssh"});
   }
 
-  void createUpstreams() override {
-    HttpIntegrationTest::createUpstreams();
-    addFakeUpstream(Http::CodecType::HTTP2);
-    mgmt_upstream_ = fake_upstreams_.back().get();
-  }
-
-  std::string defaultConfig(const std::vector<std::pair<std::string, std::string>>& routes) {
+  std::string defaultConfig(const std::vector<std::string>& routes) {
+    // TODO: we should relax this restriction
+    ASSERT(!routes.empty(), "must set at least one route for the ssh listener to activate");
     constexpr auto matcherTemplate = R"(
                       - predicate:
                           single_predicate:
@@ -385,10 +438,102 @@ protected:
                               timeout: 0s
     )";
     std::string matchers;
-    for (const auto& [host, cluster] : routes) {
-      matchers += fmt::format(matcherTemplate, host, cluster);
+    for (const auto& route : routes) {
+      matchers += fmt::format(matcherTemplate, route, "ssh_upstream_" + route);
     }
-    constexpr auto cfgTemplate = R"(
+    constexpr auto baseConfig = R"(
+admin:
+  access_log:
+  - name: envoy.access_loggers.file
+    typed_config:
+      "@type": type.googleapis.com/envoy.extensions.access_loggers.file.v3.FileAccessLog
+      path: "/dev/null"
+  address:
+    socket_address:
+      address: 127.0.0.1
+      port_value: 0
+dynamic_resources:
+  lds_config:
+    path_config_source:
+      path: /dev/null
+static_resources:
+  secrets:
+  - name: "secret_static_0"
+    tls_certificate:
+      certificate_chain:
+        inline_string: "DUMMY_INLINE_BYTES"
+      private_key:
+        inline_string: "DUMMY_INLINE_BYTES"
+      password:
+        inline_string: "DUMMY_INLINE_BYTES"
+  listeners:
+)";
+    constexpr auto httpListener = R"(
+  - name: http
+    address:
+      socket_address:
+        address: 127.0.0.1
+        port_value: 0
+    filter_chains:
+      filters:
+        name: http
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: config_test
+          delayed_close_timeout:
+            nanos: 10000000
+          http_filters:
+            - name: envoy.filters.http.set_filter_state
+              typed_config:
+                '@type': type.googleapis.com/envoy.extensions.filters.http.set_filter_state.v3.Config
+                on_request_headers:
+                  - object_key: pomerium.extensions.ssh.downstream_source_address
+                    format_string:
+                      text_format_source:
+                        inline_string: '%DOWNSTREAM_REMOTE_ADDRESS%'
+                    shared_with_upstream: ONCE
+                  - object_key: pomerium.extensions.ssh.requested_server_name
+                    format_string:
+                      text_format_source:
+                        inline_string: '%REQUESTED_SERVER_NAME%'
+                    shared_with_upstream: ONCE
+                  - object_key: pomerium.extensions.ssh.requested_path
+                    format_string:
+                      text_format_source:
+                        inline_string: '%PATH(NQ)%'
+                    shared_with_upstream: ONCE
+            - name: envoy.filters.http.router
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+          codec_type: HTTP1
+          access_log:
+            name: accesslog
+            filter:
+              not_health_check_filter:  {}
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.access_loggers.file.v3.FileAccessLog
+              path: /dev/null
+          route_config:
+            name: http_routes
+            virtual_hosts:
+              - name: http_cluster_1
+                domains:
+                  - http-cluster-1
+                routes:
+                  - route:
+                      cluster: http_cluster_1
+                    match:
+                      prefix: "/"
+              - name: http_cluster_2
+                domains:
+                  - http-cluster-2
+                routes:
+                  - route:
+                      cluster: http_cluster_2
+                    match:
+                      prefix: "/"
+    )";
+    constexpr auto sshListener = R"(
   - name: ssh
     address:
       socket_address:
@@ -427,8 +572,10 @@ protected:
                 '@type': type.googleapis.com/envoy.extensions.filters.network.generic_proxy.router.v3.Router
                 bind_upstream_connection: true
     )";
-    return absl::StrCat(ConfigHelper::baseConfig(), ConfigHelper::httpProxyConfig(),
-                        fmt::format(cfgTemplate,
+
+    return absl::StrCat(baseConfig,
+                        httpListener,
+                        fmt::format(sshListener,
                                     *host_key_->formatPrivateKey(SSHKEY_PRIVATE_OPENSSH, true),
                                     *user_ca_key_->formatPrivateKey(SSHKEY_PRIVATE_OPENSSH, true),
                                     matchers));
@@ -443,6 +590,9 @@ protected:
   }
 
   FakeUpstream* mgmt_upstream_;
+  FakeUpstream* http_upstream_1_;
+  FakeUpstream* http_upstream_2_;
+  std::vector<FakeUpstream*> ssh_upstreams_;
 };
 
 namespace Tasks {
@@ -455,7 +605,7 @@ public:
     });
   }
 
-  void onMessageReceived(const wire::Message& msg) override {
+  void onMessageReceived(wire::Message& msg) override {
     msg.visit(
       [&](const wire::ServiceAcceptMsg&) {
         callbacks_->taskSuccess();
@@ -466,9 +616,12 @@ public:
 
 class Authenticate : public Task {
 public:
+  Authenticate(std::string username = "user", bool internal = true)
+      : username_(username),
+        internal_(internal) {}
   void start() override {
     wire::UserAuthRequestMsg req;
-    req.username = username;
+    req.username = username_;
     req.service_name = "ssh-connection";
 
     auto& key = callbacks_->clientKey();
@@ -482,27 +635,28 @@ public:
     wire::write_opt<wire::LengthPrefixed>(buf, callbacks_->kexResult().session_id);
     constexpr static wire::field<std::string, wire::LengthPrefixed> method_name =
       std::string(wire::PubKeyUserAuthRequestMsg::submsg_key);
-    FAIL_IF_NOT_OK(wire::encodeMsg(buf, req.type,
-                                   req.username,
-                                   req.service_name,
-                                   method_name,
-                                   pubkeyReq.has_signature,
-                                   pubkeyReq.public_key_alg,
-                                   pubkeyReq.public_key));
+    ASSERT_OK(wire::encodeMsg(buf, req.type,
+                              req.username,
+                              req.service_name,
+                              method_name,
+                              pubkeyReq.has_signature,
+                              pubkeyReq.public_key_alg,
+                              pubkeyReq.public_key));
     auto sig = key.sign(wire::flushTo<bytes>(buf), pubkeyReq.public_key_alg);
-    FAIL_IF_NOT_OK(sig);
+    ASSERT_OK(sig);
     pubkeyReq.signature = *sig;
     req.request = std::move(pubkeyReq);
     callbacks_->sendMessage(std::move(req));
 
     ClientMessage clientMsg;
     callbacks_->waitForManagementRequest(clientMsg);
-    if (clientMsg.auth_request().auth_method() == "publickey") {
-      pomerium::extensions::ssh::FilterMetadata filterMetadata;
-      filterMetadata.set_stream_id(stream_id_);
-      // Only the stream id is set here, not channel id.
-      // TODO: maybe refactor this api to be less confusing
+    ASSERT_EQ("publickey", clientMsg.auth_request().auth_method());
+    pomerium::extensions::ssh::FilterMetadata filterMetadata;
+    filterMetadata.set_stream_id(stream_id_);
+    // Only the stream id is set here, not channel id.
+    // TODO: maybe refactor this api to be less confusing
 
+    if (internal_) {
       ServerMessage serverMsg;
       (*serverMsg.mutable_auth_response()
           ->mutable_allow()
@@ -511,10 +665,12 @@ public:
           ->mutable_typed_filter_metadata())["com.pomerium.ssh"]
         .PackFrom(filterMetadata);
       callbacks_->sendManagementResponse(serverMsg);
+    } else {
+      PANIC("unimplemented");
     }
   };
 
-  void onMessageReceived(const wire::Message& msg) override {
+  void onMessageReceived(wire::Message& msg) override {
     msg.visit(
       [&](const wire::UserAuthSuccessMsg&) {
         callbacks_->taskSuccess();
@@ -528,7 +684,148 @@ public:
       OR_FAIL);
   };
 
-  std::string username;
+  const std::string username_;
+  const bool internal_{};
+};
+
+class RequestReversePortForward : public Task {
+public:
+  RequestReversePortForward(const std::string& address, uint32_t port, uint32_t server_port)
+      : address_(address),
+        port_(port),
+        server_port_(server_port) {}
+  void start() override {
+    callbacks_->sendMessage(wire::GlobalRequestMsg{
+      .want_reply = true,
+      .request = wire::TcpipForwardMsg{
+        .remote_address = address_,
+        .remote_port = port_,
+      },
+    });
+    ClientMessage clientMsg;
+    callbacks_->waitForManagementRequest(clientMsg);
+    ASSERT_EQ(address_, clientMsg.global_request().tcpip_forward_request().remote_address());
+    ASSERT_EQ(port_, clientMsg.global_request().tcpip_forward_request().remote_port());
+    ServerMessage serverMsg;
+    serverMsg.mutable_global_request_response()
+      ->set_success(true);
+    serverMsg.mutable_global_request_response()
+      ->mutable_tcpip_forward_response()
+      ->set_server_port(server_port_);
+    callbacks_->sendManagementResponse(serverMsg);
+  }
+  void onMessageReceived(wire::Message& msg) override {
+    msg.visit(
+      [&](wire::GlobalRequestSuccessMsg& msg) {
+        ASSERT_OK(msg.resolve<wire::TcpipForwardResponseMsg>());
+        ASSERT_EQ(server_port_, *msg.response.get<wire::TcpipForwardResponseMsg>().server_port);
+        callbacks_->taskSuccess();
+      },
+      [&](const wire::GlobalRequestFailureMsg& msg) {
+        callbacks_->taskFailure(absl::InternalError(fmt::format("request failed: {}", msg)));
+      },
+      OR_FAIL);
+  };
+
+  const std::string address_;
+  const uint32_t port_;
+  const uint32_t server_port_;
+};
+
+class AcceptReversePortForward : public Task {
+public:
+  AcceptReversePortForward(const std::string& address_connected, uint32_t port_connected,
+                           uint32_t local_channel_id, uint32_t* remote_channel_id)
+      : address_connected_(address_connected),
+        port_connected_(port_connected),
+        local_channel_id_(local_channel_id),
+        remote_channel_id_(remote_channel_id) {}
+  void start() override {
+    callbacks_->setTimeout(defaultTimeout());
+  }
+  void onMessageReceived(wire::Message& msg) override {
+    msg.visit(
+      [&](const wire::ChannelOpenMsg& open_msg) {
+        ASSERT_EQ(wire::ChannelWindowSize, open_msg.initial_window_size);
+        ASSERT_EQ(131072, *open_msg.max_packet_size);
+        *remote_channel_id_ = open_msg.sender_channel;
+        open_msg.request.visit(
+          [&](const wire::ForwardedTcpipChannelOpenMsg& msg) {
+            ASSERT_EQ(address_connected_, msg.address_connected);
+            ASSERT_EQ(port_connected_, msg.port_connected);
+            ASSERT_EQ("127.0.0.1"s, *msg.originator_address);
+            ASSERT_NE(0, *msg.originator_port);
+            callbacks_->sendMessage(wire::ChannelOpenConfirmationMsg{
+              .recipient_channel = open_msg.sender_channel,
+              .sender_channel = local_channel_id_,
+              .initial_window_size = wire::ChannelWindowSize,
+              .max_packet_size = 131072,
+            });
+            callbacks_->taskSuccess();
+          },
+          OR_FAIL);
+      },
+      OR_FAIL);
+  }
+
+  const std::string address_connected_;
+  const uint32_t port_connected_;
+  const uint32_t local_channel_id_;
+  uint32_t* const remote_channel_id_;
+};
+
+class WaitForChannelData : public Task {
+public:
+  WaitForChannelData(uint32_t channel_id, const std::string& expected_data)
+      : channel_id_(channel_id),
+        expected_data_(expected_data) {}
+  void start() override {
+    callbacks_->setTimeout(defaultTimeout());
+  }
+  void onMessageReceived(wire::Message& msg) override {
+    msg.visit(
+      [&](const wire::ChannelDataMsg& msg) {
+        ASSERT_EQ(channel_id_, *msg.recipient_channel);
+        auto view = std::string_view(reinterpret_cast<const char*>(msg.data->data()), msg.data->size());
+        if (view.size() >= expected_data_.size()) {
+          ASSERT_THAT(view, testing::StartsWith(expected_data_));
+          expected_data_.clear();
+          callbacks_->taskSuccess();
+        } else {
+          expected_data_ = absl::StripPrefix(expected_data_, view);
+        }
+      },
+      OR_FAIL);
+  }
+  absl::Status errorDetails() override {
+    return absl::InternalError(fmt::format("expected bytes not received: '{}'", absl::CHexEscape(expected_data_)));
+  }
+  const uint32_t channel_id_;
+  std::string expected_data_;
+};
+
+class WaitForChannelClose : public Task {
+public:
+  WaitForChannelClose(uint32_t channel_id, bool allow_eof = true)
+      : channel_id_(channel_id),
+        allow_eof_(allow_eof) {}
+  void start() override {
+    callbacks_->setTimeout(defaultTimeout());
+  }
+  void onMessageReceived(wire::Message& msg) override {
+    msg.visit(
+      [&](const wire::ChannelCloseMsg& msg) {
+        ASSERT_EQ(channel_id_, *msg.recipient_channel);
+        callbacks_->taskSuccess();
+      },
+      [&](const wire::ChannelEOFMsg& msg) {
+        ASSERT_EQ(channel_id_, *msg.recipient_channel);
+        ASSERT_TRUE(allow_eof_);
+      },
+      OR_FAIL);
+  }
+  const uint32_t channel_id_;
+  const bool allow_eof_;
 };
 
 } // namespace Tasks

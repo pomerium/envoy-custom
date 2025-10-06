@@ -235,7 +235,7 @@ struct DirectTcpipChannelOpenMsg : SubMsg<SshMessageType::ChannelOpen, "direct-t
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-5.1
 struct ChannelOpenMsg final : Msg<SshMessageType::ChannelOpen> {
-  constexpr std::string& channel_type() { return *request.key_field(); }
+  constexpr auto& channel_type(this auto& self) { return *self.request.key_field(); }
   field<uint32_t> sender_channel;
   field<uint32_t> initial_window_size;
   field<uint32_t> max_packet_size;
