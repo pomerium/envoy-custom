@@ -57,7 +57,7 @@ public:
   virtual ~TaskCallbacks() = default;
   virtual void sendMessage(wire::Message&&) PURE;
   virtual void taskSuccess() PURE;
-  virtual void taskFailure(absl::Status) PURE;
+  virtual void taskFailure(absl::Status err) PURE;
   virtual KexResult& kexResult() PURE;
   virtual openssh::SSHKey& clientKey() PURE;
   virtual void waitForManagementRequest(Protobuf::Message& req) PURE;
@@ -110,6 +110,7 @@ private:
     }
   }
   absl::StatusOr<MiddlewareResult> interceptMessage(wire::Message& msg) final {
+    // FIXME: this needs a way to filter channel messages intended for other middlewares
     onMessageReceived(msg);
     if (testing::Test::HasFailure()) {
       callbacks_->taskFailure(errorDetails());
@@ -123,7 +124,6 @@ using TaskPtr = std::unique_ptr<Task>;
 class SshConnectionDriver : public Envoy::Network::ReadFilter,
                             public Network::ConnectionCallbacks,
                             public SecretsProviderImpl,
-                            public TaskCallbacks,
                             public std::enable_shared_from_this<SshConnectionDriver>,
                             protected TransportBase<SshConnectionDriverCodec> {
 public:
@@ -169,20 +169,10 @@ public:
     client_connection_->close(Network::ConnectionCloseType::FlushWrite);
   }
 
-  // TaskCallbacks
-  void sendMessage(wire::Message&& msg) override {
+  void sendMessage(wire::Message&& msg) {
     if (auto r = sendMessageToConnection(std::move(msg)); !r.ok()) {
       terminate(r.status());
     }
-  }
-  void waitForManagementRequest(Protobuf::Message& req) override {
-    auto res = mgmt_stream_->waitForGrpcMessage(*connectionDispatcher(), req, defaultTimeout());
-    if (!res) {
-      terminate(absl::InternalError("waitForManagementRequest failed"));
-    }
-  }
-  void sendManagementResponse(const Protobuf::Message& resp) override {
-    mgmt_stream_->sendGrpcMessage(resp);
   }
 
   AssertionResult waitForKex(std::chrono::milliseconds timeout = defaultTimeout()) {
@@ -217,19 +207,40 @@ public:
     return AssertionResult(true);
   }
 
-  AssertionResult runTask(Task&& t) {
-    t.setTaskCallbacks(*this, streamId());
-    installMiddleware(&t);
-    connectionDispatcher()->post([&] { t.startInternal(); });
+  template <typename TaskType, typename... Args>
+  AssertionResult startTaskAndWait(Args&&... task_args) {
+    auto t = std::make_unique<TaskType>(std::forward<Args>(task_args)...);
+    auto cb = std::make_unique<TaskCallbacksImpl>(*this, std::move(t));
+    LinkedList::moveIntoList(std::move(cb), active_tasks_);
     auto timeoutStatus = run(Envoy::Event::Dispatcher::RunType::RunUntilExit);
-    uninstallMiddleware(&t);
-
     if (!timeoutStatus) {
-      ASSERT(!task_result_.has_value());
       return timeoutStatus;
     }
-    ASSERT(task_result_.has_value());
-    return std::exchange(task_result_, {}).value();
+    return AssertionResult(!testing::Test::HasFailure());
+  }
+
+  template <typename TaskType, typename... Args>
+  void startTask(Args&&... task_args) {
+    auto t = std::make_unique<TaskType>(std::forward<Args>(task_args)...);
+    auto cb = std::make_unique<TaskCallbacksImpl>(*this, std::move(t));
+    LinkedList::moveIntoList(std::move(cb), active_tasks_);
+  }
+
+  AssertionResult waitAllTasksComplete() {
+    // Logic here copied from waitForWithDispatcherRun
+    absl::MutexLock lock(&lock_);
+    auto& time_system =
+      dynamic_cast<Envoy::Event::TestTimeSystem&>(connectionDispatcher()->timeSource());
+    Envoy::Event::TestTimeSystem::RealTimeBound bound(defaultTimeout());
+    auto condition = [this] { return active_tasks_.empty(); };
+    while (bound.withinBound()) {
+      // Wake up periodically to run the client dispatcher.
+      if (time_system.waitFor(lock_, absl::Condition(&condition), 5ms * TIMEOUT_FACTOR)) {
+        return AssertionResult(testing::Test::HasFailure());
+      }
+      connectionDispatcher()->run(Envoy::Event::Dispatcher::RunType::NonBlock);
+    }
+    return AssertionResult(false) << "timed out waiting for tasks to be completed";
   }
 
   stream_id_t streamId() const override {
@@ -271,7 +282,7 @@ protected:
   }
 
   ChannelIDManager& channelIdManager() override {
-    return channel_id_manager_;
+    PANIC("unused");
   }
 
   void onKexCompleted(std::shared_ptr<KexResult> kex_result, bool initial_kex) override {
@@ -293,37 +304,70 @@ protected:
   }
 
   // TaskCallbacks
-  void taskSuccess() override {
-    ASSERT(!testing::Test::HasFailure());
-    if (timeout_timer_ != nullptr) {
-      timeout_timer_->disableTimer();
+  class TaskCallbacksImpl : public TaskCallbacks,
+                            public LinkedObject<TaskCallbacksImpl> {
+  public:
+    TaskCallbacksImpl(SshConnectionDriver& d, std::unique_ptr<Task> t)
+        : parent_(d),
+          task_(std::move(t)) {
+      task_->setTaskCallbacks(*this, parent_.streamId());
+      parent_.installMiddleware(task_.get());
+      parent_.connectionDispatcher()->post([this] { task_->startInternal(); });
     }
-    task_result_ = AssertionResult(true);
-    connectionDispatcher()->exit();
-  }
-  void taskFailure(absl::Status stat) override {
-    if (timeout_timer_ != nullptr) {
-      timeout_timer_->disableTimer();
+    void taskSuccess() override {
+      ASSERT(!testing::Test::HasFailure());
+      if (timeout_timer_ != nullptr) {
+        timeout_timer_->disableTimer();
+      }
+      parent_.uninstallMiddleware(task_.get());
+      ASSERT(inserted());
+      auto self = removeFromList(parent_.active_tasks_);
+      parent_.connectionDispatcher()->exit();
     }
-    ADD_FAILURE() << statusToString(stat);
-    task_result_ = AssertionResult(false);
-    connectionDispatcher()->exit();
-  }
-  KexResult& kexResult() override {
-    return *kex_result_;
-  }
-  openssh::SSHKey& clientKey() override {
-    return *host_key_;
-  }
-  void setTimeout(std::chrono::milliseconds timeout) override {
-    if (timeout_timer_ != nullptr) {
-      timeout_timer_->disableTimer();
+    void taskFailure(absl::Status stat) override {
+      if (timeout_timer_ != nullptr) {
+        timeout_timer_->disableTimer();
+      }
+      parent_.uninstallMiddleware(task_.get());
+      ASSERT(inserted());
+      auto self = removeFromList(parent_.active_tasks_);
+      ADD_FAILURE() << statusToString(stat);
+      parent_.connectionDispatcher()->exit();
     }
-    timeout_timer_ = connectionDispatcher()->createTimer([this] {
-      taskFailure(absl::DeadlineExceededError("task timed out"));
-    });
-    timeout_timer_->enableTimer(timeout);
-  }
+    KexResult& kexResult() override {
+      return *parent_.kex_result_;
+    }
+    openssh::SSHKey& clientKey() override {
+      return *parent_.host_key_;
+    }
+    void setTimeout(std::chrono::milliseconds timeout) override {
+      if (timeout_timer_ != nullptr) {
+        timeout_timer_->disableTimer();
+      }
+      timeout_timer_ = parent_.connectionDispatcher()->createTimer([this] {
+        taskFailure(absl::DeadlineExceededError("task timed out"));
+      });
+      timeout_timer_->enableTimer(timeout);
+    }
+
+    void sendMessage(wire::Message&& msg) override {
+      parent_.sendMessage(std::move(msg));
+    }
+    void waitForManagementRequest(Protobuf::Message& req) override {
+      auto res = parent_.mgmt_stream_->waitForGrpcMessage(
+        *parent_.connectionDispatcher(), req, defaultTimeout());
+      if (!res) {
+        parent_.terminate(absl::InternalError("waitForManagementRequest failed"));
+      }
+    }
+    void sendManagementResponse(const Protobuf::Message& resp) override {
+      parent_.mgmt_stream_->sendGrpcMessage(resp);
+    }
+
+    SshConnectionDriver& parent_;
+    std::unique_ptr<Task> task_;
+    Envoy::Event::TimerPtr timeout_timer_;
+  };
 
   class CodecCallbacks : public SshConnectionDriverCodecCallbacks {
   public:
@@ -346,11 +390,8 @@ protected:
 
   absl::Notification on_kex_completed_;
   std::shared_ptr<KexResult> kex_result_;
-  ChannelIDManager channel_id_manager_;
 
   std::unique_ptr<CodecCallbacks> codec_callbacks_;
-
-  std::optional<AssertionResult> task_result_;
 
   FakeUpstream* mgmt_upstream_;
   FakeHttpConnectionPtr mgmt_connection_;
@@ -358,7 +399,10 @@ protected:
 
   stream_id_t stream_id_;
 
-  Envoy::Event::TimerPtr timeout_timer_;
+  std::list<std::unique_ptr<TaskCallbacksImpl>> active_tasks_;
+
+private:
+  absl::Mutex lock_;
 };
 
 namespace test {
@@ -804,12 +848,45 @@ public:
   std::string expected_data_;
 };
 
-class WaitForChannelClose : public Task {
+class WaitForChannelCloseByPeer : public Task {
 public:
-  WaitForChannelClose(uint32_t channel_id, bool allow_eof = true)
+  WaitForChannelCloseByPeer(uint32_t channel_id, uint32_t remote_channel_id, bool allow_eof = true)
       : channel_id_(channel_id),
+        remote_channel_id_(remote_channel_id),
         allow_eof_(allow_eof) {}
   void start() override {
+    callbacks_->setTimeout(defaultTimeout());
+  }
+  void onMessageReceived(wire::Message& msg) override {
+    msg.visit(
+      [&](const wire::ChannelCloseMsg& msg) {
+        ASSERT_EQ(channel_id_, *msg.recipient_channel);
+        callbacks_->sendMessage(wire::ChannelCloseMsg{
+          .recipient_channel = remote_channel_id_,
+        });
+        callbacks_->taskSuccess();
+      },
+      [&](const wire::ChannelEOFMsg& msg) {
+        ASSERT_EQ(channel_id_, *msg.recipient_channel);
+        ASSERT_TRUE(allow_eof_);
+      },
+      OR_FAIL);
+  }
+  const uint32_t channel_id_;
+  const uint32_t remote_channel_id_;
+  const bool allow_eof_;
+};
+
+class SendChannelCloseAndWait : public Task {
+public:
+  SendChannelCloseAndWait(uint32_t channel_id, uint32_t remote_channel_id, bool allow_eof = true)
+      : channel_id_(channel_id),
+        remote_channel_id_(remote_channel_id),
+        allow_eof_(allow_eof) {}
+  void start() override {
+    callbacks_->sendMessage(wire::ChannelCloseMsg{
+      .recipient_channel = remote_channel_id_,
+    });
     callbacks_->setTimeout(defaultTimeout());
   }
   void onMessageReceived(wire::Message& msg) override {
@@ -825,6 +902,7 @@ public:
       OR_FAIL);
   }
   const uint32_t channel_id_;
+  const uint32_t remote_channel_id_;
   const bool allow_eof_;
 };
 
