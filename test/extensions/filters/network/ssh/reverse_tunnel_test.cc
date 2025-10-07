@@ -13,7 +13,7 @@ class ReverseTunnelIntegrationTest : public testing::TestWithParam<Network::Addr
                                      public SshIntegrationTest {
 public:
   ReverseTunnelIntegrationTest()
-      : SshIntegrationTest({"unused"}, Http::CodecType::HTTP1, GetParam()) {
+      : SshIntegrationTest({"unused"}, GetParam()) {
     // concurrency_ = 3;
 
     config_helper_.addConfigModifier([this](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
@@ -84,7 +84,7 @@ public:
   std::vector<envoy::config::endpoint::v3::ClusterLoadAssignment> load_assignments_;
 };
 
-TEST_P(ReverseTunnelIntegrationTest, Test) {
+TEST_P(ReverseTunnelIntegrationTest, TestHttp) {
   initialize();
   auto driver = makeSshConnectionDriver();
   ASSERT(driver->connectionDispatcher().ptr() == dispatcher_.get());
@@ -133,7 +133,8 @@ TEST_P(ReverseTunnelIntegrationTest, Test) {
 }
 
 INSTANTIATE_TEST_SUITE_P(ReverseTunnelIntegrationTest, ReverseTunnelIntegrationTest,
-                         testing::ValuesIn(TestEnvironment::getIpVersionsForTest()));
+                         testing::ValuesIn(TestEnvironment::getIpVersionsForTest()),
+                         TestUtility::ipTestParamsToString);
 
 } // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

@@ -397,8 +397,15 @@ envoy_cc_test(
 
 envoy_cc_test_library(
     name = "integration_lib",
-    srcs = ["ssh_integration_test.cc"],
-    hdrs = ["ssh_integration_test.h"],
+    srcs = [
+        "ssh_connection_driver.cc",
+        "ssh_integration_test.cc",
+    ],
+    hdrs = [
+        "ssh_connection_driver.h",
+        "ssh_integration_test.h",
+        "ssh_task.h",
+    ],
     repository = "@envoy",
     deps = [
         "//source/extensions/filters/network/ssh:pomerium_ssh",
