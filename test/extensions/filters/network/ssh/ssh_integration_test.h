@@ -52,19 +52,6 @@ public:
   openssh::SSHKeySharedPtr user_ca_key_ = *openssh::SSHKey::generate(KEY_ED25519, 256);
 };
 
-class TaskCallbacks {
-public:
-  virtual ~TaskCallbacks() = default;
-  virtual void sendMessage(wire::Message&&) PURE;
-  virtual void taskSuccess() PURE;
-  virtual void taskFailure(absl::Status err) PURE;
-  virtual KexResult& kexResult() PURE;
-  virtual openssh::SSHKey& clientKey() PURE;
-  virtual void waitForManagementRequest(Protobuf::Message& req) PURE;
-  virtual void sendManagementResponse(const Protobuf::Message& resp) PURE;
-  virtual void setTimeout(std::chrono::milliseconds timeout) PURE;
-};
-
 #define OR_FAIL                                                           \
   [&](const auto& msg) {                                                  \
     ADD_FAILURE() << fmt::format("received unexpected message: {}", msg); \
@@ -95,6 +82,35 @@ protected:
     return absl::InternalError("task failed via assertion");
   }
 
+  void taskSuccess() {
+    ASSERT(!task_success_called_ && !task_failure_called_);
+    task_success_called_ = true;
+    callbacks_->taskSuccess();
+  }
+
+  void taskFailure(absl::Status err) {
+    ASSERT(!task_success_called_ && !task_failure_called_);
+    task_failure_called_ = true;
+    callbacks_->taskFailure(err);
+  }
+
+  class TaskCallbacks {
+  public:
+    virtual ~TaskCallbacks() = default;
+    virtual void sendMessage(wire::Message&&) PURE;
+    virtual KexResult& kexResult() PURE;
+    virtual openssh::SSHKey& clientKey() PURE;
+    virtual void waitForManagementRequest(Protobuf::Message& req) PURE;
+    virtual void sendManagementResponse(const Protobuf::Message& resp) PURE;
+    virtual void setTimeout(std::chrono::milliseconds timeout) PURE;
+
+  private:
+    friend void Task::taskSuccess();
+    friend void Task::taskFailure(absl::Status err);
+    virtual void taskSuccess() PURE;
+    virtual void taskFailure(absl::Status err) PURE;
+  };
+
   TaskCallbacks* callbacks_;
   stream_id_t stream_id_;
 
@@ -106,17 +122,23 @@ private:
   void startInternal() {
     start();
     if (testing::Test::HasFailure()) {
-      callbacks_->taskFailure(errorDetails());
+      taskFailure(errorDetails());
     }
   }
   absl::StatusOr<MiddlewareResult> interceptMessage(wire::Message& msg) final {
     // FIXME: this needs a way to filter channel messages intended for other middlewares
     onMessageReceived(msg);
     if (testing::Test::HasFailure()) {
-      callbacks_->taskFailure(errorDetails());
+      taskFailure(errorDetails());
     }
-    return MiddlewareResult::Break;
+    return MiddlewareResult::Break |
+           ((task_failure_called_ || task_success_called_)
+              ? MiddlewareResult::UninstallSelf
+              : MiddlewareResult(0));
   }
+
+  bool task_success_called_{};
+  bool task_failure_called_{};
 };
 
 using TaskPtr = std::unique_ptr<Task>;
@@ -135,10 +157,6 @@ public:
         client_connection_(std::move(client_connection)),
         mgmt_upstream_(mgmt_upstream) {
     server_version_ = "SSH-2.0-SshConnectionDriver";
-  }
-
-  ~SshConnectionDriver() {
-    client_connection_->dispatcher().clearDeferredDeleteList();
   }
 
   void connect() {
@@ -174,11 +192,11 @@ public:
     sendMessage(wire::DisconnectMsg{
       .reason_code = 11,
     });
-    // Run the event loop to process the disconnect message, which should tear down the
-    // filter chain
+    // Run the event loop to process the disconnect message.
     if (auto res = run(Envoy::Event::Dispatcher::RunType::RunUntilExit, defaultTimeout()); !res) {
       return res;
     }
+    client_connection_.reset(); // IMPORTANT: client_connection_ holds a shared_ptr to this
     return AssertionResult(true);
   }
 
@@ -276,7 +294,9 @@ protected:
 
     // Disconnect the management server after the server transport is done, otherwise the server
     // transport will trigger an error
-    EXPECT_TRUE(mgmt_connection_->close(Network::ConnectionCloseType::FlushWrite));
+    if (mgmt_connection_ != nullptr) {
+      EXPECT_TRUE(mgmt_connection_->close(Network::ConnectionCloseType::FlushWrite));
+    }
   }
 
   void onAboveWriteBufferHighWatermark() override {}
@@ -327,7 +347,8 @@ protected:
   }
 
   // TaskCallbacks
-  class TaskCallbacksImpl : public TaskCallbacks,
+  class TaskCallbacksImpl : public Task::TaskCallbacks,
+                            public Envoy::Event::DeferredDeletable,
                             public LinkedObject<TaskCallbacksImpl> {
   public:
     TaskCallbacksImpl(SshConnectionDriver& d, std::unique_ptr<Task> t)
@@ -342,18 +363,16 @@ protected:
       if (timeout_timer_ != nullptr) {
         timeout_timer_->disableTimer();
       }
-      parent_.uninstallMiddleware(task_.get());
       ASSERT(inserted());
-      auto self = removeFromList(parent_.active_tasks_);
+      parent_.connectionDispatcher()->deferredDelete(removeFromList(parent_.active_tasks_));
       parent_.connectionDispatcher()->exit();
     }
     void taskFailure(absl::Status stat) override {
       if (timeout_timer_ != nullptr) {
         timeout_timer_->disableTimer();
       }
-      parent_.uninstallMiddleware(task_.get());
       ASSERT(inserted());
-      auto self = removeFromList(parent_.active_tasks_);
+      parent_.connectionDispatcher()->deferredDelete(removeFromList(parent_.active_tasks_));
       ADD_FAILURE() << statusToString(stat);
       parent_.connectionDispatcher()->exit();
     }
@@ -679,7 +698,7 @@ public:
   void onMessageReceived(wire::Message& msg) override {
     msg.visit(
       [&](const wire::ServiceAcceptMsg&) {
-        callbacks_->taskSuccess();
+        taskSuccess();
       },
       OR_FAIL);
   }
@@ -744,10 +763,10 @@ public:
   void onMessageReceived(wire::Message& msg) override {
     msg.visit(
       [&](const wire::UserAuthSuccessMsg&) {
-        callbacks_->taskSuccess();
+        taskSuccess();
       },
       [&](const wire::UserAuthFailureMsg& msg) {
-        callbacks_->taskFailure(absl::InternalError(fmt::format("received auth failure: {}", msg)));
+        taskFailure(absl::InternalError(fmt::format("received auth failure: {}", msg)));
       },
       [&](const wire::UserAuthBannerMsg&) {
         // ignore for now
@@ -790,10 +809,10 @@ public:
       [&](wire::GlobalRequestSuccessMsg& msg) {
         ASSERT_OK(msg.resolve<wire::TcpipForwardResponseMsg>());
         ASSERT_EQ(server_port_, *msg.response.get<wire::TcpipForwardResponseMsg>().server_port);
-        callbacks_->taskSuccess();
+        taskSuccess();
       },
       [&](const wire::GlobalRequestFailureMsg& msg) {
-        callbacks_->taskFailure(absl::InternalError(fmt::format("request failed: {}", msg)));
+        taskFailure(absl::InternalError(fmt::format("request failed: {}", msg)));
       },
       OR_FAIL);
   };
@@ -832,7 +851,7 @@ public:
               .initial_window_size = wire::ChannelWindowSize,
               .max_packet_size = 131072,
             });
-            callbacks_->taskSuccess();
+            taskSuccess();
           },
           OR_FAIL);
       },
@@ -861,7 +880,7 @@ public:
         if (view.size() >= expected_data_.size()) {
           ASSERT_THAT(view, testing::StartsWith(expected_data_));
           expected_data_.clear();
-          callbacks_->taskSuccess();
+          taskSuccess();
         } else {
           expected_data_ = absl::StripPrefix(expected_data_, view);
         }
@@ -891,7 +910,7 @@ public:
         callbacks_->sendMessage(wire::ChannelCloseMsg{
           .recipient_channel = remote_channel_id_,
         });
-        callbacks_->taskSuccess();
+        taskSuccess();
       },
       [&](const wire::ChannelEOFMsg& msg) {
         ASSERT_EQ(channel_id_, *msg.recipient_channel);
@@ -920,7 +939,7 @@ public:
     msg.visit(
       [&](const wire::ChannelCloseMsg& msg) {
         ASSERT_EQ(channel_id_, *msg.recipient_channel);
-        callbacks_->taskSuccess();
+        taskSuccess();
       },
       [&](const wire::ChannelEOFMsg& msg) {
         ASSERT_EQ(channel_id_, *msg.recipient_channel);
