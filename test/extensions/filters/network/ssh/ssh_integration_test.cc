@@ -1,4 +1,6 @@
 #include "test/extensions/filters/network/ssh/ssh_integration_test.h"
+#include "source/extensions/filters/network/ssh/wire/encoding.h"
+#include <google/protobuf/wrappers.pb.h>
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 namespace test {
@@ -24,6 +26,10 @@ SshIntegrationTest::SshIntegrationTest(std::vector<std::string> ssh_routes, Netw
     ConfigHelper::setHttp2(httpCluster2);
     bootstrap.mutable_static_resources()->add_clusters()->CopyFrom(httpCluster2);
 
+    auto tcpCluster = ConfigHelper::buildStaticCluster("tcp_cluster", 0, localhost);
+    tcpCluster.clear_typed_extension_protocol_options();
+    bootstrap.mutable_static_resources()->add_clusters()->CopyFrom(tcpCluster);
+
     for (const auto& route : ssh_routes) {
       auto c = ConfigHelper::buildStaticCluster("ssh_upstream_" + route, 0, localhost);
       bootstrap.mutable_static_resources()->add_clusters()->CopyFrom(c);
@@ -32,6 +38,7 @@ SshIntegrationTest::SshIntegrationTest(std::vector<std::string> ssh_routes, Netw
   mgmt_upstream_ = FakeUpstreamShimImpl{&addFakeUpstream(Http::CodecType::HTTP2)};
   http_upstream_1_ = FakeUpstreamShimImpl{&addFakeUpstream(Http::CodecType::HTTP1)};
   http_upstream_2_ = FakeUpstreamShimImpl{&addFakeUpstream(Http::CodecType::HTTP1)};
+  tcp_upstream_ = FakeUpstreamShimImpl{&addFakeUpstream(Http::CodecType::HTTP1)}; // codec type is unused here
   for (size_t i = 0; i < ssh_routes.size(); i++) {
     ssh_upstreams_.emplace_back(&addFakeUpstream(Http::CodecType::HTTP1)); // codec type is unused here
   }
@@ -41,7 +48,7 @@ SshIntegrationTest::~SshIntegrationTest() {};
 
 void SshIntegrationTest::initialize() {
   HttpIntegrationTest::initialize();
-  registerTestServerPorts({"http", "ssh"});
+  registerTestServerPorts({"http", "ssh", "tcp"});
 }
 std::shared_ptr<SshConnectionDriver> SshIntegrationTest::makeSshConnectionDriver() {
   return std::make_shared<SshConnectionDriver>(
@@ -205,6 +212,38 @@ static_resources:
                               cluster: "{}"
                               timeout: 0s
 )";
+  constexpr auto tcpListenerFmt = R"(
+  - name: tcp
+    address:
+      socket_address:
+        address: "{}"
+        port_value: 0
+    listener_filters:
+    - name: test.integration.server_name_injector
+      typed_config:
+        "@type": type.googleapis.com/google.protobuf.StringValue
+    filter_chains:
+      filters:
+      - name: envoy.filters.network.set_filter_state
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.set_filter_state.v3.Config
+          on_new_connection:
+          - object_key: pomerium.extensions.ssh.requested_server_name
+            format_string:
+              text_format_source:
+                inline_string: '%REQUESTED_SERVER_NAME%'
+            shared_with_upstream: ONCE
+          - object_key: pomerium.extensions.ssh.downstream_source_address
+            format_string:
+              text_format_source:
+                inline_string: '%DOWNSTREAM_REMOTE_ADDRESS%'
+            shared_with_upstream: ONCE
+      - name: tcp
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
+          stat_prefix: tcpproxy_stats
+          cluster: tcp_cluster
+)";
   std::string matchers;
   for (const auto& route : routes) {
     matchers += fmt::format(matcherTemplate, route, "ssh_upstream_" + route);
@@ -216,8 +255,74 @@ static_resources:
                                        *host_key_->formatPrivateKey(SSHKEY_PRIVATE_OPENSSH, true),
                                        *user_ca_key_->formatPrivateKey(SSHKEY_PRIVATE_OPENSSH, true),
                                        matchers);
+  const auto tcpListener = fmt::format(tcpListenerFmt, localhost());
 
-  return absl::StrCat(baseConfig, httpListener, sshListener);
+  return absl::StrCat(baseConfig, httpListener, sshListener, tcpListener);
 }
+
+IntegrationTcpClientPtr SshIntegrationTest::makeTcpConnectionWithServerName(uint32_t port, const std::string& server_name) {
+  auto tcp_client = makeTcpConnection(port, {}, {}, {});
+
+  uint32_t len = ntohl(server_name.size());
+  std::string len_str(reinterpret_cast<char*>(&len), sizeof(len));
+  ASSERT(tcp_client->write(len_str + server_name));
+  return tcp_client;
+}
+
+class ServerNameInjector : public Network::ListenerFilter {
+public:
+  Network::FilterStatus onAccept(Network::ListenerFilterCallbacks& cb) override {
+    callbacks_ = &cb;
+    return Network::FilterStatus::StopIteration;
+  }
+
+  Network::FilterStatus onData(Network::ListenerFilterBuffer& buffer) override {
+    if (buffer.rawSlice().len_ < read_bytes_) {
+      return Network::FilterStatus::StopIteration;
+    }
+    if (!size_read_) {
+      read_bytes_ = ntohl(*reinterpret_cast<const uint32_t*>(buffer.rawSlice().mem_));
+      buffer.drain(4);
+      size_read_ = true;
+      return Network::FilterStatus::StopIteration;
+    }
+    std::string name(reinterpret_cast<const char*>(buffer.rawSlice().mem_), read_bytes_);
+    callbacks_->socket().setRequestedServerName(name);
+    buffer.drain(read_bytes_);
+    return Network::FilterStatus::Continue;
+  }
+  size_t maxReadBytes() const override {
+    return read_bytes_;
+  }
+
+private:
+  bool size_read_{};
+  uint32_t read_bytes_{4};
+  Network::ListenerFilterCallbacks* callbacks_;
+};
+
+class ServerNameInjectorConfigFactory : public Server::Configuration::NamedListenerFilterConfigFactory {
+public:
+  // NamedListenerFilterConfigFactory
+  Network::ListenerFilterFactoryCb createListenerFilterFactoryFromProto(
+    const Protobuf::Message&,
+    const Network::ListenerFilterMatcherSharedPtr& listener_filter_matcher,
+    Server::Configuration::ListenerFactoryContext&) override {
+    return [listener_filter_matcher](Network::ListenerFilterManager& filter_manager) -> void {
+      filter_manager.addAcceptFilter(
+        listener_filter_matcher, std::make_unique<ServerNameInjector>());
+    };
+  }
+
+  ProtobufTypes::MessagePtr createEmptyConfigProto() override {
+    return std::make_unique<Protobuf::StringValue>();
+  }
+
+  std::string name() const override { return "test.integration.server_name_injector"; }
+};
+
+REGISTER_FACTORY(ServerNameInjectorConfigFactory,
+                 Server::Configuration::NamedListenerFilterConfigFactory);
+
 } // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

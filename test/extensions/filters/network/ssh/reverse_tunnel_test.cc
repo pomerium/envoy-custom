@@ -4,20 +4,70 @@
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "envoy/extensions/transport_sockets/raw_buffer/v3/raw_buffer.pb.h"
 #include "envoy/extensions/transport_sockets/internal_upstream/v3/internal_upstream.pb.h"
+#include "test/extensions/filters/network/ssh/ssh_task.h"
 #include "gtest/gtest.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 namespace test {
 
-class ReverseTunnelIntegrationTest : public testing::TestWithParam<Network::Address::IpVersion>,
+// Modified from Envoy::EdsHelper which uses a static filepath
+class EdsHelper {
+public:
+  EdsHelper(const std::string& cluster_name)
+      : cluster_name_(cluster_name),
+        eds_path_(TestEnvironment::writeStringToFileForTest(cluster_name_ + "_eds.pb_text", "")) {
+    // Note: the update_success stat is modified by the EDS backend, not by the cluster itself.
+    // It is incremented once on startup.
+    ++update_successes_;
+  }
+
+  void setEds(const envoy::config::endpoint::v3::ClusterLoadAssignment& cluster_load_assignment) {
+    // Write to file the DiscoveryResponse and trigger inotify watch.
+    envoy::service::discovery::v3::DiscoveryResponse eds_response;
+    eds_response.set_version_info(std::to_string(eds_version_++));
+    eds_response.set_type_url(Config::TypeUrl::get().ClusterLoadAssignment);
+    // Only one resource per file
+    eds_response.add_resources()->PackFrom(cluster_load_assignment);
+
+    // Past the initial write, need move semantics to trigger inotify move event that the
+    // FilesystemSubscriptionImpl is subscribed to.
+    std::string path = TestEnvironment::writeStringToFileForTest(
+      cluster_name_ + "_eds.update.pb_text", MessageUtil::toTextProto(eds_response));
+    TestEnvironment::renameFile(path, eds_path_);
+  }
+
+  void setEdsAndWait(const envoy::config::endpoint::v3::ClusterLoadAssignment& cluster_load_assignment,
+                     IntegrationTestServerStats& server_stats) {
+    auto counter_name = fmt::format("cluster.{}.update_success", cluster_name_);
+    // Make sure the last version has been accepted before setting a new one.
+    server_stats.waitForCounterGe(counter_name, update_successes_);
+    setEds(cluster_load_assignment);
+    // Make sure Envoy has consumed the update now that it is running.
+    ++update_successes_;
+    server_stats.waitForCounterGe(counter_name, update_successes_);
+    RELEASE_ASSERT(update_successes_ == server_stats.counter(counter_name)->value(), "");
+  }
+
+  const std::string& edsPath() const { return eds_path_; }
+
+private:
+  const std::string cluster_name_;
+  const std::string eds_path_;
+  uint32_t eds_version_{};
+  uint32_t update_successes_{};
+};
+
+class ReverseTunnelIntegrationTest : public testing::TestWithParam<std::tuple<int, Network::Address::IpVersion>>,
                                      public SshIntegrationTest {
 public:
   ReverseTunnelIntegrationTest()
-      : SshIntegrationTest({"unused"}, GetParam()) {
-    // concurrency_ = 3;
+      : SshIntegrationTest({"unused"}, std::get<1>(GetParam())) {
+    concurrency_ = std::get<0>(GetParam());
 
     config_helper_.addConfigModifier([this](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+      // note: update eds_helpers_ if this changes
       configureUpstreamTunnelCluster(*bootstrap.mutable_static_resources()->mutable_clusters(1)); // http_cluster_1
+      configureUpstreamTunnelCluster(*bootstrap.mutable_static_resources()->mutable_clusters(3)); // tcp_cluster
     });
   }
 
@@ -48,14 +98,8 @@ public:
       .PackFrom(endpointMetadata);
     endpoint->set_health_status(envoy::config::core::v3::HealthStatus::HEALTHY);
 
-    for (auto& assignment : load_assignments_) {
-      if (assignment.cluster_name() == cluster_name) {
-        assignment.MergeFrom(load);
-        return;
-      }
-    }
-    load_assignments_.push_back(std::move(load));
-    eds_helper_.setEds(load_assignments_);
+    ASSERT(eds_helpers_.contains(cluster_name));
+    eds_helpers_[cluster_name]->setEdsAndWait(load, *test_server_);
   }
 
   void configureUpstreamTunnelCluster(envoy::config::cluster::v3::Cluster& cluster) {
@@ -74,14 +118,22 @@ public:
     pomerium::extensions::ssh::ReverseTunnelCluster reverse_tunnel_cluster;
     reverse_tunnel_cluster.set_name(cluster.name());
     reverse_tunnel_cluster.mutable_eds_config()->set_resource_api_version(envoy::config::core::v3::ApiVersion::V3);
-    reverse_tunnel_cluster.mutable_eds_config()->mutable_path_config_source()->set_path(eds_helper_.edsPath());
+    reverse_tunnel_cluster.mutable_eds_config()->mutable_path_config_source()->set_path(eds_helpers_[cluster.name()]->edsPath());
 
     cluster.mutable_cluster_type()->set_name("envoy.clusters.ssh_reverse_tunnel");
     cluster.mutable_cluster_type()->mutable_typed_config()->PackFrom(reverse_tunnel_cluster);
   }
 
-  EdsHelper eds_helper_;
-  std::vector<envoy::config::endpoint::v3::ClusterLoadAssignment> load_assignments_;
+  // NB: filesystem EDS subscription doesn't work like api-based subscription: it always reports
+  // all changed resources, and ignores the resource name filter (for some reason). So we need
+  // separate files for each cluster, otherwise they will both get the EDS updates when updating
+  // any of them, regardless of the load assignment's cluster_name.
+  EdsHelper http_cluster_eds_{"http_cluster_1"};
+  EdsHelper tcp_cluster_eds_{"tcp_cluster"};
+  std::unordered_map<std::string, EdsHelper*> eds_helpers_{
+    {"http_cluster_1", &http_cluster_eds_},
+    {"tcp_cluster", &tcp_cluster_eds_},
+  };
 };
 
 TEST_P(ReverseTunnelIntegrationTest, TestHttp) {
@@ -132,9 +184,54 @@ TEST_P(ReverseTunnelIntegrationTest, TestHttp) {
   ASSERT_TRUE(driver->disconnect());
 }
 
+TEST_P(ReverseTunnelIntegrationTest, TestTCP) {
+  initialize();
+  auto driver = makeSshConnectionDriver();
+  ASSERT(driver->connectionDispatcher().ptr() == dispatcher_.get());
+  driver->connect();
+  const auto tcpPort = lookupPort("tcp");
+  ASSERT_TRUE(driver->waitForKex());
+  ASSERT_TRUE(driver->startTaskAndWait<Tasks::RequestUserAuthService>());
+  ASSERT_TRUE(driver->startTaskAndWait<Tasks::Authenticate>("user", true));
+  ASSERT_TRUE(driver->startTaskAndWait<Tasks::RequestReversePortForward>("tcp-cluster", tcpPort, tcpPort));
+
+  setClusterLoad("tcp_cluster",
+                 {
+                   .stream_id = driver->streamId(),
+                   .requested_host = "tcp-cluster",
+                   .requested_port = tcpPort,
+                   .server_port = tcpPort,
+                   .is_dynamic = false,
+                 });
+
+  auto tcp_client = makeTcpConnectionWithServerName(tcpPort, "tcp-cluster");
+
+  uint32_t remote_channel_id{};
+  driver->startTask<Tasks::AcceptReversePortForward>("tcp-cluster", tcpPort, 1, &remote_channel_id);
+  driver->startTask<Tasks::WaitForChannelData>(1, "ping");
+  ASSERT_TRUE(tcp_client->write("ping"));
+  ASSERT_TRUE(driver->waitAllTasksComplete());
+  driver->sendMessage(wire::ChannelDataMsg{
+    .recipient_channel = remote_channel_id,
+    .data = "pong"_bytes,
+  });
+  tcp_client->waitForData("pong");
+  driver->startTask<Tasks::WaitForChannelCloseByPeer>(1, remote_channel_id);
+  tcp_client->close();
+  ASSERT_TRUE(driver->waitAllTasksComplete());
+  ASSERT_TRUE(driver->disconnect());
+}
+
+static std::string testParamsToString(const testing::TestParamInfo<std::tuple<int, Network::Address::IpVersion>>& params) {
+  return fmt::format("{}_threads_{}",
+                     std::get<0>(params.param),
+                     TestUtility::ipVersionToString(std::get<1>(params.param)));
+}
+
 INSTANTIATE_TEST_SUITE_P(ReverseTunnelIntegrationTest, ReverseTunnelIntegrationTest,
-                         testing::ValuesIn(TestEnvironment::getIpVersionsForTest()),
-                         TestUtility::ipTestParamsToString);
+                         testing::Combine(testing::ValuesIn({1, 4}),
+                                          testing::ValuesIn(TestEnvironment::getIpVersionsForTest())),
+                         testParamsToString);
 
 } // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

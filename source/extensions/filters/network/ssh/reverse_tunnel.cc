@@ -1000,7 +1000,6 @@ void SshReverseTunnelCluster::startPreInit() {
 absl::Status SshReverseTunnelCluster::onConfigUpdate(const std::vector<Config::DecodedResourceRef>& resources,
                                                      const std::string&) {
   if (resources.empty()) {
-    ENVOY_LOG(info, "Missing ClusterLoadAssignment for {} in onConfigUpdate()", edsServiceName());
     info_->configUpdateStats().update_empty_.inc();
     onPreInitComplete();
     return absl::OkStatus();
@@ -1018,7 +1017,6 @@ absl::Status SshReverseTunnelCluster::onConfigUpdate(const std::vector<Config::D
                                                   cluster_load_assignment.cluster_name()));
   }
 
-  info_->configUpdateStats().update_success_.inc();
   return update(cluster_load_assignment);
 }
 

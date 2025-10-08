@@ -304,7 +304,7 @@ public:
           expected_data_ = absl::StripPrefix(expected_data_, view);
         }
       },
-      OR_FAIL);
+      [&](const auto&) {});
   }
   absl::Status errorDetails() override {
     return absl::InternalError(fmt::format("expected bytes not received: '{}'", absl::CHexEscape(expected_data_)));

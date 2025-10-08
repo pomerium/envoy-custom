@@ -98,10 +98,12 @@ protected:
   std::string defaultConfig(const std::vector<std::string>& routes);
 
   std::shared_ptr<SshConnectionDriver> makeSshConnectionDriver();
+  IntegrationTcpClientPtr makeTcpConnectionWithServerName(uint32_t port, const std::string& server_name);
 
   FakeUpstreamShimImpl mgmt_upstream_;
   FakeUpstreamShimImpl http_upstream_1_;
   FakeUpstreamShimImpl http_upstream_2_;
+  FakeUpstreamShimImpl tcp_upstream_;
   std::vector<FakeUpstreamShimImpl> ssh_upstreams_;
 };
 
