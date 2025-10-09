@@ -9,7 +9,7 @@ SshIntegrationTest::SshIntegrationTest(std::vector<std::string> ssh_routes, Netw
     : HttpIntegrationTest(Http::CodecType::HTTP1, version, defaultConfig(ssh_routes)) {
   fake_upstreams_count_ = 0; // add our upstreams manually
   config_helper_.addConfigModifier([localhost = localhost(), ssh_routes](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
-    ASSERT(bootstrap.mutable_static_resources()->clusters_size() == 0);
+    RELEASE_ASSERT(bootstrap.mutable_static_resources()->clusters_size() == 0, "");
     auto fakeMgmtCluster = ConfigHelper::buildStaticCluster("fake_mgmt", 0, localhost);
     ConfigHelper::setHttp2(fakeMgmtCluster);
     bootstrap.mutable_static_resources()->add_clusters()->CopyFrom(fakeMgmtCluster);
@@ -59,7 +59,7 @@ std::shared_ptr<SshConnectionDriver> SshIntegrationTest::makeSshConnectionDriver
 }
 std::string SshIntegrationTest::defaultConfig(const std::vector<std::string>& routes) {
   // TODO: we should relax this restriction
-  ASSERT(!routes.empty(), "must set at least one route for the ssh listener to activate");
+  RELEASE_ASSERT(!routes.empty(), "must set at least one route for the ssh listener to activate");
   constexpr auto baseConfigFmt = R"(
 admin:
   access_log:
@@ -265,11 +265,13 @@ IntegrationTcpClientPtr SshIntegrationTest::makeTcpConnectionWithServerName(uint
 
   uint32_t len = ntohl(server_name.size());
   std::string len_str(reinterpret_cast<char*>(&len), sizeof(len));
-  ASSERT(tcp_client->write(len_str + server_name));
+  if (!tcp_client->write(len_str + server_name)) {
+    ADD_FAILURE() << "write error";
+  }
   return tcp_client;
 }
 
-class ServerNameInjector : public Network::ListenerFilter {
+class ServerNameInjector : public Network::ListenerFilter, public Envoy::Logger::Loggable<Envoy::Logger::Id::filter> {
 public:
   Network::FilterStatus onAccept(Network::ListenerFilterCallbacks& cb) override {
     callbacks_ = &cb;
@@ -282,6 +284,9 @@ public:
     }
     if (!size_read_) {
       read_bytes_ = ntohl(*reinterpret_cast<const uint32_t*>(buffer.rawSlice().mem_));
+      RELEASE_ASSERT(read_bytes_ <= 255, fmt::format("test bug: corrupted data read from socket "
+                                                     "(read length field with value {})",
+                                                     read_bytes_));
       buffer.drain(4);
       size_read_ = true;
       return Network::FilterStatus::StopIteration;
@@ -289,6 +294,7 @@ public:
     std::string name(reinterpret_cast<const char*>(buffer.rawSlice().mem_), read_bytes_);
     callbacks_->socket().setRequestedServerName(name);
     buffer.drain(read_bytes_);
+    ENVOY_LOG(debug, "server name injected: {}", name);
     return Network::FilterStatus::Continue;
   }
   size_t maxReadBytes() const override {

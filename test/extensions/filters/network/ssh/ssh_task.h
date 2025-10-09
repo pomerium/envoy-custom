@@ -135,7 +135,7 @@ protected:
   }
 
   void taskFailure(absl::Status err) {
-    ASSERT(!task_success_called_ && !task_failure_called_);
+    RELEASE_ASSERT(!task_success_called_ && !task_failure_called_, "");
     task_failure_called_ = true;
     callbacks_->taskFailure(err);
   }
@@ -159,9 +159,9 @@ private:
   }
   absl::StatusOr<MiddlewareResult> interceptMessage(wire::Message& msg) final {
     auto res = onMessageReceived(msg);
-    ASSERT((res & MiddlewareResult::UninstallSelf) == 0,
-           "Do not return MiddlewareResult::UninstallSelf from Task::interceptMessage; "
-           "call taskSuccess() or taskFailure() instead.");
+    RELEASE_ASSERT((res & MiddlewareResult::UninstallSelf) == 0,
+                   "Do not return MiddlewareResult::UninstallSelf from Task::interceptMessage; "
+                   "call taskSuccess() or taskFailure() instead.");
     if (testing::Test::HasFailure()) {
       taskFailure(errorDetails());
     }
@@ -211,7 +211,7 @@ public:
 
 protected:
   void taskSuccess(Output output) {
-    ASSERT(!task_success_called_ && !task_failure_called_);
+    RELEASE_ASSERT(!task_success_called_ && !task_failure_called_, "");
     task_success_called_ = true;
     callbacks_->taskSuccess(output, apply_output<Output>);
   }
@@ -224,7 +224,7 @@ public:
 
 protected:
   void taskSuccess() {
-    ASSERT(!task_success_called_ && !task_failure_called_);
+    RELEASE_ASSERT(!task_success_called_ && !task_failure_called_, "");
     task_success_called_ = true;
     callbacks_->taskSuccess({}, {});
   }
@@ -394,7 +394,12 @@ public:
   const uint32_t server_port_;
 };
 
-class AcceptReversePortForward : public Task<void, uint32_t> {
+struct ChannelID {
+  uint32_t local;
+  uint32_t remote;
+};
+
+class AcceptReversePortForward : public Task<void, ChannelID> {
 public:
   AcceptReversePortForward(const std::string& address_connected, uint32_t port_connected,
                            uint32_t local_channel_id)
@@ -419,7 +424,10 @@ public:
                 .initial_window_size = wire::ChannelWindowSize,
                 .max_packet_size = 131072,
               });
-              taskSuccess(*open_msg.sender_channel);
+              taskSuccess(ChannelID{
+                .local = local_channel_id_,
+                .remote = *open_msg.sender_channel,
+              });
               return Break;
             }
             return Continue;
@@ -434,25 +442,59 @@ public:
   const uint32_t local_channel_id_;
 };
 
-class WaitForChannelData : public Task<> {
+class RejectReversePortForward : public Task<> {
 public:
-  WaitForChannelData(uint32_t channel_id, const std::string& expected_data)
-      : channel_id_(channel_id),
-        expected_data_(expected_data) {}
+  RejectReversePortForward(const std::string& address_connected, uint32_t port_connected)
+      : address_connected_(address_connected),
+        port_connected_(port_connected) {}
   void start() override {
     callbacks_->setTimeout(defaultTimeout());
   }
   MiddlewareResult onMessageReceived(wire::Message& msg) override {
     return msg.visit(
+      [&](const wire::ChannelOpenMsg& open_msg) {
+        return open_msg.request.visit(
+          [&](const wire::ForwardedTcpipChannelOpenMsg& msg) {
+            if (address_connected_ == msg.address_connected &&
+                port_connected_ == msg.port_connected) {
+              EXPECT_THAT(*msg.originator_address, AnyOf(Eq("127.0.0.1"s), Eq("::1"s)));
+              EXPECT_NE(0, *msg.originator_port);
+              callbacks_->sendMessage(wire::ChannelOpenFailureMsg{
+                .recipient_channel = open_msg.sender_channel,
+              });
+              taskSuccess();
+              return Break;
+            }
+            return Continue;
+          },
+          DEFAULT_CONTINUE);
+      },
+      DEFAULT_CONTINUE);
+  }
+
+  const std::string address_connected_;
+  const uint32_t port_connected_;
+};
+
+class WaitForChannelData : public Task<ChannelID, ChannelID> {
+public:
+  explicit WaitForChannelData(const std::string& expected_data)
+      : expected_data_(expected_data) {}
+  void start(ChannelID channel_id) override {
+    channel_id_ = channel_id;
+    callbacks_->setTimeout(defaultTimeout());
+  }
+  MiddlewareResult onMessageReceived(wire::Message& msg) override {
+    return msg.visit(
       [&](const wire::ChannelDataMsg& msg) {
-        if (msg.recipient_channel != channel_id_) {
+        if (msg.recipient_channel != channel_id_.local) {
           return Continue;
         }
         auto view = std::string_view(reinterpret_cast<const char*>(msg.data->data()), msg.data->size());
         if (view.size() >= expected_data_.size()) {
           if (view.starts_with(expected_data_)) {
             expected_data_.clear();
-            taskSuccess();
+            taskSuccess(channel_id_);
           } else {
             taskFailure(absl::InternalError(fmt::format("channel data did not match: expected '{}', got '{}'", expected_data_, view)));
           }
@@ -470,100 +512,98 @@ public:
   absl::Status errorDetails() override {
     return absl::InternalError(fmt::format("expected bytes not received: '{}'", absl::CHexEscape(expected_data_)));
   }
-  uint32_t channel_id_{};
+  ChannelID channel_id_{};
   std::string expected_data_;
 };
 
-class SendChannelData : public Task<uint32_t> {
+class SendChannelData : public Task<ChannelID, ChannelID> {
 public:
-  SendChannelData(const bytes& data)
+  explicit SendChannelData(const bytes& data)
       : data_(data) {}
-  SendChannelData(const std::string& data)
+  explicit SendChannelData(const std::string& data)
       : data_(to_bytes(data)) {}
-  void start(uint32_t remote_channel_id) override {
+  void start(ChannelID channel_id) override {
     callbacks_->sendMessage(wire::ChannelDataMsg{
-      .recipient_channel = remote_channel_id,
+      .recipient_channel = channel_id.remote,
       .data = data_,
     });
-    taskSuccess();
+    taskSuccess(channel_id);
   }
   MiddlewareResult onMessageReceived(wire::Message&) override { return Continue; }
 
   bytes data_;
 };
 
-class WaitForChannelCloseByPeer : public Task<uint32_t> {
+enum class AllowEof : bool {};
+
+class WaitForChannelCloseByPeer : public Task<ChannelID> {
 public:
-  WaitForChannelCloseByPeer(uint32_t channel_id, bool allow_eof = true)
-      : channel_id_(channel_id),
-        allow_eof_(allow_eof) {}
-  void start(uint32_t remote_channel_id) override {
-    remote_channel_id_ = remote_channel_id;
+  explicit WaitForChannelCloseByPeer(AllowEof allow_eof = AllowEof(true))
+      : allow_eof_(allow_eof) {}
+  void start(ChannelID channel_id) override {
+    channel_id_ = channel_id;
     callbacks_->setTimeout(defaultTimeout());
   }
   MiddlewareResult onMessageReceived(wire::Message& msg) override {
     return msg.visit(
       [&](const wire::ChannelCloseMsg& msg) {
-        if (msg.recipient_channel != channel_id_) {
+        if (msg.recipient_channel != channel_id_.local) {
           return Continue;
         }
         callbacks_->sendMessage(wire::ChannelCloseMsg{
-          .recipient_channel = remote_channel_id_,
+          .recipient_channel = channel_id_.remote,
         });
         taskSuccess();
         return Break;
       },
       [&](const wire::ChannelEOFMsg& msg) {
-        if (msg.recipient_channel != channel_id_) {
+        if (msg.recipient_channel != channel_id_.local) {
           return Continue;
         }
-        if (!allow_eof_) {
-          taskFailure(absl::InvalidArgumentError(fmt::format("unexpected EOF for channel {}", channel_id_)));
+        if (allow_eof_ == AllowEof(false)) {
+          taskFailure(absl::InvalidArgumentError(fmt::format("unexpected EOF for channel {}", channel_id_.local)));
         }
         return Break;
       },
       DEFAULT_CONTINUE);
   }
-  const uint32_t channel_id_;
-  uint32_t remote_channel_id_;
-  const bool allow_eof_;
+  ChannelID channel_id_;
+  const AllowEof allow_eof_;
 };
 
-class SendChannelCloseAndWait : public Task<uint32_t> {
+class SendChannelCloseAndWait : public Task<ChannelID> {
 public:
-  SendChannelCloseAndWait(uint32_t channel_id, bool allow_eof = true)
-      : channel_id_(channel_id),
-        allow_eof_(allow_eof) {}
-  void start(uint32_t remote_channel_id) override {
-    remote_channel_id_ = remote_channel_id;
+  SendChannelCloseAndWait(AllowEof allow_eof = AllowEof(true))
+      : allow_eof_(allow_eof) {}
+  void start(ChannelID channel_id) override {
+    channel_id_ = channel_id;
     callbacks_->sendMessage(wire::ChannelCloseMsg{
-      .recipient_channel = remote_channel_id_,
+      .recipient_channel = channel_id_.remote,
     });
     callbacks_->setTimeout(defaultTimeout());
   }
   MiddlewareResult onMessageReceived(wire::Message& msg) override {
     return msg.visit(
       [&](const wire::ChannelCloseMsg& msg) {
-        if (msg.recipient_channel != channel_id_) {
+        if (msg.recipient_channel != channel_id_.local) {
           return Continue;
         }
         taskSuccess();
         return Break;
       },
       [&](const wire::ChannelEOFMsg& msg) {
-        if (msg.recipient_channel != channel_id_) {
+        if (msg.recipient_channel != channel_id_.local) {
           return Continue;
         }
-        if (!allow_eof_) {
-          taskFailure(absl::InvalidArgumentError(fmt::format("unexpected EOF for channel {}", channel_id_)));
+        if (allow_eof_ == AllowEof(false)) {
+          taskFailure(absl::InvalidArgumentError(fmt::format("unexpected EOF for channel {}", channel_id_.local)));
         }
         return Break;
       },
       DEFAULT_CONTINUE);
   }
-  const uint32_t channel_id_;
-  uint32_t remote_channel_id_;
-  const bool allow_eof_;
+  ChannelID channel_id_;
+  const AllowEof allow_eof_;
 };
 
 } // namespace Tasks

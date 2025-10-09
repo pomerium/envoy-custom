@@ -1,5 +1,4 @@
-#include "source/extensions/filters/network/ssh/filter_state_objects.h"
-#include "source/extensions/filters/network/ssh/wire/messages.h"
+#include "test/extensions/filters/network/ssh/ssh_connection_driver.h"
 #include "test/extensions/filters/network/ssh/ssh_integration_test.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "envoy/extensions/transport_sockets/raw_buffer/v3/raw_buffer.pb.h"
@@ -98,7 +97,7 @@ public:
       .PackFrom(endpointMetadata);
     endpoint->set_health_status(envoy::config::core::v3::HealthStatus::HEALTHY);
 
-    ASSERT(eds_helpers_.contains(cluster_name));
+    RELEASE_ASSERT(eds_helpers_.contains(cluster_name), "test bug: invalid cluster name");
     eds_helpers_[cluster_name]->setEdsAndWait(load, *test_server_);
   }
 
@@ -139,7 +138,7 @@ public:
 TEST_P(ReverseTunnelIntegrationTest, TestHttp) {
   initialize();
   auto driver = makeSshConnectionDriver();
-  ASSERT(driver->connectionDispatcher().ptr() == dispatcher_.get());
+  RELEASE_ASSERT(driver->connectionDispatcher().ptr() == dispatcher_.get(), "");
   driver->connect();
 
   const auto httpPort = lookupPort("http");
@@ -165,66 +164,17 @@ TEST_P(ReverseTunnelIntegrationTest, TestHttp) {
     {":authority", "http-cluster-1"},
   };
 
-  uint32_t remote_channel_id{};
   auto th = driver->createTask<Tasks::AcceptReversePortForward>("http-cluster-1", httpPort, 1)
-              .saveOutput(&remote_channel_id)
-              .then(driver->createTask<Tasks::WaitForChannelData>(1, "GET / HTTP/1.1\r\nhost: http-cluster-1\r\nx-forwarded-proto: http\r\n"))
+              .then(driver->createTask<Tasks::WaitForChannelData>("GET / HTTP/1.1\r\nhost: http-cluster-1\r\nx-forwarded-proto: http\r\n")
+                      .then(driver->createTask<Tasks::SendChannelData>("HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n")
+                              .then(driver->createTask<Tasks::SendChannelCloseAndWait>())))
               .start();
 
   auto response = codec_client_->makeHeaderOnlyRequest(requestHeaders);
-  ASSERT_TRUE(driver->wait(th));
-  driver->sendMessage(wire::ChannelDataMsg{
-    .recipient_channel = remote_channel_id,
-    .data = "HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n"_bytes,
-  });
-
-  auto th2 = driver->createTask<Tasks::SendChannelCloseAndWait>(1)
-               .start(remote_channel_id);
   ASSERT_TRUE(response->waitForEndStream(defaultTimeout()));
   ASSERT_EQ("200", response->headers().Status()->value().getStringView());
   codec_client_->close(Network::ConnectionCloseType::FlushWrite);
-  ASSERT_TRUE(driver->wait(th2));
-  ASSERT_TRUE(driver->disconnect());
-}
-
-TEST_P(ReverseTunnelIntegrationTest, TestTCP) {
-  initialize();
-  auto driver = makeSshConnectionDriver();
-  ASSERT(driver->connectionDispatcher().ptr() == dispatcher_.get());
-  driver->connect();
-  const auto tcpPort = lookupPort("tcp");
-  ASSERT_TRUE(driver->waitForKex());
-  ASSERT_TRUE(driver->wait(driver->createTask<Tasks::RequestUserAuthService>().start()));
-  ASSERT_TRUE(driver->wait(driver->createTask<Tasks::Authenticate>("user", true).start()));
-  ASSERT_TRUE(driver->wait(driver->createTask<Tasks::RequestReversePortForward>("tcp-cluster", tcpPort, tcpPort).start()));
-
-  setClusterLoad("tcp_cluster",
-                 {
-                   .stream_id = driver->streamId(),
-                   .requested_host = "tcp-cluster",
-                   .requested_port = tcpPort,
-                   .server_port = tcpPort,
-                   .is_dynamic = false,
-                 });
-
-  uint32_t remote_channel_id{};
-  auto th = driver->createTask<Tasks::AcceptReversePortForward>("tcp-cluster", tcpPort, 1)
-              .saveOutput(&remote_channel_id)
-              .then(driver->createTask<Tasks::WaitForChannelData>(1, "ping"))
-              .start();
-
-  auto tcp_client = makeTcpConnectionWithServerName(tcpPort, "tcp-cluster");
-
-  ASSERT_TRUE(tcp_client->write("ping"));
   ASSERT_TRUE(driver->wait(th));
-  driver->sendMessage(wire::ChannelDataMsg{
-    .recipient_channel = remote_channel_id,
-    .data = "pong"_bytes,
-  });
-  tcp_client->waitForData("pong");
-  auto th2 = driver->createTask<Tasks::WaitForChannelCloseByPeer>(1).start(remote_channel_id);
-  tcp_client->close();
-  ASSERT_TRUE(driver->wait(th2));
   ASSERT_TRUE(driver->disconnect());
 }
 
@@ -235,6 +185,133 @@ static std::string testParamsToString(const testing::TestParamInfo<std::tuple<in
 }
 
 INSTANTIATE_TEST_SUITE_P(ReverseTunnelIntegrationTest, ReverseTunnelIntegrationTest,
+                         testing::Combine(testing::ValuesIn({1, 4}),
+                                          testing::ValuesIn(TestEnvironment::getIpVersionsForTest())),
+                         testParamsToString);
+
+class StaticPortForwardTest : public ReverseTunnelIntegrationTest {
+public:
+  void SetUp() override {
+    initialize();
+    route_port = lookupPort("tcp");
+    driver = makeSshConnectionDriver();
+    RELEASE_ASSERT(driver->connectionDispatcher().ptr() == dispatcher_.get(), "");
+    driver->connect();
+    const auto tcpPort = lookupPort("tcp");
+    ASSERT_TRUE(driver->waitForKex());
+    ASSERT_TRUE(driver->wait(driver->createTask<Tasks::RequestUserAuthService>().start()));
+    ASSERT_TRUE(driver->wait(driver->createTask<Tasks::Authenticate>("user", true).start()));
+    ASSERT_TRUE(driver->wait(driver->createTask<Tasks::RequestReversePortForward>("tcp-cluster", tcpPort, tcpPort).start()));
+
+    setClusterLoad(cluster_name,
+                   {
+                     .stream_id = driver->streamId(),
+                     .requested_host = route_name,
+                     .requested_port = route_port,
+                     .server_port = route_port,
+                     .is_dynamic = false,
+                   });
+  }
+
+  void TearDown() override {
+    ASSERT_TRUE(driver->disconnect());
+  }
+
+  const std::string route_name = "tcp-cluster";
+  const std::string cluster_name = "tcp_cluster";
+  uint32_t route_port{};
+  std::shared_ptr<SshConnectionDriver> driver;
+};
+
+TEST_P(StaticPortForwardTest, PingClientToServer_ClientCloses) {
+  const uint32_t channel_id = 1;
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, channel_id)
+              .then(driver->createTask<Tasks::WaitForChannelData>("ping")
+                      .then(driver->createTask<Tasks::SendChannelData>("pong")
+                              .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>())))
+              .start();
+
+  auto tcp_client = makeTcpConnectionWithServerName(route_port, route_name);
+  EXPECT_TRUE(tcp_client->write("ping"));
+  tcp_client->waitForData("pong");
+  tcp_client->close();
+
+  EXPECT_TRUE(driver->wait(th));
+}
+
+TEST_P(StaticPortForwardTest, PingClientToServer_ServerCloses) {
+  const uint32_t channel_id = 1;
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, channel_id)
+              .then(driver->createTask<Tasks::WaitForChannelData>("ping")
+                      .then(driver->createTask<Tasks::SendChannelData>("pong")
+                              .then(driver->createTask<Tasks::SendChannelCloseAndWait>())))
+              .start();
+
+  auto tcp_client = makeTcpConnectionWithServerName(route_port, route_name);
+  EXPECT_TRUE(tcp_client->write("ping"));
+  tcp_client->waitForData("pong");
+  tcp_client->waitForDisconnect();
+  tcp_client->close();
+
+  EXPECT_TRUE(driver->wait(th));
+}
+
+TEST_P(StaticPortForwardTest, PingServerToClient_ClientCloses) {
+  const uint32_t channel_id = 1;
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, channel_id)
+              .then(driver->createTask<Tasks::SendChannelData>("ping")
+                      .then(driver->createTask<Tasks::WaitForChannelData>("pong")
+                              .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>())))
+              .start();
+
+  auto tcp_client = makeTcpConnectionWithServerName(route_port, route_name);
+  tcp_client->waitForData("ping");
+  EXPECT_TRUE(tcp_client->write("pong"));
+  tcp_client->close();
+
+  EXPECT_TRUE(driver->wait(th));
+}
+
+TEST_P(StaticPortForwardTest, PingServerToClient_ServerCloses) {
+  const uint32_t channel_id = 1;
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, channel_id)
+              .then(driver->createTask<Tasks::SendChannelData>("ping")
+                      .then(driver->createTask<Tasks::WaitForChannelData>("pong")
+                              .then(driver->createTask<Tasks::SendChannelCloseAndWait>())))
+              .start();
+
+  auto tcp_client = makeTcpConnectionWithServerName(route_port, route_name);
+  tcp_client->waitForData("ping");
+  EXPECT_TRUE(tcp_client->write("pong"));
+  tcp_client->waitForDisconnect();
+  tcp_client->close();
+
+  EXPECT_TRUE(driver->wait(th));
+}
+
+TEST_P(StaticPortForwardTest, ServerRejectsChannelOpen) {
+  auto th = driver->createTask<Tasks::RejectReversePortForward>(route_name, route_port)
+              .start();
+
+  auto tcp_client = makeTcpConnectionWithServerName(route_port, route_name);
+  tcp_client->waitForDisconnect();
+  tcp_client->close();
+
+  EXPECT_TRUE(driver->wait(th));
+}
+
+TEST_P(StaticPortForwardTest, UnexpectedClientDisconnect) {
+  auto th = driver->createTask<Tasks::RejectReversePortForward>(route_name, route_port)
+              .start();
+
+  auto tcp_client = makeTcpConnectionWithServerName(route_port, route_name);
+  tcp_client->waitForDisconnect();
+  tcp_client->close();
+
+  EXPECT_TRUE(driver->wait(th));
+}
+
+INSTANTIATE_TEST_SUITE_P(StaticPortForward, StaticPortForwardTest,
                          testing::Combine(testing::ValuesIn({1, 4}),
                                           testing::ValuesIn(TestEnvironment::getIpVersionsForTest())),
                          testParamsToString);

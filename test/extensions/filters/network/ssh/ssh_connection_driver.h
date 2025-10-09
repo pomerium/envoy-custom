@@ -39,6 +39,11 @@ struct codec_traits<SshConnectionDriverCodec> {
 };
 
 namespace test {
+
+// These shims allow us to skip including fake_upstream.h in this file, since it is massive
+// and adds like 90 seconds to the compile time of any TU that includes it. Modifications to
+// just the connection driver should be much quicker to build.
+
 class FakeStreamShim {
 public:
   virtual ~FakeStreamShim() = default;
@@ -121,7 +126,7 @@ public:
   testing::AssertionResult wait(UntypedTaskCallbacksHandle& task, std::chrono::milliseconds timeout = defaultTimeout());
 
   stream_id_t streamId() const override {
-    ASSERT(stream_id_ != 0);
+    RELEASE_ASSERT(stream_id_ != 0, "");
     return stream_id_;
   }
 
@@ -157,114 +162,45 @@ protected:
     PANIC("unused");
   }
 
-  void onKexCompleted(std::shared_ptr<KexResult> kex_result, bool initial_kex) override {
-    TransportBase::onKexCompleted(kex_result, initial_kex);
-    kex_result_ = kex_result;
-    on_kex_completed_.Notify();
-  }
+  void onKexCompleted(std::shared_ptr<KexResult> kex_result, bool initial_kex) override;
 
-  void registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) override {
-    dispatcher.registerHandler(wire::SshMessageType::Disconnect, this);
-  }
+  void registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) override;
 
-  absl::Status handleMessage(wire::Message&& msg) override {
-    expect_remote_close_ = true;
-    auto dc = msg.message.get<wire::DisconnectMsg>();
-    auto desc = *dc.description;
-    return absl::CancelledError(fmt::format("received disconnect: {}{}{}",
-                                            openssh::disconnectCodeToString(*dc.reason_code),
-                                            desc.empty() ? "" : ": ", desc));
-  }
+  absl::Status handleMessage(wire::Message&& msg) override;
 
   // TaskCallbacks
   class TaskCallbacksImpl : public TaskCallbacks,
                             public UntypedTaskCallbacksHandle,
                             public LinkedObject<TaskCallbacksImpl> {
   public:
-    TaskCallbacksImpl(SshConnectionDriver& d, std::unique_ptr<UntypedTask> t)
-        : parent_(d),
-          task_(std::move(t)) {
-      task_->setTaskCallbacks(*this, parent_.streamId());
-    }
+    TaskCallbacksImpl(SshConnectionDriver& d, std::unique_ptr<UntypedTask> t);
     // TaskCallbacks
-    void taskSuccess(std::any output, std::function<void(const std::any&, void*)> apply_fn) override {
-      ASSERT(!testing::Test::HasFailure());
-      if (timeout_timer_ != nullptr) {
-        timeout_timer_->disableTimer();
-      }
-      ASSERT(inserted());
-      for (void* ptr : output_ptrs_) {
-        apply_fn(output, ptr);
-      }
-      for (auto* next : start_after_) {
-        next->start(output);
-      }
-      moveBetweenLists(parent_.active_tasks_, parent_.completed_tasks_);
-      token_.reset();
-    }
-    void taskFailure(absl::Status stat) override {
-      if (timeout_timer_ != nullptr) {
-        timeout_timer_->disableTimer();
-      }
-      ASSERT(inserted());
-      ADD_FAILURE() << statusToString(stat);
-      moveBetweenLists(parent_.active_tasks_, parent_.completed_tasks_);
-      token_.reset();
-      parent_.connectionDispatcher()->exit();
-    }
-    KexResult& kexResult() override {
-      return *parent_.kex_result_;
-    }
-    openssh::SSHKey& clientKey() override {
-      return *parent_.host_key_;
-    }
-    void setTimeout(std::chrono::milliseconds timeout) override {
-      if (timeout_timer_ != nullptr) {
-        timeout_timer_->disableTimer();
-      }
-      timeout_timer_ = parent_.connectionDispatcher()->createTimer([this] {
-        taskFailure(absl::DeadlineExceededError("task timed out"));
-      });
-      timeout_timer_->enableTimer(timeout);
-    }
+    void taskSuccess(std::any output, std::function<void(const std::any&, void*)> apply_fn) override;
+    void taskFailure(absl::Status stat) override;
+    KexResult& kexResult() override;
+    openssh::SSHKey& clientKey() override;
+    void setTimeout(std::chrono::milliseconds timeout) override;
 
-    void sendMessage(wire::Message&& msg) override {
-      parent_.sendMessage(std::move(msg));
-    }
+    void sendMessage(wire::Message&& msg) override;
     void waitForManagementRequest(Protobuf::Message& req) override;
     void sendManagementResponse(const Protobuf::Message& resp) override;
 
     // TaskCallbacksHandle
-    UntypedTaskCallbacksHandle& start(std::any input) override {
-      started_ = true;
-      parent_.installMiddleware(task_.get());
-      parent_.connectionDispatcher()->post([this, input] {
-        task_->startInternalUntyped(input);
-      });
-      return *this;
-    }
+    UntypedTaskCallbacksHandle& start(std::any input) override;
 
-    UntypedTaskCallbacksHandle& then(UntypedTaskCallbacksHandle& next) override {
-      start_after_.push_back(&next);
-      dynamic_cast<TaskCallbacksImpl&>(next).token_ = token_;
-      return *this;
-    }
-    UntypedTaskCallbacksHandle& saveOutput(void* output_ptr) override {
-      output_ptrs_.push_back(output_ptr);
-      return *this;
-    }
+    UntypedTaskCallbacksHandle& then(UntypedTaskCallbacksHandle& next) override;
+    UntypedTaskCallbacksHandle& saveOutput(void* output_ptr) override;
+
+    struct token_t {};
+    static void setTokenRecursive(TaskCallbacksImpl& h, const std::shared_ptr<token_t>& token);
 
     SshConnectionDriver& parent_;
     std::unique_ptr<UntypedTask> task_;
-    std::any task_output_;
     std::vector<UntypedTaskCallbacksHandle*> start_after_;
     std::vector<void*> output_ptrs_;
     bool started_{};
-    struct token_t {
-      ~token_t() { parent_.parent_.connectionDispatcher()->exit(); }
-      TaskCallbacksImpl& parent_;
-    };
-    std::shared_ptr<token_t> token_ = std::make_shared<token_t>(*this);
+
+    std::shared_ptr<token_t> token_ = std::make_shared<token_t>();
     Envoy::Event::TimerPtr timeout_timer_;
   };
 
@@ -272,16 +208,8 @@ protected:
   public:
     explicit CodecCallbacks(Network::ClientConnection& client_connection)
         : client_connection_(client_connection) {}
-    void onDecodingFailure(absl::string_view reason = {}) override {
-      if (!expect_decoding_failure_) {
-        FAIL() << reason;
-      }
-      client_connection_.close(Network::ConnectionCloseType::FlushWrite, reason);
-    }
-
-    void writeToConnection(Buffer::Instance& buffer) override {
-      client_connection_.write(buffer, false);
-    }
+    void onDecodingFailure(absl::string_view reason = {}) override;
+    void writeToConnection(Buffer::Instance& buffer) override;
 
     bool expect_decoding_failure_{};
     Network::ClientConnection& client_connection_;

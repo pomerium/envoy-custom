@@ -53,6 +53,7 @@ AssertionResult SshConnectionDriver::disconnect() {
   if (auto res = run(Envoy::Event::Dispatcher::RunType::RunUntilExit, defaultTimeout()); !res) {
     return res;
   }
+  client_connection_->close(Network::ConnectionCloseType::AbortReset);
   client_connection_.reset(); // IMPORTANT: client_connection_ holds a shared_ptr to this
   return AssertionResult(true);
 }
@@ -144,6 +145,122 @@ testing::AssertionResult SshConnectionDriver::wait(UntypedTaskCallbacksHandle& h
     connectionDispatcher()->run(Envoy::Event::Dispatcher::RunType::NonBlock);
   }
   return AssertionResult(false) << "timed out waiting for tasks to be completed";
+}
+
+void SshConnectionDriver::onKexCompleted(std::shared_ptr<KexResult> kex_result, bool initial_kex) {
+  TransportBase::onKexCompleted(kex_result, initial_kex);
+  kex_result_ = kex_result;
+  on_kex_completed_.Notify();
+}
+
+void SshConnectionDriver::registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) {
+  dispatcher.registerHandler(wire::SshMessageType::Disconnect, this);
+}
+
+absl::Status SshConnectionDriver::handleMessage(wire::Message&& msg) {
+  expect_remote_close_ = true;
+  auto dc = msg.message.get<wire::DisconnectMsg>();
+  auto desc = *dc.description;
+  return absl::CancelledError(fmt::format("received disconnect: {}{}{}",
+                                          openssh::disconnectCodeToString(*dc.reason_code),
+                                          desc.empty() ? "" : ": ", desc));
+}
+
+SshConnectionDriver::TaskCallbacksImpl::TaskCallbacksImpl(SshConnectionDriver& d, std::unique_ptr<UntypedTask> t)
+    : parent_(d),
+      task_(std::move(t)) {
+  task_->setTaskCallbacks(*this, parent_.streamId());
+}
+
+void SshConnectionDriver::TaskCallbacksImpl::taskSuccess(std::any output, std::function<void(const std::any&, void*)> apply_fn) {
+  RELEASE_ASSERT(!testing::Test::HasFailure(), "");
+  if (timeout_timer_ != nullptr) {
+    timeout_timer_->disableTimer();
+  }
+  RELEASE_ASSERT(inserted(), "");
+  for (void* ptr : output_ptrs_) {
+    apply_fn(output, ptr);
+  }
+  for (auto* next : start_after_) {
+    next->start(output);
+  }
+  moveBetweenLists(parent_.active_tasks_, parent_.completed_tasks_);
+  token_.reset();
+}
+
+void SshConnectionDriver::TaskCallbacksImpl::taskFailure(absl::Status stat) {
+  if (timeout_timer_ != nullptr) {
+    timeout_timer_->disableTimer();
+  }
+  RELEASE_ASSERT(inserted(), "");
+  if (!testing::Test::HasFailure()) {
+    ADD_FAILURE() << statusToString(stat);
+  }
+  moveBetweenLists(parent_.active_tasks_, parent_.completed_tasks_);
+  token_.reset();
+}
+
+KexResult& SshConnectionDriver::TaskCallbacksImpl::kexResult() {
+  return *parent_.kex_result_;
+}
+
+openssh::SSHKey& SshConnectionDriver::TaskCallbacksImpl::clientKey() {
+  return *parent_.host_key_;
+}
+
+void SshConnectionDriver::TaskCallbacksImpl::setTimeout(std::chrono::milliseconds timeout) {
+  if (timeout_timer_ != nullptr) {
+    timeout_timer_->disableTimer();
+  }
+  timeout_timer_ = parent_.connectionDispatcher()->createTimer([this] {
+    taskFailure(absl::DeadlineExceededError("task timed out"));
+  });
+  timeout_timer_->enableTimer(timeout);
+}
+
+void SshConnectionDriver::TaskCallbacksImpl::sendMessage(wire::Message&& msg) {
+  parent_.sendMessage(std::move(msg));
+}
+
+UntypedTaskCallbacksHandle& SshConnectionDriver::TaskCallbacksImpl::start(std::any input) {
+  started_ = true;
+  // propagate our token to all dependent tasks
+  setTokenRecursive(*this, token_);
+  parent_.installMiddleware(task_.get());
+  parent_.connectionDispatcher()->post([this, input] {
+    task_->startInternalUntyped(input);
+  });
+  return *this;
+}
+
+UntypedTaskCallbacksHandle& SshConnectionDriver::TaskCallbacksImpl::then(UntypedTaskCallbacksHandle& next) {
+  start_after_.push_back(&next);
+  return *this;
+}
+
+UntypedTaskCallbacksHandle& SshConnectionDriver::TaskCallbacksImpl::saveOutput(void* output_ptr) {
+  output_ptrs_.push_back(output_ptr);
+  return *this;
+}
+
+void SshConnectionDriver::TaskCallbacksImpl::setTokenRecursive(TaskCallbacksImpl& h, const std::shared_ptr<token_t>& token) {
+  if (h.token_.get() != token.get()) {
+    h.token_ = token;
+  }
+  for (auto* next : h.start_after_) {
+    setTokenRecursive(dynamic_cast<TaskCallbacksImpl&>(*next), token);
+  }
+}
+
+void SshConnectionDriver::CodecCallbacks::onDecodingFailure(absl::string_view reason) {
+  if (!expect_decoding_failure_) {
+    FAIL() << reason;
+  }
+  client_connection_.close(Network::ConnectionCloseType::FlushWrite, reason);
+}
+
+void SshConnectionDriver::CodecCallbacks::writeToConnection(Buffer::Instance& buffer) {
+  client_connection_.write(buffer, false);
 }
 
 } // namespace test
