@@ -144,9 +144,9 @@ TEST_P(ReverseTunnelIntegrationTest, TestHttp) {
 
   const auto httpPort = lookupPort("http");
   ASSERT_TRUE(driver->waitForKex());
-  ASSERT_TRUE(driver->startTaskAndWait<Tasks::RequestUserAuthService>());
-  ASSERT_TRUE(driver->startTaskAndWait<Tasks::Authenticate>("user", true));
-  ASSERT_TRUE(driver->startTaskAndWait<Tasks::RequestReversePortForward>("http-cluster-1", httpPort, httpPort));
+  ASSERT_TRUE(driver->wait(driver->createTask<Tasks::RequestUserAuthService>().start()));
+  ASSERT_TRUE(driver->wait(driver->createTask<Tasks::Authenticate>("user", true).start()));
+  ASSERT_TRUE(driver->wait(driver->createTask<Tasks::RequestReversePortForward>("http-cluster-1", httpPort, httpPort).start()));
 
   setClusterLoad("http_cluster_1",
                  {
@@ -165,22 +165,25 @@ TEST_P(ReverseTunnelIntegrationTest, TestHttp) {
     {":authority", "http-cluster-1"},
   };
 
-  auto response = codec_client_->makeHeaderOnlyRequest(requestHeaders);
-
-  // once the request is sent, we should see a new channel open
   uint32_t remote_channel_id{};
-  ASSERT_TRUE(driver->startTaskAndWait<Tasks::AcceptReversePortForward>("http-cluster-1", httpPort, 1, &remote_channel_id));
-  ASSERT_TRUE(driver->startTaskAndWait<Tasks::WaitForChannelData>(
-    1, "GET / HTTP/1.1\r\nhost: http-cluster-1\r\nx-forwarded-proto: http\r\n"));
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>("http-cluster-1", httpPort, 1)
+              .saveOutput(&remote_channel_id)
+              .then(driver->createTask<Tasks::WaitForChannelData>(1, "GET / HTTP/1.1\r\nhost: http-cluster-1\r\nx-forwarded-proto: http\r\n"))
+              .start();
+
+  auto response = codec_client_->makeHeaderOnlyRequest(requestHeaders);
+  ASSERT_TRUE(driver->wait(th));
   driver->sendMessage(wire::ChannelDataMsg{
     .recipient_channel = remote_channel_id,
     .data = "HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n"_bytes,
   });
-  driver->startTask<Tasks::SendChannelCloseAndWait>(1, remote_channel_id);
+
+  auto th2 = driver->createTask<Tasks::SendChannelCloseAndWait>(1)
+               .start(remote_channel_id);
   ASSERT_TRUE(response->waitForEndStream(defaultTimeout()));
   ASSERT_EQ("200", response->headers().Status()->value().getStringView());
   codec_client_->close(Network::ConnectionCloseType::FlushWrite);
-  ASSERT_TRUE(driver->waitAllTasksComplete());
+  ASSERT_TRUE(driver->wait(th2));
   ASSERT_TRUE(driver->disconnect());
 }
 
@@ -191,9 +194,9 @@ TEST_P(ReverseTunnelIntegrationTest, TestTCP) {
   driver->connect();
   const auto tcpPort = lookupPort("tcp");
   ASSERT_TRUE(driver->waitForKex());
-  ASSERT_TRUE(driver->startTaskAndWait<Tasks::RequestUserAuthService>());
-  ASSERT_TRUE(driver->startTaskAndWait<Tasks::Authenticate>("user", true));
-  ASSERT_TRUE(driver->startTaskAndWait<Tasks::RequestReversePortForward>("tcp-cluster", tcpPort, tcpPort));
+  ASSERT_TRUE(driver->wait(driver->createTask<Tasks::RequestUserAuthService>().start()));
+  ASSERT_TRUE(driver->wait(driver->createTask<Tasks::Authenticate>("user", true).start()));
+  ASSERT_TRUE(driver->wait(driver->createTask<Tasks::RequestReversePortForward>("tcp-cluster", tcpPort, tcpPort).start()));
 
   setClusterLoad("tcp_cluster",
                  {
@@ -204,21 +207,24 @@ TEST_P(ReverseTunnelIntegrationTest, TestTCP) {
                    .is_dynamic = false,
                  });
 
+  uint32_t remote_channel_id{};
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>("tcp-cluster", tcpPort, 1)
+              .saveOutput(&remote_channel_id)
+              .then(driver->createTask<Tasks::WaitForChannelData>(1, "ping"))
+              .start();
+
   auto tcp_client = makeTcpConnectionWithServerName(tcpPort, "tcp-cluster");
 
-  uint32_t remote_channel_id{};
-  driver->startTask<Tasks::AcceptReversePortForward>("tcp-cluster", tcpPort, 1, &remote_channel_id);
-  driver->startTask<Tasks::WaitForChannelData>(1, "ping");
   ASSERT_TRUE(tcp_client->write("ping"));
-  ASSERT_TRUE(driver->waitAllTasksComplete());
+  ASSERT_TRUE(driver->wait(th));
   driver->sendMessage(wire::ChannelDataMsg{
     .recipient_channel = remote_channel_id,
     .data = "pong"_bytes,
   });
   tcp_client->waitForData("pong");
-  driver->startTask<Tasks::WaitForChannelCloseByPeer>(1, remote_channel_id);
+  auto th2 = driver->createTask<Tasks::WaitForChannelCloseByPeer>(1).start(remote_channel_id);
   tcp_client->close();
-  ASSERT_TRUE(driver->waitAllTasksComplete());
+  ASSERT_TRUE(driver->wait(th2));
   ASSERT_TRUE(driver->disconnect());
 }
 

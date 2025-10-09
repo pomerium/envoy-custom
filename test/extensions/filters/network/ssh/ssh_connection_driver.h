@@ -109,25 +109,16 @@ public:
   AssertionResult waitForKex(std::chrono::milliseconds timeout = defaultTimeout());
 
   template <typename TaskType, typename... Args>
-  AssertionResult startTaskAndWait(Args&&... task_args) {
+  TaskCallbacksHandle<typename TaskType::input_type, typename TaskType::output_type>
+  createTask(Args&&... task_args) {
     auto t = std::make_unique<TaskType>(std::forward<Args>(task_args)...);
     auto cb = std::make_unique<TaskCallbacksImpl>(*this, std::move(t));
+    auto& handle = *cb;
     LinkedList::moveIntoList(std::move(cb), active_tasks_);
-    auto timeoutStatus = run(Envoy::Event::Dispatcher::RunType::RunUntilExit, defaultTimeout());
-    if (!timeoutStatus) {
-      return timeoutStatus;
-    }
-    return AssertionResult(!testing::Test::HasFailure());
+    return {handle};
   }
 
-  template <typename TaskType, typename... Args>
-  void startTask(Args&&... task_args) {
-    auto t = std::make_unique<TaskType>(std::forward<Args>(task_args)...);
-    auto cb = std::make_unique<TaskCallbacksImpl>(*this, std::move(t));
-    LinkedList::moveIntoList(std::move(cb), active_tasks_);
-  }
-
-  AssertionResult waitAllTasksComplete();
+  testing::AssertionResult wait(UntypedTaskCallbacksHandle& task, std::chrono::milliseconds timeout = defaultTimeout());
 
   stream_id_t streamId() const override {
     ASSERT(stream_id_ != 0);
@@ -186,33 +177,39 @@ protected:
   }
 
   // TaskCallbacks
-  class TaskCallbacksImpl : public Task::TaskCallbacks,
-                            public Envoy::Event::DeferredDeletable,
+  class TaskCallbacksImpl : public TaskCallbacks,
+                            public UntypedTaskCallbacksHandle,
                             public LinkedObject<TaskCallbacksImpl> {
   public:
-    TaskCallbacksImpl(SshConnectionDriver& d, std::unique_ptr<Task> t)
+    TaskCallbacksImpl(SshConnectionDriver& d, std::unique_ptr<UntypedTask> t)
         : parent_(d),
           task_(std::move(t)) {
       task_->setTaskCallbacks(*this, parent_.streamId());
-      parent_.installMiddleware(task_.get());
-      parent_.connectionDispatcher()->post([this] { task_->startInternal(); });
     }
-    void taskSuccess() override {
+    // TaskCallbacks
+    void taskSuccess(std::any output, std::function<void(const std::any&, void*)> apply_fn) override {
       ASSERT(!testing::Test::HasFailure());
       if (timeout_timer_ != nullptr) {
         timeout_timer_->disableTimer();
       }
       ASSERT(inserted());
-      parent_.connectionDispatcher()->deferredDelete(removeFromList(parent_.active_tasks_));
-      parent_.connectionDispatcher()->exit();
+      for (void* ptr : output_ptrs_) {
+        apply_fn(output, ptr);
+      }
+      for (auto* next : start_after_) {
+        next->start(output);
+      }
+      moveBetweenLists(parent_.active_tasks_, parent_.completed_tasks_);
+      token_.reset();
     }
     void taskFailure(absl::Status stat) override {
       if (timeout_timer_ != nullptr) {
         timeout_timer_->disableTimer();
       }
       ASSERT(inserted());
-      parent_.connectionDispatcher()->deferredDelete(removeFromList(parent_.active_tasks_));
       ADD_FAILURE() << statusToString(stat);
+      moveBetweenLists(parent_.active_tasks_, parent_.completed_tasks_);
+      token_.reset();
       parent_.connectionDispatcher()->exit();
     }
     KexResult& kexResult() override {
@@ -237,8 +234,37 @@ protected:
     void waitForManagementRequest(Protobuf::Message& req) override;
     void sendManagementResponse(const Protobuf::Message& resp) override;
 
+    // TaskCallbacksHandle
+    UntypedTaskCallbacksHandle& start(std::any input) override {
+      started_ = true;
+      parent_.installMiddleware(task_.get());
+      parent_.connectionDispatcher()->post([this, input] {
+        task_->startInternalUntyped(input);
+      });
+      return *this;
+    }
+
+    UntypedTaskCallbacksHandle& then(UntypedTaskCallbacksHandle& next) override {
+      start_after_.push_back(&next);
+      dynamic_cast<TaskCallbacksImpl&>(next).token_ = token_;
+      return *this;
+    }
+    UntypedTaskCallbacksHandle& saveOutput(void* output_ptr) override {
+      output_ptrs_.push_back(output_ptr);
+      return *this;
+    }
+
     SshConnectionDriver& parent_;
-    std::unique_ptr<Task> task_;
+    std::unique_ptr<UntypedTask> task_;
+    std::any task_output_;
+    std::vector<UntypedTaskCallbacksHandle*> start_after_;
+    std::vector<void*> output_ptrs_;
+    bool started_{};
+    struct token_t {
+      ~token_t() { parent_.parent_.connectionDispatcher()->exit(); }
+      TaskCallbacksImpl& parent_;
+    };
+    std::shared_ptr<token_t> token_ = std::make_shared<token_t>(*this);
     Envoy::Event::TimerPtr timeout_timer_;
   };
 
@@ -276,6 +302,7 @@ protected:
   stream_id_t stream_id_;
 
   std::list<std::unique_ptr<TaskCallbacksImpl>> active_tasks_;
+  std::list<std::unique_ptr<TaskCallbacksImpl>> completed_tasks_;
 
 private:
   absl::Mutex lock_;

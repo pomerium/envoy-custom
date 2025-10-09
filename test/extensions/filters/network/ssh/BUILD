@@ -418,6 +418,7 @@ envoy_cc_test_library(
         "@envoy//source/extensions/filters/network/tcp_proxy:config",
         "@envoy//source/extensions/transport_sockets/internal_upstream:config",
         "@envoy//test/integration:http_integration_lib",
+        "@taskflow",
     ],
 )
 

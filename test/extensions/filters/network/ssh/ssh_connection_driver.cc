@@ -2,6 +2,7 @@
 #include "test/extensions/filters/network/ssh/ssh_task.h"
 #include "test/test_common/test_time_system.h"
 #include "test/test_common/utility.h"
+#include "gtest/gtest.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 namespace test {
@@ -94,23 +95,6 @@ AssertionResult SshConnectionDriver::waitForKex(std::chrono::milliseconds timeou
   return AssertionResult(true);
 }
 
-AssertionResult SshConnectionDriver::waitAllTasksComplete() {
-  // Logic here copied from waitForWithDispatcherRun
-  absl::MutexLock lock(&lock_);
-  auto& time_system =
-    dynamic_cast<Envoy::Event::TestTimeSystem&>(connectionDispatcher()->timeSource());
-  Envoy::Event::TestTimeSystem::RealTimeBound bound(defaultTimeout());
-  auto condition = [this] { return active_tasks_.empty(); };
-  while (bound.withinBound()) {
-    // Wake up periodically to run the client dispatcher.
-    if (time_system.waitFor(lock_, absl::Condition(&condition), 5ms * TIMEOUT_FACTOR)) {
-      return AssertionResult(!testing::Test::HasFailure());
-    }
-    connectionDispatcher()->run(Envoy::Event::Dispatcher::RunType::NonBlock);
-  }
-  return AssertionResult(false) << "timed out waiting for tasks to be completed";
-}
-
 void SshConnectionDriver::onEvent(Network::ConnectionEvent event) {
   if (event == Network::ConnectionEvent::Connected ||
       event == Network::ConnectionEvent::ConnectedZeroRtt) {
@@ -140,5 +124,27 @@ void test::SshConnectionDriver::TaskCallbacksImpl::waitForManagementRequest(Prot
 void test::SshConnectionDriver::TaskCallbacksImpl::sendManagementResponse(const Protobuf::Message& resp) {
   parent_.mgmt_stream_->sendGrpcMessage(resp);
 }
+
+testing::AssertionResult SshConnectionDriver::wait(UntypedTaskCallbacksHandle& handle, std::chrono::milliseconds timeout) {
+  if (!dynamic_cast<TaskCallbacksImpl&>(handle).started_) {
+    PANIC("test bug: wait() called on unstarted task");
+  }
+  // Logic here copied from waitForWithDispatcherRun
+  absl::MutexLock lock(&lock_);
+  auto& time_system =
+    dynamic_cast<Envoy::Event::TestTimeSystem&>(connectionDispatcher()->timeSource());
+  Envoy::Event::TestTimeSystem::RealTimeBound bound(timeout);
+  std::weak_ptr<void> weak_token = dynamic_cast<TaskCallbacksImpl&>(handle).token_;
+  auto condition = [&weak_token] { return weak_token.expired(); };
+  while (bound.withinBound()) {
+    // Wake up periodically to run the client dispatcher.
+    if (time_system.waitFor(lock_, absl::Condition(&condition), 5ms * TIMEOUT_FACTOR)) {
+      return AssertionResult(!testing::Test::HasFailure());
+    }
+    connectionDispatcher()->run(Envoy::Event::Dispatcher::RunType::NonBlock);
+  }
+  return AssertionResult(false) << "timed out waiting for tasks to be completed";
+}
+
 } // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

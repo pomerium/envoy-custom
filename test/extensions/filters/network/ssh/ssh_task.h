@@ -9,6 +9,9 @@
 #include "test/extensions/filters/network/ssh/wire/test_field_reflect.h"
 #include "test/test_common/test_common.h"
 #include "gtest/gtest.h"
+#include <any>
+#include <memory>
+#include <type_traits>
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 namespace test {
@@ -18,6 +21,15 @@ namespace test {
     ADD_FAILURE() << fmt::format("received unexpected message: {}", msg); \
   }
 
+#define DEFAULT_NOOP \
+  [&](const auto&) {}
+
+#define DEFAULT_BREAK \
+  [&](const auto&) { return MiddlewareResult::Break; }
+
+#define DEFAULT_CONTINUE \
+  [&](const auto&) { return MiddlewareResult::Continue; }
+
 inline std::chrono::milliseconds defaultTimeout() {
   CONSTRUCT_ON_FIRST_USE(std::chrono::milliseconds,
                          isDebuggerAttached()
@@ -25,28 +37,101 @@ inline std::chrono::milliseconds defaultTimeout() {
                            : std::chrono::milliseconds(10000));
 }
 
-class Task : public SshMessageMiddleware {
-  friend class SshConnectionDriver;
+class TaskCallbacks {
+  template <typename, typename>
+  friend class Task;
+  template <typename>
+  friend class TaskSuccess;
+  friend class UntypedTask;
 
 public:
-  Task() = default;
-  virtual ~Task() = default;
-  Task(const Task&) = delete;
-  Task& operator=(const Task&) = delete;
+  virtual ~TaskCallbacks() = default;
+  virtual void sendMessage(wire::Message&&) PURE;
+  virtual KexResult& kexResult() PURE;
+  virtual openssh::SSHKey& clientKey() PURE;
+  virtual void waitForManagementRequest(Protobuf::Message& req) PURE;
+  virtual void sendManagementResponse(const Protobuf::Message& resp) PURE;
+  virtual void setTimeout(std::chrono::milliseconds timeout) PURE;
+
+private:
+  virtual void taskSuccess(std::any output, std::function<void(const std::any&, void*)> apply_fn) PURE;
+  virtual void taskFailure(absl::Status err) PURE;
+};
+
+class UntypedTaskCallbacksHandle {
+public:
+  virtual ~UntypedTaskCallbacksHandle() = default;
+  virtual UntypedTaskCallbacksHandle& start(std::any input) PURE;
+  virtual UntypedTaskCallbacksHandle& saveOutput(void* output) PURE;
+  virtual UntypedTaskCallbacksHandle& then(UntypedTaskCallbacksHandle& next) PURE;
+};
+
+template <typename Input, typename Output>
+class TaskCallbacksHandle {
+public:
+  using input_type = Input;
+  using output_type = Output;
+
+  TaskCallbacksHandle(UntypedTaskCallbacksHandle& untyped)
+      : untyped_(untyped) {}
+  virtual ~TaskCallbacksHandle() = default;
+
+  TaskCallbacksHandle(const TaskCallbacksHandle&) = default;
+  TaskCallbacksHandle(TaskCallbacksHandle&&) = default;
+  TaskCallbacksHandle& operator=(const TaskCallbacksHandle&) = default;
+  TaskCallbacksHandle& operator=(TaskCallbacksHandle&&) = default;
+
+  template <typename I>
+    requires (std::is_same_v<I, Input> && !std::is_void_v<I>)
+  TaskCallbacksHandle<Input, Output> start(I input) {
+    auto& handle = untyped_.start(std::any(input));
+    return {handle};
+  }
+
+  template <typename I = Input>
+    requires (std::is_same_v<I, Input> && std::is_void_v<I>)
+  TaskCallbacksHandle<Input, Output> start() {
+    auto& handle = untyped_.start({});
+    return {handle};
+  }
+
+  TaskCallbacksHandle<Input, Output> saveOutput(Output* output)
+    requires (!std::is_void_v<Output>)
+  {
+    auto& handle = untyped_.saveOutput(output);
+    return {handle};
+  }
+
+  template <typename NextInput, typename NextOutput>
+    requires (std::is_same_v<NextInput, Output> || std::is_void_v<NextInput>)
+  TaskCallbacksHandle<Input, Output> then(TaskCallbacksHandle<NextInput, NextOutput> next) {
+    auto& handle = untyped_.then(next.untyped_);
+    return {handle};
+  }
+
+  operator UntypedTaskCallbacksHandle&() { return untyped_; }
+
+  UntypedTaskCallbacksHandle& untyped_;
+};
+
+class UntypedTask : public SshMessageMiddleware {
+  friend class SshConnectionDriver;
+  template <typename, typename>
+  friend class Task;
+
+public:
+  UntypedTask() = default;
+  virtual ~UntypedTask() = default;
+  UntypedTask(const UntypedTask&) = delete;
+  UntypedTask& operator=(const UntypedTask&) = delete;
 
 protected:
-  virtual void start() PURE;
-  virtual void onMessageReceived(wire::Message& msg) PURE;
+  virtual void startUntyped(std::any input) PURE;
+  virtual MiddlewareResult onMessageReceived(wire::Message& msg) PURE;
 
   // Can be overridden to provide more details/current state on failure
   virtual absl::Status errorDetails() {
     return absl::InternalError("task failed via assertion");
-  }
-
-  void taskSuccess() {
-    ASSERT(!task_success_called_ && !task_failure_called_);
-    task_success_called_ = true;
-    callbacks_->taskSuccess();
   }
 
   void taskFailure(absl::Status err) {
@@ -55,58 +140,114 @@ protected:
     callbacks_->taskFailure(err);
   }
 
-  class TaskCallbacks {
-  public:
-    virtual ~TaskCallbacks() = default;
-    virtual void sendMessage(wire::Message&&) PURE;
-    virtual KexResult& kexResult() PURE;
-    virtual openssh::SSHKey& clientKey() PURE;
-    virtual void waitForManagementRequest(Protobuf::Message& req) PURE;
-    virtual void sendManagementResponse(const Protobuf::Message& resp) PURE;
-    virtual void setTimeout(std::chrono::milliseconds timeout) PURE;
-
-  private:
-    friend void Task::taskSuccess();
-    friend void Task::taskFailure(absl::Status err);
-    virtual void taskSuccess() PURE;
-    virtual void taskFailure(absl::Status err) PURE;
-  };
-
   TaskCallbacks* callbacks_;
   stream_id_t stream_id_;
+
+  bool task_success_called_{};
+  bool task_failure_called_{};
 
 private:
   void setTaskCallbacks(TaskCallbacks& cb, stream_id_t stream_id) {
     callbacks_ = &cb;
     stream_id_ = stream_id;
   }
-  void startInternal() {
-    start();
+  void startInternalUntyped(std::any input) {
+    startUntyped(std::move(input));
     if (testing::Test::HasFailure()) {
       taskFailure(errorDetails());
     }
   }
   absl::StatusOr<MiddlewareResult> interceptMessage(wire::Message& msg) final {
-    // FIXME: this needs a way to filter channel messages intended for other middlewares
-    onMessageReceived(msg);
+    auto res = onMessageReceived(msg);
+    ASSERT((res & MiddlewareResult::UninstallSelf) == 0,
+           "Do not return MiddlewareResult::UninstallSelf from Task::interceptMessage; "
+           "call taskSuccess() or taskFailure() instead.");
     if (testing::Test::HasFailure()) {
       taskFailure(errorDetails());
     }
-    return MiddlewareResult::Break |
-           ((task_failure_called_ || task_success_called_)
-              ? MiddlewareResult::UninstallSelf
-              : MiddlewareResult(0));
+    if (task_success_called_ || task_failure_called_) {
+      res |= MiddlewareResult::UninstallSelf;
+    }
+    return res;
   }
-
-  bool task_success_called_{};
-  bool task_failure_called_{};
 };
 
-using TaskPtr = std::unique_ptr<Task>;
+template <typename Input>
+class TaskStart : public virtual UntypedTask {
+public:
+  virtual ~TaskStart() = default;
+  virtual void start(Input input) PURE;
+
+protected:
+  void startUntyped(std::any input) final {
+    start(std::any_cast<Input>(input));
+  }
+};
+
+template <>
+class TaskStart<void> : public virtual UntypedTask {
+public:
+  virtual ~TaskStart() = default;
+  virtual void start() PURE;
+
+protected:
+  void startUntyped(std::any) final {
+    // the input may still have a value, but it should be ignored; this task accepts no input
+    start();
+  }
+};
+
+namespace {
+template <typename Output>
+constexpr void apply_output(const std::any& value, void* output) {
+  *static_cast<Output*>(output) = std::any_cast<Output>(value);
+}
+} // namespace
+
+template <typename Output>
+class TaskSuccess : public virtual UntypedTask {
+public:
+  virtual ~TaskSuccess() = default;
+
+protected:
+  void taskSuccess(Output output) {
+    ASSERT(!task_success_called_ && !task_failure_called_);
+    task_success_called_ = true;
+    callbacks_->taskSuccess(output, apply_output<Output>);
+  }
+};
+
+template <>
+class TaskSuccess<void> : public virtual UntypedTask {
+public:
+  virtual ~TaskSuccess() = default;
+
+protected:
+  void taskSuccess() {
+    ASSERT(!task_success_called_ && !task_failure_called_);
+    task_success_called_ = true;
+    callbacks_->taskSuccess({}, {});
+  }
+};
+
+template <typename Input = void, typename Output = void>
+class Task : public virtual UntypedTask,
+             public TaskStart<Input>,
+             public TaskSuccess<Output> {
+  friend class SshConnectionDriver;
+
+public:
+  using input_type = Input;
+  using output_type = Output;
+  Task() = default;
+};
+
+template <typename Input = void, typename Output = void>
+using TaskPtr = std::unique_ptr<Task<Input, Output>>;
 
 namespace Tasks {
 
-class RequestUserAuthService : public Task {
+class RequestUserAuthService : public Task<> {
 public:
   void start() override {
     callbacks_->sendMessage(wire::ServiceRequestMsg{
@@ -114,16 +255,20 @@ public:
     });
   }
 
-  void onMessageReceived(wire::Message& msg) override {
-    msg.visit(
-      [&](const wire::ServiceAcceptMsg&) {
-        taskSuccess();
+  MiddlewareResult onMessageReceived(wire::Message& msg) override {
+    return msg.visit(
+      [&](const wire::ServiceAcceptMsg& msg) {
+        if (msg.service_name == "ssh-userauth") {
+          taskSuccess();
+          return Break;
+        }
+        return Continue;
       },
-      OR_FAIL);
+      DEFAULT_CONTINUE);
   }
 };
 
-class Authenticate : public Task {
+class Authenticate : public Task<> {
 public:
   Authenticate(std::string username = "user", bool internal = true)
       : username_(username),
@@ -179,25 +324,28 @@ public:
     }
   };
 
-  void onMessageReceived(wire::Message& msg) override {
-    msg.visit(
+  MiddlewareResult onMessageReceived(wire::Message& msg) override {
+    return msg.visit(
       [&](const wire::UserAuthSuccessMsg&) {
         taskSuccess();
+        return Break;
       },
       [&](const wire::UserAuthFailureMsg& msg) {
         taskFailure(absl::InternalError(fmt::format("received auth failure: {}", msg)));
+        return Break;
       },
       [&](const wire::UserAuthBannerMsg&) {
         // ignore for now
+        return Break;
       },
-      OR_FAIL);
+      DEFAULT_CONTINUE);
   };
 
   const std::string username_;
   const bool internal_{};
 };
 
-class RequestReversePortForward : public Task {
+class RequestReversePortForward : public Task<> {
 public:
   RequestReversePortForward(const std::string& address, uint32_t port, uint32_t server_port)
       : address_(address),
@@ -223,17 +371,22 @@ public:
       ->set_server_port(server_port_);
     callbacks_->sendManagementResponse(serverMsg);
   }
-  void onMessageReceived(wire::Message& msg) override {
-    msg.visit(
+  MiddlewareResult onMessageReceived(wire::Message& msg) override {
+    return msg.visit(
       [&](wire::GlobalRequestSuccessMsg& msg) {
-        ASSERT_OK(msg.resolve<wire::TcpipForwardResponseMsg>());
-        ASSERT_EQ(server_port_, *msg.response.get<wire::TcpipForwardResponseMsg>().server_port);
-        taskSuccess();
+        if (msg.resolve<wire::TcpipForwardResponseMsg>().ok()) {
+          EXPECT_EQ(server_port_, *msg.response.get<wire::TcpipForwardResponseMsg>().server_port);
+          taskSuccess();
+          return Break;
+        }
+        taskFailure(absl::InternalError("received unexpected global request success response"));
+        return Break;
       },
       [&](const wire::GlobalRequestFailureMsg& msg) {
         taskFailure(absl::InternalError(fmt::format("request failed: {}", msg)));
+        return Break;
       },
-      OR_FAIL);
+      DEFAULT_CONTINUE);
   };
 
   const std::string address_;
@@ -241,49 +394,47 @@ public:
   const uint32_t server_port_;
 };
 
-class AcceptReversePortForward : public Task {
+class AcceptReversePortForward : public Task<void, uint32_t> {
 public:
   AcceptReversePortForward(const std::string& address_connected, uint32_t port_connected,
-                           uint32_t local_channel_id, uint32_t* remote_channel_id)
+                           uint32_t local_channel_id)
       : address_connected_(address_connected),
         port_connected_(port_connected),
-        local_channel_id_(local_channel_id),
-        remote_channel_id_(remote_channel_id) {}
+        local_channel_id_(local_channel_id) {}
   void start() override {
     callbacks_->setTimeout(defaultTimeout());
   }
-  void onMessageReceived(wire::Message& msg) override {
-    msg.visit(
+  MiddlewareResult onMessageReceived(wire::Message& msg) override {
+    return msg.visit(
       [&](const wire::ChannelOpenMsg& open_msg) {
-        ASSERT_EQ(wire::ChannelWindowSize, open_msg.initial_window_size);
-        ASSERT_EQ(131072, *open_msg.max_packet_size);
-        *remote_channel_id_ = open_msg.sender_channel;
-        open_msg.request.visit(
+        return open_msg.request.visit(
           [&](const wire::ForwardedTcpipChannelOpenMsg& msg) {
-            ASSERT_EQ(address_connected_, msg.address_connected);
-            ASSERT_EQ(port_connected_, msg.port_connected);
-            ASSERT_THAT(*msg.originator_address, AnyOf(Eq("127.0.0.1"s), Eq("::1"s)));
-            ASSERT_NE(0, *msg.originator_port);
-            callbacks_->sendMessage(wire::ChannelOpenConfirmationMsg{
-              .recipient_channel = open_msg.sender_channel,
-              .sender_channel = local_channel_id_,
-              .initial_window_size = wire::ChannelWindowSize,
-              .max_packet_size = 131072,
-            });
-            taskSuccess();
+            if (address_connected_ == msg.address_connected &&
+                port_connected_ == msg.port_connected) {
+              EXPECT_THAT(*msg.originator_address, AnyOf(Eq("127.0.0.1"s), Eq("::1"s)));
+              EXPECT_NE(0, *msg.originator_port);
+              callbacks_->sendMessage(wire::ChannelOpenConfirmationMsg{
+                .recipient_channel = open_msg.sender_channel,
+                .sender_channel = local_channel_id_,
+                .initial_window_size = wire::ChannelWindowSize,
+                .max_packet_size = 131072,
+              });
+              taskSuccess(*open_msg.sender_channel);
+              return Break;
+            }
+            return Continue;
           },
-          OR_FAIL);
+          DEFAULT_CONTINUE);
       },
-      OR_FAIL);
+      DEFAULT_CONTINUE);
   }
 
   const std::string address_connected_;
   const uint32_t port_connected_;
   const uint32_t local_channel_id_;
-  uint32_t* const remote_channel_id_;
 };
 
-class WaitForChannelData : public Task {
+class WaitForChannelData : public Task<> {
 public:
   WaitForChannelData(uint32_t channel_id, const std::string& expected_data)
       : channel_id_(channel_id),
@@ -291,83 +442,127 @@ public:
   void start() override {
     callbacks_->setTimeout(defaultTimeout());
   }
-  void onMessageReceived(wire::Message& msg) override {
-    msg.visit(
+  MiddlewareResult onMessageReceived(wire::Message& msg) override {
+    return msg.visit(
       [&](const wire::ChannelDataMsg& msg) {
-        ASSERT_EQ(channel_id_, *msg.recipient_channel);
+        if (msg.recipient_channel != channel_id_) {
+          return Continue;
+        }
         auto view = std::string_view(reinterpret_cast<const char*>(msg.data->data()), msg.data->size());
         if (view.size() >= expected_data_.size()) {
-          ASSERT_THAT(view, testing::StartsWith(expected_data_));
-          expected_data_.clear();
-          taskSuccess();
+          if (view.starts_with(expected_data_)) {
+            expected_data_.clear();
+            taskSuccess();
+          } else {
+            taskFailure(absl::InternalError(fmt::format("channel data did not match: expected '{}', got '{}'", expected_data_, view)));
+          }
         } else {
-          expected_data_ = absl::StripPrefix(expected_data_, view);
+          if (expected_data_.starts_with(view)) {
+            expected_data_ = absl::StripPrefix(expected_data_, view);
+          } else {
+            taskFailure(absl::InternalError(fmt::format("channel data did not match: expected '{}', got '{}'", expected_data_, view)));
+          }
         }
+        return Break;
       },
-      [&](const auto&) {});
+      DEFAULT_CONTINUE);
   }
   absl::Status errorDetails() override {
     return absl::InternalError(fmt::format("expected bytes not received: '{}'", absl::CHexEscape(expected_data_)));
   }
-  const uint32_t channel_id_;
+  uint32_t channel_id_{};
   std::string expected_data_;
 };
 
-class WaitForChannelCloseByPeer : public Task {
+class SendChannelData : public Task<uint32_t> {
 public:
-  WaitForChannelCloseByPeer(uint32_t channel_id, uint32_t remote_channel_id, bool allow_eof = true)
+  SendChannelData(const bytes& data)
+      : data_(data) {}
+  SendChannelData(const std::string& data)
+      : data_(to_bytes(data)) {}
+  void start(uint32_t remote_channel_id) override {
+    callbacks_->sendMessage(wire::ChannelDataMsg{
+      .recipient_channel = remote_channel_id,
+      .data = data_,
+    });
+    taskSuccess();
+  }
+  MiddlewareResult onMessageReceived(wire::Message&) override { return Continue; }
+
+  bytes data_;
+};
+
+class WaitForChannelCloseByPeer : public Task<uint32_t> {
+public:
+  WaitForChannelCloseByPeer(uint32_t channel_id, bool allow_eof = true)
       : channel_id_(channel_id),
-        remote_channel_id_(remote_channel_id),
         allow_eof_(allow_eof) {}
-  void start() override {
+  void start(uint32_t remote_channel_id) override {
+    remote_channel_id_ = remote_channel_id;
     callbacks_->setTimeout(defaultTimeout());
   }
-  void onMessageReceived(wire::Message& msg) override {
-    msg.visit(
+  MiddlewareResult onMessageReceived(wire::Message& msg) override {
+    return msg.visit(
       [&](const wire::ChannelCloseMsg& msg) {
-        ASSERT_EQ(channel_id_, *msg.recipient_channel);
+        if (msg.recipient_channel != channel_id_) {
+          return Continue;
+        }
         callbacks_->sendMessage(wire::ChannelCloseMsg{
           .recipient_channel = remote_channel_id_,
         });
         taskSuccess();
+        return Break;
       },
       [&](const wire::ChannelEOFMsg& msg) {
-        ASSERT_EQ(channel_id_, *msg.recipient_channel);
-        ASSERT_TRUE(allow_eof_);
+        if (msg.recipient_channel != channel_id_) {
+          return Continue;
+        }
+        if (!allow_eof_) {
+          taskFailure(absl::InvalidArgumentError(fmt::format("unexpected EOF for channel {}", channel_id_)));
+        }
+        return Break;
       },
-      OR_FAIL);
+      DEFAULT_CONTINUE);
   }
   const uint32_t channel_id_;
-  const uint32_t remote_channel_id_;
+  uint32_t remote_channel_id_;
   const bool allow_eof_;
 };
 
-class SendChannelCloseAndWait : public Task {
+class SendChannelCloseAndWait : public Task<uint32_t> {
 public:
-  SendChannelCloseAndWait(uint32_t channel_id, uint32_t remote_channel_id, bool allow_eof = true)
+  SendChannelCloseAndWait(uint32_t channel_id, bool allow_eof = true)
       : channel_id_(channel_id),
-        remote_channel_id_(remote_channel_id),
         allow_eof_(allow_eof) {}
-  void start() override {
+  void start(uint32_t remote_channel_id) override {
+    remote_channel_id_ = remote_channel_id;
     callbacks_->sendMessage(wire::ChannelCloseMsg{
       .recipient_channel = remote_channel_id_,
     });
     callbacks_->setTimeout(defaultTimeout());
   }
-  void onMessageReceived(wire::Message& msg) override {
-    msg.visit(
+  MiddlewareResult onMessageReceived(wire::Message& msg) override {
+    return msg.visit(
       [&](const wire::ChannelCloseMsg& msg) {
-        ASSERT_EQ(channel_id_, *msg.recipient_channel);
+        if (msg.recipient_channel != channel_id_) {
+          return Continue;
+        }
         taskSuccess();
+        return Break;
       },
       [&](const wire::ChannelEOFMsg& msg) {
-        ASSERT_EQ(channel_id_, *msg.recipient_channel);
-        ASSERT_TRUE(allow_eof_);
+        if (msg.recipient_channel != channel_id_) {
+          return Continue;
+        }
+        if (!allow_eof_) {
+          taskFailure(absl::InvalidArgumentError(fmt::format("unexpected EOF for channel {}", channel_id_)));
+        }
+        return Break;
       },
-      OR_FAIL);
+      DEFAULT_CONTINUE);
   }
   const uint32_t channel_id_;
-  const uint32_t remote_channel_id_;
+  uint32_t remote_channel_id_;
   const bool allow_eof_;
 };
 
