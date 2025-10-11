@@ -68,6 +68,7 @@ using Envoy::Extensions::IoSocket::UserSpace::IoHandleFactory;
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 constexpr uint32_t MaxPacketSize = IoSocket::UserSpace::FRAGMENT_SIZE * IoSocket::UserSpace::MAX_FRAGMENT;
+static constexpr auto EventTypeMask = Event::FileReadyType::Closed | Event::FileReadyType::Read | Event::FileReadyType::Write;
 
 using MessageQueue = moodycamel::ReaderWriterQueue<std::unique_ptr<wire::Message>>;
 
@@ -96,12 +97,6 @@ public:
     remote_queue_callback_ = remote_dispatcher_.createSchedulableCallback([this] {
       onRemoteQueueReadyRead();
     });
-    // Set the downstream buffer high watermark to match the local window size. This allows us to
-    // apply backpressure to the upstream ssh channel if the downstream is not reading from the
-    // write buffer.
-    // Note that the local socket starts with watermarks disabled. They are turned on/off based on
-    // ssh protocol flow control events.
-    io_handle_->getWriteBuffer()->setWatermarks(local_window_);
   }
 
   void initialize(RemoteStreamHandlerCallbacks& callbacks, const wire::ChannelOpenConfirmationMsg& confirm, MessageQueue** local_queue) {
@@ -127,20 +122,14 @@ public:
       if (isDynamic) {
         ENVOY_LOG(debug, "channel {}: starting socks5 handshake", peer_state_.channel_id);
         startSocks5Handshake();
-        initializeIoHandleEvents(Event::FileReadyType::Closed);
+        initializeFileEvents<Event::FileReadyType::Closed>();
       } else {
-        initializeIoHandleEvents(Event::FileReadyType::Read | Event::FileReadyType::Write | Event::FileReadyType::Closed);
+        initializeFileEvents<Event::FileReadyType::Closed | Event::FileReadyType::Read | Event::FileReadyType::Write>();
       }
       // If there were any messages queued while waiting for initialized_, process them now.
       remote_queue_callback_->scheduleCallbackCurrentIteration();
     });
   }
-
-  // ~RemoteStreamHandler() {
-  //   ENVOY_LOG(debug, "channel {}: destroying remote stream handler", channel_id_);
-  //   maybeCloseIoHandle();
-  // }
-
   static void detach(std::unique_ptr<RemoteStreamHandler> self) {
     self->detach_lock_.Lock();
     self->detached_ = true;
@@ -213,28 +202,18 @@ private:
     detached_self_ = std::move(self);
   }
 
-  void initializeIoHandleEvents(uint32_t events) {
-    io_handle_->initializeFileEvent(
-      remote_dispatcher_,
-      [this](uint32_t events) {
-        onFileEvent(events);
-        // errors returned from this callback are fatal
-        return absl::OkStatus();
-      },
-      Event::PlatformDefaultTriggerType,
-      events);
-  }
-
   void onFileEvent(uint32_t events) {
     ASSERT(initialized_);
     ASSERT(remote_dispatcher_.isThreadSafe());
     if ((events & Envoy::Event::FileReadyType::Closed) != 0) {
       if ((events & Envoy::Event::FileReadyType::Read) != 0) {
         // EOF
+        readReady().IgnoreError();
       }
       detach_lock_.Lock();
       if (detached_) {
         detach_lock_.Unlock();
+        maybeCloseIoHandle();
         remote_dispatcher_.deferredDelete(std::move(detached_self_));
         return;
       }
@@ -247,7 +226,10 @@ private:
     if ((events & Envoy::Event::FileReadyType::Read) != 0) {
       status = readReady();
     } else if ((events & Envoy::Event::FileReadyType::Write) != 0) {
-      // write buffer low watermark event
+      // Write buffer low watermark event
+      remote_high_watermark_active_ = false;
+      ENVOY_LOG(debug, "channel {}: write buffer low watermark reached", peer_state_.channel_id);
+
       status = writeReady();
     }
 
@@ -259,7 +241,7 @@ private:
   void onRemoteQueueReadyRead() {
     ASSERT(remote_dispatcher_.isThreadSafe());
     if (!initialized_) {
-      ENVOY_LOG(debug, "skipping remote queue read before initialization");
+      ENVOY_LOG(debug, "channel {}: skipping remote queue read before initialization", peer_state_.channel_id);
       return;
     }
     std::unique_ptr<wire::Message> msgPtr;
@@ -275,28 +257,14 @@ private:
             return;
           }
           // process the channel data message
+          ENVOY_LOG(debug, "channel {}: read {} bytes from upstream", peer_state_.channel_id, msg.data->size());
           if (auto stat = readChannelData(msg); !stat.ok()) {
             onError(stat);
             return;
           }
           // check if we need to increase the local window
           if (local_window_ < wire::ChannelWindowSize / 2) {
-            if (!io_handle_->isPeerWritable()) {
-              ENVOY_LOG(debug, "channel {}: flow control: not increasing local window size", peer_state_.channel_id);
-              // Only increase the window size for the upstream if the downstream is writable. We
-              // can queue at most one full window of data, after which the upstream will stop
-              // writing until we increase the window size.
-              return;
-            }
-            local_window_ += wire::ChannelWindowSize;
-            ENVOY_LOG(debug, "channel {}: flow control: increasing local window size ({} -> {})",
-                      peer_state_.channel_id, local_window_, local_window_ + wire::ChannelWindowSize);
-            num_local_window_adjustments_++;
-
-            enqueueLocalMessage(std::make_unique<wire::Message>(wire::ChannelWindowAdjustMsg{
-              .recipient_channel = peer_state_.channel_id,
-              .bytes_to_add = wire::ChannelWindowSize,
-            }));
+            resizeLocalWindow();
           }
         },
         [&](wire::ChannelWindowAdjustMsg& msg) {
@@ -305,11 +273,9 @@ private:
             return;
           }
           ENVOY_LOG(debug, "channel {}: flow control: remote window adjusted by {} bytes", peer_state_.channel_id, *msg.bytes_to_add);
-          if (!io_handle_->isWritable()) {
-            // disable write watermarks if we previously ran out of window space and the peer's
-            // high watermark was triggered
-            ENVOY_LOG(debug, "channel {}: flow control: activating low watermark", peer_state_.channel_id);
-            io_handle_->setWatermarks(0);
+          // If we had disabled read events due to running out of remote window space, re-enable
+          if ((enabled_file_events_ & Event::FileReadyType::Read) == 0) {
+            enableFileEvents<Event::FileReadyType::Read>();
           }
           return;
         },
@@ -334,13 +300,38 @@ private:
     }
   }
 
+  void resizeLocalWindow() {
+    if (!io_handle_->isPeerWritable()) {
+      // Only increase the window size for the upstream if the downstream is writable. We
+      // can queue at most one full window of data, after which the upstream will stop
+      // writing until we increase the window size.
+      ENVOY_LOG_EVERY_POW_2(debug, "channel {}: flow control: not increasing local window size: "
+                                   "write buffer high watermark active",
+                            peer_state_.channel_id);
+      return;
+    }
+    // Adjust the window to return to the default limit
+    uint32_t delta = wire::ChannelWindowSize - local_window_;
+    if (delta == 0) {
+      return;
+    }
+    ENVOY_LOG(debug, "channel {}: flow control: increasing local window size ({} -> {})",
+              peer_state_.channel_id, local_window_, local_window_ + delta);
+    local_window_ += delta;
+    num_local_window_adjustments_++;
+
+    enqueueLocalMessage(std::make_unique<wire::Message>(wire::ChannelWindowAdjustMsg{
+      .recipient_channel = peer_state_.channel_id,
+      .bytes_to_add = delta,
+    }));
+  }
+
   void maybeCloseIoHandle() {
     ASSERT(remote_dispatcher_.isThreadSafe());
     if (io_handle_->isOpen()) {
       if (initialized_) {
         ENVOY_LOG(debug, "channel {}: closing remote io handle", peer_state_.channel_id);
       } else {
-        //
         ENVOY_LOG(debug, "closing remote io handle before initialization");
       }
       io_handle_->close();
@@ -351,10 +342,9 @@ private:
     ASSERT(initialized_);
     ASSERT(remote_dispatcher_.isThreadSafe());
     if (peer_state_.upstream_window == 0) {
-      // If we have run out of window space, trigger the buffer's high watermark and return. This
-      // will prevent read events until we receive a window adjustment from the upstream.
-      ENVOY_LOG(debug, "channel {}: flow control: remote window exhausted; activating high watermark");
-      io_handle_->setWatermarks(1); // 1-byte high watermark = any buffered data
+      // If we are completely out of upstream window space, disable read events until we receive
+      // a window update.
+      disableFileEvents<Event::FileReadyType::Read>();
       return absl::OkStatus();
     }
 
@@ -367,12 +357,12 @@ private:
       if (r.wouldBlock()) {
         return absl::OkStatus();
       }
-      return absl::CancelledError(fmt::format("read: io error: {}", r.err_->getErrorDetails()));
+      return absl::CancelledError(fmt::format("channel {}: read: io error: {}", peer_state_.channel_id, r.err_->getErrorDetails()));
     }
     ASSERT(r.return_value_ <= peer_state_.upstream_window); // sanity check
     peer_state_.upstream_window -= static_cast<uint32_t>(r.return_value_);
 
-    ENVOY_LOG(debug, "channel {}: wrote {} bytes from upstream", peer_state_.channel_id, r.return_value_);
+    ENVOY_LOG(debug, "channel {}: read {} bytes from downstream", peer_state_.channel_id, r.return_value_);
     enqueueLocalMessage(std::make_unique<wire::Message>(wire::ChannelDataMsg{
       .recipient_channel = peer_state_.channel_id,
       .data = wire::flushTo<bytes>(buffer),
@@ -388,7 +378,16 @@ private:
     // downstream high watermark is reached
     while (window_buffer_.length() > 0) {
       auto r = io_handle_->write(window_buffer_);
-      if (!r.ok() && !r.wouldBlock()) {
+      if (!r.ok()) {
+        if (r.wouldBlock()) {
+          // Write buffer high watermark is active
+          if (!remote_high_watermark_active_) {
+            // only log once
+            remote_high_watermark_active_ = true;
+            ENVOY_LOG(debug, "channel {}: write buffer high watermark is active");
+          }
+          return absl::OkStatus();
+        }
         if (r.err_->getSystemErrorCode() == SOCKET_ERROR_INVAL) {
           // peer is closed. we could check this ourselves, but the socket write() implementation
           // does it anyway, so it would be redundant.
@@ -442,7 +441,8 @@ private:
         ENVOY_LOG(debug, "channel {}: socks5 handshake completed (server address: {})",
                   peer_state_.channel_id, result.value()->asString());
         if (io_handle_->isOpen()) {
-          io_handle_->enableFileEvents(Event::FileReadyType::Read | Event::FileReadyType::Write | Event::FileReadyType::Closed);
+          // We had only enabled close events before, enable read and write events now
+          enableFileEvents<Event::FileReadyType::Read | Event::FileReadyType::Write>();
         }
         socks5_handshaker_.reset();
       } else {
@@ -454,10 +454,10 @@ private:
       }
     }
 
-    if (auto stat = writeReady(); !stat.ok()) {
-      return stat;
+    if (remote_high_watermark_active_) {
+      return absl::OkStatus();
     }
-    return absl::OkStatus();
+    return writeReady();
   }
 
   void maybeWarnOnEOF() {
@@ -470,7 +470,7 @@ private:
                               num_local_window_adjustments_ == 0;
     bool requestedHostHasWildcards = (requestedHost == "" || requestedHost == "localhost" ||
                                       requestedHost.contains("*") || requestedHost.contains("?"));
-    if (isFirstMsgReceived && metadata_->server_port().is_dynamic() && requestedHostHasWildcards) {
+    if (isFirstMsgReceived && !metadata_->server_port().is_dynamic() && requestedHostHasWildcards) {
       auto diag = std::make_unique<pomerium::extensions::ssh::Diagnostic>();
       diag->set_severity(pomerium::extensions::ssh::Diagnostic::Warning);
       diag->set_message("ssh client may be expecting dynamic port-forwarding");
@@ -496,6 +496,35 @@ private:
     }
   }
 
+  template <auto E>
+    requires ((E & EventTypeMask) == E)
+  void initializeFileEvents() {
+    enabled_file_events_ = static_cast<uint8_t>(E);
+    io_handle_->initializeFileEvent(
+      remote_dispatcher_,
+      [this](uint32_t events) {
+        onFileEvent(events);
+        // errors returned from this callback are fatal
+        return absl::OkStatus();
+      },
+      Event::PlatformDefaultTriggerType,
+      enabled_file_events_);
+  }
+
+  template <auto E>
+    requires ((E & EventTypeMask) == E)
+  void enableFileEvents() {
+    enabled_file_events_ |= static_cast<uint8_t>(E);
+    io_handle_->enableFileEvents(enabled_file_events_);
+  }
+
+  template <auto E>
+    requires ((E & EventTypeMask) == E)
+  void disableFileEvents() {
+    enabled_file_events_ &= ~static_cast<uint8_t>(E);
+    io_handle_->enableFileEvents(enabled_file_events_);
+  }
+
   struct peer_state_t {
     RemoteStreamHandlerCallbacks* callbacks{};
     uint32_t max_packet_size{};
@@ -503,9 +532,11 @@ private:
     uint32_t upstream_window{};
   };
 
-  bool initialized_{false};
-  bool received_channel_close_{false};
-  bool detached_ ABSL_GUARDED_BY(detach_lock_){false};
+  bool initialized_ : 1 {false};
+  bool received_channel_close_ : 1 {false};
+  bool remote_high_watermark_active_ : 1 {false};
+  bool detached_ : 1 ABSL_GUARDED_BY(detach_lock_){false};
+  uint8_t enabled_file_events_{};
   uint32_t local_window_{wire::ChannelWindowSize};
   absl::Mutex detach_lock_;
   IoSocket::UserSpace::IoHandleImplPtr io_handle_;
@@ -844,6 +875,9 @@ public:
     auto metadata = addrImpl.endpointMetadata();
     ENVOY_LOG(debug, "requesting downstream channel for stream {} via port {}", streamId, metadata->server_port().value());
     auto [local, remote] = IoHandleFactory::createIoHandlePair(std::make_unique<InternalStreamPassthroughState>());
+    local->setWriteRequiresReadEventEnabled(true);
+    remote->setWriteRequiresReadEventEnabled(true);
+
     auto passthroughState = InternalStreamPassthroughState::fromIoHandle(*local);
     auto upstreamAddr = chooseAddress();
 

@@ -56,6 +56,7 @@ http_archive(
         "//patches/envoy:0006-coverage-format.patch",
         "//patches/envoy:0007-userspace-socket-40748.patch",
         "//patches/envoy:0008-downstream-connected-40747.patch",
+        "//patches/envoy:0010-user-space-io-handle.patch",
         "//patches/envoy:tmp-fix-upstream-connection-callbacks.patch",
         "//patches/envoy:tmp-transport-socket-options.patch",
     ],
