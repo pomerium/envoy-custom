@@ -7,6 +7,7 @@
 #include "source/extensions/filters/network/ssh/wire/common.h"
 
 #pragma clang unsafe_buffer_usage begin
+#include "absl/strings/escaping.h"
 #include "envoy/config/core/v3/base.pb.h"
 #pragma clang unsafe_buffer_usage end
 
@@ -179,7 +180,17 @@ absl::StatusOr<SSHKeyPtr> SSHKey::fromPrivateKeyFile(const std::string& filepath
 }
 
 absl::StatusOr<std::unique_ptr<SSHKey>> SSHKey::fromPrivateKeyBytes(const std::string& bytes) {
-  detail::sshbuf_ptr buffer{sshbuf_from(bytes.data(), bytes.size())};
+  detail::sshbuf_ptr buffer;
+  std::string decoded;
+  if (bytes.starts_with("LS0tLS1C")) { // base64 "-----B"
+    if (absl::Base64Unescape(bytes, &decoded)) {
+      buffer = sshbuf_from(decoded.data(), decoded.size());
+    } else {
+      return absl::InvalidArgumentError("invalid base64");
+    }
+  } else {
+    buffer = sshbuf_from(bytes.data(), bytes.size());
+  }
   ASSERT(buffer != nullptr);
   detail::sshkey_ptr key;
   CStringPtr<char> comment;
@@ -344,7 +355,7 @@ std::unique_ptr<SSHKey> SSHKey::toPublicKey() const {
   return absl::WrapUnique(new SSHKey(std::move(key), nullptr));
 }
 
-absl::StatusOr<std::string> SSHKey::formatPrivateKey(sshkey_private_format format) const {
+absl::StatusOr<std::string> SSHKey::formatPrivateKey(sshkey_private_format format, bool base64_encode) const {
   detail::sshbuf_ptr buf(sshbuf_new());
   const char* comment = "";
   if (comment_) {
@@ -355,8 +366,14 @@ absl::StatusOr<std::string> SSHKey::formatPrivateKey(sshkey_private_format forma
       err != 0) {
     return statusFromErr(err);
   }
-  auto view = unsafe_forge_span(sshbuf_ptr(buf.get()), sshbuf_len(buf.get()));
-  return std::string(view.begin(), view.end());
+  auto view = unsafe_forge_span(reinterpret_cast<const char*>(sshbuf_ptr(buf.get())), sshbuf_len(buf.get()));
+  std::string out;
+  if (base64_encode) {
+    absl::Base64Escape(std::string_view(view), &out);
+  } else {
+    out.assign(view.begin(), view.end());
+  }
+  return out;
 }
 
 std::string SSHKey::formatPublicKey() const {

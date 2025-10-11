@@ -36,6 +36,7 @@ TEST_F(InternalStreamAddressImplTest, FactoryAddress) {
   metadata->mutable_server_port()->set_value(56789);
   metadata->mutable_server_port()->set_is_dynamic(true);
   InternalStreamAddressImpl address(1, metadata, fake_socket_interface_factory_);
+
   EXPECT_EQ(1, address.streamId());
   EXPECT_EQ(metadata, address.endpointMetadata());
   EXPECT_EQ("ssh:1", address.asString());

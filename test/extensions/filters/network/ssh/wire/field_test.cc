@@ -546,6 +546,7 @@ TEST(SubMessageTest, DecodeUnknown) {
   EXPECT_TRUE(r.ok()) << r.status().ToString();
   EXPECT_EQ(expected.size(), *r);
 
+  EXPECT_TRUE(submsg.has_unknown_value());
   EXPECT_EQ(expected, *submsg.getUnknownBytesForTest());
 
   EXPECT_FALSE(submsg.holds_alternative<TestSubMsg1>());
@@ -556,6 +557,7 @@ TEST(SubMessageTest, DecodeUnknown) {
   EXPECT_EQ(expected.size(), *r);
   EXPECT_FALSE(submsg.holds_alternative<TestSubMsg1>());
 
+  EXPECT_TRUE(submsg.has_unknown_value());
   EXPECT_EQ(expected, *submsg.getUnknownBytesForTest());
 
   // set key_field
@@ -567,6 +569,7 @@ TEST(SubMessageTest, DecodeUnknown) {
   EXPECT_EQ(expected.size(), *r);
   EXPECT_TRUE(submsg.holds_alternative<TestSubMsg1>());
   EXPECT_EQ(m1, submsg.get<TestSubMsg1>());
+  EXPECT_FALSE(submsg.has_unknown_value());
   EXPECT_FALSE(submsg.getUnknownBytesForTest().has_value());
 }
 
@@ -583,7 +586,23 @@ TEST(SubMessageTest, DecodeUnknown_KnownValue) {
   EXPECT_EQ(0, buffer.length());
   EXPECT_TRUE(msg.request.holds_alternative<TestSubMsg1>());
 
-  EXPECT_ENVOY_BUG(msg.request.decodeUnknown().IgnoreError(), "decodeUnknown() called with known value");
+  EXPECT_FALSE(msg.request.has_unknown_value());
+  EXPECT_EQ(absl::InternalError("message has no unknown value to decode"), msg.request.decodeUnknown().status());
+}
+
+TEST(SubMessageTest, DecodeUnknown_Empty) {
+  TestMessage empty;
+  EXPECT_FALSE(empty.request.has_value());
+  EXPECT_FALSE(empty.request.has_unknown_value());
+  EXPECT_EQ(absl::InternalError("message has no unknown value to decode"), empty.request.decodeUnknown().status());
+
+  Buffer::OwnedImpl buffer;
+  write(buffer, SshMessageType(200));
+  write_opt<LengthPrefixed>(buffer, "test"s);
+  EXPECT_TRUE(empty.decode(buffer, buffer.length()).ok());
+  EXPECT_FALSE(empty.request.has_value());
+  EXPECT_FALSE(empty.request.has_unknown_value());
+  EXPECT_EQ(absl::InternalError("message has no unknown value to decode"), empty.request.decodeUnknown().status());
 }
 
 struct SubMsg2Strings {

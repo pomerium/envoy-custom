@@ -9,6 +9,7 @@
 #include "test/test_common/test_common.h"
 #include "test/test_common/utility.h"
 #include "absl/synchronization/notification.h"
+#include "test/mocks/server/server_factory_context.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 namespace test {
@@ -16,11 +17,11 @@ namespace test {
 template <typename T>
 class MockBaseTransport : public TransportBase<T> {
 public:
-  MockBaseTransport(Api::Api& api,
+  MockBaseTransport(Server::Configuration::ServerFactoryContext& context,
                     std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
                     const SecretsProvider& secrets_provider)
-      : TransportBase<T>(api, config, secrets_provider),
-        dispatcher_(api.allocateDispatcher(std::string(codec_traits<T>::name))) {
+      : TransportBase<T>(context, config, secrets_provider),
+        dispatcher_(context.api().allocateDispatcher(std::string(codec_traits<T>::name))) {
     SetVersion(fmt::format("SSH-2.0-{}", codec_traits<T>::name));
   }
 
@@ -216,13 +217,17 @@ template <typename TestOptions>
 class TransportBaseTest : public testing::Test {
 public:
   TransportBaseTest()
-      : api_(Api::createApiForTest()),
+      : api_([this] {
+          auto api = Api::createApiForTest();
+          ON_CALL(context_, api()).WillByDefault(ReturnRef(*api.get()));
+          return api;
+        }()),
         server_config_(newServerConfig()),
         client_config_(newClientConfig()),
         server_secrets_provider_(*server_config_),
         client_secrets_provider_(*client_config_),
-        server_transport_(*api_, server_config_, server_secrets_provider_),
-        client_transport_(*api_, client_config_, client_secrets_provider_) {}
+        server_transport_(context_, server_config_, server_secrets_provider_),
+        client_transport_(context_, client_config_, client_secrets_provider_) {}
 
   auto newServerConfig() {
     auto conf = std::make_shared<pomerium::extensions::ssh::CodecConfig>();
@@ -383,6 +388,7 @@ public:
   }
 
 protected:
+  testing::NiceMock<Envoy::Server::Configuration::MockServerFactoryContext> context_;
   Api::ApiPtr api_;
   Thread::ThreadPtr server_thread_;
   Thread::ThreadPtr client_thread_;
