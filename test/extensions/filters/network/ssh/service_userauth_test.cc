@@ -564,9 +564,9 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowInternal) {
   auto msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
   auto* allow = msg->mutable_auth_response()->mutable_allow();
   auto* filter_metadata = allow->mutable_internal()->mutable_set_metadata()->mutable_filter_metadata();
-  ProtobufWkt::Value v;
+  Protobuf::Value v;
   v.set_string_value("example-metadata-value");
-  ProtobufWkt::Struct metadata_struct{};
+  Protobuf::Struct metadata_struct{};
   (*metadata_struct.mutable_fields())["example-metadata-key"] = v;
   (*filter_metadata)["example-filter-name"] = metadata_struct;
 

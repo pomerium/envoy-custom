@@ -14,7 +14,7 @@ public:
   ~VariableNameSpan() override = default;
 
   void setTraceId(const absl::string_view& trace_id_hex);
-  std::string name() const;
+  absl::string_view name() const;
   bool sampled() const;
 
   void setOperation(absl::string_view operation_name) override;
@@ -31,6 +31,7 @@ public:
   void setBaggage(absl::string_view key, absl::string_view value) override;
   std::string getTraceId() const override;
   std::string getSpanId() const override;
+  bool useLocalDecision() const override { return false; }
 
   BaseOtelSpan& spanForTest() const;
 

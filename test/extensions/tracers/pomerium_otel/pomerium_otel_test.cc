@@ -92,6 +92,7 @@ TEST_F(PomeriumOtelTest, VariableNameSpan) {
   EXPECT_EQ("", tracing_span->getBaggage("key")); // envoy doesn't implement this
 
   EXPECT_FALSE(tracing_span->getSpanId().empty());
+  EXPECT_FALSE(tracing_span->useLocalDecision());
 
   EXPECT_EQ(static_cast<uint64_t>(0), dynamic_cast<OpenTelemetry::VariableNameSpan*>(tracing_span.get())->spanForTest().spanForTest().end_time_unix_nano());
   tracing_span->finishSpan();

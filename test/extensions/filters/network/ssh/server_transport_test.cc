@@ -264,7 +264,7 @@ public:
         auto* allow = response->mutable_auth_response()->mutable_allow();
         allow->set_username("test");
         auto* internal = allow->mutable_internal();
-        (*internal->mutable_set_metadata()->mutable_filter_metadata())["foo"] = ProtobufWkt::Struct{};
+        (*internal->mutable_set_metadata()->mutable_filter_metadata())["foo"] = Protobuf::Struct{};
         if (add_well_known_metadata) {
           pomerium::extensions::ssh::FilterMetadata sshMetadata;
           sshMetadata.set_stream_id(999); // not otherwise set by us
@@ -608,7 +608,7 @@ public:
     // The allow response can contain metadata which will be sent back at the start of the
     // ServeChannel RPC, to help identify the stream or pass arbitrary data between the rpc handlers.
     ChannelMessage metadataReq;
-    (*metadataReq.mutable_metadata()->mutable_filter_metadata())["foo"] = ProtobufWkt::Struct{};
+    (*metadataReq.mutable_metadata()->mutable_filter_metadata())["foo"] = Protobuf::Struct{};
     pomerium::extensions::ssh::FilterMetadata sshMetadata;
     sshMetadata.set_channel_id(nextInternalId);
     (*metadataReq.mutable_metadata()->mutable_typed_filter_metadata())["com.pomerium.ssh"].PackFrom(sshMetadata);
@@ -716,7 +716,7 @@ TEST_F(HijackedModeTest, HijackedMode_AddWellKnownMetadata) {
   ASSERT_OK(ReadMsg(success));
 
   ChannelMessage metadataReq;
-  (*metadataReq.mutable_metadata()->mutable_filter_metadata())["foo"] = ProtobufWkt::Struct{};
+  (*metadataReq.mutable_metadata()->mutable_filter_metadata())["foo"] = Protobuf::Struct{};
   pomerium::extensions::ssh::FilterMetadata sshMetadata;
   sshMetadata.set_channel_id(transport_.channelIdManager().nextInternalIdForTest());
   sshMetadata.set_stream_id(999); // the stream_id should be passed through
@@ -907,7 +907,7 @@ TEST_F(HijackedModeTest, HijackedMode_InvalidChannelControlMsg_UnpackFailed) {
   ASSERT_OK(StartChannel());
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("received invalid channel message: failed to unpack control action"));
   auto channelMsg = std::make_unique<ChannelMessage>();
-  channelMsg->mutable_channel_control()->mutable_control_action()->PackFrom(ProtobufWkt::StringValue{});
+  channelMsg->mutable_channel_control()->mutable_control_action()->PackFrom(Protobuf::StringValue{});
   serve_channel_callbacks_[0]->onReceiveMessage(std::move(channelMsg));
 }
 
@@ -952,7 +952,7 @@ public:
     RETURN_IF_NOT_OK(ReadMsg(success));
 
     ChannelMessage metadataReq;
-    (*metadataReq.mutable_metadata()->mutable_filter_metadata())["foo"] = ProtobufWkt::Struct{};
+    (*metadataReq.mutable_metadata()->mutable_filter_metadata())["foo"] = Protobuf::Struct{};
     pomerium::extensions::ssh::FilterMetadata sshMetadata;
     sshMetadata.set_channel_id(100);
     (*metadataReq.mutable_metadata()->mutable_typed_filter_metadata())["com.pomerium.ssh"].PackFrom(sshMetadata);
@@ -1127,7 +1127,7 @@ TEST_F(ServerTransportTest, HijackedMode_StreamClosed) {
   ASSERT_OK(ReadMsg(success));
 
   ChannelMessage metadataReq;
-  (*metadataReq.mutable_metadata()->mutable_filter_metadata())["foo"] = ProtobufWkt::Struct{};
+  (*metadataReq.mutable_metadata()->mutable_filter_metadata())["foo"] = Protobuf::Struct{};
   pomerium::extensions::ssh::FilterMetadata sshMetadata;
   sshMetadata.set_channel_id(100);
   (*metadataReq.mutable_metadata()->mutable_typed_filter_metadata())["com.pomerium.ssh"].PackFrom(sshMetadata);
@@ -1355,7 +1355,7 @@ TEST_F(ServerTransportTest, EncodeEffectiveHeaderHandoffComplete) {
   ASSERT_OK(ReadMsg(success));
 
   ChannelMessage metadataReq;
-  (*metadataReq.mutable_metadata()->mutable_filter_metadata())["foo"] = ProtobufWkt::Struct{};
+  (*metadataReq.mutable_metadata()->mutable_filter_metadata())["foo"] = Protobuf::Struct{};
   pomerium::extensions::ssh::FilterMetadata sshMetadata;
   sshMetadata.set_channel_id(transport_.channelIdManager().nextInternalIdForTest());
   (*metadataReq.mutable_metadata()->mutable_typed_filter_metadata())["com.pomerium.ssh"].PackFrom(sshMetadata);

@@ -52,12 +52,12 @@ configure_make(
         "libopenbsd-compat.a",
     ],
     postfix_script = """
-        cp -L libssh.a $INSTALLDIR/lib && \
-        cp -L openbsd-compat/libopenbsd-compat.a $INSTALLDIR/lib && \
-        rm -rf $INSTALLDIR/include/openssh && \
-        mkdir -p $INSTALLDIR/include/openssh/openbsd-compat && \
-        cp -L *.h $INSTALLDIR/include/openssh && \
-        cp -L openbsd-compat/*.h $INSTALLDIR/include/openssh/openbsd-compat
+        cp -L libssh.a $$INSTALLDIR/lib && \
+        cp -L openbsd-compat/libopenbsd-compat.a $$INSTALLDIR/lib && \
+        rm -rf $$INSTALLDIR/include/openssh && \
+        mkdir -p $$INSTALLDIR/include/openssh/openbsd-compat && \
+        cp -L *.h $$INSTALLDIR/include/openssh && \
+        cp -L openbsd-compat/*.h $$INSTALLDIR/include/openssh/openbsd-compat
     """,
     set_file_prefix_map = True,
     targets = [

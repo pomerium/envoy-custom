@@ -13,8 +13,13 @@ void VariableNameSpan::setTraceId(const absl::string_view& trace_id_hex) {
   span_->setTraceId(trace_id_hex);
 }
 
-std::string VariableNameSpan::name() const { return span_->name(); }
-bool VariableNameSpan::sampled() const { return span_->sampled(); }
+absl::string_view VariableNameSpan::name() const {
+  return span_->name();
+}
+
+bool VariableNameSpan::sampled() const {
+  return span_->sampled();
+}
 
 void VariableNameSpan::setOperation(absl::string_view operation_name) {
   span_->setOperation(absl::StrReplaceAll(operation_name, substitutions_));
@@ -28,7 +33,9 @@ void VariableNameSpan::log(SystemTime timestamp, const std::string& event) {
   span_->log(timestamp, event);
 };
 
-void VariableNameSpan::finishSpan() { span_->finishSpan(); }
+void VariableNameSpan::finishSpan() {
+  span_->finishSpan();
+}
 
 void VariableNameSpan::injectContext(Envoy::Tracing::TraceContext& trace_context,
                                      const Tracing::UpstreamContext& upstream) {
@@ -40,18 +47,28 @@ Tracing::SpanPtr VariableNameSpan::spawnChild(const Tracing::Config& config,
   return span_->spawnChild(config, name, start_time);
 }
 
-void VariableNameSpan::setSampled(bool sampled) { span_->setSampled(sampled); };
+void VariableNameSpan::setSampled(bool sampled) {
+  span_->setSampled(sampled);
+};
 
-std::string VariableNameSpan::getBaggage(absl::string_view key) { return span_->getBaggage(key); };
+std::string VariableNameSpan::getBaggage(absl::string_view key) {
+  return span_->getBaggage(key);
+};
 
 void VariableNameSpan::setBaggage(absl::string_view key, absl::string_view value) {
   span_->setBaggage(key, value);
 };
 
-std::string VariableNameSpan::getTraceId() const { return span_->getTraceId(); }
+std::string VariableNameSpan::getTraceId() const {
+  return span_->getTraceId();
+}
 
-std::string VariableNameSpan::getSpanId() const { return span_->getSpanId(); }
+std::string VariableNameSpan::getSpanId() const {
+  return span_->getSpanId();
+}
 
-BaseOtelSpan& VariableNameSpan::spanForTest() const { return *span_; }
+BaseOtelSpan& VariableNameSpan::spanForTest() const {
+  return *span_;
+}
 
 } // namespace Envoy::Extensions::Tracers::OpenTelemetry
