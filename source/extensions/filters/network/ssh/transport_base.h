@@ -57,12 +57,13 @@ class TransportBase : public Codec,
                       public virtual TransportCallbacks,
                       public Logger::Loggable<Logger::Id::filter> {
 public:
-  TransportBase(Api::Api& api,
+  TransportBase(Server::Configuration::ServerFactoryContext& context,
                 std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
                 const SecretsProvider& secrets_provider)
-      : api_(api),
+      : api_(context.api()),
         config_(config),
-        secrets_provider_(secrets_provider) {
+        secrets_provider_(secrets_provider),
+        scope_(context.scope().createScope("ssh")) {
     algorithm_factories_.registerType<Curve25519Sha256KexAlgorithmFactory>();
     cipher_factories_.registerType<Chacha20Poly1305CipherFactory>();
     cipher_factories_.registerType<AESGCM128CipherFactory>();
@@ -272,6 +273,7 @@ public:
 
   const bytes& sessionId() const final { return kex_result_->session_id; }
   const SecretsProvider& secretsProvider() const final { return secrets_provider_; }
+  Stats::Scope& statsScope() const override { return *scope_; }
 
 protected:
   bool version_exchange_done_{};
@@ -339,6 +341,7 @@ protected:
 
 private:
   std::deque<wire::Message> pending_messages_;
+  Stats::ScopeSharedPtr scope_;
 
   void enqueueMessage(wire::Message&& msg) {
     pending_messages_.emplace_front(std::move(msg));
