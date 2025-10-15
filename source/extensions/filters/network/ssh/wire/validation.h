@@ -4,10 +4,8 @@
 #include <cstdio>
 #include <type_traits>
 
-#pragma clang unsafe_buffer_usage begin
 #include "envoy/buffer/buffer.h"
 #include "absl/status/statusor.h"
-#pragma clang unsafe_buffer_usage end
 
 namespace wire::tags {
 struct no_validation : ::tags::no_validation {

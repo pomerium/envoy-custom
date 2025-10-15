@@ -9,10 +9,8 @@
 #include "source/extensions/filters/network/ssh/kex.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 
-#pragma clang unsafe_buffer_usage begin
 #include "envoy/buffer/buffer.h"
 #include "absl/status/statusor.h"
-#pragma clang unsafe_buffer_usage end
 
 #include "gmock/gmock.h" // IWYU pragma: keep
 

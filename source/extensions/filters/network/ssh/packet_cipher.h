@@ -2,9 +2,7 @@
 
 #include <cstdint>
 
-#pragma clang unsafe_buffer_usage begin
 #include "envoy/buffer/buffer.h"
-#pragma clang unsafe_buffer_usage end
 #include "source/common/factory.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
 
