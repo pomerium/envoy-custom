@@ -186,6 +186,26 @@ TEST_F(StreamManagementServiceClientTest, NoopMetadataCallbacks) {
   callbacks_ref->onReceiveTrailingMetadata(Http::ResponseTrailerMapImpl::create());
 }
 
+TEST_F(StreamManagementServiceClientTest, TestStreamStartFails) {
+  StreamManagementServiceClient client(client_);
+  EXPECT_CALL(*client_, startRaw("pomerium.extensions.ssh.StreamManagement", "ManageStream", _, _))
+    .WillOnce(
+      Invoke([&](std::string_view, std::string_view, Grpc::RawAsyncStreamCallbacks& callbacks,
+                 const Http::AsyncClient::StreamOptions&) {
+        // This will be called by Envoy on error, if nullptr is to be returned
+        callbacks.onRemoteClose(Grpc::Status::InvalidArgument, "test error");
+        return nullptr;
+      }));
+  bool called = false;
+  client.setOnRemoteCloseCallback([&](Grpc::Status::GrpcStatus status, std::string err) {
+    EXPECT_EQ(Grpc::Status::InvalidArgument, status);
+    EXPECT_EQ("test error", err);
+    called = true;
+  });
+  client.connect(1, source_addr_);
+  EXPECT_TRUE(called);
+}
+
 class ChannelStreamServiceClientTest : public testing::Test {
 public:
   void SetUp() {
