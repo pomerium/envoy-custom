@@ -19,7 +19,7 @@ TEST(FactoryTest, FactoryTest) {
 
   ASSERT_EQ("pomerium.extensions.TraceContext", factory->createEmptyConfigProto()->GetTypeName());
 
-  ProtobufWkt::Any any_config;
+  Protobuf::Any any_config;
   any_config.PackFrom(cfg);
 
   EXPECT_NE(nullptr, factory->createExtension(any_config, context));
