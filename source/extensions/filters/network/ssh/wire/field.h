@@ -243,6 +243,10 @@ struct sub_message {
     return oneof.has_value();
   }
 
+  constexpr bool has_unknown_value() const {
+    return unknown_.has_value();
+  }
+
   template <typename T>
   constexpr bool holds_alternative() const {
     return oneof.has_value() && std::holds_alternative<T>(*oneof);
@@ -266,6 +270,10 @@ struct sub_message {
 
     // not found
     unknown_ = flushTo<bytes>(buffer, limit);
+    if (unknown_->empty()) {
+      // unset the value so that has_unknown_value() will return false
+      unknown_.reset();
+    }
     oneof.reset();
     return limit;
   }
@@ -277,7 +285,7 @@ struct sub_message {
     if (oneof.has_value()) [[likely]] {
       return encoders[(*oneof).index()](*oneof, buffer);
     }
-    if (unknown_) {
+    if (unknown_.has_value()) {
       buffer.add(unknown_->data(), unknown_->size());
       return unknown_->size();
     }
@@ -286,9 +294,8 @@ struct sub_message {
 
   // Decodes the message contained in the unknown bytes field.
   absl::StatusOr<size_t> decodeUnknown() noexcept {
-    if (!unknown_.has_value()) [[unlikely]] {
-      ENVOY_BUG(false, "decodeUnknown() called with known value");
-      return absl::InternalError("decodeUnknown() called with known value");
+    if (!has_unknown_value()) [[unlikely]] {
+      return absl::InternalError("message has no unknown value to decode");
     }
     bytes unknown_bytes = *std::exchange(unknown_, std::optional<bytes>{});
     auto n = with_buffer_view(unknown_bytes, [this](Envoy::Buffer::Instance& buffer) {
