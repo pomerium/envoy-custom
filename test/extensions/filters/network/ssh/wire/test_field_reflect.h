@@ -177,7 +177,7 @@ struct fmt::formatter<wire::Message> : formatter<decltype(wire::Message::message
 };
 
 namespace wire {
-std::ostream& operator<<(std::ostream& os, const Message& msg) {
+inline std::ostream& operator<<(std::ostream& os, const Message& msg) {
   return os << fmt::to_string(msg);
 }
 } // namespace wire

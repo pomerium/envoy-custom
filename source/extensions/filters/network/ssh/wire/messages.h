@@ -768,10 +768,11 @@ struct is_overload_set<OverloadSet<Args...>> : std::true_type {};
 
 } // namespace detail
 
-struct Message final {
-  detail::top_level_message message;
+template <typename TopLevel>
+struct BasicMessage final {
+  TopLevel message;
 
-  Message() = default;
+  BasicMessage() = default;
 
   // This constructor is explicit when 'msg' is an lvalue reference to avoid unexpected copying
   // and/or forgetting std::move in places where a function accepts Message&& (common throughout).
@@ -782,13 +783,13 @@ struct Message final {
   //  dispatch(auto(d));      // correct: makes a copy of DebugMsg, then moves the copy into reset().
   // The conditional explicit specifier turns the incorrect case into a compiler error.
   template <typename T>
-    requires (!std::same_as<std::decay_t<T>, Message>)
-  explicit(std::is_lvalue_reference_v<T>) Message(T&& msg) {
+    requires (!std::same_as<std::decay_t<T>, BasicMessage>)
+  explicit(std::is_lvalue_reference_v<T>) BasicMessage(T&& msg) {
     reset(std::forward<T>(msg));
   }
 
   template <typename T>
-  Message& operator=(T&& msg) {
+  BasicMessage& operator=(T&& msg) {
     reset(std::forward<T>(msg));
     return *this;
   }
@@ -803,7 +804,7 @@ struct Message final {
   }
 
   void reset() {
-    message = detail::top_level_message{};
+    message = TopLevel{};
   }
 
   bool has_value() const {
@@ -823,11 +824,22 @@ struct Message final {
     }
   }
 
-  constexpr auto operator<=>(const Message&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
+  constexpr auto operator<=>(const BasicMessage&) const = default;
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
+    if (payload_size == 0) {
+      return 0;
+    }
+    message.key_field() = buffer.peekInt<SshMessageType>();
+    return message.decode(buffer, payload_size);
+  }
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept {
+    // NB: messages encode/decode their own types
+    return message.encode(buffer);
+  }
 };
 
+extern template struct BasicMessage<detail::top_level_message>;
+using Message = BasicMessage<detail::top_level_message>;
 using MessagePtr = std::unique_ptr<Message>;
 
 } // namespace wire
