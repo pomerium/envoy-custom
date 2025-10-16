@@ -60,7 +60,7 @@ SshServerTransport::SshServerTransport(Server::Configuration::ServerFactoryConte
                                        CreateGrpcClientFunc create_grpc_client,
                                        StreamTrackerSharedPtr stream_tracker,
                                        const SecretsProvider& secrets_provider)
-    : TransportBase(context.api(), std::move(config), secrets_provider),
+    : TransportBase(context, std::move(config), secrets_provider),
       DownstreamTransportCallbacks(*this),
       stream_tracker_(std::move(stream_tracker)) {
   auto grpcClient = create_grpc_client();

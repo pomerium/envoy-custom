@@ -31,6 +31,8 @@ public:
       .WillRepeatedly(ReturnRef(channel_id_manager_));
     EXPECT_CALL(transport_, secretsProvider)
       .WillRepeatedly(ReturnRef(secrets_provider_));
+    EXPECT_CALL(transport_, statsScope)
+      .Times(AnyNumber());
   }
 
   Peer LocalPeer() const {

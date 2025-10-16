@@ -1,8 +1,8 @@
 #pragma once
 
 #include "source/extensions/filters/network/ssh/wire/messages.h"
-
 #pragma clang unsafe_buffer_usage begin
+#include "envoy/stats/scope.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #pragma clang unsafe_buffer_usage end
 
@@ -24,6 +24,9 @@ public:
 
   // Returns the channel's internal ID.
   virtual uint32_t channelId() const PURE;
+
+  // Base stats scope
+  virtual Stats::Scope& scope() const PURE;
 
 private:
   friend class Channel;

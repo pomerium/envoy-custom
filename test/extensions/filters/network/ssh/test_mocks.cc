@@ -1,9 +1,13 @@
 #include "test/extensions/filters/network/ssh/test_mocks.h"
+#include "gmock/gmock.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 namespace test {
 
-MockTransportCallbacks::MockTransportCallbacks() {}
+MockTransportCallbacks::MockTransportCallbacks() {
+  ON_CALL(*this, statsScope)
+    .WillByDefault(testing::ReturnRef(*store_.rootScope()));
+}
 MockTransportCallbacks::~MockTransportCallbacks() {}
 
 MockDownstreamTransportCallbacks::MockDownstreamTransportCallbacks() {}

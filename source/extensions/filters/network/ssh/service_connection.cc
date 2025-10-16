@@ -171,7 +171,8 @@ ConnectionService::ChannelCallbacksImpl::ChannelCallbacksImpl(ConnectionService&
     : parent_(parent),
       channel_id_mgr_(parent_.transport_.channelIdManager()),
       channel_id_(channel_id),
-      local_peer_(local_peer) {}
+      local_peer_(local_peer),
+      scope_(parent.transport_.statsScope().createScope("channel")) {}
 
 void ConnectionService::ChannelCallbacksImpl::sendMessageLocal(wire::Message&& msg) {
   msg.visit(
