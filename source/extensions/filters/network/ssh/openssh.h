@@ -94,7 +94,7 @@ public:
 
   bytes toPublicKeyBlob() const;
   std::unique_ptr<SSHKey> toPublicKey() const;
-  absl::StatusOr<std::string> formatPrivateKey(sshkey_private_format format = SSHKEY_PRIVATE_OPENSSH) const;
+  absl::StatusOr<std::string> formatPrivateKey(sshkey_private_format format = SSHKEY_PRIVATE_OPENSSH, bool base64_encode = false) const;
   std::string formatPublicKey() const;
   absl::StatusOr<bytes> sign(bytes_view payload, std::string alg = "") const;
   absl::Status verify(bytes_view signature, bytes_view payload, std::string alg = "");

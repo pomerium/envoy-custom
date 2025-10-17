@@ -115,16 +115,24 @@ TEST(SSHKeyTest, FromPrivateKeyBytes) {
     auto privKeyPath = copyTestdataToWritableTmp(absl::StrCat("regress/unittests/sshkey/testdata/", keyName), 0600);
     auto fromFile = SSHKey::fromPrivateKeyFile(privKeyPath);
     ASSERT_OK(fromFile.status());
-    auto fromBytes = SSHKey::fromPrivateKeyBytes(Envoy::TestEnvironment::readFileToStringForTest(privKeyPath));
+    auto privKeyStr = Envoy::TestEnvironment::readFileToStringForTest(privKeyPath);
+    auto fromBytes = SSHKey::fromPrivateKeyBytes(privKeyStr);
     ASSERT_OK(fromBytes.status());
+    std::string privKeyBase64Str;
+    absl::Base64Escape(privKeyStr, &privKeyBase64Str);
+    auto fromBase64 = SSHKey::fromPrivateKeyBytes(privKeyBase64Str);
     ASSERT_EQ(**fromFile, **fromBytes);
+    ASSERT_EQ(**fromFile, **fromBase64);
     if (keyName != "ed25519_1"sv) {
       // ed25519 keys can only be formatted as SSHKEY_PRIVATE_OPENSSH, which is non-deterministic
       auto formattedFromFile = (*fromFile)->formatPrivateKey(SSHKEY_PRIVATE_PEM);
       auto formattedFromBytes = (*fromBytes)->formatPrivateKey(SSHKEY_PRIVATE_PEM);
+      auto formattedFromBytesBase64 = (*fromBytes)->formatPrivateKey(SSHKEY_PRIVATE_PEM, true);
       ASSERT_OK(formattedFromFile.status());
       ASSERT_OK(formattedFromBytes.status());
+      ASSERT_OK(formattedFromBytesBase64.status());
       ASSERT_EQ(*formattedFromFile, *formattedFromBytes);
+      ASSERT_EQ(privKeyBase64Str, *formattedFromBytesBase64);
     }
   }
 }
@@ -132,6 +140,11 @@ TEST(SSHKeyTest, FromPrivateKeyBytes) {
 TEST(SSHKeyTest, FromPrivateKeyBytes_InvalidData) {
   auto fromBytes = SSHKey::fromPrivateKeyBytes("not a ssh private key"s);
   ASSERT_EQ(absl::InvalidArgumentError("invalid format"), fromBytes.status());
+}
+
+TEST(SSHKeyTest, FromPrivateKeyBytes_InvalidBase64Data) {
+  auto fromBytes = SSHKey::fromPrivateKeyBytes("LS0tLS1Cnot base64"s);
+  ASSERT_EQ(absl::InvalidArgumentError("invalid base64"), fromBytes.status());
 }
 
 TEST(SSHKeyTest, FromPrivateKeyBytes_InvalidPublicKeyData) {
