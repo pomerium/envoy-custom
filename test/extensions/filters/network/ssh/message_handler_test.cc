@@ -202,9 +202,11 @@ TEST(SshMessageDispatcherTest, Middleware_Error) {
 TEST(SshMessageDispatcherTest, Middleware_ContinueAndUninstallSelf) {
   testing::StrictMock<MockSshMessageHandler> handler1;
   testing::StrictMock<MockSshMessageMiddleware> middleware1;
+  testing::StrictMock<MockSshMessageMiddleware> middleware2;
   TestMessageDispatcher dispatcher;
   dispatcher.registerHandler(wire::SshMessageType::Debug, &handler1);
   dispatcher.installMiddleware(&middleware1);
+  dispatcher.installMiddleware(&middleware2);
 
   IN_SEQUENCE;
   EXPECT_CALL(middleware1, interceptMessage(MSG(wire::DebugMsg,
@@ -215,8 +217,17 @@ TEST(SshMessageDispatcherTest, Middleware_ContinueAndUninstallSelf) {
       return Continue | UninstallSelf;
     }))
     .RetiresOnSaturation();
+  EXPECT_CALL(middleware2, interceptMessage(MSG(wire::DebugMsg,
+                                                FIELD_EQ(message, "foo bar"))))
+    .WillOnce(Return(Continue));
   EXPECT_CALL(handler1, handleMessage(MSG(wire::DebugMsg,
                                           FIELD_EQ(message, "foo bar"))))
+    .WillOnce(Return(absl::OkStatus()));
+  EXPECT_CALL(middleware2, interceptMessage(MSG(wire::DebugMsg,
+                                                FIELD_EQ(message, "foo"))))
+    .WillOnce(Return(Continue | UninstallSelf));
+  EXPECT_CALL(handler1, handleMessage(MSG(wire::DebugMsg,
+                                          FIELD_EQ(message, "foo"))))
     .WillOnce(Return(absl::OkStatus()));
   EXPECT_CALL(handler1, handleMessage(MSG(wire::DebugMsg,
                                           FIELD_EQ(message, "foo"))))
@@ -224,6 +235,7 @@ TEST(SshMessageDispatcherTest, Middleware_ContinueAndUninstallSelf) {
 
   wire::DebugMsg msg;
   msg.message = "foo";
+  EXPECT_OK(dispatcher.dispatch(auto(msg)));
   EXPECT_OK(dispatcher.dispatch(auto(msg)));
   EXPECT_OK(dispatcher.dispatch(auto(msg)));
 }

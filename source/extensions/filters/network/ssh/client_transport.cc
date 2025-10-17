@@ -253,7 +253,7 @@ stream_id_t SshClientTransport::streamId() const {
 }
 
 void SshClientTransport::terminate(absl::Status err) {
-  ENVOY_LOG(error, "ssh: stream {} closing with error: {}", streamId(), err.message());
+  ENVOY_LOG(error, "ssh: stream {} closing with error: {}", streamId(), statusToString(err));
 
   wire::DisconnectMsg msg;
   msg.reason_code = openssh::statusCodeToDisconnectCode(err.code());

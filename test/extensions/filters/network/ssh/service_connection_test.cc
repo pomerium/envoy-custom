@@ -7,6 +7,8 @@
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/service_connection.h"
 
+#include "test/mocks/server/server_factory_context.h"
+#include "source/extensions/filters/network/ssh/stream_tracker.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "test/extensions/filters/network/ssh/test_mocks.h"
 #include "test/extensions/filters/network/ssh/wire/test_field_reflect.h"
@@ -96,6 +98,20 @@ TEST_P(ConnectionServiceTest, StartChannel_ChannelCallbacksError) {
   EXPECT_CALL(*ch1, Die);
   auto id = service_.startChannel(std::move(ch1));
   ASSERT_EQ(absl::InternalError("test error"), id.status());
+}
+
+TEST_P(ConnectionServiceTest, SetChannelCallbacks) {
+  auto ch1 = std::make_unique<testing::StrictMock<MockChannel>>();
+  IN_SEQUENCE;
+  EXPECT_CALL(*ch1, setChannelCallbacks).WillOnce([](ChannelCallbacks& cb) {
+    EXPECT_EQ(100, cb.channelId());
+    EXPECT_NE(nullptr, &cb.scope());
+    return absl::OkStatus();
+  });
+  EXPECT_CALL(*ch1, Die);
+  auto id = service_.startChannel(std::move(ch1));
+  ASSERT_OK(id);
+  EXPECT_EQ(100, id.value());
 }
 
 TEST_P(ConnectionServiceTest, OpenPassthroughChannelOnChannelOpen) {
@@ -536,6 +552,58 @@ TEST_F(UpstreamConnectionServiceTest, onServiceAccepted) {
 TEST_F(UpstreamConnectionServiceTest, HandleMessageUnknown) {
   auto r = service_->handleMessage(wire::Message{wire::DebugMsg{}});
   ASSERT_EQ(absl::InternalError("unknown message"), r);
+}
+
+// Note: most functionality in this class is tested in server_transport_test
+class DownstreamConnectionServiceTest : public testing::Test {
+public:
+  DownstreamConnectionServiceTest() {
+    transport_ = std::make_unique<testing::StrictMock<MockDownstreamTransportCallbacks>>();
+    service_ = std::make_unique<DownstreamConnectionService>(*transport_, std::make_shared<StreamTracker>(context_));
+    service_->registerMessageHandlers(msg_dispatcher_);
+  }
+
+protected:
+  TestSshMessageDispatcher msg_dispatcher_;
+  testing::NiceMock<Server::Configuration::MockServerFactoryContext> context_;
+  std::unique_ptr<testing::StrictMock<MockDownstreamTransportCallbacks>> transport_;
+  std::unique_ptr<DownstreamConnectionService> service_;
+};
+
+TEST_F(DownstreamConnectionServiceTest, TestSendChannelEvent) {
+  pomerium::extensions::ssh::ChannelEvent ev1;
+  ev1.mutable_internal_channel_opened()->set_hostname("foo");
+  ev1.mutable_internal_channel_opened()->set_channel_id(1234);
+
+  pomerium::extensions::ssh::ChannelEvent ev2;
+  ev2.mutable_internal_channel_closed()->set_channel_id(1234);
+  ev2.mutable_internal_channel_closed()->set_reason("foo");
+
+  pomerium::extensions::ssh::ChannelEvent ev3;
+  ev3.mutable_internal_channel_stats()->mutable_stats()->set_rx_bytes_total(123);
+  ev3.mutable_internal_channel_stats()->mutable_stats()->set_rx_packets_total(1);
+
+  for (const auto& ev : {ev1, ev2, ev3}) {
+    pomerium::extensions::ssh::StreamEvent expectedEvent;
+    expectedEvent.mutable_channel_event()->CopyFrom(ev);
+
+    pomerium::extensions::ssh::ClientMessage msg;
+    EXPECT_CALL(*transport_, sendMgmtClientMessage(_))
+      .WillOnce(SaveArg<0>(&msg));
+
+    service_->sendChannelEvent(ev);
+    EXPECT_THAT(msg.event().channel_event(), Envoy::ProtoEq(ev));
+  }
+
+  pomerium::extensions::ssh::ChannelEvent empty;
+  EXPECT_THROW_WITH_MESSAGE(service_->sendChannelEvent(empty),
+                            Envoy::EnvoyException,
+                            "invalid channel event");
+}
+
+TEST_F(DownstreamConnectionServiceTest, TestReceiveInvalidServerMessage) {
+  EXPECT_EQ(absl::InternalError("invalid server message"),
+            service_->handleMessage(std::make_unique<ServerMessage>()));
 }
 
 } // namespace test

@@ -3,7 +3,7 @@
 namespace Envoy::Network::Address {
 
 InternalStreamAddressImpl::InternalStreamAddressImpl(stream_id_t stream_id,
-                                                     SshEndpointMetadataConstSharedPtr metadata,
+                                                     Upstream::MetadataConstSharedPtr metadata,
                                                      std::shared_ptr<SocketInterfaceFactory> socket_interface_factory)
     : stream_id_(stream_id),
       stream_address_(fmt::format("ssh:{}", stream_id)),

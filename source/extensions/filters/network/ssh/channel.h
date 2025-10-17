@@ -90,6 +90,7 @@ public:
 class ChannelEventCallbacks {
 public:
   virtual ~ChannelEventCallbacks() = default;
+  virtual void sendChannelEvent(const pomerium::extensions::ssh::ChannelEvent& ev) PURE;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
