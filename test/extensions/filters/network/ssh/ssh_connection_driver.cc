@@ -294,9 +294,10 @@ void SshConnectionDriver::TaskCallbacksImpl::loop(std::chrono::milliseconds inte
 }
 
 testing::AssertionResult SshConnectionDriver::wait(UntypedTaskCallbacksHandle& handle) {
-  if (!dynamic_cast<TaskCallbacksImpl&>(handle).started_) {
-    PANIC("test bug: wait() called on unstarted task");
-  }
+  auto& handle_impl = dynamic_cast<TaskCallbacksImpl&>(handle);
+  RELEASE_ASSERT(handle_impl.started_, "test bug: wait() called on unstarted task");
+  RELEASE_ASSERT(!handle_impl.wait_called_, "test bug: wait() called twice on the same task handle");
+  handle_impl.wait_called_ = true;
 
   bool timed_out{};
   auto timeout = connectionDispatcher()->createTimer([this, &timed_out] {
@@ -307,7 +308,7 @@ testing::AssertionResult SshConnectionDriver::wait(UntypedTaskCallbacksHandle& h
   // should time out first
   timeout->enableTimer(default_timeout_ + default_timeout_ / 2);
 
-  auto weak_token = std::weak_ptr{dynamic_cast<TaskCallbacksImpl&>(handle).token_};
+  auto weak_token = std::weak_ptr{handle_impl.token_};
   {
     auto shared_token = weak_token.lock();
     if (shared_token == nullptr) {

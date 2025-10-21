@@ -693,6 +693,13 @@ TEST_F(ClientTransportTest, Terminate) {
   transport_.terminate(absl::ResourceExhaustedError("test error"));
 }
 
+TEST_F(ClientTransportTest, TerminateOnlyOnce) {
+  ASSERT_OK(StartTransportNormal());
+  ExpectDisconnectAsHeader(absl::ResourceExhaustedError("test error"));
+  transport_.terminate(absl::ResourceExhaustedError("test error"));
+  transport_.terminate(absl::InternalError("this error should be ignored"));
+}
+
 TEST_F(ClientTransportTest, Handoff) {
   auto internalId = StartTransportHandoff();
   ASSERT_OK(internalId);

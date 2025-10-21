@@ -189,7 +189,7 @@ void ConnectionService::ChannelCallbacksImpl::sendMessageLocal(wire::Message&& m
         // connection. Protects against misbehaving clients who might ignore channel close to
         // keep a connection alive longer than they are permitted to, e.g. if we send a channel
         // close as a way to gracefully signal that the host is being drained.
-        parent_.transport_.terminate(absl::PermissionDeniedError(""));
+        parent_.transport_.terminate(absl::DeadlineExceededError("timed out waiting for channel close"));
       });
       close_timer_->enableTimer(CloseResponseGracePeriod);
     },

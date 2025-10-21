@@ -69,6 +69,41 @@ private:
   absl::AnyInvocable<void()> init_callback_;
 };
 
+class InternalStreamSocketInterface : public SocketInterface,
+                                      public Logger::Loggable<Logger::Id::filter> {
+public:
+  InternalStreamSocketInterface(std::shared_ptr<StreamTracker> stream_tracker,
+                                std::vector<std::shared_ptr<const envoy::config::core::v3::Address>> upstream_addresses,
+                                Event::Dispatcher& incoming_dispatcher,
+                                ReverseTunnelStats& reverse_tunnel_stats);
+
+  IoHandlePtr socket(Socket::Type, Address::Type, Address::IpVersion,
+                     bool, const SocketCreationOptions&) const override {
+    // Note: as far as I can tell, this overload is never called within Envoy
+    throw Envoy::EnvoyException("not implemented");
+  }
+
+  IoHandlePtr socket(Socket::Type socket_type,
+                     const Address::InstanceConstSharedPtr addr,
+                     const SocketCreationOptions&) const override;
+
+  bool ipFamilySupported(int domain) override {
+    return domain == AF_INET || domain == AF_INET6;
+  }
+
+private:
+  std::shared_ptr<const envoy::config::core::v3::Address> chooseAddress() const {
+    auto addr = upstream_addresses_[round_robin_index_];
+    round_robin_index_ = (round_robin_index_ + 1) % upstream_addresses_.size();
+    return addr;
+  }
+  mutable std::shared_ptr<StreamTracker> stream_tracker_;
+  std::vector<std::shared_ptr<const envoy::config::core::v3::Address>> upstream_addresses_;
+  Event::Dispatcher& incoming_dispatcher_;
+  ReverseTunnelStats& reverse_tunnel_stats_;
+  mutable size_t round_robin_index_{0};
+};
+
 } // namespace Network
 
 namespace Upstream {

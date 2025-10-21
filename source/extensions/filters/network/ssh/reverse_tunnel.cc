@@ -638,7 +638,7 @@ public:
   absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&& confirm) override {
     if (host_draining_) {
       // See comment in onHostDraining() for details
-      maybeSendChannelClose(absl::UnavailableError("host is draining"), true);
+      maybeSendChannelClose(absl::UnavailableError("host is draining"), false);
       return absl::OkStatus();
     }
     remote_->initialize(*this, confirm, &local_queue_);
@@ -854,7 +854,7 @@ private:
 
     host_draining_ = true;
     if (remote_initialized_) {
-      maybeSendChannelClose(absl::UnavailableError("host is draining"), true);
+      maybeSendChannelClose(absl::UnavailableError("host is draining"), false);
     }
   }
 
@@ -895,93 +895,72 @@ namespace Envoy::Network {
 using Envoy::Extensions::NetworkFilters::GenericProxy::Codec::InternalDownstreamChannel;
 using Extensions::NetworkFilters::GenericProxy::Codec::StreamContext;
 
-class InternalStreamSocketInterface : public SocketInterface,
-                                      public Logger::Loggable<Logger::Id::filter> {
-public:
-  InternalStreamSocketInterface(std::shared_ptr<StreamTracker> stream_tracker,
-                                std::vector<std::shared_ptr<const envoy::config::core::v3::Address>> upstream_addresses,
-                                Event::Dispatcher& incoming_dispatcher,
-                                ReverseTunnelStats& reverse_tunnel_stats)
-      : stream_tracker_(std::move(stream_tracker)),
-        upstream_addresses_(std::move(upstream_addresses)),
-        incoming_dispatcher_(incoming_dispatcher),
-        reverse_tunnel_stats_(reverse_tunnel_stats) {
-    ASSERT(stream_tracker_ != nullptr);
-  }
+InternalStreamSocketInterface::InternalStreamSocketInterface(
+  std::shared_ptr<StreamTracker> stream_tracker,
+  std::vector<std::shared_ptr<const envoy::config::core::v3::Address>> upstream_addresses,
+  Event::Dispatcher& incoming_dispatcher,
+  ReverseTunnelStats& reverse_tunnel_stats)
+    : stream_tracker_(std::move(stream_tracker)),
+      upstream_addresses_(std::move(upstream_addresses)),
+      incoming_dispatcher_(incoming_dispatcher),
+      reverse_tunnel_stats_(reverse_tunnel_stats) {
+  ASSERT(stream_tracker_ != nullptr);
+}
 
-  // SocketInterface
-  IoHandlePtr socket(Socket::Type, Address::Type, Address::IpVersion,
-                     bool, const SocketCreationOptions&) const override {
-    throw Envoy::EnvoyException("not implemented");
-  }
-  IoHandlePtr socket(Socket::Type socket_type,
-                     const Address::InstanceConstSharedPtr addr,
-                     const SocketCreationOptions&) const override {
-    ASSERT(socket_type == Socket::Type::Stream);
-    const auto& addrImpl = dynamic_cast<const Address::SshStreamAddress&>(*addr);
-    auto streamId = addrImpl.streamId();
-    auto [local, remote] = IoHandleFactory::createIoHandlePair(std::make_unique<InternalStreamPassthroughState>());
-    local->setWriteRequiresReadEventEnabled(true);
-    remote->setWriteRequiresReadEventEnabled(true);
+IoHandlePtr InternalStreamSocketInterface::socket(Socket::Type socket_type,
+                                                  const Address::InstanceConstSharedPtr addr,
+                                                  const SocketCreationOptions&) const {
+  ASSERT(socket_type == Socket::Type::Stream);
+  const auto& addrImpl = dynamic_cast<const Address::SshStreamAddress&>(*addr);
+  auto streamId = addrImpl.streamId();
+  auto [local, remote] = IoHandleFactory::createIoHandlePair(std::make_unique<InternalStreamPassthroughState>());
+  local->setWriteRequiresReadEventEnabled(true);
+  remote->setWriteRequiresReadEventEnabled(true);
 
-    auto passthroughState = InternalStreamPassthroughState::fromIoHandle(*local);
-    auto upstreamAddr = chooseAddress();
+  auto passthroughState = InternalStreamPassthroughState::fromIoHandle(*local);
+  auto upstreamAddr = chooseAddress();
 
-    passthroughState->setOnInitializedCallback(
-      [this,
-       host_context = &addrImpl.hostContext(),
-       io_handle = std::move(local),
-       upstreamAddr = std::move(upstreamAddr),
-       streamId] mutable {
-        ENVOY_LOG(debug, "channel {}: starting remote stream handler");
-        using Extensions::NetworkFilters::GenericProxy::Codec::RemoteStreamHandler;
-        auto passthroughState = Network::InternalStreamPassthroughState::fromIoHandle(*io_handle);
-        auto remote = std::make_unique<RemoteStreamHandler>(std::move(io_handle),
-                                                            incoming_dispatcher_,
-                                                            reverse_tunnel_stats_,
-                                                            *host_context,
-                                                            upstreamAddr);
-        stream_tracker_->tryLock(streamId, [remote = std::move(remote),
-                                            upstreamAddr = std::move(upstreamAddr),
-                                            passthroughState,
-                                            host_context,
-                                            streamId](Envoy::OptRef<StreamContext> ctx) mutable {
-          if (!ctx.has_value()) {
-            ENVOY_LOG_MISC(debug, "error requesting channel: stream with ID {} not found", streamId);
-            RemoteStreamHandler::detach(std::move(remote));
-            return;
-          }
-          ASSERT(ctx->connection().dispatcher().isThreadSafe());
-          auto c = std::make_unique<InternalDownstreamChannel>(ctx->connection().dispatcher(),
-                                                               std::move(remote),
-                                                               ctx->eventCallbacks(),
-                                                               *host_context,
-                                                               upstreamAddr,
-                                                               passthroughState);
-          auto id = ctx->streamCallbacks().startChannel(std::move(c), std::nullopt);
-          if (!id.ok()) { // XXX test this case
-            ENVOY_LOG(warn, "failed to start channel: {}", statusToString(id.status()));
-          } else {
-            ENVOY_LOG(debug, "internal downstream channel started: {}", *id);
-          }
-        });
+  passthroughState->setOnInitializedCallback(
+    [this,
+     host_context = &addrImpl.hostContext(),
+     io_handle = std::move(local),
+     upstreamAddr = std::move(upstreamAddr),
+     streamId] mutable {
+      ENVOY_LOG(debug, "channel {}: starting remote stream handler");
+      using Extensions::NetworkFilters::GenericProxy::Codec::RemoteStreamHandler;
+      auto passthroughState = Network::InternalStreamPassthroughState::fromIoHandle(*io_handle);
+      auto remote = std::make_unique<RemoteStreamHandler>(std::move(io_handle),
+                                                          incoming_dispatcher_,
+                                                          reverse_tunnel_stats_,
+                                                          *host_context,
+                                                          upstreamAddr);
+      stream_tracker_->tryLock(streamId, [remote = std::move(remote),
+                                          upstreamAddr = std::move(upstreamAddr),
+                                          passthroughState,
+                                          host_context,
+                                          streamId](Envoy::OptRef<StreamContext> ctx) mutable {
+        if (!ctx.has_value()) {
+          ENVOY_LOG_MISC(debug, "error requesting channel: stream with ID {} not found", streamId);
+          RemoteStreamHandler::detach(std::move(remote));
+          return;
+        }
+        ASSERT(ctx->connection().dispatcher().isThreadSafe());
+        auto c = std::make_unique<InternalDownstreamChannel>(ctx->connection().dispatcher(),
+                                                             std::move(remote),
+                                                             ctx->eventCallbacks(),
+                                                             *host_context,
+                                                             upstreamAddr,
+                                                             passthroughState);
+        auto id = ctx->streamCallbacks().startChannel(std::move(c), std::nullopt);
+        if (!id.ok()) { // XXX test this case
+          ENVOY_LOG(warn, "failed to start channel: {}", statusToString(id.status()));
+        } else {
+          ENVOY_LOG(debug, "internal downstream channel started: {}", *id);
+        }
       });
-    return std::move(remote);
-  }
-  bool ipFamilySupported(int) override { return true; }
-
-private:
-  std::shared_ptr<const envoy::config::core::v3::Address> chooseAddress() const {
-    auto addr = upstream_addresses_[round_robin_index_];
-    round_robin_index_ = (round_robin_index_ + 1) % upstream_addresses_.size();
-    return addr;
-  }
-  mutable std::shared_ptr<StreamTracker> stream_tracker_;
-  std::vector<std::shared_ptr<const envoy::config::core::v3::Address>> upstream_addresses_;
-  Event::Dispatcher& incoming_dispatcher_;
-  ReverseTunnelStats& reverse_tunnel_stats_;
-  mutable size_t round_robin_index_{0};
-};
+    });
+  return std::move(remote);
+}
 
 class SshTunnelClientConnectionFactory : public ClientConnectionFactory,
                                          public Logger::Loggable<Logger::Id::connection> {

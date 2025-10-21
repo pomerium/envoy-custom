@@ -221,6 +221,7 @@ protected:
     std::vector<UntypedTaskCallbacksHandle*> start_after_;
     std::vector<void*> output_ptrs_;
     bool started_{};
+    bool wait_called_{};
 
     std::shared_ptr<token_t> token_ = std::make_shared<token_t>();
     Envoy::Event::TimerPtr timeout_timer_;

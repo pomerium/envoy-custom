@@ -1,5 +1,6 @@
 #include "source/extensions/filters/network/ssh/message_handler.h"
 #include "source/extensions/filters/network/ssh/reverse_tunnel.h"
+#include "source/extensions/filters/network/ssh/service_connection.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "test/extensions/filters/network/ssh/ssh_connection_driver.h"
 #include "test/extensions/filters/network/ssh/ssh_integration_test.h"
@@ -14,34 +15,6 @@
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 namespace test {
-
-TEST(InternalStreamPassthroughStateTest, InitializeCallbackSetBeforeInitialize) {
-  auto md = std::make_unique<envoy::config::core::v3::Metadata>();
-  StreamInfo::FilterState::Objects objects;
-  Envoy::Network::InternalStreamPassthroughState state;
-  CHECK_CALLED({
-    state.setOnInitializedCallback([&] {
-      CALLED;
-    });
-    ASSERT_FALSE(state.isInitialized());
-    state.initialize(std::move(md), objects);
-    ASSERT_TRUE(state.isInitialized());
-  });
-}
-
-TEST(InternalStreamPassthroughStateTest, InitializeCallbackSetAfterInitialize) {
-  auto md = std::make_unique<envoy::config::core::v3::Metadata>();
-  StreamInfo::FilterState::Objects objects;
-  Envoy::Network::InternalStreamPassthroughState state;
-  ASSERT_FALSE(state.isInitialized());
-  state.initialize(std::move(md), objects);
-  ASSERT_TRUE(state.isInitialized());
-  CHECK_CALLED({
-    state.setOnInitializedCallback([&] {
-      CALLED;
-    });
-  });
-}
 
 // Modified from Envoy::EdsHelper which uses a static filepath
 class EdsHelper {
@@ -816,7 +789,7 @@ TEST_P(StaticPortForwardTest, HostDrainClosesDownstreamConnections) {
   auto th2 = driver->createTask<Tasks::WaitForChannelCloseByPeer>()
                .start(channel);
   setClusterLoad(cluster_name, {});
-  ASSERT_TRUE(driver->wait(th));
+  ASSERT_TRUE(driver->wait(th2));
   downstream->waitForDisconnect();
 }
 
@@ -872,6 +845,40 @@ TEST_P(StaticPortForwardTest, HostDrainBeforeChannelOpenFailureClosesDownstreamC
                              .start()));
 
   setClusterLoad(cluster_name, {});
+  downstream->waitForDisconnect();
+}
+
+TEST_P(StaticPortForwardTest, DownstreamConnectWithNoHealthyUpstreams) {
+  setClusterLoad(cluster_name, {});
+  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
+  downstream->waitForDisconnect();
+}
+
+class ChannelCloseTimeoutTest : public Envoy::Event::TestUsingSimulatedTime,
+                                public StaticPortForwardTest {
+  using StaticPortForwardTest::StaticPortForwardTest;
+};
+
+TEST_P(ChannelCloseTimeoutTest, UpstreamIgnoresChannelCloseDuringHostDrain) {
+  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
+  Tasks::Channel channel;
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
+              .saveOutput(&channel)
+              .then(driver->createTask<Tasks::SendChannelData>("ping")
+                      .then(driver->createTask<Tasks::WaitForChannelData>("pong")))
+              .start();
+
+  downstream->waitForData("ping");
+  EXPECT_TRUE(downstream->write("pong"));
+  ASSERT_TRUE(driver->wait(th));
+
+  // Only receive the channel close message, but don't reply
+  auto th2 = driver->createTask<Tasks::WaitForChannelMsg<wire::ChannelCloseMsg>>()
+               .start(channel);
+  setClusterLoad(cluster_name, {});
+  ASSERT_TRUE(driver->wait(th2));
+  simTime().advanceTimeWait(CloseResponseGracePeriod + std::chrono::milliseconds(10));
+  ASSERT_TRUE(driver->wait(driver->createTask<Tasks::WaitForDisconnectWithError>("timed out waiting for channel close").start()));
   downstream->waitForDisconnect();
 }
 
@@ -1324,6 +1331,64 @@ INSTANTIATE_TEST_SUITE_P(EDSUpdates, EDSUpdatesIntegrationTest,
 INSTANTIATE_TEST_SUITE_P(ChannelStats, ChannelStatsIntegrationTest,
                          testing::ValuesIn(TestEnvironment::getIpVersionsForTest()),
                          TestUtility::ipTestParamsToString);
+
+INSTANTIATE_TEST_SUITE_P(ChannelCloseTimeout, ChannelCloseTimeoutTest,
+                         testing::ValuesIn(TestEnvironment::getIpVersionsForTest()),
+                         TestUtility::ipTestParamsToString);
+
+// Misc cases that can't be tested with the above integration tests
+
+class InternalStreamSocketInterfaceUnitTest : public testing::Test {
+public:
+  NiceMock<Server::Configuration::MockServerFactoryContext> context_;
+  ReverseTunnelStatNames names_{context_.store_.symbolTable()};
+  ReverseTunnelStats stats_{names_, context_.scope()};
+  Network::InternalStreamSocketInterface socket_interface_{StreamTracker::fromContext(context_), {}, context_.dispatcher_, stats_};
+};
+
+TEST_F(InternalStreamSocketInterfaceUnitTest, IpFamilySupported) {
+  EXPECT_TRUE(socket_interface_.ipFamilySupported(AF_INET));
+  EXPECT_TRUE(socket_interface_.ipFamilySupported(AF_INET6));
+  EXPECT_FALSE(socket_interface_.ipFamilySupported(AF_UNIX));
+}
+
+TEST_F(InternalStreamSocketInterfaceUnitTest, UnimplementedSocket) {
+  EXPECT_THROW_WITH_MESSAGE(
+    socket_interface_.socket(Envoy::Network::Socket::Type{},
+                             Envoy::Network::Address::Type{},
+                             Envoy::Network::Address::IpVersion{},
+                             false, {}),
+    Envoy::EnvoyException,
+    "not implemented");
+}
+
+TEST(InternalStreamPassthroughStateTest, InitializeCallbackSetBeforeInitialize) {
+  auto md = std::make_unique<envoy::config::core::v3::Metadata>();
+  StreamInfo::FilterState::Objects objects;
+  Envoy::Network::InternalStreamPassthroughState state;
+  CHECK_CALLED({
+    state.setOnInitializedCallback([&] {
+      CALLED;
+    });
+    ASSERT_FALSE(state.isInitialized());
+    state.initialize(std::move(md), objects);
+    ASSERT_TRUE(state.isInitialized());
+  });
+}
+
+TEST(InternalStreamPassthroughStateTest, InitializeCallbackSetAfterInitialize) {
+  auto md = std::make_unique<envoy::config::core::v3::Metadata>();
+  StreamInfo::FilterState::Objects objects;
+  Envoy::Network::InternalStreamPassthroughState state;
+  ASSERT_FALSE(state.isInitialized());
+  state.initialize(std::move(md), objects);
+  ASSERT_TRUE(state.isInitialized());
+  CHECK_CALLED({
+    state.setOnInitializedCallback([&] {
+      CALLED;
+    });
+  });
+}
 
 } // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

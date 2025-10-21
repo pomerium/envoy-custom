@@ -607,6 +607,29 @@ TEST_F(ServerTransportTest, SuccessfulUserAuth_NormalMode) {
   ASSERT_OK(WriteMsg(std::move(authReq)));
 }
 
+TEST_F(ServerTransportTest, SuccessfulUserAuth_NormalMode_UpstreamConnectionFails) {
+  ASSERT_OK(ReadExtInfo());
+
+  auto clientKey = *openssh::SSHKey::generate(KEY_ED25519, 256);
+
+  ASSERT_OK(RequestUserAuthService());
+  auto [authReq, clientMsg] = BuildUserAuthMessages(*clientKey);
+
+  ExpectHandlePomeriumGrpcAuthRequestNormal(clientMsg);
+  EXPECT_CALL(server_codec_callbacks_, onDecodingSuccess(_, _)) // header frame overload
+    .WillOnce(Invoke([this](RequestHeaderFramePtr frame, absl::optional<StartTime>) {
+      // Mimic what generic proxy does here: build a response frame with respond(), then pass it
+      // to encode()
+      GenericProxy::MockEncodingContext ctx;
+
+      auto respHeader = transport_.respond(absl::UnavailableError("no_healthy_upstream"), "test", *frame);
+      auto res = transport_.encode(*respHeader, ctx);
+      EXPECT_OK(res);
+    }));
+
+  ASSERT_OK(WriteMsg(std::move(authReq)));
+}
+
 TEST_F(ServerTransportTest, ForwardGlobalRequests) {
   ASSERT_OK(ReadExtInfo());
 
@@ -1227,6 +1250,29 @@ public:
     *channelMsg->mutable_raw_bytes()->mutable_value() = *wire::encodeTo<std::string>(confirmation);
     serve_channel_callbacks_[0]->onReceiveMessage(std::move(channelMsg));
   }
+
+  ChannelMessage BuildHandOffChannelMessage() {
+    ChannelMessage ctrl;
+    SSHChannelControlAction action;
+    auto* handoff = action.mutable_hand_off();
+    auto* downstreamInfo = handoff->mutable_downstream_channel_info();
+    downstreamInfo->set_downstream_channel_id(1);
+    downstreamInfo->set_internal_upstream_channel_id(100);
+    downstreamInfo->set_channel_type("session");
+    downstreamInfo->set_initial_window_size(wire::ChannelWindowSize);
+    downstreamInfo->set_max_packet_size(wire::ChannelMaxPacketSize);
+    auto* ptyInfo = handoff->mutable_downstream_pty_info();
+    ptyInfo->set_term_env("xterm-256color");
+    ptyInfo->set_height_rows(24);
+    ptyInfo->set_width_columns(80);
+    auto* allow = handoff->mutable_upstream_auth();
+    allow->set_username("test");
+    auto* upstream = allow->mutable_upstream();
+    *upstream->mutable_hostname() = "example";
+    *upstream->add_allowed_methods()->mutable_method() = "publickey";
+    ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action);
+    return ctrl;
+  }
 };
 
 // NOLINTEND(readability-identifier-naming)
@@ -1235,28 +1281,9 @@ TEST_F(HandoffTest, HandoffMode) {
   ASSERT_OK(PrepareHandoff());
   SendChannelOpenConfirmation();
   ExpectUpstreamConnectEvent();
-  ChannelMessage ctrl;
-  SSHChannelControlAction action;
-  auto* handoff = action.mutable_hand_off();
-  auto* downstreamInfo = handoff->mutable_downstream_channel_info();
-  downstreamInfo->set_downstream_channel_id(1);
-  downstreamInfo->set_internal_upstream_channel_id(100);
-  downstreamInfo->set_channel_type("session");
-  downstreamInfo->set_initial_window_size(wire::ChannelWindowSize);
-  downstreamInfo->set_max_packet_size(wire::ChannelMaxPacketSize);
-  auto* ptyInfo = handoff->mutable_downstream_pty_info();
-  ptyInfo->set_term_env("xterm-256color");
-  ptyInfo->set_height_rows(24);
-  ptyInfo->set_width_columns(80);
-  auto* allow = handoff->mutable_upstream_auth();
-  allow->set_username("test");
-  auto* upstream = allow->mutable_upstream();
-  *upstream->mutable_hostname() = "example";
-  *upstream->add_allowed_methods()->mutable_method() = "publickey";
-  ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action);
   EXPECT_CALL(mock_connection_, readDisable(true));
   ExpectDecodingSuccess();
-  ReceiveOnServeChannelStream(ctrl);
+  ReceiveOnServeChannelStream(BuildHandOffChannelMessage());
 
   // any messages sent by the downstream after handoff should be forwarded
   EXPECT_CALL(server_codec_callbacks_,
@@ -1329,6 +1356,22 @@ TEST_F(HandoffTest, HandoffMode_StartDirectTcpipHandoffAfterChannelOpenConfirmat
   ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action);
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("direct-tcpip handoff requested after channel open confirmation"));
   ReceiveOnServeChannelStream(ctrl);
+}
+
+TEST_F(HandoffTest, HandoffMode_UpstreamConnectionFails) {
+  ASSERT_OK(PrepareHandoff());
+  SendChannelOpenConfirmation();
+
+  EXPECT_CALL(mock_connection_, readDisable(true));
+  EXPECT_CALL(server_codec_callbacks_, onDecodingSuccess(_, _)) // header frame overload
+    .WillOnce(Invoke([this](RequestHeaderFramePtr frame, absl::optional<StartTime>) {
+      GenericProxy::MockEncodingContext ctx;
+      auto respHeader = transport_.respond(absl::UnavailableError("no_healthy_upstream"), "test", *frame);
+      auto res = transport_.encode(*respHeader, ctx);
+      EXPECT_OK(res);
+    }));
+
+  ReceiveOnServeChannelStream(BuildHandOffChannelMessage());
 }
 
 TEST_F(ServerTransportTest, SuccessfulUserAuth_MirrorMode) {
