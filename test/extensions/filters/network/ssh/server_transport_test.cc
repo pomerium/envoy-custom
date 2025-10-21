@@ -1650,7 +1650,7 @@ TEST_F(ServerTransportTest, EncodeEffectiveCommon) {
 class ServerTransportResponseCodeTest : public ServerTransportTest,
                                         public testing::WithParamInterface<std::tuple<std::string_view, uint32_t>> {};
 
-TEST_P(ServerTransportResponseCodeTest, ErrorFlagInHeaderFrame) {
+TEST_P(ServerTransportResponseCodeTest, ResponseHeaderFrameFlags) {
   auto [msg, expectedCode] = GetParam();
   auto authInfo = std::make_shared<AuthInfo>();
   authInfo->stream_id = 1234;
@@ -1658,12 +1658,15 @@ TEST_P(ServerTransportResponseCodeTest, ErrorFlagInHeaderFrame) {
   SSHRequestHeaderFrame mockHeaderFrame("example", 1234);
   auto status = absl::Status(absl::StatusCode::kInternal, msg);
   auto responseFrame = transport_.respond(status, "", mockHeaderFrame);
-  ASSERT_EQ(ResponseHeader | EffectiveCommon | Error,
-            responseFrame->frameFlags().frameTags());
+  // The header frame returned by respond() should have end_stream and drain_close set. This is
+  // somewhat of a special case - the generic proxy framework requires at least end_stream set,
+  // which we normally do not set for response header frames (they are required to be the first
+  // frame sent to the downstream, but are usually not the last frame sent). respond() is called
+  // by generic proxy in a few cases, e.g. if the upstream fails. In those cases, the frame must
+  // have end_stream set, otherwise an error will be raised and the connection will stall.
+  ASSERT_EQ(ResponseHeader, responseFrame->frameFlags().frameTags());
   ASSERT_EQ(1234, responseFrame->frameFlags().streamId());
-
-  // The response frame should be a header
-  ASSERT_FALSE(responseFrame->frameFlags().endStream());
+  ASSERT_TRUE(responseFrame->frameFlags().endStream());
   ASSERT_TRUE(responseFrame->frameFlags().drainClose());
 
   auto dc = extractFrameMessage(*responseFrame);

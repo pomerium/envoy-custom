@@ -14,7 +14,7 @@ public:
   bool ipFamilySupported(int) override { return true; }
 };
 
-class FakeSocketInterfaceFactory : public SocketInterfaceFactory {
+class FakeSocketInterfaceFactory : public SshSocketInterfaceFactory {
 public:
   std::unique_ptr<SocketInterface> createSocketInterface(Event::Dispatcher&) {
     return std::make_unique<FakeSocketInterface>();
@@ -29,18 +29,30 @@ public:
   std::shared_ptr<FakeSocketInterfaceFactory> fake_socket_interface_factory_;
 };
 
+class FakeHostContext : public Network::HostContext {
+public:
+  FakeHostContext(const pomerium::extensions::ssh::EndpointMetadata& md)
+      : metadata_(md) {}
+
+  const pomerium::extensions::ssh::EndpointMetadata& hostMetadata() override { return metadata_; }
+  Network::HostDrainManager& hostDrainManager() override { return host_drain_manager_; }
+
+private:
+  pomerium::extensions::ssh::EndpointMetadata metadata_;
+  Network::HostDrainManager host_drain_manager_;
+};
+
 TEST_F(InternalStreamAddressImplTest, FactoryAddress) {
   pomerium::extensions::ssh::EndpointMetadata metadata;
   metadata.mutable_matched_permission()->set_requested_host("host");
   metadata.mutable_matched_permission()->set_requested_port(1234);
   metadata.mutable_server_port()->set_value(56789);
   metadata.mutable_server_port()->set_is_dynamic(true);
-  auto md = std::make_shared<envoy::config::core::v3::Metadata>();
-  (*md->mutable_typed_filter_metadata())["com.pomerium.ssh.endpoint"].PackFrom(metadata);
-  InternalStreamAddressImpl address(1, md, fake_socket_interface_factory_);
+  FakeHostContext ctx(metadata);
+  SshStreamAddress address(1, ctx, fake_socket_interface_factory_);
 
   EXPECT_EQ(1, address.streamId());
-  EXPECT_EQ(md, address.endpointMetadata());
+  EXPECT_EQ(&ctx, &address.hostContext());
   EXPECT_EQ("ssh:1", address.asString());
   EXPECT_EQ("ssh:1", address.asStringView());
   EXPECT_EQ("ssh:1", address.logicalName());
@@ -65,14 +77,14 @@ TEST_F(InternalStreamAddressImplTest, CreateFromFactoryAddress) {
   metadata.mutable_matched_permission()->set_requested_port(1234);
   metadata.mutable_server_port()->set_value(56789);
   metadata.mutable_server_port()->set_is_dynamic(true);
-  auto md = std::make_shared<envoy::config::core::v3::Metadata>();
-  (*md->mutable_typed_filter_metadata())["com.pomerium.ssh.endpoint"].PackFrom(metadata);
-  auto factory_address = std::make_shared<InternalStreamAddressImpl>(1, md, fake_socket_interface_factory_);
+  FakeHostContext ctx(metadata);
+
+  auto factory_address = std::make_shared<SshStreamAddress>(1, ctx, fake_socket_interface_factory_);
   NiceMock<Event::MockDispatcher> dispatcher;
-  auto address = InternalStreamAddressImpl::createFromFactoryAddress(factory_address, dispatcher);
+  auto address = SshStreamAddress::createFromFactoryAddress(factory_address, dispatcher);
 
   EXPECT_EQ(factory_address->streamId(), address->streamId());
-  EXPECT_EQ(factory_address->endpointMetadata(), address->endpointMetadata());
+  EXPECT_EQ(&factory_address->hostContext(), &address->hostContext());
   EXPECT_EQ(factory_address->asString(), address->asString());
   EXPECT_EQ(factory_address->asStringView(), address->asStringView());
   EXPECT_EQ(factory_address->logicalName(), address->logicalName());
@@ -95,9 +107,9 @@ TEST_F(InternalStreamAddressImplTest, CreateFromFactoryAddress) {
 
 TEST_F(InternalStreamAddressImplTest, NoCompareEqual) {
   // Addresses should not compare equal
-  auto metadata = std::make_shared<envoy::config::core::v3::Metadata>();
-  InternalStreamAddressImpl address1(1, metadata, fake_socket_interface_factory_);
-  InternalStreamAddressImpl address2(1, metadata, fake_socket_interface_factory_);
+  FakeHostContext ctx({});
+  SshStreamAddress address1(1, ctx, fake_socket_interface_factory_);
+  SshStreamAddress address2(1, ctx, fake_socket_interface_factory_);
 
   EXPECT_NE(address1, address2);
 }

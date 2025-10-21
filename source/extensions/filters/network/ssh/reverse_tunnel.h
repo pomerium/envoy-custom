@@ -73,7 +73,7 @@ private:
 
 namespace Upstream {
 
-class InternalStreamSocketInterfaceFactory : public Network::Address::SocketInterfaceFactory {
+class InternalStreamSocketInterfaceFactory : public Network::SshSocketInterfaceFactory {
 public:
   InternalStreamSocketInterfaceFactory(std::shared_ptr<StreamTracker> stream_tracker,
                                        const envoy::config::endpoint::v3::ClusterLoadAssignment& load_assignment,

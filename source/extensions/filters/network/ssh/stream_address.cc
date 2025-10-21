@@ -2,24 +2,29 @@
 
 namespace Envoy::Network::Address {
 
-InternalStreamAddressImpl::InternalStreamAddressImpl(InternalStreamContext& context,
-                                                     std::shared_ptr<SocketInterfaceFactory> socket_interface_factory)
-    : context_(context),
-      fake_envoy_internal_addr_(context_.streamAddress()),
+SshStreamAddress::SshStreamAddress(stream_id_t stream_id,
+                                   HostContext& context,
+                                   std::shared_ptr<SshSocketInterfaceFactory> socket_interface_factory)
+    : stream_id_(stream_id),
+      stream_address_(fmt::format("ssh:{}", stream_id)),
+      context_(context),
+      fake_envoy_internal_addr_(stream_address_),
       socket_interface_factory_(socket_interface_factory) {}
 
-InternalStreamAddressImpl::InternalStreamAddressImpl(const InternalStreamAddressConstSharedPtr& factory_address,
-                                                     Event::Dispatcher& connection_dispatcher)
-    : context_(factory_address->context_),
-      fake_envoy_internal_addr_(context_.streamAddress()),
+SshStreamAddress::SshStreamAddress(const SshStreamAddressConstSharedPtr& factory_address,
+                                   Event::Dispatcher& connection_dispatcher)
+    : stream_id_(factory_address->stream_id_),
+      stream_address_(factory_address->stream_address_),
+      context_(factory_address->context_),
+      fake_envoy_internal_addr_(factory_address->stream_address_),
       socket_interface_(factory_address->socketInterfaceFactory().createSocketInterface(connection_dispatcher)) {}
 
-InternalStreamAddressImpl::~InternalStreamAddressImpl() = default;
+SshStreamAddress::~SshStreamAddress() = default;
 
-std::shared_ptr<InternalStreamAddressImpl>
-InternalStreamAddressImpl::createFromFactoryAddress(const InternalStreamAddressConstSharedPtr& factory_address,
-                                                    Event::Dispatcher& connection_dispatcher) {
-  return std::make_shared<InternalStreamAddressImpl>(factory_address, connection_dispatcher);
+std::shared_ptr<SshStreamAddress>
+SshStreamAddress::createFromFactoryAddress(const SshStreamAddressConstSharedPtr& factory_address,
+                                           Event::Dispatcher& connection_dispatcher) {
+  return std::make_shared<SshStreamAddress>(factory_address, connection_dispatcher);
 }
 
 } // namespace Envoy::Network::Address

@@ -46,15 +46,15 @@ class RemoteStreamHandler : public Logger::Loggable<Logger::Id::filter>,
                             public Event::DeferredDeletable,
                             public Socks5ChannelCallbacks {
 public:
-  RemoteStreamHandler(Envoy::Event::Dispatcher& remote_dispatcher,
-                      IoSocket::UserSpace::IoHandleImplPtr io_handle,
+  RemoteStreamHandler(IoSocket::UserSpace::IoHandleImplPtr io_handle,
+                      Envoy::Event::Dispatcher& remote_dispatcher,
                       ReverseTunnelStats& reverse_tunnel_stats,
-                      const pomerium::extensions::ssh::EndpointMetadata& metadata,
+                      Network::HostContext& host_context,
                       std::shared_ptr<const envoy::config::core::v3::Address> upstream_address)
       : io_handle_(std::move(io_handle)),
         remote_dispatcher_(remote_dispatcher),
         reverse_tunnel_stats_(reverse_tunnel_stats),
-        metadata_(metadata),
+        metadata_(host_context.hostMetadata()),
         upstream_address_(upstream_address) {
     ASSERT(upstream_address_ != nullptr);
     remote_queue_callback_ = remote_dispatcher_.createSchedulableCallback([this] {
@@ -547,13 +547,12 @@ class InternalDownstreamChannel final : public Channel,
                                         public RemoteStreamHandlerCallbacks,
                                         public Logger::Loggable<Logger::Id::filter> {
 public:
-  InternalDownstreamChannel(std::unique_ptr<RemoteStreamHandler> remote,
-                            std::shared_ptr<Network::InternalStreamPassthroughState> passthrough_state,
-                            const pomerium::extensions::ssh::EndpointMetadata& metadata,
-                            Network::Address::HostDrainManager& host_drain_manager,
-                            std::shared_ptr<const envoy::config::core::v3::Address> upstream_address,
+  InternalDownstreamChannel(Envoy::Event::Dispatcher& local_dispatcher,
+                            std::unique_ptr<RemoteStreamHandler> remote,
                             ChannelEventCallbacks& event_callbacks,
-                            Envoy::Event::Dispatcher& local_dispatcher)
+                            Network::HostContext& host_context,
+                            std::shared_ptr<const envoy::config::core::v3::Address> upstream_address,
+                            std::shared_ptr<Network::InternalStreamPassthroughState> passthrough_state)
       : local_dispatcher_(local_dispatcher),
         local_queue_callback_(local_dispatcher_.createSchedulableCallback([this] {
           onLocalQueueReadyRead();
@@ -566,8 +565,8 @@ public:
         error_callback_(local_dispatcher_.createSchedulableCallback([this] {
           onErrorCallback();
         })),
-        metadata_(metadata),
-        host_drain_callback_(host_drain_manager.addHostDrainCallback(local_dispatcher, [this] {
+        metadata_(host_context.hostMetadata()),
+        host_drain_callback_(host_context.hostDrainManager().addHostDrainCallback(local_dispatcher, [this] {
           onHostDraining();
         })),
         upstream_address_(upstream_address) {
@@ -849,9 +848,9 @@ private:
     // request.
 
     // We might not have received the channel open confirmation (or failure) yet. If the host is
-    // removed between the time the channel open is sent and the confirmation is received, we
-    // there is no channel *to* close, so it will instead be closed immediately once the
-    // confirmation is received (and if the channel open fails, there is nothing to do anyway).
+    // removed between the time the channel open is sent and the confirmation is received, there
+    // is no channel *to* close, so it will instead be closed immediately once the confirmation
+    // is received (and if the channel open fails, there is nothing to do anyway).
 
     host_draining_ = true;
     if (remote_initialized_) {
@@ -919,14 +918,8 @@ public:
                      const Address::InstanceConstSharedPtr addr,
                      const SocketCreationOptions&) const override {
     ASSERT(socket_type == Socket::Type::Stream);
-    const auto& addrImpl = dynamic_cast<const Address::InternalStreamAddressImpl&>(*addr);
-    auto streamId = addrImpl.internalStreamContext().streamId();
-    auto untypedMetadata = addrImpl.internalStreamContext().metadata();
-    pomerium::extensions::ssh::EndpointMetadata metadata;
-    auto ok = untypedMetadata->typed_filter_metadata().at("com.pomerium.ssh.endpoint").UnpackTo(&metadata);
-    RELEASE_ASSERT(ok, "invalid endpoint metadata");
-
-    ENVOY_LOG(debug, "requesting downstream channel for stream {} via port {}", streamId, metadata.server_port().value());
+    const auto& addrImpl = dynamic_cast<const Address::SshStreamAddress&>(*addr);
+    auto streamId = addrImpl.streamId();
     auto [local, remote] = IoHandleFactory::createIoHandlePair(std::make_unique<InternalStreamPassthroughState>());
     local->setWriteRequiresReadEventEnabled(true);
     remote->setWriteRequiresReadEventEnabled(true);
@@ -935,40 +928,39 @@ public:
     auto upstreamAddr = chooseAddress();
 
     passthroughState->setOnInitializedCallback(
-      [this, metadata, internal_ctx = &addrImpl.internalStreamContext(),
-       io_handle = std::move(local), upstreamAddr = std::move(upstreamAddr)] mutable {
+      [this,
+       host_context = &addrImpl.hostContext(),
+       io_handle = std::move(local),
+       upstreamAddr = std::move(upstreamAddr),
+       streamId] mutable {
         ENVOY_LOG(debug, "channel {}: starting remote stream handler");
         using Extensions::NetworkFilters::GenericProxy::Codec::RemoteStreamHandler;
         auto passthroughState = Network::InternalStreamPassthroughState::fromIoHandle(*io_handle);
-        auto remote = std::make_unique<RemoteStreamHandler>(incoming_dispatcher_,
-                                                            std::move(io_handle),
+        auto remote = std::make_unique<RemoteStreamHandler>(std::move(io_handle),
+                                                            incoming_dispatcher_,
                                                             reverse_tunnel_stats_,
-                                                            metadata,
+                                                            *host_context,
                                                             upstreamAddr);
-        auto streamId = internal_ctx->streamId();
         stream_tracker_->tryLock(streamId, [remote = std::move(remote),
                                             upstreamAddr = std::move(upstreamAddr),
                                             passthroughState,
-                                            internal_ctx,
-                                            metadata,
+                                            host_context,
                                             streamId](Envoy::OptRef<StreamContext> ctx) mutable {
           if (!ctx.has_value()) {
-            // use previously captured streamId since internal_ctx might be expired
-            ENVOY_LOG_MISC(error, "error requesting channel: stream with ID {} not found", streamId);
+            ENVOY_LOG_MISC(debug, "error requesting channel: stream with ID {} not found", streamId);
             RemoteStreamHandler::detach(std::move(remote));
             return;
           }
           ASSERT(ctx->connection().dispatcher().isThreadSafe());
-          auto c = std::make_unique<InternalDownstreamChannel>(std::move(remote),
-                                                               passthroughState,
-                                                               metadata,
-                                                               internal_ctx->hostDrainManager(),
-                                                               upstreamAddr,
+          auto c = std::make_unique<InternalDownstreamChannel>(ctx->connection().dispatcher(),
+                                                               std::move(remote),
                                                                ctx->eventCallbacks(),
-                                                               ctx->connection().dispatcher());
+                                                               *host_context,
+                                                               upstreamAddr,
+                                                               passthroughState);
           auto id = ctx->streamCallbacks().startChannel(std::move(c), std::nullopt);
           if (!id.ok()) { // XXX test this case
-            ENVOY_LOG(error, "failed to start channel: {}", statusToString(id.status()));
+            ENVOY_LOG(warn, "failed to start channel: {}", statusToString(id.status()));
           } else {
             ENVOY_LOG(debug, "internal downstream channel started: {}", *id);
           }
@@ -1005,8 +997,8 @@ public:
                          TransportSocketPtr&& transport_socket,
                          const ConnectionSocket::OptionsSharedPtr& options,
                          const TransportSocketOptionsConstSharedPtr& transport_options) override {
-    auto internalAddrFactory = std::dynamic_pointer_cast<const Address::InternalStreamAddressImpl>(address);
-    auto internalAddr = Address::InternalStreamAddressImpl::createFromFactoryAddress(internalAddrFactory, dispatcher);
+    auto internalAddrFactory = std::dynamic_pointer_cast<const Address::SshStreamAddress>(address);
+    auto internalAddr = Address::SshStreamAddress::createFromFactoryAddress(internalAddrFactory, dispatcher);
     // This client connection will have its read/write buffer limits configured by the cluster's
     // mutable_per_connection_buffer_limit_bytes option.
     return std::make_unique<ClientConnectionImpl>(
@@ -1038,30 +1030,27 @@ InternalStreamSocketInterfaceFactory::createSocketInterface(Event::Dispatcher& c
   return std::make_unique<Network::InternalStreamSocketInterface>(stream_tracker_, upstream_addresses_, connection_dispatcher, reverse_tunnel_stats_);
 }
 
-class InternalStreamContextImpl : public Network::Address::InternalStreamContext {
+class HostContextImpl : public Network::HostContext {
 public:
-  InternalStreamContextImpl(stream_id_t stream_id,
-                            Upstream::MetadataConstSharedPtr metadata,
-                            Network::Address::HostDrainManager& host_drain_manager)
-      : stream_id_(stream_id),
-        stream_address_(fmt::format("ssh:{}", stream_id)),
-        metadata_(std::move(metadata)),
-        host_drain_manager_(host_drain_manager) {}
+  HostContextImpl(Upstream::MetadataConstSharedPtr metadata,
+                  Network::HostDrainManager& host_drain_manager)
+      : host_drain_manager_(host_drain_manager) {
+    auto ok = metadata->typed_filter_metadata()
+                .at("com.pomerium.ssh.endpoint")
+                .UnpackTo(&metadata_);
+    RELEASE_ASSERT(ok, "invalid endpoint metadata");
+  }
 
-  stream_id_t streamId() override { return stream_id_; }
-  const std::string& streamAddress() override { return stream_address_; }
-  Upstream::MetadataConstSharedPtr metadata() override { return metadata_; }
-  Network::Address::HostDrainManager& hostDrainManager() override { return host_drain_manager_; }
+  const pomerium::extensions::ssh::EndpointMetadata& hostMetadata() override { return metadata_; }
+  Network::HostDrainManager& hostDrainManager() override { return host_drain_manager_; }
 
 protected:
-  const stream_id_t stream_id_;
-  const std::string stream_address_;
-  Upstream::MetadataConstSharedPtr metadata_;
-  Network::Address::HostDrainManager& host_drain_manager_;
+  pomerium::extensions::ssh::EndpointMetadata metadata_;
+  Network::HostDrainManager& host_drain_manager_;
 };
 
-class InternalStreamHost : public Network::Address::HostDrainManager,
-                           public InternalStreamContextImpl,
+class InternalStreamHost : public Network::HostDrainManager,
+                           public HostContextImpl,
                            public HostImpl {
 public:
   static absl::StatusOr<HostSharedPtr>
@@ -1089,18 +1078,20 @@ protected:
                      MetadataConstSharedPtr metadata,
                      ClusterInfoConstSharedPtr cluster_info,
                      std::shared_ptr<InternalStreamSocketInterfaceFactory> socket_interface_factory)
-      : InternalStreamContextImpl(stream_id, metadata, *this),
+      : HostContextImpl(metadata, *this),
         HostImpl(creation_status,
                  cluster_info,
-                 this->streamAddress(),
-                 std::make_shared<Network::Address::InternalStreamAddressImpl>(*this, socket_interface_factory),
+                 fmt::format("ssh:{}", stream_id),
+                 std::make_shared<Network::Address::SshStreamAddress>(stream_id, *this, socket_interface_factory),
                  metadata,
                  nullptr,
                  1, // weight
                  envoy::config::core::v3::Locality::default_instance(),
                  envoy::config::endpoint::v3::Endpoint::HealthCheckConfig::default_instance(),
                  0, // priority class (only 0 is used)
-                 envoy::config::core::v3::HEALTHY) {}
+                 envoy::config::core::v3::HEALTHY) {
+    setDisableActiveHealthCheck(true);
+  }
 };
 
 absl::StatusOr<std::unique_ptr<SshReverseTunnelCluster>>
@@ -1132,7 +1123,8 @@ SshReverseTunnelCluster::SshReverseTunnelCluster(const envoy::config::cluster::v
       stream_tracker_(StreamTracker::fromContext(cluster_context.serverFactoryContext())),
       reverse_tunnel_stat_names_(info_->statsScope().symbolTable()),
       reverse_tunnel_stats_(reverse_tunnel_stat_names_, info_->statsScope(), reverse_tunnel_stat_names_.reverse_tunnel_),
-      socket_interface_factory_(std::make_shared<InternalStreamSocketInterfaceFactory>(stream_tracker_, load_assignment, reverse_tunnel_stats_)),
+      socket_interface_factory_(std::make_shared<InternalStreamSocketInterfaceFactory>(
+        stream_tracker_, load_assignment, reverse_tunnel_stats_)),
       dispatcher_(cluster_context.serverFactoryContext().mainThreadDispatcher()) {
   ASSERT_IS_MAIN_OR_TEST_THREAD();
   RETURN_ONLY_IF_NOT_OK_REF(creation_status);
@@ -1266,8 +1258,8 @@ absl::Status SshReverseTunnelCluster::update(const envoy::config::endpoint::v3::
   // Add all the existing hosts, except those that have been removed
   for (auto& host : hostSet) {
     if (hostsToRemove.contains(host)) {
-      // Note: when removing a host here, the host object will be kept alive until all its active
-      // connections (if any) have been closed.
+      // Note: when removing a host by passing it to updateHosts, the host object will be kept
+      // alive until all its active connections (if any) have been closed.
       host->setEdsHealthStatus(envoy::config::core::v3::HealthStatus::DRAINING);
       continue;
     }

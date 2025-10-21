@@ -9,17 +9,17 @@
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #pragma clang unsafe_buffer_usage end
 
-namespace Envoy::Network::Address {
+namespace Envoy::Network {
 
 using SshEndpointMetadataConstSharedPtr = std::shared_ptr<const pomerium::extensions::ssh::EndpointMetadata>;
 
-class SocketInterfaceFactory {
+class SshSocketInterfaceFactory {
 public:
-  virtual ~SocketInterfaceFactory() = default;
+  virtual ~SshSocketInterfaceFactory() = default;
   virtual Network::SocketInterfacePtr createSocketInterface(Event::Dispatcher& connection_dispatcher) PURE;
 };
 
-class HostDrainManager {
+class HostDrainManager : NonCopyable {
 public:
   Common::CallbackHandlePtr addHostDrainCallback(Event::Dispatcher& dispatcher, std::function<void()> cb) {
     return callbacks_->add(dispatcher, std::move(cb));
@@ -35,34 +35,35 @@ private:
     Common::ThreadSafeCallbackManager::create();
 };
 
-class InternalStreamContext {
+class HostContext {
 public:
-  virtual ~InternalStreamContext() = default;
+  virtual ~HostContext() = default;
 
-  virtual stream_id_t streamId() PURE;
-  virtual const std::string& streamAddress() PURE;
-  virtual Upstream::MetadataConstSharedPtr metadata() PURE;
+  virtual const pomerium::extensions::ssh::EndpointMetadata& hostMetadata() PURE;
   virtual HostDrainManager& hostDrainManager() PURE;
 };
 
-class InternalStreamAddressImpl : public Instance {
+namespace Address {
+class SshStreamAddress : public Instance {
 public:
-  InternalStreamAddressImpl(InternalStreamContext& context,
-                            std::shared_ptr<SocketInterfaceFactory> socket_interface_factory);
-  InternalStreamAddressImpl(const std::shared_ptr<const InternalStreamAddressImpl>& factory_address,
-                            Event::Dispatcher& connection_dispatcher);
-  ~InternalStreamAddressImpl();
+  SshStreamAddress(stream_id_t stream_id,
+                   HostContext& host_context,
+                   std::shared_ptr<SshSocketInterfaceFactory> socket_interface_factory);
+  SshStreamAddress(const std::shared_ptr<const SshStreamAddress>& factory_address,
+                   Event::Dispatcher& connection_dispatcher);
+  ~SshStreamAddress();
 
-  static std::shared_ptr<InternalStreamAddressImpl>
-  createFromFactoryAddress(const std::shared_ptr<const InternalStreamAddressImpl>& factory_address,
+  static std::shared_ptr<SshStreamAddress>
+  createFromFactoryAddress(const std::shared_ptr<const SshStreamAddress>& factory_address,
                            Event::Dispatcher& connection_dispatcher);
 
-  InternalStreamContext& internalStreamContext() const { return context_; }
+  stream_id_t streamId() const { return stream_id_; }
+  HostContext& hostContext() const { return context_; }
 
   bool operator==(const Instance&) const override { return false; }
-  const std::string& asString() const override { return context_.streamAddress(); }
-  absl::string_view asStringView() const override { return context_.streamAddress(); }
-  const std::string& logicalName() const override { return context_.streamAddress(); }
+  const std::string& asString() const override { return stream_address_; }
+  absl::string_view asStringView() const override { return stream_address_; }
+  const std::string& logicalName() const override { return stream_address_; }
 
   const Ip* ip() const override { return nullptr; }
   const Pipe* pipe() const override { return nullptr; }
@@ -86,7 +87,7 @@ public:
     ASSERT(socket_interface_ != nullptr);
     return *socket_interface_;
   }
-  SocketInterfaceFactory& socketInterfaceFactory() const {
+  SshSocketInterfaceFactory& socketInterfaceFactory() const {
     ASSERT(socket_interface_factory_ != nullptr);
     return *socket_interface_factory_;
   }
@@ -106,15 +107,18 @@ public:
   };
 
 private:
-  InternalStreamContext& context_;
+  const stream_id_t stream_id_;
+  const std::string stream_address_;
+  HostContext& context_;
   FakeEnvoyInternalAddress fake_envoy_internal_addr_;
 
   // This is initially created by an SshReverseTunnelCluster, and shared with all hosts in that
   // cluster. The concrete type is always InternalStreamSocketInterfaceFactory.
-  std::shared_ptr<SocketInterfaceFactory> socket_interface_factory_;
+  std::shared_ptr<SshSocketInterfaceFactory> socket_interface_factory_;
   Network::SocketInterfacePtr socket_interface_;
 };
 
-using InternalStreamAddressConstSharedPtr = std::shared_ptr<const InternalStreamAddressImpl>;
+using SshStreamAddressConstSharedPtr = std::shared_ptr<const SshStreamAddress>;
 
-} // namespace Envoy::Network::Address
+} // namespace Address
+} // namespace Envoy::Network
