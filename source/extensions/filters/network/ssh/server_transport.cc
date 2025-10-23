@@ -100,7 +100,11 @@ void SshServerTransport::onConnected() {
 
   ASSERT(conn.state() == Network::Connection::State::Open);
   connection_dispatcher_ = conn.dispatcher();
-  channel_id_manager_ = std::make_shared<ChannelIDManager>(100);
+  auto maxConcurrentChannels = config_->max_concurrent_channels();
+  if (maxConcurrentChannels == 0) {
+    maxConcurrentChannels = DefaultMaxConcurrentChannels;
+  }
+  channel_id_manager_ = std::make_shared<ChannelIDManager>(config_->internal_channel_id_start(), maxConcurrentChannels);
   setChannelIdManager(conn.streamInfo().filterState(), channel_id_manager_);
   initServices();
   mgmt_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus status, std::string message) {

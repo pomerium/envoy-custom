@@ -235,7 +235,8 @@ TEST_P(StaticPortForwardTest, PingClientToServer_ClientCloses) {
   auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, channel_id)
               .then(driver->createTask<Tasks::WaitForChannelData>("ping")
                       .then(driver->createTask<Tasks::SendChannelData>("pong")
-                              .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>())))
+                              .then(driver->createTask<Tasks::WaitForChannelEOF>()
+                                      .then(driver->createTask<Tasks::SendChannelCloseAndWait>()))))
               .start();
 
   auto tcp_client = makeTcpConnectionWithServerName(route_port, route_name);
@@ -268,7 +269,8 @@ TEST_P(StaticPortForwardTest, PingServerToClient_ClientCloses) {
   auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, channel_id)
               .then(driver->createTask<Tasks::SendChannelData>("ping")
                       .then(driver->createTask<Tasks::WaitForChannelData>("pong")
-                              .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>())))
+                              .then(driver->createTask<Tasks::WaitForChannelEOF>()
+                                      .then(driver->createTask<Tasks::SendChannelCloseAndWait>()))))
               .start();
 
   auto tcp_client = makeTcpConnectionWithServerName(route_port, route_name);
@@ -336,6 +338,10 @@ static constexpr auto stat_window_adjustment_resumed =
   "cluster.tcp_cluster.reverse_tunnel.upstream_flow_control_window_adjustment_resumed_total";
 static constexpr auto stat_local_window_exhausted =
   "cluster.tcp_cluster.reverse_tunnel.upstream_flow_control_local_window_exhausted_total";
+static constexpr auto stat_downstream_high_watermark =
+  "cluster.tcp_cluster.reverse_tunnel.downstream_flow_control_high_watermark_activated_total";
+static constexpr auto stat_downstream_low_watermark =
+  "cluster.tcp_cluster.reverse_tunnel.downstream_flow_control_low_watermark_activated_total";
 
 class SendDataUntilRemoteWindowExhausted : public Task<Tasks::Channel, Tasks::Channel> {
 public:
@@ -585,21 +591,35 @@ TEST_P(StaticPortForwardTest, DownstreamFlowControl) {
   ENVOY_LOG_MISC(debug, "test: sent {} bytes", channel.upstream_initial_window_size - upstream_window);
 
   ASSERT_TRUE(driver->wait(th));
+
   // The upstream window is exhausted, but the read path buffers are empty as all data has been
-  // written to the upstream. We can still write some more data, but it won't be received yet.
-  EXPECT_TRUE(downstream->write("hello world", false, true));
+  // written to the upstream. We can write more data but it will be buffered and not flushed to
+  // the upstream yet.
+  std::string data(2uz * 1024 * 1024, 'a');
+  ASSERT_TRUE(downstream->write(data, false, true));
+
   // Flush and close the downstream connection. The tunnel channel should be read-disabled at this
   // point, and is waiting for more window space from the upstream. This should be buffered at the
-  // server connection but not written to the io handle.
+  // tcp proxy client connection but not written to the io handle.
   downstream->close(Network::ConnectionCloseType::FlushWrite);
 
   // Once we receive a window adjustment from the upstream, the remaining buffered data should be
   // written, then the channel should be immediately closed.
+  // Test multiple window adjusts required to read all the data
+  data.resize(data.size() - 10);
   ASSERT_TRUE(driver->wait(
-    driver->createTask<Tasks::SendWindowAdjust>(11)
-      .then(driver->createTask<Tasks::WaitForChannelData>("hello world")
-              .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>()))
+    driver->createTask<Tasks::SendWindowAdjust>(10)
+      .then(driver->createTask<Tasks::WaitForChannelData>("aaaaaaaaaa")
+              .then(driver->createTask<Tasks::SendWindowAdjust>(data.size()) // 10 bytes removed above
+                      .then(driver->createTask<Tasks::WaitForChannelData>(data)
+                              .then(driver->createTask<Tasks::WaitForChannelEOF>()
+                                      .then(driver->createTask<Tasks::SendChannelCloseAndWait>(Tasks::SendEOF(false), Tasks::ExpectEOF(false)))))))
       .start(channel)));
+
+  // Flow control may or may not have been triggered during the first set of writes, but all buffers
+  // should be empty now so it will have been deactivated the same number of times it was activated.
+  auto hwm = test_server_->counter(stat_downstream_high_watermark)->value();
+  test_server_->waitForCounterEq(stat_downstream_low_watermark, hwm);
 }
 
 TEST_P(StaticPortForwardTest, UpstreamSendsInvalidMessageAfterBacklogThenDisconnects) {
@@ -729,9 +749,18 @@ TEST_P(StaticPortForwardTest, UpstreamSendsUnexpectedChannelMessage) {
   downstream->close();
 }
 
-TEST_P(StaticPortForwardTest, DownstreamHalfClose) {
+class StaticPortForwardWithHalfCloseTest : public StaticPortForwardTest {
+public:
+  using StaticPortForwardTest::StaticPortForwardTest;
+
+  void SetUp() override {
+    enableHalfClose(true);
+    StaticPortForwardTest::SetUp();
+  }
+};
+
+TEST_P(StaticPortForwardWithHalfCloseTest, DownstreamHalfClose) {
   auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
-  downstream->connection()->enableHalfClose(true);
 
   Tasks::Channel channel;
   auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
@@ -793,10 +822,32 @@ TEST_P(StaticPortForwardTest, DownstreamClosesAbruptly2) {
   ASSERT_TRUE(driver->wait(driver->createTask<Tasks::WaitForChannelCloseByPeer>().start(channel)));
 }
 
+class RejectChannelOpenRequests : public Task<> {
+public:
+  void start() override {}
+
+  MiddlewareResult onMessageReceived(wire::Message& msg) override {
+    return msg.visit(
+      [&](wire::ChannelOpenMsg& open_msg) {
+        callbacks_->sendMessage(wire::ChannelOpenFailureMsg{
+          .recipient_channel = open_msg.sender_channel,
+        });
+        return Break;
+      },
+      DEFAULT_CONTINUE);
+  };
+};
+
 TEST_P(StaticPortForwardTest, UpstreamDisconnectsBeforeInitialization) {
-  auto downstream1 = makeTcpConnectionWithServerName(route_port, route_name);
+  std::vector<IntegrationTcpClientPtr> downstreams;
+  driver->createTask<RejectChannelOpenRequests>().start();
+  for (int i = 0; i < 10; i++) {
+    downstreams.push_back(makeTcpConnectionWithServerName(route_port, route_name));
+  }
   driver->close();
-  downstream1->close(Network::ConnectionCloseType::AbortReset);
+  for (auto& downstream : downstreams) {
+    downstream->waitForDisconnect(true);
+  }
 }
 
 TEST_P(StaticPortForwardTest, HostDrainClosesDownstreamConnections) {
@@ -880,6 +931,30 @@ TEST_P(StaticPortForwardTest, DownstreamConnectWithNoHealthyUpstreams) {
   setClusterLoad(cluster_name, {});
   auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
   downstream->waitForDisconnect();
+}
+
+TEST_P(StaticPortForwardTest, InternalDownstreamChannelOpenFails) {
+  // The only way this fails is if the max concurrent channels limit has been reached.
+  // The default limit for ssh integration tests is 100.
+  std::deque<Tasks::Channel> channels;
+  channels.resize(100);
+  std::vector<IntegrationTcpClientPtr> downstreams;
+  for (int i = 0; i < 100; i++) {
+    downstreams.push_back(makeTcpConnectionWithServerName(route_port, route_name));
+    ASSERT_TRUE(driver->wait(driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, i)
+                               .saveOutput(&channels[i])
+                               .start()));
+  }
+  // 101st channel should fail to open
+  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
+  downstream->waitForDisconnect();
+
+  for (auto& d : downstreams) {
+    d->close(Network::ConnectionCloseType::AbortReset);
+    ASSERT_TRUE(driver->wait(driver->createTask<Tasks::WaitForChannelCloseByPeer>()
+                               .start(channels.front())));
+    channels.pop_front();
+  }
 }
 
 class ChannelCloseTimeoutTest : public Envoy::Event::TestUsingSimulatedTime,
@@ -1344,6 +1419,10 @@ INSTANTIATE_TEST_SUITE_P(StaticPortForward, StaticPortForwardTest,
                          testing::ValuesIn(TestEnvironment::getIpVersionsForTest()),
                          TestUtility::ipTestParamsToString);
 
+INSTANTIATE_TEST_SUITE_P(StaticPortForwardWithHalfClose, StaticPortForwardWithHalfCloseTest,
+                         testing::ValuesIn(TestEnvironment::getIpVersionsForTest()),
+                         TestUtility::ipTestParamsToString);
+
 INSTANTIATE_TEST_SUITE_P(DynamicPortForward, DynamicPortForwardTest,
                          testing::ValuesIn(TestEnvironment::getIpVersionsForTest()),
                          TestUtility::ipTestParamsToString);
@@ -1363,36 +1442,6 @@ INSTANTIATE_TEST_SUITE_P(ChannelStats, ChannelStatsIntegrationTest,
 INSTANTIATE_TEST_SUITE_P(ChannelCloseTimeout, ChannelCloseTimeoutTest,
                          testing::ValuesIn(TestEnvironment::getIpVersionsForTest()),
                          TestUtility::ipTestParamsToString);
-
-// Misc cases that can't be tested with the above integration tests
-
-TEST(InternalStreamPassthroughStateTest, InitializeCallbackSetBeforeInitialize) {
-  auto md = std::make_unique<envoy::config::core::v3::Metadata>();
-  StreamInfo::FilterState::Objects objects;
-  Envoy::Network::InternalStreamPassthroughState state;
-  CHECK_CALLED({
-    state.setOnInitializedCallback([&] {
-      CALLED;
-    });
-    ASSERT_FALSE(state.isInitialized());
-    state.initialize(std::move(md), objects);
-    ASSERT_TRUE(state.isInitialized());
-  });
-}
-
-TEST(InternalStreamPassthroughStateTest, InitializeCallbackSetAfterInitialize) {
-  auto md = std::make_unique<envoy::config::core::v3::Metadata>();
-  StreamInfo::FilterState::Objects objects;
-  Envoy::Network::InternalStreamPassthroughState state;
-  ASSERT_FALSE(state.isInitialized());
-  state.initialize(std::move(md), objects);
-  ASSERT_TRUE(state.isInitialized());
-  CHECK_CALLED({
-    state.setOnInitializedCallback([&] {
-      CALLED;
-    });
-  });
-}
 
 class SshReverseTunnelClusterUnitTest : public testing::Test {
 public:

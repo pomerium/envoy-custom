@@ -549,6 +549,24 @@ public:
   const ExpectEOF expect_eof_;
 };
 
+class WaitForChannelEOF : public Task<Channel, Channel> {
+public:
+  void start(Channel channel) override {
+    channel_ = channel;
+    setChannelFilter(channel);
+    callbacks_->setTimeout(default_timeout_, "WaitForChannelEOF");
+  }
+  MiddlewareResult onMessageReceived(wire::Message& msg) override {
+    return msg.visit(
+      [&](const wire::ChannelEOFMsg&) {
+        taskSuccess(channel_);
+        return Break;
+      },
+      DEFAULT_CONTINUE);
+  }
+  Channel channel_{};
+};
+
 class SendChannelCloseAndWait : public Task<Channel> {
 public:
   SendChannelCloseAndWait(SendEOF send_eof = SendEOF(false), ExpectEOF expect_eof = ExpectEOF(true))

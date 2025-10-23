@@ -224,6 +224,7 @@ protected:
     bool wait_called_{};
 
     std::shared_ptr<token_t> token_ = std::make_shared<token_t>();
+    std::weak_ptr<token_t> weak_token_{token_};
     Envoy::Event::TimerPtr timeout_timer_;
     Envoy::Event::TimerPtr loop_;
   };

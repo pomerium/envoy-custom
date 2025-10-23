@@ -308,17 +308,19 @@ testing::AssertionResult SshConnectionDriver::wait(UntypedTaskCallbacksHandle& h
   // should time out first
   timeout->enableTimer(default_timeout_ + default_timeout_ / 2);
 
-  auto weak_token = std::weak_ptr{handle_impl.token_};
+  auto weak_token = std::weak_ptr{handle_impl.weak_token_};
   {
     auto shared_token = weak_token.lock();
     if (shared_token == nullptr) {
       // task already exited
       return AssertionResult(!testing::Test::HasFailure());
     }
-    shared_token->on_destroyed = [this] {
-      connectionDispatcher()->exit();
-    };
-    // let shared_token go out of scope
+    // Hold a reference to the shared token and only release it while the dispatcher is running.
+    connectionDispatcher()->post([this, shared_token = std::move(shared_token)] {
+      shared_token->on_destroyed = [this] {
+        connectionDispatcher()->exit();
+      };
+    });
   }
   while (true) {
     connectionDispatcher()->run(Envoy::Event::Dispatcher::RunType::RunUntilExit);
@@ -440,6 +442,7 @@ UntypedTaskCallbacksHandle& SshConnectionDriver::TaskCallbacksImpl::saveOutput(v
 void SshConnectionDriver::TaskCallbacksImpl::setTokenRecursive(TaskCallbacksImpl& h, const std::shared_ptr<token_t>& token) {
   if (h.token_ != token) {
     h.token_ = token;
+    h.weak_token_ = h.token_;
   }
   for (auto* next : h.start_after_) {
     setTokenRecursive(dynamic_cast<TaskCallbacksImpl&>(*next), token);

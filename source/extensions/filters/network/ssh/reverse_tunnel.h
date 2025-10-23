@@ -77,19 +77,6 @@ public:
     ASSERT(state_ == State::Created);
     PassthroughStateImpl::initialize(std::move(metadata), filter_state_objects);
     ASSERT(state_ == State::Initialized);
-    if (init_callback_ == nullptr) {
-      return;
-    }
-    std::exchange(init_callback_, nullptr)();
-  }
-
-  void setOnInitializedCallback(absl::AnyInvocable<void()> callback) {
-    ASSERT(init_callback_ == nullptr && state_ < State::Done);
-    if (state_ == State::Created) {
-      init_callback_ = std::move(callback);
-      return;
-    }
-    callback();
   }
 
   bool isInitialized() const {
@@ -100,9 +87,6 @@ public:
     return std::dynamic_pointer_cast<InternalStreamPassthroughState>(
       dynamic_cast<Extensions::IoSocket::UserSpace::IoHandleImpl&>(io_handle).passthroughState());
   }
-
-private:
-  absl::AnyInvocable<void()> init_callback_;
 };
 
 } // namespace Network

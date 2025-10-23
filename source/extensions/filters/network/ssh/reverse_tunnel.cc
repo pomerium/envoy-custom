@@ -7,6 +7,7 @@
 #include "source/extensions/filters/network/ssh/filter_state_objects.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
+#include <cstddef>
 
 #pragma clang unsafe_buffer_usage begin
 #include "envoy/config/endpoint/v3/endpoint.pb.h"
@@ -234,9 +235,20 @@ private:
     // Note: "Closed" means closed for reading. If we also received a read event just now, this
     // signals EOF. The underlying connection may or may not be closed after this.
     if ((events & Envoy::Event::FileReadyType::Closed) != 0) {
-      // Only sent once; this event can be received multiple times, e.g. every time Read is received
-      // when the downstream is half-closed.
-      sendUpstreamEOF();
+      // If we get a close event, then the io handle has received EOF from the downstream.
+      // However, there may still pending data in the io handle's read buffer which needs to be
+      // sent before the EOF.
+      // Even if a read event was received just now, upstream window space may have been exhausted
+      // while reading from the io handle without draining it completely, so we will have to wait
+      // for additional window updates from the upstream. Only when all data has been read should
+      // the EOF be sent.
+      // Note: getWriteBuffer() returns the read buffer (it is normally called by the peer).
+      if (!downstream_eof_ && io_handle_->getWriteBuffer()->length() == 0) {
+        // Only send this once since additional write events could be received if the downstream
+        // is half-closed but the upstream still has data to write.
+        downstream_eof_ = true;
+        sendUpstreamEOF();
+      }
     }
 
     if ((events & Envoy::Event::FileReadyType::Write) != 0) {
@@ -250,6 +262,8 @@ private:
           ENVOY_LOG(debug, "channel {}: flow control: not re-enabling window adjustments due to upstream error",
                     peer_state_.id);
         } else {
+          // Don't need to (potentially) send a window adjustment if the channel is about to be
+          // closed anyway. Note that close/eof messages don't consume window space.
           ENVOY_LOG(debug, "channel {}: flow control: re-enabling window adjustments", peer_state_.id);
           reverse_tunnel_stats_.upstream_flow_control_window_adjustment_resumed_total_.inc();
 
@@ -327,6 +341,7 @@ private:
           if ((enabled_file_events_ & Event::FileReadyType::Read) == 0) {
             ENVOY_LOG(debug, "channel {}: upstream window restored, enabling read events", peer_state_.id);
             reverse_tunnel_stats_.downstream_flow_control_remote_window_restored_total_.inc();
+            // This will schedule the read event callback
             enableFileEvents<Event::FileReadyType::Read>();
           }
           return;
@@ -554,6 +569,7 @@ private:
   bool has_resized_local_window_ : 1 {false};
   bool socket_closed_ : 1 {false};
   bool upstream_error_ : 1 {false};
+  bool downstream_eof_ : 1 {false};
   bool detached_ : 1 ABSL_GUARDED_BY(detach_lock_){false};
   uint8_t enabled_file_events_{};
   uint32_t local_window_{wire::ChannelWindowSize};

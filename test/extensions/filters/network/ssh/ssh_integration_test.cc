@@ -176,6 +176,8 @@ static_resources:
                 envoy_grpc:
                   cluster_name: fake_mgmt
                 timeout: 0s
+              max_concurrent_channels: 100
+              internal_channel_id_start: 100
           filters:
             - name: envoy.filters.generic.router
               typed_config:
