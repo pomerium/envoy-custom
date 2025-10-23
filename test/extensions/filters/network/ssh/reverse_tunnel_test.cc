@@ -6,6 +6,8 @@
 #include "test/extensions/filters/network/ssh/ssh_integration_test.h"
 #include "envoy/extensions/transport_sockets/raw_buffer/v3/raw_buffer.pb.h"
 #include "envoy/extensions/transport_sockets/internal_upstream/v3/internal_upstream.pb.h"
+#include "envoy/config/endpoint/v3/endpoint.pb.h"
+#include "envoy/config/endpoint/v3/endpoint.pb.validate.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "gtest/gtest.h"
 
@@ -128,8 +130,6 @@ public:
 
     cluster.mutable_cluster_type()->set_name("envoy.clusters.ssh_reverse_tunnel");
     cluster.mutable_cluster_type()->mutable_typed_config()->PackFrom(reverse_tunnel_cluster);
-
-    cluster.set_ignore_health_on_host_removal(true);
   }
 
   // NB: filesystem EDS subscription doesn't work like api-based subscription: it always reports
@@ -727,6 +727,34 @@ TEST_P(StaticPortForwardTest, UpstreamSendsUnexpectedChannelMessage) {
   ASSERT_TRUE(driver->wait(th2));
 
   downstream->close();
+}
+
+TEST_P(StaticPortForwardTest, DownstreamHalfClose) {
+  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
+  downstream->connection()->enableHalfClose(true);
+
+  Tasks::Channel channel;
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
+              .saveOutput(&channel)
+              .then(driver->createTask<Tasks::WaitForChannelData>("half close")
+                      .then(driver->createTask<Tasks::WaitForChannelMsg<wire::ChannelEOFMsg>>()))
+              .start();
+
+  ASSERT_TRUE(downstream->write("half close", true, true));
+  ASSERT_TRUE(driver->wait(th));
+
+  // downstream is half-closed, but can still read
+  driver->sendMessage(wire::ChannelDataMsg{
+    .recipient_channel = channel.remote_id,
+    .data = "testing"_bytes,
+  });
+  downstream->waitForData("testing");
+  // Once the upstream closes, the downstream is closed
+
+  ASSERT_TRUE(driver->wait(
+    driver->createTask<Tasks::SendChannelCloseAndWait>(Tasks::SendEOF(false), Tasks::ExpectEOF(false))
+      .start(channel)));
+  downstream->waitForDisconnect();
 }
 
 TEST_P(StaticPortForwardTest, DownstreamClosesAbruptly) {
@@ -1338,30 +1366,6 @@ INSTANTIATE_TEST_SUITE_P(ChannelCloseTimeout, ChannelCloseTimeoutTest,
 
 // Misc cases that can't be tested with the above integration tests
 
-class InternalStreamSocketInterfaceUnitTest : public testing::Test {
-public:
-  NiceMock<Server::Configuration::MockServerFactoryContext> context_;
-  ReverseTunnelStatNames names_{context_.store_.symbolTable()};
-  ReverseTunnelStats stats_{names_, context_.scope()};
-  Network::InternalStreamSocketInterface socket_interface_{StreamTracker::fromContext(context_), {}, context_.dispatcher_, stats_};
-};
-
-TEST_F(InternalStreamSocketInterfaceUnitTest, IpFamilySupported) {
-  EXPECT_TRUE(socket_interface_.ipFamilySupported(AF_INET));
-  EXPECT_TRUE(socket_interface_.ipFamilySupported(AF_INET6));
-  EXPECT_FALSE(socket_interface_.ipFamilySupported(AF_UNIX));
-}
-
-TEST_F(InternalStreamSocketInterfaceUnitTest, UnimplementedSocket) {
-  EXPECT_THROW_WITH_MESSAGE(
-    socket_interface_.socket(Envoy::Network::Socket::Type{},
-                             Envoy::Network::Address::Type{},
-                             Envoy::Network::Address::IpVersion{},
-                             false, {}),
-    Envoy::EnvoyException,
-    "not implemented");
-}
-
 TEST(InternalStreamPassthroughStateTest, InitializeCallbackSetBeforeInitialize) {
   auto md = std::make_unique<envoy::config::core::v3::Metadata>();
   StreamInfo::FilterState::Objects objects;
@@ -1388,6 +1392,90 @@ TEST(InternalStreamPassthroughStateTest, InitializeCallbackSetAfterInitialize) {
       CALLED;
     });
   });
+}
+
+class SshReverseTunnelClusterUnitTest : public testing::Test {
+public:
+  envoy::config::cluster::v3::Cluster buildClusterConfig() {
+    auto cluster = ConfigHelper::buildStaticCluster("test_cluster", 443, "localhost");
+    cluster.clear_upstream_bind_config();
+    cluster.clear_type();
+
+    envoy::extensions::transport_sockets::internal_upstream::v3::InternalUpstreamTransport internal_upstream;
+
+    envoy::extensions::transport_sockets::raw_buffer::v3::RawBuffer raw_buffer;
+    internal_upstream.mutable_transport_socket()->set_name("envoy.transport_sockets.raw_buffer");
+    internal_upstream.mutable_transport_socket()->mutable_typed_config()->PackFrom(raw_buffer);
+
+    cluster.mutable_transport_socket()->set_name("envoy.transport_sockets.internal_upstream");
+    cluster.mutable_transport_socket()->mutable_typed_config()->PackFrom(internal_upstream);
+
+    pomerium::extensions::ssh::ReverseTunnelCluster reverse_tunnel_cluster;
+    reverse_tunnel_cluster.set_name(cluster.name());
+    reverse_tunnel_cluster.mutable_eds_config()->set_resource_api_version(envoy::config::core::v3::ApiVersion::V3);
+    reverse_tunnel_cluster.mutable_eds_config()->mutable_ads();
+    cluster.mutable_cluster_type()->set_name("envoy.clusters.ssh_reverse_tunnel");
+    cluster.mutable_cluster_type()->mutable_typed_config()->PackFrom(reverse_tunnel_cluster);
+
+    return cluster;
+  }
+
+  Envoy::Upstream::ClusterFactory* getFactory() {
+    auto* f = Registry::FactoryRegistry<Upstream::ClusterFactory>::getFactory("envoy.clusters.ssh_reverse_tunnel");
+    RELEASE_ASSERT(f != nullptr, "");
+    return f;
+  }
+
+  NiceMock<Server::Configuration::MockServerFactoryContext> context_;
+  Envoy::Upstream::ClusterFactoryContextImpl cluster_context_{context_, nullptr, nullptr, false};
+};
+
+TEST_F(SshReverseTunnelClusterUnitTest, ErrorCreatingCluster) {
+  auto cluster = buildClusterConfig();
+
+  EXPECT_CALL(context_.cluster_manager_.subscription_factory_, subscriptionFromConfigSource)
+    .WillOnce(Return(absl::InternalError("test error")));
+
+  auto* factory = getFactory();
+  Envoy::Upstream::ClusterFactoryContextImpl cluster_context(context_, nullptr, nullptr, false);
+  auto res = factory->create(cluster, cluster_context);
+  EXPECT_EQ(absl::InternalError("test error"), res.status());
+}
+
+TEST_F(SshReverseTunnelClusterUnitTest, ConfigUpdateFailed) {
+  auto cluster = buildClusterConfig();
+
+  auto res = getFactory()->create(cluster, cluster_context_);
+  ASSERT_OK(res);
+  auto reverseTunnelCluster = std::dynamic_pointer_cast<Upstream::SshReverseTunnelCluster>(std::move(res).value().first);
+  reverseTunnelCluster->initialize([] { return absl::OkStatus(); });
+
+  reverseTunnelCluster->onConfigUpdateFailed(Envoy::Config::ConfigUpdateFailureReason::ConnectionFailure, nullptr);
+  EXPECT_EQ(1, context_.store_.counter("cluster.test_cluster.update_failure").value());
+  reverseTunnelCluster->onConfigUpdateFailed(Envoy::Config::ConfigUpdateFailureReason::FetchTimedout, nullptr);
+  EXPECT_EQ(2, context_.store_.counter("cluster.test_cluster.update_failure").value());
+
+  EnvoyException fake("fake exception");
+  reverseTunnelCluster->onConfigUpdateFailed(Envoy::Config::ConfigUpdateFailureReason::UpdateRejected, &fake);
+  EXPECT_EQ(3, context_.store_.counter("cluster.test_cluster.update_failure").value());
+}
+
+TEST_F(SshReverseTunnelClusterUnitTest, DeltaXdsConfigUpdate) {
+  auto cluster = buildClusterConfig();
+  auto res = getFactory()->create(cluster, cluster_context_);
+  ASSERT_OK(res);
+  auto reverseTunnelCluster = std::dynamic_pointer_cast<Upstream::SshReverseTunnelCluster>(std::move(res).value().first);
+  reverseTunnelCluster->initialize([] { return absl::OkStatus(); });
+
+  Protobuf::RepeatedPtrField<envoy::service::discovery::v3::Resource> resources;
+  auto* resource = resources.Add();
+  envoy::config::endpoint::v3::ClusterLoadAssignment cluster_load_assignment;
+  cluster_load_assignment.set_cluster_name("test_cluster");
+  resource->mutable_resource()->PackFrom(cluster_load_assignment);
+  const auto decoded_resources =
+    TestUtility::decodeResources<envoy::config::endpoint::v3::ClusterLoadAssignment>(
+      resources, "cluster_name");
+  ASSERT_OK(reverseTunnelCluster->onConfigUpdate(decoded_resources.refvec_, {}, "v1"));
 }
 
 } // namespace test

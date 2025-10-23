@@ -28,7 +28,6 @@ envoy_cc_library(
         "service_connection.cc",
         "service_userauth.cc",
         "socks5.cc",
-        "stream_address.cc",
         "stream_tracker.cc",
         "version_exchange.cc",
     ],

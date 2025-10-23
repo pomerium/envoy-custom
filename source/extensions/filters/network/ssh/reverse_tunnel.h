@@ -25,12 +25,48 @@ namespace Envoy {
   COUNTER(upstream_flow_control_local_window_restored_total)                        \
   COUNTER(downstream_flow_control_remote_window_exhausted_total)                    \
   COUNTER(downstream_flow_control_remote_window_restored_total)                     \
+  COUNTER(downstream_flow_control_high_watermark_activated_total)                   \
+  COUNTER(downstream_flow_control_low_watermark_activated_total)                    \
   STATNAME(reverse_tunnel)
 
 MAKE_STAT_NAMES_STRUCT(ReverseTunnelStatNames, ALL_REVERSE_TUNNEL_STATS);
 MAKE_STATS_STRUCT(ReverseTunnelStats, ReverseTunnelStatNames, ALL_REVERSE_TUNNEL_STATS);
 
 namespace Network {
+
+class HostDrainManager : NonCopyable {
+public:
+  Common::CallbackHandlePtr addHostDrainCallback(Event::Dispatcher& dispatcher, std::function<void()> cb) {
+    return callbacks_->add(dispatcher, std::move(cb));
+  }
+
+protected:
+  void runHostDrainCallbacks() {
+    callbacks_->runCallbacks();
+  }
+
+private:
+  std::shared_ptr<Common::ThreadSafeCallbackManager> callbacks_ =
+    Common::ThreadSafeCallbackManager::create();
+};
+
+class ReverseTunnelClusterContext {
+public:
+  virtual ~ReverseTunnelClusterContext() = default;
+  virtual const Upstream::ClusterInfoConstSharedPtr& clusterInfo() PURE;
+  virtual std::shared_ptr<StreamTracker> streamTracker() PURE;
+  virtual std::shared_ptr<const envoy::config::core::v3::Address> chooseUpstreamAddress() PURE;
+  virtual ReverseTunnelStats& reverseTunnelStats() PURE;
+};
+
+class HostContext {
+public:
+  virtual ~HostContext() = default;
+
+  virtual const pomerium::extensions::ssh::EndpointMetadata& hostMetadata() PURE;
+  virtual HostDrainManager& hostDrainManager() PURE;
+  virtual ReverseTunnelClusterContext& clusterContext() PURE;
+};
 
 class InternalStreamPassthroughState : public Envoy::Extensions::IoSocket::UserSpace::PassthroughStateImpl {
 public:
@@ -69,59 +105,9 @@ private:
   absl::AnyInvocable<void()> init_callback_;
 };
 
-class InternalStreamSocketInterface : public SocketInterface,
-                                      public Logger::Loggable<Logger::Id::filter> {
-public:
-  InternalStreamSocketInterface(std::shared_ptr<StreamTracker> stream_tracker,
-                                std::vector<std::shared_ptr<const envoy::config::core::v3::Address>> upstream_addresses,
-                                Event::Dispatcher& incoming_dispatcher,
-                                ReverseTunnelStats& reverse_tunnel_stats);
-
-  IoHandlePtr socket(Socket::Type, Address::Type, Address::IpVersion,
-                     bool, const SocketCreationOptions&) const override {
-    // Note: as far as I can tell, this overload is never called within Envoy
-    throw Envoy::EnvoyException("not implemented");
-  }
-
-  IoHandlePtr socket(Socket::Type socket_type,
-                     const Address::InstanceConstSharedPtr addr,
-                     const SocketCreationOptions&) const override;
-
-  bool ipFamilySupported(int domain) override {
-    return domain == AF_INET || domain == AF_INET6;
-  }
-
-private:
-  std::shared_ptr<const envoy::config::core::v3::Address> chooseAddress() const {
-    auto addr = upstream_addresses_[round_robin_index_];
-    round_robin_index_ = (round_robin_index_ + 1) % upstream_addresses_.size();
-    return addr;
-  }
-  mutable std::shared_ptr<StreamTracker> stream_tracker_;
-  std::vector<std::shared_ptr<const envoy::config::core::v3::Address>> upstream_addresses_;
-  Event::Dispatcher& incoming_dispatcher_;
-  ReverseTunnelStats& reverse_tunnel_stats_;
-  mutable size_t round_robin_index_{0};
-};
-
 } // namespace Network
 
 namespace Upstream {
-
-class InternalStreamSocketInterfaceFactory : public Network::SshSocketInterfaceFactory {
-public:
-  InternalStreamSocketInterfaceFactory(std::shared_ptr<StreamTracker> stream_tracker,
-                                       const envoy::config::endpoint::v3::ClusterLoadAssignment& load_assignment,
-                                       ReverseTunnelStats& reverse_tunnel_stats);
-  virtual ~InternalStreamSocketInterfaceFactory() = default;
-
-  std::unique_ptr<Network::SocketInterface> createSocketInterface(Event::Dispatcher& connection_dispatcher) override;
-
-private:
-  std::shared_ptr<StreamTracker> stream_tracker_;
-  std::vector<std::shared_ptr<const envoy::config::core::v3::Address>> upstream_addresses_;
-  ReverseTunnelStats& reverse_tunnel_stats_; // owned by the cluster
-};
 
 class SshReverseTunnelCluster : public ClusterImplBase,
                                 public Envoy::Config::SubscriptionBase<envoy::config::endpoint::v3::ClusterLoadAssignment>,
@@ -137,12 +123,14 @@ public:
   void startPreInit() override;
 
   // SubscriptionBase
+  // SOTW update
   absl::Status onConfigUpdate(const std::vector<Config::DecodedResourceRef>& resources,
-                              const std::string&) override;
+                              const std::string& version_info) override;
 
+  // Delta update
   absl::Status onConfigUpdate(const std::vector<Config::DecodedResourceRef>& added_resources,
-                              const Protobuf::RepeatedPtrField<std::string>&,
-                              const std::string&) override;
+                              const Protobuf::RepeatedPtrField<std::string>& removed_resources,
+                              const std::string& version_info) override;
 
   void onConfigUpdateFailed(Envoy::Config::ConfigUpdateFailureReason reason, const EnvoyException*) override;
 
@@ -168,9 +156,9 @@ private:
   std::shared_ptr<StreamTracker> stream_tracker_;
   ReverseTunnelStatNames reverse_tunnel_stat_names_;
   ReverseTunnelStats reverse_tunnel_stats_;
-  std::shared_ptr<InternalStreamSocketInterfaceFactory> socket_interface_factory_;
   Event::Dispatcher& dispatcher_;
   Config::SubscriptionPtr eds_subscription_;
+  std::unique_ptr<Network::ReverseTunnelClusterContext> owned_context_;
 };
 
 class SshReverseTunnelClusterFactory : public ConfigurableClusterFactoryBase<pomerium::extensions::ssh::ReverseTunnelCluster> {

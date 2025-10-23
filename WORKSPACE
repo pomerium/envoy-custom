@@ -34,8 +34,6 @@ magic_enum_version = "a413fcc9c46a020a746907136a384c227f3cd095"
 
 readerwriterqueue_version = "1.0.7"
 
-taskflow_version = "3.10.0"
-
 local_repository(
     name = "envoy_build_config",
     path = "bazel/envoy_build_config",

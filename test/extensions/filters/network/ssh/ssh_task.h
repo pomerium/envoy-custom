@@ -517,6 +517,7 @@ public:
 };
 
 enum class ExpectEOF : bool {};
+enum class SendEOF : bool {};
 
 class WaitForChannelCloseByPeer : public Task<Channel> {
 public:
@@ -547,12 +548,12 @@ public:
   Channel channel_{};
   const ExpectEOF expect_eof_;
 };
-enum class SendEOF : bool {};
 
 class SendChannelCloseAndWait : public Task<Channel> {
 public:
-  SendChannelCloseAndWait(SendEOF send_eof = SendEOF(false))
-      : send_eof_(send_eof) {}
+  SendChannelCloseAndWait(SendEOF send_eof = SendEOF(false), ExpectEOF expect_eof = ExpectEOF(true))
+      : send_eof_(send_eof),
+        expect_eof_(expect_eof) {}
   void start(Channel channel) override {
     channel_ = channel;
     setChannelFilter(channel);
@@ -573,12 +574,16 @@ public:
         return Break;
       },
       [&](const wire::ChannelEOFMsg&) {
+        if (expect_eof_ == ExpectEOF(false)) {
+          taskFailure(absl::InvalidArgumentError(fmt::format("unexpected EOF for channel {}", channel_.local_id)));
+        }
         return Break;
       },
       DEFAULT_CONTINUE);
   }
   Channel channel_{};
   const SendEOF send_eof_;
+  const ExpectEOF expect_eof_;
 };
 
 class WaitForDisconnectWithError : public Task<> {
