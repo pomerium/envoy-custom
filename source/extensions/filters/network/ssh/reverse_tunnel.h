@@ -27,7 +27,7 @@ namespace Envoy {
   COUNTER(downstream_flow_control_remote_window_restored_total)                     \
   COUNTER(downstream_flow_control_high_watermark_activated_total)                   \
   COUNTER(downstream_flow_control_low_watermark_activated_total)                    \
-  STATNAME(reverse_tunnel)
+  STATNAME(ssh_reverse_tunnel)
 
 MAKE_STAT_NAMES_STRUCT(ReverseTunnelStatNames, ALL_REVERSE_TUNNEL_STATS);
 MAKE_STATS_STRUCT(ReverseTunnelStats, ReverseTunnelStatNames, ALL_REVERSE_TUNNEL_STATS);

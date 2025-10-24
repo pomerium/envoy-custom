@@ -347,6 +347,7 @@ public:
     callbacks_->setTimeout(default_timeout_, fmt::format("AcceptReversePortForward({},{},{})",
                                                          address_connected_, port_connected_, local_channel_id_));
   }
+
   MiddlewareResult onMessageReceived(wire::Message& msg) override {
     return msg.visit(
       [&](const wire::ChannelOpenMsg& open_msg) {
@@ -371,6 +372,8 @@ public:
                 .upstream_max_packet_size = wire::ChannelMaxPacketSize,
               });
               return Break;
+            } else {
+              details_ = fmt::format("last received open request: {}", msg);
             }
             return Continue;
           },
@@ -379,6 +382,15 @@ public:
       DEFAULT_CONTINUE);
   }
 
+  absl::Status errorDetails() override {
+    if (details_.empty()) {
+      return absl::InternalError("channel open was never received");
+    } else {
+      return absl::InternalError(fmt::format("channel open was received, but did not match: {}", details_));
+    }
+  }
+
+  std::string details_;
   const std::string address_connected_;
   const uint32_t port_connected_;
   const uint32_t local_channel_id_;

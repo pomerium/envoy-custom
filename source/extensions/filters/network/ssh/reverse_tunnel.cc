@@ -133,24 +133,30 @@ private:
       if (!initialized_) {
         // Downstream closed before initialization
         ENVOY_LOG(debug, "downstream closed before initialization");
+        absl::MutexLock guard(&detach_lock_);
+        if (detached_) {
+          remote_dispatcher_.deferredDelete(std::move(detached_self_));
+        }
         return;
       }
+
       if (window_buffer_.length() > 0) {
-        ENVOY_LOG(debug, "channel {}: downstream closed early, dropping {} bytes",
+        ENVOY_LOG(debug, "channel {}: downstream closed early; dropping {} bytes",
                   peer_state_.id, window_buffer_.length());
         window_buffer_.drain(window_buffer_.length());
       } else {
-        ENVOY_LOG(debug, "channel {}: downstream closed");
+        ENVOY_LOG(debug, "channel {}: downstream closed", peer_state_.id);
       }
+
       // If we are already detached, submit for deletion. Otherwise, we need to raise an error and
       // wait to become detached.
-      detach_lock_.Lock();
-      if (detached_) {
-        detach_lock_.Unlock();
-        remote_dispatcher_.deferredDelete(std::move(detached_self_));
-        return;
+      {
+        absl::MutexLock guard(&detach_lock_);
+        if (detached_) {
+          remote_dispatcher_.deferredDelete(std::move(detached_self_));
+          return;
+        }
       }
-      detach_lock_.Unlock();
 
       onError(absl::CancelledError("downstream closed"));
     }
@@ -216,6 +222,7 @@ private:
       ENVOY_LOG(debug, "channel {}: local peer exited without sending a ChannelClose message");
     }
     // Close it for reading and writing, since reads are impossible
+    ENVOY_BUG(io_handle_->isOpen(), "bug: io handle is closed");
     io_handle_->close();
 
     // If we did receive a channel close, allow the response to be received by the downstream.
@@ -1151,7 +1158,7 @@ SshReverseTunnelCluster::SshReverseTunnelCluster(const envoy::config::cluster::v
       config_(proto_config),
       stream_tracker_(StreamTracker::fromContext(cluster_context.serverFactoryContext())),
       reverse_tunnel_stat_names_(info_->statsScope().symbolTable()),
-      reverse_tunnel_stats_(reverse_tunnel_stat_names_, info_->statsScope(), reverse_tunnel_stat_names_.reverse_tunnel_),
+      reverse_tunnel_stats_(reverse_tunnel_stat_names_, info_->statsScope(), reverse_tunnel_stat_names_.ssh_reverse_tunnel_),
       dispatcher_(cluster_context.serverFactoryContext().mainThreadDispatcher()),
       owned_context_(std::make_unique<ReverseTunnelClusterContextImpl>(
         info_, stream_tracker_, load_assignment, reverse_tunnel_stats_)) {

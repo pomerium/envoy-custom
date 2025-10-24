@@ -333,15 +333,15 @@ TEST_P(StaticPortForwardTest, ImmediateServerEOFClose) {
 }
 
 static constexpr auto stat_window_adjustment_paused =
-  "cluster.tcp_cluster.reverse_tunnel.upstream_flow_control_window_adjustment_paused_total";
+  "cluster.tcp_cluster.ssh_reverse_tunnel.upstream_flow_control_window_adjustment_paused_total";
 static constexpr auto stat_window_adjustment_resumed =
-  "cluster.tcp_cluster.reverse_tunnel.upstream_flow_control_window_adjustment_resumed_total";
+  "cluster.tcp_cluster.ssh_reverse_tunnel.upstream_flow_control_window_adjustment_resumed_total";
 static constexpr auto stat_local_window_exhausted =
-  "cluster.tcp_cluster.reverse_tunnel.upstream_flow_control_local_window_exhausted_total";
+  "cluster.tcp_cluster.ssh_reverse_tunnel.upstream_flow_control_local_window_exhausted_total";
 static constexpr auto stat_downstream_high_watermark =
-  "cluster.tcp_cluster.reverse_tunnel.downstream_flow_control_high_watermark_activated_total";
+  "cluster.tcp_cluster.ssh_reverse_tunnel.downstream_flow_control_high_watermark_activated_total";
 static constexpr auto stat_downstream_low_watermark =
-  "cluster.tcp_cluster.reverse_tunnel.downstream_flow_control_low_watermark_activated_total";
+  "cluster.tcp_cluster.ssh_reverse_tunnel.downstream_flow_control_low_watermark_activated_total";
 
 class SendDataUntilRemoteWindowExhausted : public Task<Tasks::Channel, Tasks::Channel> {
 public:
@@ -847,6 +847,7 @@ TEST_P(StaticPortForwardTest, UpstreamDisconnectsBeforeInitialization) {
   driver->close();
   for (auto& downstream : downstreams) {
     downstream->waitForDisconnect(true);
+    downstream->close(Network::ConnectionCloseType::AbortReset);
   }
 }
 

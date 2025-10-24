@@ -68,10 +68,12 @@ AssertionResult SshConnectionDriver::disconnect() {
 
 void SshConnectionDriver::close() {
   if (!closed_) {
+    auto& dispatcher = client_connection_->dispatcher();
     closed_ = true;
     client_connection_->close(Network::ConnectionCloseType::AbortReset);
     client_connection_.reset(); // IMPORTANT: client_connection_ holds a shared_ptr to this
     ASSERT(disconnected_ == true);
+    dispatcher.clearDeferredDeleteList();
   }
 }
 
