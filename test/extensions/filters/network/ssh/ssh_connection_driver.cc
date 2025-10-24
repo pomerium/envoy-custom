@@ -53,7 +53,7 @@ AssertionResult SshConnectionDriver::disconnect() {
   if (!disconnected_) {
     codec_callbacks_->expect_decoding_failure_ = true;
     sendMessage(wire::DisconnectMsg{
-      .reason_code = 11,
+      .reason_code = SSH2_DISCONNECT_BY_APPLICATION,
     });
     // Run the event loop to process the disconnect message.
     while (!disconnected_) {

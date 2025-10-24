@@ -585,6 +585,10 @@ public:
         taskSuccess(channel_);
         return Break;
       },
+      [&](const wire::ChannelCloseMsg&) {
+        taskFailure(absl::InternalError("expecting EOF, but got channel close"));
+        return Break;
+      },
       DEFAULT_CONTINUE);
   }
   Channel channel_{};

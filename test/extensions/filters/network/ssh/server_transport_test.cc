@@ -353,7 +353,9 @@ MATCHER_P(RequestCommonFrameWithMsg, msg, "") {
 TEST_F(ServerTransportTest, Disconnect) {
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("received disconnect: by application"sv));
 
-  ASSERT_OK(WriteMsg(wire::DisconnectMsg{.reason_code = 11}));
+  ASSERT_OK(WriteMsg(wire::DisconnectMsg{
+    .reason_code = SSH2_DISCONNECT_BY_APPLICATION,
+  }));
 }
 
 TEST_F(ServerTransportTest, Terminate) {

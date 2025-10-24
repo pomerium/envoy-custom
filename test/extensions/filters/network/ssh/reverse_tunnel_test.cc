@@ -808,9 +808,11 @@ TEST_P(StaticPortForwardWithHalfCloseTest, UpstreamHalfClose) {
 
   auto tcp_client = makeTcpConnectionWithServerName(route_port, route_name);
   tcp_client->waitForHalfClose();
-  tcp_client->close();
+  EXPECT_TRUE(tcp_client->write("", true));
+  // Don't call waitForDisconnect() here, it only checks for RemoteClose. This should raise LocalClose
 
-  ASSERT_TRUE(driver->wait(th));
+  EXPECT_TRUE(driver->wait(th));
+  driver->close();
 }
 
 TEST_P(StaticPortForwardTest, DownstreamClosesAbruptly) {

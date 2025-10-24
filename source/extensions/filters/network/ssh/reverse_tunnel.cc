@@ -158,7 +158,9 @@ private:
         }
       }
 
-      onError(absl::CancelledError("downstream closed"));
+      // Send an EOF message if the downstream initiated the close.
+      onError(absl::CancelledError("downstream closed"),
+              event == Network::ConnectionEvent::LocalClose);
     }
   }
 
@@ -175,22 +177,22 @@ private:
     reverse_tunnel_stats_.downstream_flow_control_low_watermark_activated_total_.inc();
   }
 
-  void onError(absl::Status err) {
+  void onError(absl::Status err, bool send_eof = false) {
     ASSERT(initialized_);
     upstream_error_ = true;
     ENVOY_LOG(debug, "channel {}: remote error: {}", peer_state_.id, err);
 
-    bool sendEof = false;
     if (socks5_handshaker_ != nullptr) {
       // If an error occured in the middle of the socks5 handshake, we have to send an EOF message
-      // to the client.
-      sendEof = true;
+      // to the client. An EOF should be sent if the "downstream" initiates the close, which is
+      // logically the socks5 handshaker until it is completed.
+      send_eof = true;
     }
 
     detach_lock_.Lock();
     if (!detached_) {
       ENVOY_LOG(debug, "channel {}: scheduling error callback", peer_state_.id);
-      peer_state_.callbacks->scheduleErrorCallback(err, sendEof);
+      peer_state_.callbacks->scheduleErrorCallback(err, send_eof);
     } else {
       ENVOY_LOG(debug, "channel {}: not scheduling error callback (detached)", peer_state_.id);
     }
@@ -208,6 +210,11 @@ private:
     // received a socket close event but were not detached yet (and had to wait for the channel
     // to be closed).
     if (socket_closed_) {
+      if (io_handle_->isOpen()) {
+        // Close the io handle now if it's still open. This can happen e.g. in situations where the
+        // upstream half-closes by sending EOF but not close, then the downstream closes.
+        io_handle_->close();
+      }
       remote_dispatcher_.deferredDelete(std::move(self));
       return;
     }

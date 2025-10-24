@@ -3,7 +3,6 @@
 #include "source/common/optref.h"
 #include "source/common/types.h"
 #include "source/common/type_traits.h"
-#include <initializer_list>
 #pragma clang unsafe_buffer_usage begin
 #include "source/common/buffer/buffer_impl.h" // IWYU pragma: keep
 #include "absl/random/random.h"
