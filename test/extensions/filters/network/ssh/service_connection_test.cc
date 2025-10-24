@@ -35,6 +35,10 @@ public:
       .WillRepeatedly(ReturnRef(secrets_provider_));
     EXPECT_CALL(transport_, statsScope)
       .Times(AnyNumber());
+    EXPECT_CALL(transport_, connectionDispatcher)
+      .WillRepeatedly([this] -> Envoy::OptRef<Envoy::Event::Dispatcher> {
+        return mock_dispatcher_;
+      });
   }
 
   Peer LocalPeer() const {
@@ -48,6 +52,7 @@ public:
   TestSecretsProvider secrets_provider_;
   testing::StrictMock<MockTransportCallbacks> transport_;
   ConnectionService service_;
+  NiceMock<Envoy::Event::MockDispatcher> mock_dispatcher_;
 };
 
 // NOLINTEND(readability-identifier-naming)
