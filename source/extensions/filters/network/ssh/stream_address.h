@@ -4,35 +4,22 @@
 
 #pragma clang unsafe_buffer_usage begin
 #include "envoy/network/socket_interface.h"
-#include "envoy/event/dispatcher.h"
-#include "api/extensions/filters/network/ssh/ssh.pb.h"
 #pragma clang unsafe_buffer_usage end
 
-namespace Envoy::Network::Address {
+namespace Envoy::Network {
 
-using SshEndpointMetadataConstSharedPtr = std::shared_ptr<const pomerium::extensions::ssh::EndpointMetadata>;
-
-class SocketInterfaceFactory {
+class HostContext;
+namespace Address {
+class SshStreamAddress : public Instance {
 public:
-  virtual ~SocketInterfaceFactory() = default;
-  virtual Network::SocketInterfacePtr createSocketInterface(Event::Dispatcher& connection_dispatcher) PURE;
-};
-
-class InternalStreamAddressImpl : public Instance {
-public:
-  InternalStreamAddressImpl(stream_id_t stream_id,
-                            SshEndpointMetadataConstSharedPtr metadata,
-                            std::shared_ptr<SocketInterfaceFactory> socket_interface_factory);
-  InternalStreamAddressImpl(const std::shared_ptr<const InternalStreamAddressImpl>& factory_address,
-                            Event::Dispatcher& connection_dispatcher);
-  ~InternalStreamAddressImpl();
-
-  static std::shared_ptr<InternalStreamAddressImpl>
-  createFromFactoryAddress(const std::shared_ptr<const InternalStreamAddressImpl>& factory_address,
-                           Event::Dispatcher& connection_dispatcher);
+  SshStreamAddress(stream_id_t stream_id, HostContext& host_context)
+      : stream_id_(stream_id),
+        stream_address_(fmt::format("ssh:{}", stream_id)),
+        host_context_(host_context),
+        fake_envoy_internal_addr_(stream_address_) {}
 
   stream_id_t streamId() const { return stream_id_; }
-  const SshEndpointMetadataConstSharedPtr& endpointMetadata() const { return metadata_; }
+  HostContext& hostContext() const { return host_context_; }
 
   bool operator==(const Instance&) const override { return false; }
   const std::string& asString() const override { return stream_address_; }
@@ -58,14 +45,8 @@ public:
   absl::string_view addressType() const override { return "ssh_stream"; }
 
   const Network::SocketInterface& socketInterface() const override {
-    ASSERT(socket_interface_ != nullptr);
-    return *socket_interface_;
+    throw EnvoyException("unexpected call to socketInterface()");
   }
-  SocketInterfaceFactory& socketInterfaceFactory() const {
-    ASSERT(socket_interface_factory_ != nullptr);
-    return *socket_interface_factory_;
-  }
-
   std::optional<std::string> networkNamespace() const override { return std::nullopt; }
 
   class FakeEnvoyInternalAddress : public EnvoyInternalAddress {
@@ -83,15 +64,11 @@ public:
 private:
   const stream_id_t stream_id_;
   const std::string stream_address_;
-  SshEndpointMetadataConstSharedPtr metadata_;
+  HostContext& host_context_;
   FakeEnvoyInternalAddress fake_envoy_internal_addr_;
-
-  // This is initially created by an SshReverseTunnelCluster, and shared with all hosts in that
-  // cluster. The concrete type is always InternalStreamSocketInterfaceFactory.
-  std::shared_ptr<SocketInterfaceFactory> socket_interface_factory_;
-  Network::SocketInterfacePtr socket_interface_;
 };
 
-using InternalStreamAddressConstSharedPtr = std::shared_ptr<const InternalStreamAddressImpl>;
+using SshStreamAddressConstSharedPtr = std::shared_ptr<const SshStreamAddress>;
 
-} // namespace Envoy::Network::Address
+} // namespace Address
+} // namespace Envoy::Network

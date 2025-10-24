@@ -23,11 +23,11 @@ envoy_cc_library(
         "packet_cipher.cc",
         "packet_cipher_aead.cc",
         "packet_cipher_etm.cc",
+        "reverse_tunnel.cc",
         "server_transport.cc",
         "service_connection.cc",
         "service_userauth.cc",
         "socks5.cc",
-        "stream_address.cc",
         "stream_tracker.cc",
         "version_exchange.cc",
     ],
@@ -48,6 +48,7 @@ envoy_cc_library(
         "packet_cipher.h",
         "packet_cipher_aead.h",
         "packet_cipher_etm.h",
+        "reverse_tunnel.h",
         "server_transport.h",
         "service.h",
         "service_connection.h",
@@ -87,6 +88,7 @@ envoy_cc_library(
         "@envoy//source/extensions/filters/network/generic_proxy/interface:codec_interface",
         "@envoy//source/extensions/filters/network/generic_proxy/interface:filter_interface",
         "@envoy//source/extensions/io_socket/user_space:io_handle_impl_lib",
+        "@readerwriterqueue",
     ],
 )
 

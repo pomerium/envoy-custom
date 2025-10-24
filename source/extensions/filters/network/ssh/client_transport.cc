@@ -88,6 +88,7 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
   switch (frame.frameFlags().frameTags() & FrameTags::FrameTypeMask) {
   case FrameTags::RequestHeader: {
     auto& filterState = callbacks_->connection()->streamInfo().filterState();
+    connection_dispatcher_ = callbacks_->connection()->dispatcher();
 
     ASSERT(filterState->hasDataWithName(ChannelIDManagerFilterStateKey));
     ASSERT(filterState->hasDataWithName(AuthInfoFilterStateKey));
@@ -253,7 +254,11 @@ stream_id_t SshClientTransport::streamId() const {
 }
 
 void SshClientTransport::terminate(absl::Status err) {
-  ENVOY_LOG(error, "ssh: stream {} closing with error: {}", streamId(), err.message());
+  if (been_terminated_) {
+    return;
+  }
+  been_terminated_ = true;
+  ENVOY_LOG(error, "ssh: stream {} closing with error: {}", streamId(), statusToString(err));
 
   wire::DisconnectMsg msg;
   msg.reason_code = openssh::statusCodeToDisconnectCode(err.code());

@@ -92,16 +92,26 @@ void SshServerTransport::registerMessageHandlers(MessageDispatcher<wire::Message
 
   ping_handler_->registerMessageHandlers(*this);
   user_auth_service_->registerMessageHandlers(*mgmt_client_);
+  connection_service_->registerMessageHandlers(*mgmt_client_);
 }
 
 void SshServerTransport::onConnected() {
   auto& conn = *callbacks_->connection();
+
   ASSERT(conn.state() == Network::Connection::State::Open);
   connection_dispatcher_ = conn.dispatcher();
-  channel_id_manager_ = std::make_shared<ChannelIDManager>();
+  auto maxConcurrentChannels = config_->max_concurrent_channels();
+  if (maxConcurrentChannels == 0) {
+    maxConcurrentChannels = DefaultMaxConcurrentChannels;
+  }
+  channel_id_manager_ = std::make_shared<ChannelIDManager>(config_->internal_channel_id_start(), maxConcurrentChannels);
   setChannelIdManager(conn.streamInfo().filterState(), channel_id_manager_);
   initServices();
   mgmt_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus status, std::string message) {
+    if (status != Grpc::Status::PermissionDenied) {
+      // PermissionDenied errors should be auth related, and don't need this extra context.
+      message = fmt::format("management server error: {}", message);
+    }
     terminate({static_cast<absl::StatusCode>(status), message});
   });
   stream_id_ = api_.randomGenerator().random();
@@ -151,6 +161,10 @@ GenericProxy::ResponsePtr SshServerTransport::respond(absl::Status status,
                                                       const Request& req) {
   RELEASE_ASSERT(!status.ok(), "respond() called with OK status");
 
+  // Checked after calling onDecodingSuccess() with a header frame. If the upstream cluster has no
+  // available hosts, respond() will be called before onDecodingSuccess() returns.
+  respond_called_ = true;
+
   int code{};
   // check envoy well-known messages
   // TODO: possible to access core response flags from here?
@@ -172,10 +186,7 @@ GenericProxy::ResponsePtr SshServerTransport::respond(absl::Status status,
   if (!data.empty()) {
     dc.description->append(fmt::format(": [{}]", data));
   }
-  auto frame = std::make_unique<SSHResponseHeaderFrame>(std::move(dc),
-                                                        FrameTags(EffectiveCommon | Error));
-  frame->setStreamId(req.frameFlags().streamId());
-  return frame;
+  return std::make_unique<SSHResponseHeaderFrame>(std::move(dc), req);
 }
 
 absl::Status SshServerTransport::handleMessage(wire::Message&& msg) {
@@ -214,6 +225,48 @@ absl::Status SshServerTransport::handleMessage(wire::Message&& msg) {
           // server->client only
           return absl::InvalidArgumentError(fmt::format("unexpected global request: {}",
                                                         wire::HostKeysMsg::submsg_key));
+        },
+        [&](wire::TcpipForwardMsg& forward_msg) {
+          if (!upstreamReady()) {
+            return absl::InvalidArgumentError(fmt::format("unexpected message received: {}", msg.msg_type()));
+          }
+          if (authInfo().channel_mode == ChannelMode::Hijacked) {
+            ENVOY_LOG(debug, "sending global request to hijacked stream: {}", msg.request_name());
+            ClientMessage clientMsg;
+            auto* globalReq = clientMsg.mutable_global_request();
+            globalReq->set_want_reply(msg.want_reply);
+            auto* forwardReq = globalReq->mutable_tcpip_forward_request();
+            forwardReq->set_remote_address(forward_msg.remote_address);
+            forwardReq->set_remote_port(forward_msg.remote_port);
+            sendMgmtClientMessage(clientMsg);
+
+            return absl::OkStatus();
+          }
+
+          ENVOY_LOG(debug, "forwarding global request: {}", msg.request_name());
+          forward(std::move(msg));
+          return absl::OkStatus();
+        },
+        [&](wire::CancelTcpipForwardMsg& forward_msg) {
+          if (!upstreamReady()) {
+            return absl::InvalidArgumentError(fmt::format("unexpected message received: {}", msg.msg_type()));
+          }
+          if (authInfo().channel_mode == ChannelMode::Hijacked) {
+            ENVOY_LOG(debug, "sending global request to hijacked stream: {}", msg.request_name());
+            ClientMessage clientMsg;
+            auto* globalReq = clientMsg.mutable_global_request();
+            globalReq->set_want_reply(msg.want_reply);
+            auto* forwardReq = globalReq->mutable_cancel_tcpip_forward_request();
+            forwardReq->set_remote_address(forward_msg.remote_address);
+            forwardReq->set_remote_port(forward_msg.remote_port);
+            sendMgmtClientMessage(clientMsg);
+
+            return absl::OkStatus();
+          }
+
+          ENVOY_LOG(debug, "forwarding global request: {}", msg.request_name());
+          forward(std::move(msg));
+          return absl::OkStatus();
         });
     },
     [&](wire::GlobalRequestSuccessMsg& msg) {
@@ -313,6 +366,10 @@ void SshServerTransport::initUpstream(AuthInfoSharedPtr auth_info) {
 
     auto frame = std::make_unique<SSHRequestHeaderFrame>(hostname, stream_id_);
     callbacks_->onDecodingSuccess(std::move(frame));
+    if (respond_called_) {
+      ENVOY_LOG(debug, "stopping upstream initialization (channel mode: {})", auth_info_->channel_mode);
+      return;
+    }
 
     ClientMessage upstream_connect_msg{};
     upstream_connect_msg.mutable_event()->mutable_upstream_connected();
@@ -338,6 +395,10 @@ void SshServerTransport::initUpstream(AuthInfoSharedPtr auth_info) {
     ENVOY_LOG(debug, "disabling reads on downstream connection for handoff");
     callbacks_->connection()->readDisable(true);
     callbacks_->onDecodingSuccess(std::move(frame));
+    if (respond_called_) {
+      ENVOY_LOG(debug, "stopping upstream initialization (channel mode: {})", auth_info_->channel_mode);
+      return;
+    }
 
     ClientMessage upstream_connect_msg{};
     upstream_connect_msg.mutable_event()->mutable_upstream_connected();

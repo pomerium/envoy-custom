@@ -8,7 +8,7 @@
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-constexpr uint32_t MaxConcurrentChannels = 32768;
+constexpr uint32_t DefaultMaxConcurrentChannels = 32768;
 
 enum Peer {
   Downstream = 0,
@@ -100,7 +100,7 @@ class ChannelIDManager : NonCopyable,
                          public StreamInfo::FilterState::Object,
                          public Logger::Loggable<Logger::Id::filter> {
 public:
-  ChannelIDManager(uint32_t start_id = 0, uint32_t id_limit = MaxConcurrentChannels)
+  ChannelIDManager(uint32_t start_id = 0, uint32_t id_limit = DefaultMaxConcurrentChannels)
       : id_alloc_(start_id, start_id + id_limit) {}
 
   absl::StatusOr<uint32_t> allocateNewChannel(Peer owner);
