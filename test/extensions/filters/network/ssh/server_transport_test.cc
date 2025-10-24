@@ -1447,6 +1447,24 @@ TEST_F(ServerTransportTest, PomeriumDisconnectsDuringAuth) {
   ASSERT_OK(WriteMsg(std::move(authReq)));
 }
 
+TEST_F(ServerTransportTest, PomeriumDisconnectsDuringAuthWithPermissionDenied) {
+  // PermissionDenied is a special case, it won't prepend the "management server error" prefix
+  ASSERT_OK(ReadExtInfo());
+
+  auto clientKey = *openssh::SSHKey::generate(KEY_ED25519, 256);
+
+  ASSERT_OK(RequestUserAuthService());
+  auto [authReq, clientMsg] = BuildUserAuthMessages(*clientKey);
+
+  EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(clientMsg), false))
+    .WillOnce([this](Buffer::InstancePtr&, bool) {
+      manage_stream_callbacks_->onRemoteClose(Envoy::Grpc::Status::PermissionDenied, "not authorized");
+    });
+
+  EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("not authorized"));
+  ASSERT_OK(WriteMsg(std::move(authReq)));
+}
+
 TEST_F(ServerTransportTest, InvalidMessageReceived) {
   // Can't happen under normal circumstances, but still a possible error
   EXPECT_EQ(absl::InternalError("received invalid message: UserAuthRequest (50)"),

@@ -108,7 +108,11 @@ void SshServerTransport::onConnected() {
   setChannelIdManager(conn.streamInfo().filterState(), channel_id_manager_);
   initServices();
   mgmt_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus status, std::string message) {
-    terminate({static_cast<absl::StatusCode>(status), fmt::format("management server error: {}", message)});
+    if (status != Grpc::Status::PermissionDenied) {
+      // PermissionDenied errors should be auth related, and don't need this extra context.
+      message = fmt::format("management server error: {}", message);
+    }
+    terminate({static_cast<absl::StatusCode>(status), message});
   });
   stream_id_ = api_.randomGenerator().random();
 
