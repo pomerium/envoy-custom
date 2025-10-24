@@ -528,6 +528,17 @@ public:
   uint32_t bytes_to_add_;
 };
 
+class SendChannelEOF : public Task<Channel, Channel> {
+public:
+  void start(Channel channel) override {
+    callbacks_->sendMessage(wire::ChannelEOFMsg{
+      .recipient_channel = channel.remote_id,
+    });
+    taskSuccess(channel);
+  }
+  MiddlewareResult onMessageReceived(wire::Message&) override { return Continue; }
+};
+
 enum class ExpectEOF : bool {};
 enum class SendEOF : bool {};
 

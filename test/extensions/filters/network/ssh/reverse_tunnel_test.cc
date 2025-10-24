@@ -749,6 +749,19 @@ TEST_P(StaticPortForwardTest, UpstreamSendsUnexpectedChannelMessage) {
   downstream->close();
 }
 
+TEST_P(StaticPortForwardTest, UpstreamEOF) {
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
+              .then(driver->createTask<Tasks::SendChannelEOF>()
+                      .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>()))
+              .start();
+
+  auto tcp_client = makeTcpConnectionWithServerName(route_port, route_name);
+  tcp_client->waitForDisconnect();
+  tcp_client->close();
+
+  ASSERT_TRUE(driver->wait(th));
+}
+
 class StaticPortForwardWithHalfCloseTest : public StaticPortForwardTest {
 public:
   using StaticPortForwardTest::StaticPortForwardTest;
@@ -784,6 +797,20 @@ TEST_P(StaticPortForwardWithHalfCloseTest, DownstreamHalfClose) {
     driver->createTask<Tasks::SendChannelCloseAndWait>(Tasks::SendEOF(false), Tasks::ExpectEOF(false))
       .start(channel)));
   downstream->waitForDisconnect();
+}
+
+TEST_P(StaticPortForwardWithHalfCloseTest, UpstreamHalfClose) {
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
+              .then(driver->createTask<Tasks::SendChannelEOF>()
+                      .then(driver->createTask<Tasks::WaitForChannelEOF>()
+                              .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>(Tasks::ExpectEOF(false)))))
+              .start();
+
+  auto tcp_client = makeTcpConnectionWithServerName(route_port, route_name);
+  tcp_client->waitForHalfClose();
+  tcp_client->close();
+
+  ASSERT_TRUE(driver->wait(th));
 }
 
 TEST_P(StaticPortForwardTest, DownstreamClosesAbruptly) {

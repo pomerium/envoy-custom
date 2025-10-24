@@ -143,9 +143,13 @@ type CodecConfig struct {
 	// algorithm, but the default values for some algorithms are larger.
 	RekeyThreshold *wrapperspb.UInt64Value `protobuf:"bytes,3,opt,name=rekey_threshold,json=rekeyThreshold,proto3" json:"rekey_threshold,omitempty"`
 	// Pomerium StreamManagement grpc service.
-	GrpcService   *v3.GrpcService `protobuf:"bytes,4,opt,name=grpc_service,json=grpcService,proto3" json:"grpc_service,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	GrpcService *v3.GrpcService `protobuf:"bytes,4,opt,name=grpc_service,json=grpcService,proto3" json:"grpc_service,omitempty"`
+	// Max number of concurrent open channels. Default (and max) is 32768
+	MaxConcurrentChannels uint32 `protobuf:"varint,5,opt,name=max_concurrent_channels,json=maxConcurrentChannels,proto3" json:"max_concurrent_channels,omitempty"`
+	// Starting value for internal channel IDs. Defaults to 0. Can be set > 0 for easier debugging.
+	InternalChannelIdStart uint32 `protobuf:"varint,6,opt,name=internal_channel_id_start,json=internalChannelIdStart,proto3" json:"internal_channel_id_start,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *CodecConfig) Reset() {
@@ -204,6 +208,20 @@ func (x *CodecConfig) GetGrpcService() *v3.GrpcService {
 		return x.GrpcService
 	}
 	return nil
+}
+
+func (x *CodecConfig) GetMaxConcurrentChannels() uint32 {
+	if x != nil {
+		return x.MaxConcurrentChannels
+	}
+	return 0
+}
+
+func (x *CodecConfig) GetInternalChannelIdStart() uint32 {
+	if x != nil {
+		return x.InternalChannelIdStart
+	}
+	return 0
 }
 
 type ReverseTunnelCluster struct {
@@ -3326,12 +3344,14 @@ var File_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh
 
 const file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDesc = "" +
 	"\n" +
-	"Mgithub.com/pomerium/envoy-custom/api/extensions/filters/network/ssh/ssh.proto\x12\x17pomerium.extensions.ssh\x1a\"envoy/config/core/v3/address.proto\x1a\x1fenvoy/config/core/v3/base.proto\x1a(envoy/config/core/v3/config_source.proto\x1a$envoy/config/core/v3/extension.proto\x1a'envoy/config/core/v3/grpc_service.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1aAgithub.com/envoyproxy/protoc-gen-validate/validate/validate.proto\"\xd0\x02\n" +
+	"Mgithub.com/pomerium/envoy-custom/api/extensions/filters/network/ssh/ssh.proto\x12\x17pomerium.extensions.ssh\x1a\"envoy/config/core/v3/address.proto\x1a\x1fenvoy/config/core/v3/base.proto\x1a(envoy/config/core/v3/config_source.proto\x1a$envoy/config/core/v3/extension.proto\x1a'envoy/config/core/v3/grpc_service.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1aAgithub.com/envoyproxy/protoc-gen-validate/validate/validate.proto\"\xce\x03\n" +
 	"\vCodecConfig\x12N\n" +
 	"\thost_keys\x18\x01 \x03(\v2 .envoy.config.core.v3.DataSourceB\x0f\xfaB\f\x92\x01\t\b\x01\"\x05\x8a\x01\x02\x10\x01R\bhostKeys\x12J\n" +
 	"\vuser_ca_key\x18\x02 \x01(\v2 .envoy.config.core.v3.DataSourceB\b\xfaB\x05\x8a\x01\x02\x10\x01R\tuserCaKey\x12U\n" +
 	"\x0frekey_threshold\x18\x03 \x01(\v2\x1c.google.protobuf.UInt64ValueB\x0e\xfaB\v2\t\x18\x80\x80\x80\x80\x04(\x80\x02R\x0erekeyThreshold\x12N\n" +
-	"\fgrpc_service\x18\x04 \x01(\v2!.envoy.config.core.v3.GrpcServiceB\b\xfaB\x05\x8a\x01\x02\x10\x01R\vgrpcService\"m\n" +
+	"\fgrpc_service\x18\x04 \x01(\v2!.envoy.config.core.v3.GrpcServiceB\b\xfaB\x05\x8a\x01\x02\x10\x01R\vgrpcService\x12A\n" +
+	"\x17max_concurrent_channels\x18\x05 \x01(\rB\t\xfaB\x06*\x04\x18\x80\x80\x02R\x15maxConcurrentChannels\x129\n" +
+	"\x19internal_channel_id_start\x18\x06 \x01(\rR\x16internalChannelIdStart\"m\n" +
 	"\x14ReverseTunnelCluster\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12A\n" +
 	"\n" +

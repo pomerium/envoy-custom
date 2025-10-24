@@ -254,7 +254,13 @@ private:
         // Only send this once since additional write events could be received if the downstream
         // is half-closed but the upstream still has data to write.
         downstream_eof_ = true;
-        sendUpstreamEOF();
+        if (upstream_error_) {
+          // Don't send additional messages if an error is pending, it can race with channel close.
+          ENVOY_LOG(debug, "channel {}: not sending EOF due to upstream error", peer_state_.id);
+        } else {
+          ENVOY_LOG(debug, "channel {}: sending EOF", peer_state_.id);
+          sendUpstreamEOF();
+        }
       }
     }
 
@@ -269,8 +275,6 @@ private:
           ENVOY_LOG(debug, "channel {}: flow control: not re-enabling window adjustments due to upstream error",
                     peer_state_.id);
         } else {
-          // Don't need to (potentially) send a window adjustment if the channel is about to be
-          // closed anyway. Note that close/eof messages don't consume window space.
           ENVOY_LOG(debug, "channel {}: flow control: re-enabling window adjustments", peer_state_.id);
           reverse_tunnel_stats_.upstream_flow_control_window_adjustment_resumed_total_.inc();
 
@@ -354,8 +358,13 @@ private:
           return;
         },
         [&](wire::ChannelEOFMsg&) {
+          ENVOY_LOG(debug, "channel {}: received upstream EOF", peer_state_.id);
+          if (io_handle_->isOpen()) {
+            io_handle_->shutdown(ENVOY_SHUT_WR);
+          }
         },
         [&](wire::ChannelCloseMsg&) {
+          ENVOY_LOG(debug, "channel {}: received upstream close", peer_state_.id);
           received_channel_close_ = true;
           // Note: we won't intentionally close the io handle ourselves until this object is about
           // to be destroyed, and all messages have been read from the queue. However, it could
@@ -482,6 +491,7 @@ private:
   void enqueueLocalMessage(std::unique_ptr<QueueMessage> msg) {
     ASSERT(initialized_);
     ASSERT(remote_dispatcher_.isThreadSafe());
+    ASSERT(!upstream_error_);
     bool ok = local_queue_.enqueue(std::move(msg));
     ASSERT(ok);
 
