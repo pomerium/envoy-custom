@@ -48,11 +48,11 @@ public:
     return GetParam() == Peer::Upstream ? Peer::Downstream : Peer::Upstream;
   }
 
+  NiceMock<Envoy::Event::MockDispatcher> mock_dispatcher_; // field order is important
   ChannelIDManager channel_id_manager_{100, 100};
   TestSecretsProvider secrets_provider_;
   testing::StrictMock<MockTransportCallbacks> transport_;
   ConnectionService service_;
-  NiceMock<Envoy::Event::MockDispatcher> mock_dispatcher_;
 };
 
 // NOLINTEND(readability-identifier-naming)
