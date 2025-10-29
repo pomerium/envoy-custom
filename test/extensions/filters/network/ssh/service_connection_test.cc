@@ -586,7 +586,6 @@ TEST_F(DownstreamConnectionServiceTest, TestSendChannelEvent) {
 
   pomerium::extensions::ssh::ChannelEvent ev3;
   ev3.mutable_internal_channel_stats()->mutable_stats()->set_rx_bytes_total(123);
-  ev3.mutable_internal_channel_stats()->mutable_stats()->set_rx_packets_total(1);
 
   for (const auto& ev : {ev1, ev2, ev3}) {
     pomerium::extensions::ssh::StreamEvent expectedEvent;

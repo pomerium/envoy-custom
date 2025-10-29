@@ -37,11 +37,12 @@ using top_level_queue_message = wire::sub_message<
 using QueueMessage = wire::BasicMessage<top_level_queue_message>;
 using MessageQueue = moodycamel::ReaderWriterQueue<std::unique_ptr<QueueMessage>>;
 
-class RemoteStreamHandlerCallbacks {
+class RemoteStreamHandlerCallbacks : public Event::DispatcherThreadDeletable {
 public:
   virtual ~RemoteStreamHandlerCallbacks() = default;
   virtual void scheduleQueueCallback() PURE;
   virtual void scheduleErrorCallback(absl::Status error, bool send_eof) PURE;
+  virtual Event::Dispatcher& localDispatcher() PURE;
 };
 
 class RemoteStreamHandler : public Logger::Loggable<Logger::Id::filter>,
@@ -65,11 +66,20 @@ public:
     });
   }
 
-  void initialize(RemoteStreamHandlerCallbacks& callbacks,
+  void deleteIsPending() override {
+    // Submit the callbacks object for deletion in the local dispatcher thread to guarantee that the
+    // callbacks are not running and cannot later be scheduled once they are canceled.
+    if (initialized_) {
+      peer_state_.callbacks->localDispatcher().deleteInDispatcherThread(
+        std::move(peer_state_.callbacks));
+    }
+  }
+
+  void initialize(std::unique_ptr<RemoteStreamHandlerCallbacks> callbacks,
                   const wire::ChannelOpenConfirmationMsg& confirm,
                   MessageQueue** local_queue) {
     peer_state_ = {
-      .callbacks = &callbacks,
+      .callbacks = std::move(callbacks),
       .id = confirm.recipient_channel,
       .max_packet_size = confirm.max_packet_size,
       .upstream_window = confirm.initial_window_size,
@@ -105,10 +115,8 @@ public:
     });
   }
   static void detach(std::unique_ptr<RemoteStreamHandler> self) {
-    self->detach_lock_.Lock();
-    self->detached_ = true;
-    self->detach_lock_.Unlock();
     self->remote_dispatcher_.post([self = std::move(self)] mutable {
+      self->detached_ = true;
       self->onDetached(std::move(self));
     });
   }
@@ -133,7 +141,6 @@ private:
       if (!initialized_) {
         // Downstream closed before initialization
         ENVOY_LOG(debug, "downstream closed before initialization");
-        absl::MutexLock guard(&detach_lock_);
         if (detached_) {
           remote_dispatcher_.deferredDelete(std::move(detached_self_));
         }
@@ -150,12 +157,9 @@ private:
 
       // If we are already detached, submit for deletion. Otherwise, we need to raise an error and
       // wait to become detached.
-      {
-        absl::MutexLock guard(&detach_lock_);
-        if (detached_) {
-          remote_dispatcher_.deferredDelete(std::move(detached_self_));
-          return;
-        }
+      if (detached_) {
+        remote_dispatcher_.deferredDelete(std::move(detached_self_));
+        return;
       }
 
       // Send an EOF message if the downstream initiated the close.
@@ -189,14 +193,7 @@ private:
       send_eof = true;
     }
 
-    detach_lock_.Lock();
-    if (!detached_) {
-      ENVOY_LOG(debug, "channel {}: scheduling error callback", peer_state_.id);
-      peer_state_.callbacks->scheduleErrorCallback(err, send_eof);
-    } else {
-      ENVOY_LOG(debug, "channel {}: not scheduling error callback (detached)", peer_state_.id);
-    }
-    detach_lock_.Unlock();
+    peer_state_.callbacks->scheduleErrorCallback(err, send_eof);
   }
 
   void onDetached(std::unique_ptr<RemoteStreamHandler> self) {
@@ -397,7 +394,6 @@ private:
       reverse_tunnel_stats_.upstream_flow_control_local_window_restored_total_.inc();
     }
     local_window_ += delta;
-    has_resized_local_window_ = true;
 
     enqueueLocalMessage(std::make_unique<QueueMessage>(wire::ChannelWindowAdjustMsg{
       .recipient_channel = peer_state_.id,
@@ -502,11 +498,7 @@ private:
     bool ok = local_queue_.enqueue(std::move(msg));
     ASSERT(ok);
 
-    detach_lock_.Lock(); // this lock is always uncontended, except possibly during close
-    if (!detached_) [[likely]] {
-      peer_state_.callbacks->scheduleQueueCallback();
-    }
-    detach_lock_.Unlock();
+    peer_state_.callbacks->scheduleQueueCallback();
   }
 
   absl::Status readChannelData(const wire::ChannelDataMsg& msg) {
@@ -581,7 +573,7 @@ private:
   }
 
   struct PeerState {
-    RemoteStreamHandlerCallbacks* callbacks{};
+    std::unique_ptr<RemoteStreamHandlerCallbacks> callbacks;
     uint32_t id{};
     uint32_t max_packet_size{};
     uint32_t upstream_window{};
@@ -590,36 +582,32 @@ private:
   bool initialized_ : 1 {false};
   bool received_channel_close_ : 1 {false};
   bool downstream_write_disabled_ : 1 {false};
-  bool has_resized_local_window_ : 1 {false};
   bool socket_closed_ : 1 {false};
   bool upstream_error_ : 1 {false};
   bool downstream_eof_ : 1 {false};
-  bool detached_ : 1 ABSL_GUARDED_BY(detach_lock_){false};
+  bool detached_ : 1 {false};
   uint8_t enabled_file_events_{};
   uint32_t local_window_{wire::ChannelWindowSize};
   IoSocket::UserSpace::IoHandleImplPtr io_handle_;
   // Stores peer info. This is only safe to access after observing initialized_==true.
   PeerState peer_state_{};
 
-  absl::Mutex detach_lock_;
   Envoy::Event::Dispatcher& remote_dispatcher_;
   Event::SchedulableCallbackPtr remote_queue_callback_;
   std::unique_ptr<Socks5ClientHandshaker> socks5_handshaker_;
   ReverseTunnelStats& reverse_tunnel_stats_;
   std::unique_ptr<pomerium::extensions::ssh::EndpointMetadata> metadata_;
   std::shared_ptr<const envoy::config::core::v3::Address> upstream_address_;
+  std::unique_ptr<RemoteStreamHandler> detached_self_;
 
   MessageQueue remote_queue_; // occupies 2 cache lines
   MessageQueue local_queue_;  // occupies 2 cache lines
 
   Buffer::OwnedImpl window_buffer_;
   Buffer::OwnedImpl read_buffer_;
-
-  std::unique_ptr<RemoteStreamHandler> detached_self_;
 };
 
 class InternalDownstreamChannel final : public Channel,
-                                        public RemoteStreamHandlerCallbacks,
                                         public Logger::Loggable<Logger::Id::filter> {
 public:
   InternalDownstreamChannel(Envoy::Event::Dispatcher& local_dispatcher,
@@ -630,16 +618,10 @@ public:
                             std::shared_ptr<const envoy::config::core::v3::Address> upstream_address,
                             std::shared_ptr<Network::InternalStreamPassthroughState> passthrough_state)
       : local_dispatcher_(local_dispatcher),
-        local_queue_callback_(local_dispatcher_.createSchedulableCallback([this] {
-          onLocalQueueReadyRead();
-        })),
         remote_(std::move(remote)),
         event_callbacks_(event_callbacks),
         stats_timer_(local_dispatcher.createTimer([this] {
           onStatsTimerFired();
-        })),
-        error_callback_(local_dispatcher_.createSchedulableCallback([this] {
-          onErrorCallback();
         })),
         metadata_(host_metadata),
         host_drain_callback_(host_drain_manager.addHostDrainCallback(local_dispatcher, [this] {
@@ -652,13 +634,14 @@ public:
 
   ~InternalDownstreamChannel() {
     ASSERT(local_dispatcher_.isThreadSafe());
-    if (remote_ != nullptr) { // XXX: test this branch
+    if (remote_ != nullptr) {
       ENVOY_LOG(debug, "channel {}: detaching", channel_id_);
+      if (remote_callbacks_.has_value()) {
+        remote_callbacks_->detachParent();
+      }
       RemoteStreamHandler::detach(std::move(remote_));
     }
     stats_timer_->disableTimer();
-    local_queue_callback_->cancel();
-    error_callback_->cancel();
   }
 
   // Local thread
@@ -696,19 +679,66 @@ public:
     return absl::OkStatus();
   }
 
-  // RemoteStreamHandlerCallbacks
-  void scheduleQueueCallback() final {
-    // ASSERT(remote_dispatcher_.isThreadSafe());
-    local_queue_callback_->scheduleCallbackNextIteration();
-  }
+  class RemoteStreamHandlerCallbacksImpl final : public RemoteStreamHandlerCallbacks {
+  public:
+    RemoteStreamHandlerCallbacksImpl(InternalDownstreamChannel& parent)
+        : parent_(&parent),
+          local_dispatcher_(parent.local_dispatcher_),
+          local_queue_callback_(local_dispatcher_.createSchedulableCallback([this] {
+            if (!detached_) {
+              parent_->onLocalQueueReadyRead();
+            }
+          })),
+          error_callback_(local_dispatcher_.createSchedulableCallback([this] {
+            if (!detached_) {
+              local_queue_callback_->cancel();
+              parent_->onErrorCallback(error_, send_eof_);
+            }
+          })) {}
 
-  // RemoteStreamHandlerCallbacks
-  void scheduleErrorCallback(absl::Status error, bool send_eof) final {
-    // ASSERT(remote_dispatcher_.isThreadSafe());
-    error_ = error;
-    send_eof_ = send_eof;
-    error_callback_->scheduleCallbackNextIteration();
-  }
+    ~RemoteStreamHandlerCallbacksImpl() {
+      ASSERT(local_dispatcher_.isThreadSafe());
+      ASSERT(detached_);
+      local_queue_callback_->cancel();
+      error_callback_->cancel();
+    }
+
+    // RemoteStreamHandlerCallbacks
+    void scheduleQueueCallback() override {
+      // Called from the remote thread
+      local_queue_callback_->scheduleCallbackNextIteration();
+    }
+
+    // RemoteStreamHandlerCallbacks
+    void scheduleErrorCallback(absl::Status error, bool send_eof) override {
+      // Called from the remote thread
+      error_ = error;
+      send_eof_ = send_eof;
+      error_callback_->scheduleCallbackNextIteration();
+    }
+
+    // RemoteStreamHandlerCallbacks
+    Event::Dispatcher& localDispatcher() override {
+      return local_dispatcher_;
+    }
+
+    void detachParent() {
+      ASSERT(local_dispatcher_.isThreadSafe());
+      detached_ = true;
+      parent_ = nullptr; // easier to see in debugger
+      local_queue_callback_->cancel();
+      error_callback_->cancel();
+    }
+
+  private:
+    bool detached_{false};
+    bool send_eof_{false};
+    InternalDownstreamChannel* parent_;
+    Envoy::Event::Dispatcher& local_dispatcher_;
+    Event::SchedulableCallbackPtr local_queue_callback_;
+    Event::SchedulableCallbackPtr error_callback_;
+    absl::Status error_;
+  };
 
   // Local thread
   absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&& confirm) override {
@@ -717,7 +747,9 @@ public:
       maybeSendChannelClose(absl::UnavailableError("host is draining"), false);
       return absl::OkStatus();
     }
-    remote_->initialize(*this, confirm, &local_queue_);
+    auto callbacksImpl = std::make_unique<RemoteStreamHandlerCallbacksImpl>(*this);
+    remote_callbacks_ = *callbacksImpl;
+    remote_->initialize(std::move(callbacksImpl), confirm, &local_queue_);
     remote_initialized_ = true;
 
     start_time_ = absl::Now();
@@ -748,7 +780,6 @@ public:
     return msg.visit(
       [&](const wire::ChannelDataMsg& msg) {
         tx_bytes_total_ += msg.data->size();
-        tx_packets_total_++;
         remote_->enqueueMessage(std::make_unique<QueueMessage>(std::move(msg)));
         return absl::OkStatus();
       },
@@ -781,7 +812,6 @@ private:
       msg->visit(
         [&](wire::ChannelDataMsg& msg) {
           rx_bytes_total_ += msg.data->size();
-          rx_packets_total_++;
           ENVOY_LOG(trace, "channel {}: local queue read {} bytes (total: {})",
                     channel_id_, msg.data->size(), rx_bytes_total_);
           callbacks_->sendMessageLocal(std::move(msg));
@@ -792,16 +822,16 @@ private:
     }
   }
 
-  void onErrorCallback() {
+  void onErrorCallback(absl::Status error, bool send_eof) {
+    // Note: the local queue callback is automatically canceled before this function is called
     ASSERT(local_dispatcher_.isThreadSafe());
-    ENVOY_LOG(debug, "channel {}: error: {}", channel_id_, error_);
+    ENVOY_LOG(debug, "channel {}: error: {}", channel_id_, error);
     stats_timer_->disableTimer();
     // Flush any queued channel messages before sending the channel close message. This is invoked
     // from a separate callback, so it can race if both are scheduled on the current iteration.
     onLocalQueueReadyRead();
-    local_queue_callback_->cancel();
     ENVOY_LOG(debug, "channel {}: flushed read queue", channel_id_);
-    maybeSendChannelClose(error_, send_eof_);
+    maybeSendChannelClose(error, send_eof);
   }
 
   void maybeSendChannelClose(absl::Status status, bool send_eof) {
@@ -845,8 +875,6 @@ private:
   void populateChannelStats(pomerium::extensions::ssh::ChannelStats* stats) {
     stats->set_rx_bytes_total(rx_bytes_total_);
     stats->set_tx_bytes_total(tx_bytes_total_);
-    stats->set_rx_packets_total(rx_packets_total_);
-    stats->set_tx_packets_total(tx_packets_total_);
     // TODO: this should use the server's time system instead
     *stats->mutable_channel_duration() = Protobuf::util::TimeUtil::NanosecondsToDuration(absl::ToInt64Nanoseconds(absl::Now() - start_time_));
   }
@@ -887,7 +915,7 @@ private:
     // handshake, it is possible that the server was expecting us to. If the upstream server
     // simply failed to connect, we would have received a channel open failure instead.
     const auto& requestedHost = metadata_.matched_permission().requested_host();
-    bool isFirstMsgReceived = tx_packets_total_ == 0;
+    bool isFirstMsgReceived = tx_bytes_total_ == 0;
     bool requestedHostHasWildcards = (requestedHost == "" || requestedHost == "localhost" ||
                                       requestedHost.contains("*") || requestedHost.contains("?"));
     if (isFirstMsgReceived && !metadata_.server_port().is_dynamic() && requestedHostHasWildcards) {
@@ -936,25 +964,19 @@ private:
 
   MessageQueue* local_queue_;
   Envoy::Event::Dispatcher& local_dispatcher_;
-  Event::SchedulableCallbackPtr local_queue_callback_;
-  uint64_t rx_bytes_total_{};
-  uint64_t rx_packets_total_{};
-
   std::unique_ptr<RemoteStreamHandler> remote_;
+  uint64_t rx_bytes_total_{};
   uint64_t tx_bytes_total_{};
-  uint64_t tx_packets_total_{};
-  absl::Time start_time_;
-  ChannelEventCallbacks& event_callbacks_;
-  Event::TimerPtr stats_timer_;
   uint32_t channel_id_{};
   bool channel_close_sent_{false};
-  bool send_eof_{false};
   bool host_draining_{false};
   bool remote_initialized_{false};
 
-  Event::SchedulableCallbackPtr error_callback_;
-  absl::Status error_;
+  absl::Time start_time_;
+  ChannelEventCallbacks& event_callbacks_;
+  Event::TimerPtr stats_timer_;
   std::vector<pomerium::extensions::ssh::Diagnostic> diagnostics_;
+  OptRef<RemoteStreamHandlerCallbacksImpl> remote_callbacks_;
 
   pomerium::extensions::ssh::EndpointMetadata metadata_;
   Envoy::Common::CallbackHandlePtr host_drain_callback_;
@@ -1030,7 +1052,7 @@ public:
                                                              upstreamAddr,
                                                              passthroughState);
         auto id = ctx->streamCallbacks().startChannel(std::move(c), std::nullopt);
-        if (!id.ok()) { // XXX test this case
+        if (!id.ok()) {
           ENVOY_LOG(warn, "failed to start channel: {}", statusToString(id.status()));
         } else {
           ENVOY_LOG(debug, "internal downstream channel started: {}", *id);

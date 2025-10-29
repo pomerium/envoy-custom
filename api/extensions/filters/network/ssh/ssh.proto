@@ -144,8 +144,6 @@ message Diagnostic {
 message ChannelStats {
   uint64                   rx_bytes_total   = 1;
   uint64                   tx_bytes_total   = 2;
-  uint64                   rx_packets_total = 3;
-  uint64                   tx_packets_total = 4;
   google.protobuf.Duration channel_duration = 5;
 }
 

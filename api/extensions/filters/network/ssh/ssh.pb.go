@@ -861,8 +861,6 @@ type ChannelStats struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	RxBytesTotal    uint64                 `protobuf:"varint,1,opt,name=rx_bytes_total,json=rxBytesTotal,proto3" json:"rx_bytes_total,omitempty"`
 	TxBytesTotal    uint64                 `protobuf:"varint,2,opt,name=tx_bytes_total,json=txBytesTotal,proto3" json:"tx_bytes_total,omitempty"`
-	RxPacketsTotal  uint64                 `protobuf:"varint,3,opt,name=rx_packets_total,json=rxPacketsTotal,proto3" json:"rx_packets_total,omitempty"`
-	TxPacketsTotal  uint64                 `protobuf:"varint,4,opt,name=tx_packets_total,json=txPacketsTotal,proto3" json:"tx_packets_total,omitempty"`
 	ChannelDuration *durationpb.Duration   `protobuf:"bytes,5,opt,name=channel_duration,json=channelDuration,proto3" json:"channel_duration,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
@@ -908,20 +906,6 @@ func (x *ChannelStats) GetRxBytesTotal() uint64 {
 func (x *ChannelStats) GetTxBytesTotal() uint64 {
 	if x != nil {
 		return x.TxBytesTotal
-	}
-	return 0
-}
-
-func (x *ChannelStats) GetRxPacketsTotal() uint64 {
-	if x != nil {
-		return x.RxPacketsTotal
-	}
-	return 0
-}
-
-func (x *ChannelStats) GetTxPacketsTotal() uint64 {
-	if x != nil {
-		return x.TxPacketsTotal
 	}
 	return 0
 }
@@ -3391,12 +3375,10 @@ const file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_s
 	"\aUnknown\x10\x00\x12\b\n" +
 	"\x04Info\x10\x01\x12\v\n" +
 	"\aWarning\x10\x02\x12\t\n" +
-	"\x05Error\x10\x03\"\xf4\x01\n" +
+	"\x05Error\x10\x03\"\xa0\x01\n" +
 	"\fChannelStats\x12$\n" +
 	"\x0erx_bytes_total\x18\x01 \x01(\x04R\frxBytesTotal\x12$\n" +
-	"\x0etx_bytes_total\x18\x02 \x01(\x04R\ftxBytesTotal\x12(\n" +
-	"\x10rx_packets_total\x18\x03 \x01(\x04R\x0erxPacketsTotal\x12(\n" +
-	"\x10tx_packets_total\x18\x04 \x01(\x04R\x0etxPacketsTotal\x12D\n" +
+	"\x0etx_bytes_total\x18\x02 \x01(\x04R\ftxBytesTotal\x12D\n" +
 	"\x10channel_duration\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\x0fchannelDuration\"\xec\x06\n" +
 	"\fChannelEvent\x12z\n" +
 	"\x17internal_channel_opened\x18\x02 \x01(\v2@.pomerium.extensions.ssh.ChannelEvent.InternalChannelOpenedEventH\x00R\x15internalChannelOpened\x12z\n" +

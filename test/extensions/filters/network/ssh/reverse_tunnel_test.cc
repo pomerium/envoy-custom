@@ -1404,9 +1404,7 @@ TEST_P(ChannelStatsIntegrationTest, TestPeriodicEvents) {
   ASSERT_TRUE(driver->waitForStatsEvent(&stats));
   // EXPECT_THAT(DurationUtil::durationToMilliseconds(stats.channel_duration()), testing::Ge(5000 * (i + 1))); // TODO
   EXPECT_EQ(7, stats.tx_bytes_total());
-  EXPECT_EQ(1, stats.tx_packets_total());
   EXPECT_EQ(8, stats.rx_bytes_total());
-  EXPECT_EQ(1, stats.rx_packets_total());
 
   auto th2 = driver->createTask<Tasks::WaitForChannelData>("response")
                .then(driver->createTask<Tasks::SendChannelData>("request"))
@@ -1423,9 +1421,7 @@ TEST_P(ChannelStatsIntegrationTest, TestPeriodicEvents) {
   // ASSERT_TRUE(driver->waitForStatsEvent(&stats2));
   // // EXPECT_THAT(DurationUtil::durationToMilliseconds(stats.channel_duration()), testing::Ge(5000 * (i + 1))); // TODO
   // EXPECT_EQ(14, stats2.tx_bytes_total());
-  // EXPECT_EQ(2, stats2.tx_packets_total());
   // EXPECT_EQ(16, stats2.rx_bytes_total());
-  // EXPECT_EQ(2, stats2.rx_packets_total());
 
   auto th3 = driver->createTask<Tasks::SendChannelCloseAndWait>().start(channel);
   downstream->waitForDisconnect();
@@ -1434,9 +1430,7 @@ TEST_P(ChannelStatsIntegrationTest, TestPeriodicEvents) {
   ASSERT_TRUE(driver->waitForStatsOnChannelClose(&close_stats));
   // EXPECT_THAT(DurationUtil::durationToMilliseconds(close_stats.channel_duration()), testing::Ge(5000 * iterations)); // TODO
   EXPECT_EQ(14, close_stats.tx_bytes_total());
-  EXPECT_EQ(2, close_stats.tx_packets_total());
   EXPECT_EQ(16, close_stats.rx_bytes_total());
-  EXPECT_EQ(2, close_stats.rx_packets_total());
 
   downstream->close();
 }
