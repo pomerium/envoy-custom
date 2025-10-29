@@ -162,6 +162,13 @@ private:
         return;
       }
 
+      // Drain any pending data from the io handle before reads are stopped. If there is data to
+      // be read, it is possible for this callback to be invoked before a file event callback
+      // which would otherwise call readyRead(), but that must happen before EOF/Close is sent.
+      // If the upstream initiated the close, it may not be able to read any more channel data
+      // but it is a good idea to drain the io handle's read buffer anyway.
+      readReady();
+
       // Send an EOF message if the downstream initiated the close.
       onError(absl::CancelledError("downstream closed"),
               event == Network::ConnectionEvent::LocalClose);
@@ -193,6 +200,14 @@ private:
       send_eof = true;
     }
 
+    // Disable Read events on the io handle to prevent any future calls to readyRead().
+    // Note that if the file event callback is scheduled to run in this event loop cycle, this will
+    // adjust the event mask accordingly and delay the callback to the next iteration.
+    if (!socket_closed_) { // If the socket is closed, no events can fire
+      disableFileEvents<Event::FileReadyType::Read>();
+    }
+
+    // This will trigger a channel close, after which no further channel data messages can be sent.
     peer_state_.callbacks->scheduleErrorCallback(err, send_eof);
   }
 
@@ -836,7 +851,7 @@ private:
 
   void maybeSendChannelClose(absl::Status status, bool send_eof) {
     if (channel_close_sent_) {
-      ENVOY_LOG(debug, "channel {}: channel close already sent");
+      ENVOY_LOG(debug, "channel {}: channel close already sent", channel_id_);
       return;
     }
     channel_close_sent_ = true;

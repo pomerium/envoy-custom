@@ -553,20 +553,25 @@ TEST_P(StaticPortForwardTest, UpstreamFlowControl_UpstreamIgnoresWindow) {
 }
 
 TEST_P(StaticPortForwardTest, UpstreamFlowControl_DownstreamDisconnectsAfterReadEnable) {
-  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
-  downstream->readDisable(true);
-  auto local_window_exhausted = test_server_->counter(stat_local_window_exhausted);
+  // This exercises logic that sometimes depends on the order in which events are invoked; run it
+  // several times to avoid flakes (hopefully)
+  for (int i = 0; i < 10; i++) {
+    auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
+    downstream->readDisable(true);
+    auto local_window_exhausted = test_server_->counter(stat_local_window_exhausted);
+    local_window_exhausted->reset();
 
-  Tasks::Channel channel;
-  ASSERT_TRUE(driver->wait(
-    driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
-      .saveOutput(&channel)
-      .then(driver->createTask<SendDataUntilRemoteWindowExhausted>(*local_window_exhausted))
-      .start()));
+    Tasks::Channel channel;
+    ASSERT_TRUE(driver->wait(
+      driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
+        .saveOutput(&channel)
+        .then(driver->createTask<SendDataUntilRemoteWindowExhausted>(*local_window_exhausted))
+        .start()));
 
-  downstream->readDisable(false);
-  downstream->close(Network::ConnectionCloseType::AbortReset);
-  ASSERT_TRUE(driver->wait(driver->createTask<Tasks::WaitForChannelCloseByPeer>().start(channel)));
+    downstream->readDisable(false);
+    downstream->close(Network::ConnectionCloseType::AbortReset);
+    ASSERT_TRUE(driver->wait(driver->createTask<Tasks::WaitForChannelCloseByPeer>().start(channel)));
+  }
 }
 
 TEST_P(StaticPortForwardTest, DownstreamFlowControl) {
