@@ -8,7 +8,6 @@ import "envoy/config/core/v3/config_source.proto";
 import "envoy/config/core/v3/extension.proto";
 import "envoy/config/core/v3/grpc_service.proto";
 import "google/protobuf/any.proto";
-import "google/protobuf/duration.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/wrappers.proto";
@@ -141,10 +140,15 @@ message Diagnostic {
   repeated string hints    = 3;
 }
 
+message ChannelStatsList {
+  repeated ChannelStats items = 1;
+}
+
 message ChannelStats {
-  uint64                   rx_bytes_total   = 1;
-  uint64                   tx_bytes_total   = 2;
-  google.protobuf.Duration channel_duration = 5;
+  uint32                    channel_id     = 1;
+  google.protobuf.Timestamp start_time     = 2;
+  uint64                    rx_bytes_total = 3;
+  uint64                    tx_bytes_total = 4;
 }
 
 message ChannelEvent {
@@ -160,14 +164,13 @@ message ChannelEvent {
     ChannelStats        stats       = 3;
     repeated Diagnostic diagnostics = 4;
   }
-  message InternalChannelStatsEvent {
-    uint32       channel_id = 1;
-    ChannelStats stats      = 2;
+  message ChannelStatsEvent {
+    ChannelStatsList stats_list = 1;
   }
   oneof event {
     InternalChannelOpenedEvent internal_channel_opened = 2;
     InternalChannelClosedEvent internal_channel_closed = 3;
-    InternalChannelStatsEvent  internal_channel_stats  = 4;
+    ChannelStatsEvent          channel_stats           = 4;
   }
 }
 

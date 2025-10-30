@@ -258,7 +258,7 @@ AssertionResult SshConnectionDriver::requestReversePortForward(const std::string
   return wait(th);
 }
 
-AssertionResult SshConnectionDriver::waitForStatsEvent(pomerium::extensions::ssh::ChannelStats* out) {
+AssertionResult SshConnectionDriver::waitForStatsEvent(pomerium::extensions::ssh::ChannelStatsList* out) {
   Envoy::Event::TestTimeSystem::RealTimeBound bound(std::chrono::seconds(1));
   while (!testing::Test::HasFailure() && bound.withinBound()) {
     pomerium::extensions::ssh::ClientMessage connected;
@@ -266,10 +266,10 @@ AssertionResult SshConnectionDriver::waitForStatsEvent(pomerium::extensions::ssh
     if (!res) {
       return res;
     }
-    if (!connected.event().channel_event().internal_channel_stats().has_stats()) {
+    if (!connected.event().channel_event().channel_stats().has_stats_list()) {
       continue;
     }
-    *out = connected.event().channel_event().internal_channel_stats().stats();
+    *out = connected.event().channel_event().channel_stats().stats_list();
     return AssertionResult(true);
   }
   return AssertionResult(false) << "timed out waiting for stats event";

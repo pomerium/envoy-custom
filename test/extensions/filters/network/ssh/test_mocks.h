@@ -101,6 +101,8 @@ public:
   MOCK_METHOD(absl::Status, readMessage, (wire::Message&&));
   MOCK_METHOD(absl::Status, onChannelOpened, (wire::ChannelOpenConfirmationMsg&&));
   MOCK_METHOD(absl::Status, onChannelOpenFailed, (wire::ChannelOpenFailureMsg&&));
+  MOCK_METHOD(bool, supportsChannelStats, (), (override));
+  MOCK_METHOD(void, collectChannelStats, (pomerium::extensions::ssh::ChannelStats&), (override));
 };
 
 class MockHijackedChannelCallbacks : public HijackedChannelCallbacks {

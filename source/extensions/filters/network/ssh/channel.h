@@ -66,6 +66,13 @@ public:
   // not to readMessage().
   virtual absl::Status onChannelOpenFailed(wire::ChannelOpenFailureMsg&&) PURE;
 
+  // Returns whether the channel supports stats collection. collectChannelStats() will only be
+  // called if this returns true.
+  virtual bool supportsChannelStats() { return false; };
+
+  // Called by the connection service periodically when collecting aggregated channel stats.
+  virtual void collectChannelStats(pomerium::extensions::ssh::ChannelStats&) {};
+
 protected:
   ChannelCallbacks* callbacks_{};
 };

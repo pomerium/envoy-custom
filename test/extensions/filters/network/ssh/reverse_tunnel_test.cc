@@ -1405,11 +1405,14 @@ TEST_P(ChannelStatsIntegrationTest, TestPeriodicEvents) {
                               Envoy::Event::Dispatcher::RunType::NonBlock);
   timeSystem().realSleepDoNotUseWithoutScrutiny(std::chrono::milliseconds(10));
 
-  pomerium::extensions::ssh::ChannelStats stats;
+  pomerium::extensions::ssh::ChannelStatsList stats;
   ASSERT_TRUE(driver->waitForStatsEvent(&stats));
   // EXPECT_THAT(DurationUtil::durationToMilliseconds(stats.channel_duration()), testing::Ge(5000 * (i + 1))); // TODO
-  EXPECT_EQ(7, stats.tx_bytes_total());
-  EXPECT_EQ(8, stats.rx_bytes_total());
+  EXPECT_EQ(1, stats.items_size());
+  EXPECT_EQ(100, stats.items(0).channel_id());
+  EXPECT_EQ(7, stats.items(0).tx_bytes_total());
+  EXPECT_EQ(8, stats.items(0).rx_bytes_total());
+  EXPECT_TRUE(stats.items(0).has_start_time());
 
   auto th2 = driver->createTask<Tasks::WaitForChannelData>("response")
                .then(driver->createTask<Tasks::SendChannelData>("request"))

@@ -635,9 +635,7 @@ public:
       : local_dispatcher_(local_dispatcher),
         remote_(std::move(remote)),
         event_callbacks_(event_callbacks),
-        stats_timer_(local_dispatcher.createTimer([this] {
-          onStatsTimerFired();
-        })),
+
         metadata_(host_metadata),
         host_drain_callback_(host_drain_manager.addHostDrainCallback(local_dispatcher, [this] {
           onHostDraining();
@@ -656,7 +654,6 @@ public:
       }
       RemoteStreamHandler::detach(std::move(remote_));
     }
-    stats_timer_->disableTimer();
   }
 
   // Local thread
@@ -767,7 +764,7 @@ public:
     remote_->initialize(std::move(callbacksImpl), confirm, &local_queue_);
     remote_initialized_ = true;
 
-    start_time_ = absl::Now();
+    start_time_ = local_dispatcher_.timeSource().systemTime();
     pomerium::extensions::ssh::ChannelEvent ev;
     auto* opened = ev.mutable_internal_channel_opened();
     opened->set_channel_id(channel_id_);
@@ -775,7 +772,6 @@ public:
     opened->set_path(path_);
     opened->set_peer_address(downstream_address_->asStringView());
     event_callbacks_.sendChannelEvent(ev);
-    stats_timer_->enableTimer(std::chrono::seconds(5));
     return absl::OkStatus();
   }
 
@@ -841,7 +837,6 @@ private:
     // Note: the local queue callback is automatically canceled before this function is called
     ASSERT(local_dispatcher_.isThreadSafe());
     ENVOY_LOG(debug, "channel {}: error: {}", channel_id_, error);
-    stats_timer_->disableTimer();
     // Flush any queued channel messages before sending the channel close message. This is invoked
     // from a separate callback, so it can race if both are scheduled on the current iteration.
     onLocalQueueReadyRead();
@@ -880,27 +875,18 @@ private:
     if (!status.ok()) {
       closed->set_reason(statusToString(status));
     }
-    populateChannelStats(closed->mutable_stats());
+    collectChannelStats(*closed->mutable_stats());
     for (const auto& diag : diagnostics_) {
       closed->add_diagnostics()->CopyFrom(diag);
     }
     event_callbacks_.sendChannelEvent(std::move(ev));
   }
 
-  void populateChannelStats(pomerium::extensions::ssh::ChannelStats* stats) {
-    stats->set_rx_bytes_total(rx_bytes_total_);
-    stats->set_tx_bytes_total(tx_bytes_total_);
-    // TODO: this should use the server's time system instead
-    *stats->mutable_channel_duration() = Protobuf::util::TimeUtil::NanosecondsToDuration(absl::ToInt64Nanoseconds(absl::Now() - start_time_));
-  }
-
-  void onStatsTimerFired() {
-    pomerium::extensions::ssh::ChannelEvent ev;
-    auto* stats = ev.mutable_internal_channel_stats();
-    stats->set_channel_id(channel_id_);
-    populateChannelStats(stats->mutable_stats());
-    event_callbacks_.sendChannelEvent(std::move(ev));
-    stats_timer_->enableTimer(std::chrono::seconds(5));
+  bool supportsChannelStats() override { return true; }
+  void collectChannelStats(pomerium::extensions::ssh::ChannelStats& stats) override {
+    stats.set_rx_bytes_total(rx_bytes_total_);
+    stats.set_tx_bytes_total(tx_bytes_total_);
+    TimestampUtil::systemClockToTimestamp(start_time_, *stats.mutable_start_time());
   }
 
   void loadPassthroughMetadata(std::shared_ptr<Network::InternalStreamPassthroughState> passthrough_state) {
@@ -987,9 +973,8 @@ private:
   bool host_draining_{false};
   bool remote_initialized_{false};
 
-  absl::Time start_time_;
+  SystemTime start_time_;
   ChannelEventCallbacks& event_callbacks_;
-  Event::TimerPtr stats_timer_;
   std::vector<pomerium::extensions::ssh::Diagnostic> diagnostics_;
   OptRef<RemoteStreamHandlerCallbacksImpl> remote_callbacks_;
 

@@ -104,11 +104,14 @@ public:
   absl::Status handleMessage(Grpc::ResponsePtr<ServerMessage>&& message) override;
 
 private:
+  void onStatsTimerFired();
+
   DownstreamTransportCallbacks& transport_;
 
   std::shared_ptr<StreamTracker> stream_tracker_;
   std::unique_ptr<StreamHandle> stream_handle_;
   std::unique_ptr<SshMessageMiddleware> open_hijacked_channel_middleware_;
+  Envoy::Event::TimerPtr stats_timer_;
 };
 
 class UpstreamConnectionService final : public ConnectionService,

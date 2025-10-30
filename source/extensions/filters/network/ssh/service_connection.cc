@@ -548,11 +548,15 @@ absl::Status DownstreamConnectionService::handleMessage(Grpc::ResponsePtr<Server
 
 void DownstreamConnectionService::onStreamBegin(Network::Connection& connection) {
   ASSERT(connection.dispatcher().isThreadSafe());
-
+  stats_timer_ = connection.dispatcher().createTimer([this] {
+    onStatsTimerFired();
+  });
   stream_handle_ = stream_tracker_->onStreamBegin(transport_.streamId(), connection, *this, *this);
+  stats_timer_->enableTimer(std::chrono::seconds(5));
 }
 
 void DownstreamConnectionService::onStreamEnd() {
+  stats_timer_->disableTimer();
   stream_handle_.reset();
 }
 
@@ -586,9 +590,8 @@ void DownstreamConnectionService::sendChannelEvent(const pomerium::extensions::s
               ev.internal_channel_closed().channel_id(),
               ev.internal_channel_closed().reason());
     break;
-  case pomerium::extensions::ssh::ChannelEvent::kInternalChannelStats:
-    ENVOY_LOG(debug, "sending channel event: internal_channel_stats {{channel_id: {}}}",
-              ev.internal_channel_stats().channel_id());
+  case pomerium::extensions::ssh::ChannelEvent::kChannelStats:
+    ENVOY_LOG(debug, "sending channel event: channel_stats");
     break;
   case pomerium::extensions::ssh::ChannelEvent::EVENT_NOT_SET:
     throw Envoy::EnvoyException("invalid channel event");
@@ -598,6 +601,21 @@ void DownstreamConnectionService::sendChannelEvent(const pomerium::extensions::s
   ClientMessage msg;
   *msg.mutable_event() = stream_ev;
   transport_.sendMgmtClientMessage(msg);
+}
+
+void DownstreamConnectionService::onStatsTimerFired() {
+  pomerium::extensions::ssh::ChannelEvent ev;
+  auto* stats = ev.mutable_channel_stats();
+  auto* items = stats->mutable_stats_list()->mutable_items();
+  for (auto& [channel_id, channel] : channels_) {
+    if (channel->supportsChannelStats()) {
+      auto* entry = items->Add();
+      entry->set_channel_id(channel_id);
+      channel->collectChannelStats(*entry);
+    }
+  }
+  sendChannelEvent(std::move(ev));
+  stats_timer_->enableTimer(std::chrono::seconds(5));
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

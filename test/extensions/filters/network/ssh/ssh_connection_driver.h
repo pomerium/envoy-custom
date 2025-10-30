@@ -118,7 +118,7 @@ public:
   void sendManagementResponse(const Protobuf::Message& resp);
   AssertionResult waitForUserAuth(std::string username = "user", bool internal = true);
   AssertionResult requestReversePortForward(const std::string& address, uint32_t port, uint32_t server_port);
-  AssertionResult waitForStatsEvent(pomerium::extensions::ssh::ChannelStats* out);
+  AssertionResult waitForStatsEvent(pomerium::extensions::ssh::ChannelStatsList* out);
   AssertionResult waitForStatsOnChannelClose(pomerium::extensions::ssh::ChannelStats* out);
 
   KexResult& kexResult();
