@@ -767,6 +767,20 @@ TEST_P(StaticPortForwardTest, UpstreamEOF) {
   ASSERT_TRUE(driver->wait(th));
 }
 
+TEST_P(StaticPortForwardTest, BlockDownstreamSocksPacket) {
+  // See RemoteStreamHandler::initialize() for details
+  for (auto hdr : {"\x05\x01\x00"sv, "\x05"sv, "\x04"sv}) {
+    auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
+
+    auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
+                .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>())
+                .start();
+    ASSERT_TRUE(downstream->write(std::string(hdr), false, true));
+    downstream->waitForDisconnect();
+    ASSERT_TRUE(driver->wait(th));
+  }
+}
+
 class StaticPortForwardWithHalfCloseTest : public StaticPortForwardTest {
 public:
   using StaticPortForwardTest::StaticPortForwardTest;

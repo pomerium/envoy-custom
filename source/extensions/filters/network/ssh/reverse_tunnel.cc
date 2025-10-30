@@ -1,6 +1,7 @@
 #include "source/extensions/filters/network/ssh/reverse_tunnel.h"
 #include "source/common/status.h"
 #include "source/common/math.h"
+#include "source/common/types.h"
 #include "source/extensions/filters/network/ssh/channel.h"
 #include "source/extensions/filters/network/ssh/socks5.h"
 #include "source/extensions/filters/network/ssh/stream_address.h"
@@ -108,6 +109,20 @@ public:
         startSocks5Handshake();
         initializeFileEvents<Event::FileReadyType::Closed>();
       } else {
+        // NB: we can only guess that the upstream is not expecting a SOCKS handshake, but that
+        // guess could be wrong. If it is, and data from the downstream is forwarded as-is directly
+        // to the upstream, then the downstream could theoretically mimic a SOCKS handshake and
+        // control the upstream directly (in practice this would be impossible since Pomerium does
+        // not support proxying raw TCP without some underlying transport protocol, but we don't
+        // want to make too many assumptions here). If the upstream SSH server is expecting a SOCKS
+        // handshake, it checks if the first byte is equal to 0x04 or 0x05 which starts every SOCKS4
+        // or SOCKS5 packet, respectively. If pending_read_inspect_ is true, the next byte read from
+        // the downstream must not equal 0x04 or 0x05, otherwise the connection will be closed. If
+        // the downstream isn't sending a SOCKS packet but the upstream still is expecting one, it
+        // will simply send an EOF to us and close the connection, which we also detect. That will
+        // just send a warning log to the user though, informing them how to correct their ssh
+        // command.
+        pending_read_inspect_ = true;
         initializeFileEvents<Event::FileReadyType::Closed | Event::FileReadyType::Read | Event::FileReadyType::Write>();
       }
       // If there were any messages queued while waiting for initialized_, process them now.
@@ -447,6 +462,14 @@ private:
       if (r.return_value_ == 0) {
         break;
       }
+      if (pending_read_inspect_) {
+        auto stat = inspectReadBuffer();
+        if (!stat.ok()) {
+          onError(stat);
+          return;
+        }
+        pending_read_inspect_ = false;
+      }
       ASSERT(r.return_value_ <= peer_state_.upstream_window); // sanity check
       ENVOY_LOG(trace, "channel {}: upstream window {}->{}",
                 peer_state_.id,
@@ -488,13 +511,30 @@ private:
         reverse_tunnel_stats_.upstream_flow_control_window_adjustment_paused_total_.inc();
         return;
       }
-      ENVOY_LOG(debug, "channel {}: read {} bytes from downstream", peer_state_.id, r.return_value_);
+      ENVOY_LOG(debug, "channel {}: wrote {} bytes to downstream", peer_state_.id, r.return_value_);
     }
   }
 
   void startSocks5Handshake() {
     socks5_handshaker_ = std::make_unique<Socks5ClientHandshaker>(*this, upstream_address_);
     socks5_handshaker_->startHandshake();
+  }
+
+  absl::Status inspectReadBuffer() {
+    // The first byte of data from the client should theoretically never be 0x04 or 0x05 for any
+    // normal supported protocols.
+    // SSH: 'S' (0x53)
+    // HTTP: 'H' (0x48)
+    // TLS: 0x16
+    switch (read_buffer_.peekInt<uint8_t>(0)) {
+    case 0x04:
+      [[fallthrough]];
+    case 0x05:
+      ENVOY_LOG(warn, "channel {}: client initial message appears to be a SOCKS header; disconnecting");
+      return absl::CancelledError("");
+    default:
+      return absl::OkStatus();
+    }
   }
 
   // Socks5ChannelCallbacks
@@ -601,6 +641,7 @@ private:
   bool upstream_error_ : 1 {false};
   bool downstream_eof_ : 1 {false};
   bool detached_ : 1 {false};
+  bool pending_read_inspect_ : 1 {false};
   uint8_t enabled_file_events_{};
   uint32_t local_window_{wire::ChannelWindowSize};
   IoSocket::UserSpace::IoHandleImplPtr io_handle_;
