@@ -1,0 +1,496 @@
+diff --git a/bazel/foreign_cc/cel-cpp.patch b/bazel/foreign_cc/cel-cpp.patch
+index 0e3287b2ea..3dccba95e0 100644
+--- a/bazel/foreign_cc/cel-cpp.patch
++++ b/bazel/foreign_cc/cel-cpp.patch
+@@ -82,4 +82,489 @@ index 61c19ce5f..fc7969bc8 100644
+ -#pragma clang diagnostic pop
+  #endif
+        } else {
+-         SlowSwap(lhs, rhs, lhs_trivial, rhs_trivial);
+\ No newline at end of file
++         SlowSwap(lhs, rhs, lhs_trivial, rhs_trivial);
++
++diff --git a/common/ast/expr.h b/common/ast/expr.h
++index f23eafda..f4964a7b 100644
++--- a/common/ast/expr.h
+++++ b/common/ast/expr.h
++@@ -330,32 +330,20 @@ class ListType {
++  public:
++   ListType() = default;
++ 
++-  ListType(const ListType& rhs)
++-      : elem_type_(std::make_unique<Type>(rhs.elem_type())) {}
++-  ListType& operator=(const ListType& rhs) {
++-    elem_type_ = std::make_unique<Type>(rhs.elem_type());
++-    return *this;
++-  }
+++  ListType(const ListType& rhs);
+++  ListType& operator=(const ListType& rhs);
++   ListType(ListType&& rhs) = default;
++   ListType& operator=(ListType&& rhs) = default;
++ 
++-  explicit ListType(std::unique_ptr<Type> elem_type)
++-      : elem_type_(std::move(elem_type)) {}
+++  explicit ListType(std::unique_ptr<Type> elem_type);
++ 
++-  void set_elem_type(std::unique_ptr<Type> elem_type) {
++-    elem_type_ = std::move(elem_type);
++-  }
+++  void set_elem_type(std::unique_ptr<Type> elem_type);
++ 
++   bool has_elem_type() const { return elem_type_ != nullptr; }
++ 
++   const Type& elem_type() const;
++ 
++-  Type& mutable_elem_type() {
++-    if (elem_type_ == nullptr) {
++-      elem_type_ = std::make_unique<Type>();
++-    }
++-    return *elem_type_;
++-  }
+++  Type& mutable_elem_type();
++ 
++   bool operator==(const ListType& other) const;
++ 
++@@ -367,28 +355,16 @@ class ListType {
++ class MapType {
++  public:
++   MapType() = default;
++-  MapType(std::unique_ptr<Type> key_type, std::unique_ptr<Type> value_type)
++-      : key_type_(std::move(key_type)), value_type_(std::move(value_type)) {}
+++  MapType(std::unique_ptr<Type> key_type, std::unique_ptr<Type> value_type);
++ 
++-  MapType(const MapType& rhs)
++-      : key_type_(std::make_unique<Type>(rhs.key_type())),
++-        value_type_(std::make_unique<Type>(rhs.value_type())) {}
++-  MapType& operator=(const MapType& rhs) {
++-    key_type_ = std::make_unique<Type>(rhs.key_type());
++-    value_type_ = std::make_unique<Type>(rhs.value_type());
++-
++-    return *this;
++-  }
+++  MapType(const MapType& rhs);
+++  MapType& operator=(const MapType& rhs);
++   MapType(MapType&& rhs) = default;
++   MapType& operator=(MapType&& rhs) = default;
++ 
++-  void set_key_type(std::unique_ptr<Type> key_type) {
++-    key_type_ = std::move(key_type);
++-  }
+++  void set_key_type(std::unique_ptr<Type> key_type);
++ 
++-  void set_value_type(std::unique_ptr<Type> value_type) {
++-    value_type_ = std::move(value_type);
++-  }
+++  void set_value_type(std::unique_ptr<Type> value_type);
++ 
++   bool has_key_type() const { return key_type_ != nullptr; }
++ 
++@@ -400,19 +376,9 @@ class MapType {
++ 
++   bool operator==(const MapType& other) const;
++ 
++-  Type& mutable_key_type() {
++-    if (key_type_ == nullptr) {
++-      key_type_ = std::make_unique<Type>();
++-    }
++-    return *key_type_;
++-  }
+++  Type& mutable_key_type();
++ 
++-  Type& mutable_value_type() {
++-    if (value_type_ == nullptr) {
++-      value_type_ = std::make_unique<Type>();
++-    }
++-    return *value_type_;
++-  }
+++  Type& mutable_value_type();
++ 
++  private:
++   // The type of the key.
++@@ -438,9 +404,7 @@ class FunctionType {
++   FunctionType(FunctionType&&) = default;
++   FunctionType& operator=(FunctionType&&) = default;
++ 
++-  void set_result_type(std::unique_ptr<Type> result_type) {
++-    result_type_ = std::move(result_type);
++-  }
+++  void set_result_type(std::unique_ptr<Type> result_type);
++ 
++   void set_arg_types(std::vector<Type> arg_types);
++ 
++@@ -448,12 +412,7 @@ class FunctionType {
++ 
++   const Type& result_type() const;
++ 
++-  Type& mutable_result_type() {
++-    if (result_type_ == nullptr) {
++-      result_type_ = std::make_unique<Type>();
++-    }
++-    return *result_type_;
++-  }
+++  Type& mutable_result_type();
++ 
++   const std::vector<Type>& arg_types() const { return arg_types_; }
++ 
++@@ -824,6 +783,79 @@ class Reference {
++   absl::optional<Constant> value_;
++ };
++ 
+++////////////////////////////////////////////////////////////////////////
+++// Out-of-line method declarations
+++////////////////////////////////////////////////////////////////////////
+++
+++inline ListType::ListType(const ListType &rhs)
+++    : elem_type_(std::make_unique<Type>(rhs.elem_type())) {}
+++
+++inline ListType &ListType::operator=(const ListType &rhs) {
+++  elem_type_ = std::make_unique<Type>(rhs.elem_type());
+++  return *this;
+++}
+++
+++inline ListType::ListType(std::unique_ptr<Type> elem_type)
+++    : elem_type_(std::move(elem_type)) {}
+++
+++inline void ListType::set_elem_type(std::unique_ptr<Type> elem_type) {
+++  elem_type_ = std::move(elem_type);
+++}
+++
+++inline Type &ListType::mutable_elem_type() {
+++  if (elem_type_ == nullptr) {
+++    elem_type_ = std::make_unique<Type>();
+++  }
+++  return *elem_type_;
+++}
+++
+++inline MapType::MapType(std::unique_ptr<Type> key_type,
+++                        std::unique_ptr<Type> value_type)
+++    : key_type_(std::move(key_type)), value_type_(std::move(value_type)) {}
+++
+++inline MapType::MapType(const MapType &rhs)
+++    : key_type_(std::make_unique<Type>(rhs.key_type())),
+++      value_type_(std::make_unique<Type>(rhs.value_type())) {}
+++
+++inline MapType &MapType::operator=(const MapType &rhs) {
+++  key_type_ = std::make_unique<Type>(rhs.key_type());
+++  value_type_ = std::make_unique<Type>(rhs.value_type());
+++  return *this;
+++}
+++
+++inline void MapType::set_key_type(std::unique_ptr<Type> key_type) {
+++  key_type_ = std::move(key_type);
+++}
+++
+++inline void MapType::set_value_type(std::unique_ptr<Type> value_type) {
+++  value_type_ = std::move(value_type);
+++}
+++
+++inline Type &MapType::mutable_key_type() {
+++  if (key_type_ == nullptr) {
+++    key_type_ = std::make_unique<Type>();
+++  }
+++  return *key_type_;
+++}
+++
+++inline Type &MapType::mutable_value_type() {
+++  if (value_type_ == nullptr) {
+++    value_type_ = std::make_unique<Type>();
+++  }
+++  return *value_type_;
+++}
+++
+++inline void FunctionType::set_result_type(std::unique_ptr<Type> result_type) {
+++  result_type_ = std::move(result_type);
+++}
+++
+++inline Type &FunctionType::mutable_result_type() {
+++  if (result_type_ == nullptr) {
+++    result_type_ = std::make_unique<Type>();
+++  }
+++  return *result_type_;
+++}
+++
++ ////////////////////////////////////////////////////////////////////////
++ // Implementation details
++ ////////////////////////////////////////////////////////////////////////
++
++diff --git a/common/expr.h b/common/expr.h
++index 1a40fff2..011349b7 100644
++--- a/common/expr.h
+++++ b/common/expr.h
++@@ -173,11 +173,7 @@ class SelectExpr final {
++   SelectExpr(const SelectExpr&) = delete;
++   SelectExpr& operator=(const SelectExpr&) = delete;
++ 
++-  void Clear() {
++-    operand_.reset();
++-    field_.clear();
++-    test_only_ = false;
++-  }
+++  void Clear();
++ 
++   ABSL_MUST_USE_RESULT bool has_operand() const { return operand_ != nullptr; }
++ 
++@@ -194,9 +190,7 @@ class SelectExpr final {
++ 
++   void set_operand(std::unique_ptr<Expr> operand);
++ 
++-  ABSL_MUST_USE_RESULT std::unique_ptr<Expr> release_operand() {
++-    return release(operand_);
++-  }
+++  ABSL_MUST_USE_RESULT std::unique_ptr<Expr> release_operand();
++ 
++   // The name of the field to select.
++   //
++@@ -244,11 +238,7 @@ class SelectExpr final {
++     return result;
++   }
++ 
++-  static std::unique_ptr<Expr> release(std::unique_ptr<Expr>& property) {
++-    std::unique_ptr<Expr> result;
++-    result.swap(property);
++-    return result;
++-  }
+++  static std::unique_ptr<Expr> release(std::unique_ptr<Expr>& property);
++ 
++   std::unique_ptr<Expr> operand_;
++   std::string field_;
++@@ -307,9 +297,7 @@ class CallExpr final {
++ 
++   void set_target(std::unique_ptr<Expr> target);
++ 
++-  ABSL_MUST_USE_RESULT std::unique_ptr<Expr> release_target() {
++-    return release(target_);
++-  }
+++  ABSL_MUST_USE_RESULT std::unique_ptr<Expr> release_target();
++ 
++   // The arguments.
++   ABSL_MUST_USE_RESULT const std::vector<Expr>& args() const
++@@ -348,11 +336,7 @@ class CallExpr final {
++     return result;
++   }
++ 
++-  static std::unique_ptr<Expr> release(std::unique_ptr<Expr>& property) {
++-    std::unique_ptr<Expr> result;
++-    result.swap(property);
++-    return result;
++-  }
+++  static std::unique_ptr<Expr> release(std::unique_ptr<Expr>& property);
++ 
++   std::string function_;
++   std::unique_ptr<Expr> target_;
++@@ -701,15 +685,7 @@ class ComprehensionExpr final {
++   ComprehensionExpr(const ComprehensionExpr&) = delete;
++   ComprehensionExpr& operator=(const ComprehensionExpr&) = delete;
++ 
++-  void Clear() {
++-    iter_var_.clear();
++-    iter_range_.reset();
++-    accu_var_.clear();
++-    accu_init_.reset();
++-    loop_condition_.reset();
++-    loop_step_.reset();
++-    result_.reset();
++-  }
+++  void Clear();
++ 
++   ABSL_MUST_USE_RESULT const std::string& iter_var() const
++       ABSL_ATTRIBUTE_LIFETIME_BOUND {
++@@ -764,9 +740,7 @@ class ComprehensionExpr final {
++ 
++   void set_iter_range(std::unique_ptr<Expr> iter_range);
++ 
++-  ABSL_MUST_USE_RESULT std::unique_ptr<Expr> release_iter_range() {
++-    return release(iter_range_);
++-  }
+++  ABSL_MUST_USE_RESULT std::unique_ptr<Expr> release_iter_range();
++ 
++   ABSL_MUST_USE_RESULT const std::string& accu_var() const
++       ABSL_ATTRIBUTE_LIFETIME_BOUND {
++@@ -800,9 +774,7 @@ class ComprehensionExpr final {
++ 
++   void set_accu_init(std::unique_ptr<Expr> accu_init);
++ 
++-  ABSL_MUST_USE_RESULT std::unique_ptr<Expr> release_accu_init() {
++-    return release(accu_init_);
++-  }
+++  ABSL_MUST_USE_RESULT std::unique_ptr<Expr> release_accu_init();
++ 
++   ABSL_MUST_USE_RESULT bool has_loop_condition() const {
++     return loop_condition_ != nullptr;
++@@ -817,9 +789,7 @@ class ComprehensionExpr final {
++ 
++   void set_loop_condition(std::unique_ptr<Expr> loop_condition);
++ 
++-  ABSL_MUST_USE_RESULT std::unique_ptr<Expr> release_loop_condition() {
++-    return release(loop_condition_);
++-  }
+++  ABSL_MUST_USE_RESULT std::unique_ptr<Expr> release_loop_condition();
++ 
++   ABSL_MUST_USE_RESULT bool has_loop_step() const {
++     return loop_step_ != nullptr;
++@@ -834,9 +804,7 @@ class ComprehensionExpr final {
++ 
++   void set_loop_step(std::unique_ptr<Expr> loop_step);
++ 
++-  ABSL_MUST_USE_RESULT std::unique_ptr<Expr> release_loop_step() {
++-    return release(loop_step_);
++-  }
+++  ABSL_MUST_USE_RESULT std::unique_ptr<Expr> release_loop_step();
++ 
++   ABSL_MUST_USE_RESULT bool has_result() const { return result_ != nullptr; }
++ 
++@@ -848,9 +816,7 @@ class ComprehensionExpr final {
++ 
++   void set_result(std::unique_ptr<Expr> result);
++ 
++-  ABSL_MUST_USE_RESULT std::unique_ptr<Expr> release_result() {
++-    return release(result_);
++-  }
+++  ABSL_MUST_USE_RESULT std::unique_ptr<Expr> release_result();
++ 
++   friend void swap(ComprehensionExpr& lhs, ComprehensionExpr& rhs) noexcept {
++     using std::swap;
++@@ -875,11 +841,7 @@ class ComprehensionExpr final {
++     return result;
++   }
++ 
++-  static std::unique_ptr<Expr> release(std::unique_ptr<Expr>& property) {
++-    std::unique_ptr<Expr> result;
++-    result.swap(property);
++-    return result;
++-  }
+++  static std::unique_ptr<Expr> release(std::unique_ptr<Expr>& property);
++ 
++   std::string iter_var_;
++   std::string iter_var2_;
++@@ -1156,6 +1118,17 @@ inline bool operator==(const CallExpr& lhs, const CallExpr& rhs) {
++          absl::c_equal(lhs.args(), rhs.args());
++ }
++ 
+++inline void SelectExpr::Clear() {
+++  operand_.reset();
+++  field_.clear();
+++  test_only_ = false;
+++}
+++
+++ABSL_MUST_USE_RESULT inline std::unique_ptr<Expr>
+++SelectExpr::release_operand() {
+++  return release(operand_);
+++}
+++
++ inline const Expr& SelectExpr::operand() const ABSL_ATTRIBUTE_LIFETIME_BOUND {
++   return has_operand() ? *operand_ : Expr::default_instance();
++ }
++@@ -1175,6 +1148,23 @@ inline void SelectExpr::set_operand(std::unique_ptr<Expr> operand) {
++   operand_ = std::move(operand);
++ }
++ 
+++inline std::unique_ptr<Expr> SelectExpr::release(
+++    std::unique_ptr<Expr>& property) {
+++  std::unique_ptr<Expr> result;
+++  result.swap(property);
+++  return result;
+++}
+++
+++inline void ComprehensionExpr::Clear() {
+++  iter_var_.clear();
+++  iter_range_.reset();
+++  accu_var_.clear();
+++  accu_init_.reset();
+++  loop_condition_.reset();
+++  loop_step_.reset();
+++  result_.reset();
+++}
+++
++ inline const Expr& ComprehensionExpr::iter_range() const
++     ABSL_ATTRIBUTE_LIFETIME_BOUND {
++   return has_iter_range() ? *iter_range_ : Expr::default_instance();
++@@ -1197,11 +1187,21 @@ inline void ComprehensionExpr::set_iter_range(
++   iter_range_ = std::move(iter_range);
++ }
++ 
+++ABSL_MUST_USE_RESULT inline std::unique_ptr<Expr>
+++ComprehensionExpr::release_iter_range() {
+++  return release(iter_range_);
+++}
+++
++ inline const Expr& ComprehensionExpr::accu_init() const
++     ABSL_ATTRIBUTE_LIFETIME_BOUND {
++   return has_accu_init() ? *accu_init_ : Expr::default_instance();
++ }
++ 
+++ABSL_MUST_USE_RESULT inline std::unique_ptr<Expr>
+++ComprehensionExpr::release_accu_init() {
+++  return release(accu_init_);
+++}
+++
++ inline Expr& ComprehensionExpr::mutable_accu_init()
++     ABSL_ATTRIBUTE_LIFETIME_BOUND {
++   if (!has_accu_init()) {
++@@ -1239,11 +1239,21 @@ inline void ComprehensionExpr::set_loop_step(std::unique_ptr<Expr> loop_step) {
++   loop_step_ = std::move(loop_step);
++ }
++ 
+++ABSL_MUST_USE_RESULT inline std::unique_ptr<Expr>
+++ComprehensionExpr::release_loop_step() {
+++  return release(loop_step_);
+++}
+++
++ inline const Expr& ComprehensionExpr::loop_condition() const
++     ABSL_ATTRIBUTE_LIFETIME_BOUND {
++   return has_loop_condition() ? *loop_condition_ : Expr::default_instance();
++ }
++ 
+++ABSL_MUST_USE_RESULT inline std::unique_ptr<Expr>
+++ComprehensionExpr::release_loop_condition() {
+++  return release(loop_condition_);
+++}
+++
++ inline Expr& ComprehensionExpr::mutable_loop_condition()
++     ABSL_ATTRIBUTE_LIFETIME_BOUND {
++   if (!has_loop_condition()) {
++@@ -1281,6 +1291,18 @@ inline void ComprehensionExpr::set_result(std::unique_ptr<Expr> result) {
++   result_ = std::move(result);
++ }
++ 
+++ABSL_MUST_USE_RESULT inline std::unique_ptr<Expr>
+++ComprehensionExpr::release_result() {
+++  return release(result_);
+++}
+++
+++inline std::unique_ptr<Expr> ComprehensionExpr::release(
+++    std::unique_ptr<Expr>& property) {
+++  std::unique_ptr<Expr> result;
+++  result.swap(property);
+++  return result;
+++}
+++
++ inline bool operator==(const ListExprElement& lhs, const ListExprElement& rhs) {
++   return lhs.expr() == rhs.expr() && lhs.optional() == rhs.optional();
++ }
++@@ -1423,6 +1445,10 @@ inline void CallExpr::set_target(std::unique_ptr<Expr> target) {
++   target_ = std::move(target);
++ }
++ 
+++ABSL_MUST_USE_RESULT inline std::unique_ptr<Expr> CallExpr::release_target() {
+++  return release(target_);
+++}
+++
++ inline void CallExpr::set_args(std::vector<Expr> args) {
++   args_ = std::move(args);
++ }
++@@ -1445,6 +1471,13 @@ inline std::vector<Expr> CallExpr::release_args() {
++   return args;
++ }
++ 
+++inline std::unique_ptr<Expr> CallExpr::release(
+++    std::unique_ptr<Expr>& property) {
+++  std::unique_ptr<Expr> result;
+++  result.swap(property);
+++  return result;
+++}
+++
++ inline void ListExprElement::Clear() {
++   expr_.reset();
++   optional_ = false;
