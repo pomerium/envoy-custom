@@ -53,7 +53,7 @@ http_archive(
         "//patches/envoy:0005-suppress-duplicate-wip-warnings.patch",
         "//patches/envoy:0006-coverage-format.patch",
         "//patches/envoy:0007-user-space-io-handle.patch",
-        "//patches/envoy:tmp-fix-upstream-connection-callbacks.patch",
+        "//patches/envoy:tmp-fix-upstream-connection-callbacks-2.patch",
         "//patches/envoy:tmp-transport-socket-options.patch",
     ],
     sha256 = "f0eba4d08b0a309f868959a94bb99539456fb56f77b438a8490c9a66b33ef763",

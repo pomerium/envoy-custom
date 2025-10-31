@@ -182,7 +182,7 @@ TEST_P(HttpReverseTunnelIntegrationTest, TestHttp) {
   auto th = driver->createTask<Tasks::AcceptReversePortForward>("http-cluster-1", httpPort, 1)
               .then(driver->createTask<Tasks::WaitForChannelData>("GET / HTTP/1.1\r\nhost: http-cluster-1\r\nx-forwarded-proto: http\r\n")
                       .then(driver->createTask<Tasks::SendChannelData>("HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n")
-                              .then(driver->createTask<Tasks::SendChannelCloseAndWait>())))
+                              .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>())))
               .start();
 
   auto response = codec_client_->makeHeaderOnlyRequest(requestHeaders);

@@ -17,6 +17,7 @@ SshIntegrationTest::SshIntegrationTest(std::vector<std::string> ssh_routes, Netw
     ConfigHelper::HttpProtocolOptions http1_protocol_options;
     http1_protocol_options.mutable_explicit_http_config()->clear_http2_protocol_options();
     http1_protocol_options.mutable_explicit_http_config()->mutable_http_protocol_options();
+    http1_protocol_options.mutable_common_http_protocol_options()->mutable_max_requests_per_connection()->set_value(1);
 
     auto httpCluster1 = ConfigHelper::buildStaticCluster("http_cluster_1", 443, localhost);
     ConfigHelper::setProtocolOptions(httpCluster1, http1_protocol_options);
