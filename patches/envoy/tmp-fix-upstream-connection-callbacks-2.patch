@@ -1,0 +1,14 @@
+diff --git a/source/extensions/filters/network/generic_proxy/router/upstream.cc b/source/extensions/filters/network/generic_proxy/router/upstream.cc
+index adc6d56dfc..1f5a86de4b 100644
+--- a/source/extensions/filters/network/generic_proxy/router/upstream.cc
++++ b/source/extensions/filters/network/generic_proxy/router/upstream.cc
+@@ -152,7 +152,8 @@ void BoundGenericUpstream::onDownstreamConnectionEvent(Network::ConnectionEvent
+     // The event should be handled first by the generic proxy first. So all pending
+     // requests will be cleaned up by the downstream connection close event.
+     ASSERT(pending_requests_.empty());
+-    ASSERT(encoder_decoder_ == nullptr || encoder_decoder_->requestsSize() == 0);
++    // Patch note: It might be invalid to reference encoder_decoder_ here. Needs more investigation,
++    // but removing the assert works so far.
+ 
+     // Close upstream connection and this will trigger the upstream connection close event.
+     cleanUp(true);

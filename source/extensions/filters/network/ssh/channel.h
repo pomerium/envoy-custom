@@ -8,6 +8,14 @@
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
+class ChannelStatsProvider {
+public:
+  virtual ~ChannelStatsProvider() = default;
+
+  // Called by the connection service periodically when collecting aggregated channel stats.
+  virtual void populateChannelStats(pomerium::extensions::ssh::ChannelStats&) const PURE;
+};
+
 class ChannelCallbacks {
 public:
   virtual ~ChannelCallbacks() = default;
@@ -27,6 +35,11 @@ public:
 
   // Base stats scope
   virtual Stats::Scope& scope() const PURE;
+
+  // Sets the stats provider for this channel (usually the channel itself). If set, the stats
+  // provider's populateChannelStats() method will be invoked at regular intervals to obtain stats
+  // for the channel.
+  virtual void setStatsProvider(ChannelStatsProvider& stats_provider) PURE;
 
 private:
   friend class Channel;
@@ -65,13 +78,6 @@ public:
   // Called when the channel failed to open. ChannelOpenFailure messages are only sent here,
   // not to readMessage().
   virtual absl::Status onChannelOpenFailed(wire::ChannelOpenFailureMsg&&) PURE;
-
-  // Returns whether the channel supports stats collection. collectChannelStats() will only be
-  // called if this returns true.
-  virtual bool supportsChannelStats() { return false; };
-
-  // Called by the connection service periodically when collecting aggregated channel stats.
-  virtual void collectChannelStats(pomerium::extensions::ssh::ChannelStats&) {};
 
 protected:
   ChannelCallbacks* callbacks_{};

@@ -1,4 +1,5 @@
 #pragma once
+#include "source/extensions/filters/network/ssh/channel.h"
 #include "source/extensions/filters/network/ssh/packet_cipher.h"
 #include "source/extensions/filters/network/ssh/service_connection.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
@@ -101,8 +102,13 @@ public:
   MOCK_METHOD(absl::Status, readMessage, (wire::Message&&));
   MOCK_METHOD(absl::Status, onChannelOpened, (wire::ChannelOpenConfirmationMsg&&));
   MOCK_METHOD(absl::Status, onChannelOpenFailed, (wire::ChannelOpenFailureMsg&&));
-  MOCK_METHOD(bool, supportsChannelStats, (), (override));
-  MOCK_METHOD(void, collectChannelStats, (pomerium::extensions::ssh::ChannelStats&), (override));
+};
+
+class MockChannelStatsProvider : public ChannelStatsProvider {
+public:
+  MockChannelStatsProvider();
+  virtual ~MockChannelStatsProvider();
+  MOCK_METHOD(void, populateChannelStats, (pomerium::extensions::ssh::ChannelStats&), (const));
 };
 
 class MockHijackedChannelCallbacks : public HijackedChannelCallbacks {

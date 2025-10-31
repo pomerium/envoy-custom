@@ -607,11 +607,12 @@ void DownstreamConnectionService::onStatsTimerFired() {
   pomerium::extensions::ssh::ChannelEvent ev;
   auto* stats = ev.mutable_channel_stats();
   auto* items = stats->mutable_stats_list()->mutable_items();
-  for (auto& [channel_id, channel] : channels_) {
-    if (channel->supportsChannelStats()) {
+  for (auto& ccb : channel_callbacks_) {
+    auto sc = ccb->statsProvider();
+    if (sc.has_value()) {
       auto* entry = items->Add();
-      entry->set_channel_id(channel_id);
-      channel->collectChannelStats(*entry);
+      entry->set_channel_id(ccb->channelId());
+      sc->populateChannelStats(*entry);
     }
   }
   sendChannelEvent(std::move(ev));

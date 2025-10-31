@@ -42,12 +42,13 @@ MockChannel::MockChannel() {
     .WillByDefault([this](ChannelCallbacks& cb) {
       return this->Channel::setChannelCallbacks(cb);
     });
-  ON_CALL(*this, supportsChannelStats)
-    .WillByDefault(testing::Return(false));
 }
 MockChannel::~MockChannel() {
   Die();
 }
+
+MockChannelStatsProvider::MockChannelStatsProvider() {}
+MockChannelStatsProvider::~MockChannelStatsProvider() {}
 
 } // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

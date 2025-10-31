@@ -664,6 +664,7 @@ private:
 };
 
 class InternalDownstreamChannel final : public Channel,
+                                        public ChannelStatsProvider,
                                         public Logger::Loggable<Logger::Id::filter> {
 public:
   InternalDownstreamChannel(Envoy::Event::Dispatcher& local_dispatcher,
@@ -703,6 +704,8 @@ public:
     ASSERT(stat.ok()); // default implementation always succeeds
 
     channel_id_ = callbacks_->channelId();
+
+    callbacks.setStatsProvider(*this);
 
     // Build and send the ChannelOpen message to the downstream.
     // Normally channels don't send their own ChannelOpen messages, but this is somewhat of a
@@ -916,15 +919,14 @@ private:
     if (!status.ok()) {
       closed->set_reason(statusToString(status));
     }
-    collectChannelStats(*closed->mutable_stats());
+    populateChannelStats(*closed->mutable_stats());
     for (const auto& diag : diagnostics_) {
       closed->add_diagnostics()->CopyFrom(diag);
     }
     event_callbacks_.sendChannelEvent(std::move(ev));
   }
 
-  bool supportsChannelStats() override { return true; }
-  void collectChannelStats(pomerium::extensions::ssh::ChannelStats& stats) override {
+  void populateChannelStats(pomerium::extensions::ssh::ChannelStats& stats) const override {
     stats.set_rx_bytes_total(rx_bytes_total_);
     stats.set_tx_bytes_total(tx_bytes_total_);
     TimestampUtil::systemClockToTimestamp(start_time_, *stats.mutable_start_time());
