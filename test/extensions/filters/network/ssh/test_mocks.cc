@@ -47,5 +47,8 @@ MockChannel::~MockChannel() {
   Die();
 }
 
+MockChannelStatsProvider::MockChannelStatsProvider() {}
+MockChannelStatsProvider::~MockChannelStatsProvider() {}
+
 } // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

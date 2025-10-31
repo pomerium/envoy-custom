@@ -45,8 +45,7 @@ public:
   stream_id_t streamId() const override;
 
   Envoy::OptRef<Envoy::Event::Dispatcher> connectionDispatcher() const override {
-    ASSERT(callbacks_->connection().has_value());
-    return callbacks_->connection()->dispatcher();
+    return connection_dispatcher_;
   }
 
   ChannelIDManager& channelIdManager() override {
@@ -76,9 +75,11 @@ private:
   std::shared_ptr<ChannelIDManager> channel_id_manager_; // shared with downstream
 
   std::map<std::string, UpstreamService*> services_;
+  Envoy::OptRef<Envoy::Event::Dispatcher> connection_dispatcher_;
 
   bool upstream_is_direct_tcpip_{false};
   bool response_stream_header_sent_{false};
+  bool been_terminated_{false};
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

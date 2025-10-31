@@ -8,6 +8,14 @@
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
+class ChannelStatsProvider {
+public:
+  virtual ~ChannelStatsProvider() = default;
+
+  // Called by the connection service periodically when collecting aggregated channel stats.
+  virtual void populateChannelStats(pomerium::extensions::ssh::ChannelStats&) const PURE;
+};
+
 class ChannelCallbacks {
 public:
   virtual ~ChannelCallbacks() = default;
@@ -27,6 +35,11 @@ public:
 
   // Base stats scope
   virtual Stats::Scope& scope() const PURE;
+
+  // Sets the stats provider for this channel (usually the channel itself). If set, the stats
+  // provider's populateChannelStats() method will be invoked at regular intervals to obtain stats
+  // for the channel.
+  virtual void setStatsProvider(ChannelStatsProvider& stats_provider) PURE;
 
 private:
   friend class Channel;
@@ -90,6 +103,7 @@ public:
 class ChannelEventCallbacks {
 public:
   virtual ~ChannelEventCallbacks() = default;
+  virtual void sendChannelEvent(const pomerium::extensions::ssh::ChannelEvent& ev) PURE;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

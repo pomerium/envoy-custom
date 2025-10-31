@@ -71,8 +71,7 @@ public:
 
 private:
   void initServices();
-
-  bool upstreamReady() const { return auth_info_ != nullptr; };
+  bool upstreamReady() const { return auth_info_ != nullptr; }
 
   absl::StatusOr<std::unique_ptr<wire::HostKeysProveResponseMsg>>
   handleHostKeysProve(const wire::HostKeysProveRequestMsg& msg);
@@ -84,13 +83,14 @@ private:
   std::unique_ptr<PingExtensionHandler> ping_handler_;
 
   std::unique_ptr<StreamManagementServiceClient> mgmt_client_;
-  std::unique_ptr<ChannelStreamServiceClient> channel_client_;
+  std::shared_ptr<ChannelStreamServiceClient> channel_client_;
   std::shared_ptr<Envoy::Grpc::RawAsyncClient> grpc_client_;
   std::shared_ptr<ChannelIDManager> channel_id_manager_;
   stream_id_t stream_id_;
 
   Envoy::OptRef<Envoy::Event::Dispatcher> connection_dispatcher_;
   StreamTrackerSharedPtr stream_tracker_;
+  bool respond_called_{};
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

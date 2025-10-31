@@ -3,7 +3,6 @@
 #pragma clang unsafe_buffer_usage begin
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #pragma clang unsafe_buffer_usage end
-#include "source/common/id_alloc.h"
 #include "source/extensions/filters/network/ssh/id_manager.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
@@ -124,3 +123,5 @@ public:
 class UpstreamTransportCallbacks : public virtual TransportCallbacks {};
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
+
+DECL_BASIC_ENUM_FORMATTER(Envoy::Extensions::NetworkFilters::GenericProxy::Codec::ChannelMode);

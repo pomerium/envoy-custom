@@ -69,6 +69,20 @@ TEST(SSHResponseHeaderFrameTest, FrameFlags) {
   }
 }
 
+TEST(SSHResponseHeaderFrameTest, ResponseFrameForTransportRespond) {
+  // Alternate SSHResponseHeaderFrame constructor for use in the server transport's respond()
+  // method. It is always the last frame and must end the stream.
+  SSHRequestHeaderFrame req{"host", 1234};
+  SSHResponseHeaderFrame resp(wire::DisconnectMsg{}, req);
+  auto flags = resp.frameFlags();
+  EXPECT_EQ(1234, flags.streamId());
+  EXPECT_EQ(true, flags.endStream());
+  EXPECT_EQ(true, flags.drainClose());
+  EXPECT_EQ(false, flags.oneWayStream());
+  EXPECT_EQ(false, flags.heartbeat());
+  EXPECT_EQ(ResponseHeader, flags.frameTags());
+}
+
 TEST(SSHRequestCommonFrameTest, FrameFlags) {
   // tags can only be RequestCommon|EffectiveCommon for this frame type
   SSHRequestCommonFrame frame(wire::Message{wire::DebugMsg{}});

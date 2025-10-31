@@ -11,6 +11,7 @@
 #pragma clang unsafe_buffer_usage end
 
 extern "C" {
+#include "openssh/ssh2.h"
 #include "openssh/sshkey.h"
 #include "openssh/cipher.h"
 #include "openssh/mac.h"
