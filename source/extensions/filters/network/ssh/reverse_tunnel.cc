@@ -674,10 +674,9 @@ public:
                             Network::HostDrainManager& host_drain_manager,
                             std::shared_ptr<const envoy::config::core::v3::Address> upstream_address,
                             std::shared_ptr<Network::InternalStreamPassthroughState> passthrough_state)
-      : local_dispatcher_(local_dispatcher),
-        remote_(std::move(remote)),
+      : remote_(std::move(remote)),
+        local_dispatcher_(local_dispatcher),
         event_callbacks_(event_callbacks),
-
         metadata_(host_metadata),
         host_drain_callback_(host_drain_manager.addHostDrainCallback(local_dispatcher, [this] {
           onHostDraining();
@@ -893,6 +892,7 @@ private:
       ENVOY_LOG(debug, "channel {}: channel close already sent", channel_id_);
       return;
     }
+    end_time_ = local_dispatcher_.timeSource().systemTime();
     channel_close_sent_ = true;
 
     if (send_eof) {
@@ -930,6 +930,9 @@ private:
     stats.set_rx_bytes_total(rx_bytes_total_);
     stats.set_tx_bytes_total(tx_bytes_total_);
     TimestampUtil::systemClockToTimestamp(start_time_, *stats.mutable_start_time());
+    if (channel_close_sent_) {
+      TimestampUtil::systemClockToTimestamp(end_time_, *stats.mutable_end_time());
+    }
   }
 
   void loadPassthroughMetadata(std::shared_ptr<Network::InternalStreamPassthroughState> passthrough_state) {
@@ -1007,7 +1010,6 @@ private:
   }
 
   MessageQueue* local_queue_;
-  Envoy::Event::Dispatcher& local_dispatcher_;
   std::unique_ptr<RemoteStreamHandler> remote_;
   uint64_t rx_bytes_total_{};
   uint64_t tx_bytes_total_{};
@@ -1016,10 +1018,12 @@ private:
   bool host_draining_{false};
   bool remote_initialized_{false};
 
+  Envoy::Event::Dispatcher& local_dispatcher_;
   SystemTime start_time_;
+  SystemTime end_time_;
   ChannelEventCallbacks& event_callbacks_;
-  std::vector<pomerium::extensions::ssh::Diagnostic> diagnostics_;
   OptRef<RemoteStreamHandlerCallbacksImpl> remote_callbacks_;
+  std::vector<pomerium::extensions::ssh::Diagnostic> diagnostics_;
 
   pomerium::extensions::ssh::EndpointMetadata metadata_;
   Envoy::Common::CallbackHandlePtr host_drain_callback_;

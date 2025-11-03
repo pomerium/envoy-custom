@@ -147,8 +147,9 @@ message ChannelStatsList {
 message ChannelStats {
   uint32                    channel_id     = 1;
   google.protobuf.Timestamp start_time     = 2;
-  uint64                    rx_bytes_total = 3;
-  uint64                    tx_bytes_total = 4;
+  google.protobuf.Timestamp end_time       = 3;
+  uint64                    rx_bytes_total = 4;
+  uint64                    tx_bytes_total = 5;
 }
 
 message ChannelEvent {

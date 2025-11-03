@@ -1427,6 +1427,7 @@ TEST_P(ChannelStatsIntegrationTest, TestPeriodicEvents) {
   EXPECT_EQ(7, stats.items(0).tx_bytes_total());
   EXPECT_EQ(8, stats.items(0).rx_bytes_total());
   EXPECT_TRUE(stats.items(0).has_start_time());
+  EXPECT_FALSE(stats.items(0).has_end_time());
 
   auto th2 = driver->createTask<Tasks::WaitForChannelData>("response")
                .then(driver->createTask<Tasks::SendChannelData>("request"))
@@ -1453,6 +1454,8 @@ TEST_P(ChannelStatsIntegrationTest, TestPeriodicEvents) {
   // EXPECT_THAT(DurationUtil::durationToMilliseconds(close_stats.channel_duration()), testing::Ge(5000 * iterations)); // TODO
   EXPECT_EQ(14, close_stats.tx_bytes_total());
   EXPECT_EQ(16, close_stats.rx_bytes_total());
+  EXPECT_TRUE(close_stats.has_start_time());
+  EXPECT_TRUE(close_stats.has_end_time());
 
   downstream->close();
 }
