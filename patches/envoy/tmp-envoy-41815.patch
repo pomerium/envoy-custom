@@ -1,0 +1,260 @@
+From 61c9acc27f9cfe69b2acf959bf1caeb941c225be Mon Sep 17 00:00:00 2001
+From: WangBaiping <wbphub@gmail.com>
+Date: Sun, 2 Nov 2025 16:26:36 +0000
+Subject: [PATCH 1/2] minor refactor to make the event processing more robust
+
+Signed-off-by: WangBaiping <wbphub@gmail.com>
+---
+ .../network/generic_proxy/router/router.cc    |  4 +-
+ .../network/generic_proxy/router/upstream.cc  | 35 +++++-------
+ .../network/generic_proxy/router/upstream.h   | 54 ++++++++++++++-----
+ 3 files changed, 55 insertions(+), 38 deletions(-)
+
+diff --git a/source/extensions/filters/network/generic_proxy/router/router.cc b/source/extensions/filters/network/generic_proxy/router/router.cc
+index 396def6c3770e..da144fa125afc 100644
+--- a/source/extensions/filters/network/generic_proxy/router/router.cc
++++ b/source/extensions/filters/network/generic_proxy/router/router.cc
+@@ -21,8 +21,8 @@ namespace Router {
+ namespace {
+
+ struct ReasonViewAndFlag {
+-  absl::string_view view{};
+-  absl::optional<StreamInfo::CoreResponseFlag> flag{};
++  absl::string_view view;
++  absl::optional<StreamInfo::CoreResponseFlag> flag;
+ };
+
+ static constexpr ReasonViewAndFlag ReasonViewAndFlags[] = {
+diff --git a/source/extensions/filters/network/generic_proxy/router/upstream.cc b/source/extensions/filters/network/generic_proxy/router/upstream.cc
+index adc6d56dfc63d..16b365dfe7e1c 100644
+--- a/source/extensions/filters/network/generic_proxy/router/upstream.cc
++++ b/source/extensions/filters/network/generic_proxy/router/upstream.cc
+@@ -215,22 +215,20 @@ void BoundGenericUpstream::cleanUp(bool close_connection) {
+   }
+ }
+
+-void BoundGenericUpstream::onEvent(Network::ConnectionEvent event) {
+-  if (event == Network::ConnectionEvent::LocalClose ||
+-      event == Network::ConnectionEvent::RemoteClose) {
+-    if (encoder_decoder_ != nullptr) {
+-      encoder_decoder_->onConnectionClose(event);
+-    }
++void BoundGenericUpstream::onConnectionClose(Network::ConnectionEvent) {
++  if (saw_connection_close_event_) {
++    return;
++  }
++  saw_connection_close_event_ = true;
+
+-    // Remove the connection event watcher callbacks since the upstream is already closed.
+-    // If the upstream connection closes shortly after a frame that ends the stream is sent by the
+-    // client codec, the downstream connection may end up being closed after this object has already
+-    // been destroyed.
+-    downstream_conn_.removeConnectionCallbacks(connection_event_watcher_);
++  // Remove the connection event watcher callbacks since the upstream is already closed.
++  // If the upstream connection closes shortly after a frame that ends the stream is sent by the
++  // client codec, the downstream connection may end up being closed after this object has already
++  // been destroyed.
++  downstream_conn_.removeConnectionCallbacks(connection_event_watcher_);
+
+-    // If the downstream connection is not closed, close it.
+-    downstream_conn_.close(Network::ConnectionCloseType::FlushWrite);
+-  }
++  // If the downstream connection is not closed, close it.
++  downstream_conn_.close(Network::ConnectionCloseType::FlushWrite);
+ }
+
+ void BoundGenericUpstream::onUpstreamSuccess() {
+@@ -293,15 +291,6 @@ void OwnedGenericUpstream::removeUpstreamRequest(uint64_t) {
+   upstream_request_ = nullptr;
+ }
+
+-void OwnedGenericUpstream::onEvent(Network::ConnectionEvent event) {
+-  if (event == Network::ConnectionEvent::LocalClose ||
+-      event == Network::ConnectionEvent::RemoteClose) {
+-    if (encoder_decoder_ != nullptr) {
+-      encoder_decoder_->onConnectionClose(event);
+-    }
+-  }
+-}
+-
+ void OwnedGenericUpstream::onUpstreamSuccess() {
+   ASSERT(upstream_request_ != nullptr);
+   ASSERT(encoder_decoder_ != nullptr);
+diff --git a/source/extensions/filters/network/generic_proxy/router/upstream.h b/source/extensions/filters/network/generic_proxy/router/upstream.h
+index 2c3cc97038c87..535f133350e1f 100644
+--- a/source/extensions/filters/network/generic_proxy/router/upstream.h
++++ b/source/extensions/filters/network/generic_proxy/router/upstream.h
+@@ -1,6 +1,7 @@
+ #pragma once
+
+ #include <cstdint>
++#include <functional>
+
+ #include "envoy/network/connection.h"
+
+@@ -77,7 +78,9 @@ class GenericUpstreamFactory {
+ };
+
+ template <class RequestManager>
+-class EncoderDecoder : public ClientCodecCallbacks, public StreamInfo::FilterState::Object {
++class EncoderDecoder : public ClientCodecCallbacks,
++                       public StreamInfo::FilterState::Object,
++                       public Network::ConnectionCallbacks {
+ public:
+   EncoderDecoder(Network::Connection& connection, Upstream::HostDescriptionConstSharedPtr host,
+                  ClientCodecPtr client_codec)
+@@ -97,12 +100,6 @@ class EncoderDecoder : public ClientCodecCallbacks, public StreamInfo::FilterSta
+     request_manager_.removeUpstreamRequest(stream_id);
+   }
+
+-  // Called when the upstream connection is closed. All pending requests should
+-  // be failed.
+-  void onConnectionClose(Network::ConnectionEvent event) {
+-    request_manager_.onConnectionClose(event);
+-  }
+-
+   size_t requestsSize() const { return request_manager_.size(); }
+   bool containsRequest(uint64_t stream_id) const { return request_manager_.contains(stream_id); }
+
+@@ -129,6 +126,17 @@ class EncoderDecoder : public ClientCodecCallbacks, public StreamInfo::FilterSta
+   }
+   OptRef<const Upstream::ClusterInfo> upstreamCluster() const override { return host_->cluster(); }
+
++  // Network::ConnectionCallbacks
++  void onEvent(Network::ConnectionEvent event) override {
++    if (event == Network::ConnectionEvent::LocalClose ||
++        event == Network::ConnectionEvent::RemoteClose) {
++      // Notify all pending requests about the connection close.
++      request_manager_.onConnectionClose(event);
++    }
++  }
++  void onAboveWriteBufferHighWatermark() override {}
++  void onBelowWriteBufferLowWatermark() override {}
++
+ private:
+   Network::Connection& connection_;
+   Upstream::HostDescriptionConstSharedPtr host_;
+@@ -216,6 +224,12 @@ class UpstreamBase : public GenericUpstream,
+   // Tcp::ConnectionPool::UpstreamCallbacks
+   void onAboveWriteBufferHighWatermark() override {}
+   void onBelowWriteBufferLowWatermark() override {}
++  void onEvent(Network::ConnectionEvent event) override {
++    if (event == Network::ConnectionEvent::LocalClose ||
++        event == Network::ConnectionEvent::RemoteClose) {
++      onConnectionClose(event);
++    }
++  }
+   void onUpstreamData(Buffer::Instance& data, bool end_stream) override {
+     if (data.length() == 0) {
+       return;
+@@ -233,6 +247,9 @@ class UpstreamBase : public GenericUpstream,
+     ENVOY_LOG(debug, "generic proxy upstream manager: clean up upstream (close: {})",
+               close_connection);
+
++    // Clear the encoder/decoder first.
++    encoder_decoder_ = nullptr;
++
+     if (tcp_pool_handle_ != nullptr) {
+       ENVOY_LOG(debug, "generic proxy upstream manager: cancel pending connection");
+       ASSERT(owned_conn_data_ == nullptr);
+@@ -245,6 +262,8 @@ class UpstreamBase : public GenericUpstream,
+
+     if (owned_conn_data_ != nullptr) {
+       if (!close_connection) {
++        // Just release the connection back to the pool.
++        owned_conn_data_.reset();
+         return;
+       }
+
+@@ -255,6 +274,15 @@ class UpstreamBase : public GenericUpstream,
+       auto local_conn_data = std::move(owned_conn_data_);
+       owned_conn_data_.reset();
+       local_conn_data->connection().close(Network::ConnectionCloseType::FlushWrite);
++
++      // NOTE: Because the local_conn_data will also clear the callbacks when
++      // it is destroyed, the onEvent() callback may not be called if the connection
++      // closing is delayed.
++      // So we need to manually call the onConnectionClose() here.
++      //
++      // The onConnectionClose() implementation should ensure it is safe to be called
++      // multiple times.
++      onConnectionClose(Network::ConnectionEvent::LocalClose);
+     }
+   }
+   OptRef<Network::Connection> upstreamConnection() override {
+@@ -270,6 +298,7 @@ class UpstreamBase : public GenericUpstream,
+   virtual void onUpstreamSuccess() PURE;
+   virtual void onUpstreamFailure(ConnectionPool::PoolFailureReason reason,
+                                  absl::string_view transport_failure_reason) PURE;
++  virtual void onConnectionClose(Network::ConnectionEvent) {}
+
+ protected:
+   void tryInitialize() {
+@@ -285,6 +314,9 @@ class UpstreamBase : public GenericUpstream,
+     if (encoder_decoder == nullptr) {
+       auto data = std::make_unique<EncoderDecoderType>(connection, tcp_pool_data_.host(),
+                                                        codec_factory_.createClientCodec());
++      // The encoder_decoder will has lifetime of the upstream connection. Register it as a
++      // connection callback to handle connection close event.
++      connection.addConnectionCallbacks(*data);
+       encoder_decoder = data.get();
+       connection.streamInfo().filterState()->setData(RouterFilterEncoderDecoderName,
+                                                      std::move(data),
+@@ -324,13 +356,11 @@ class BoundGenericUpstream : public BoundGenericUpstreamBase,
+                        const CodecFactory& codec_factory,
+                        Network::Connection& downstream_connection);
+
+-  // Tcp::ConnectionPool::UpstreamCallbacks
+-  void onEvent(Network::ConnectionEvent event) override;
+-
+   // UpstreamBase
+   void onUpstreamSuccess() override;
+   void onUpstreamFailure(ConnectionPool::PoolFailureReason reason,
+                          absl::string_view transport_failure_reason) override;
++  void onConnectionClose(Network::ConnectionEvent event) override;
+
+   // Upstream
+   void appendUpstreamRequest(uint64_t stream_id,
+@@ -360,6 +390,7 @@ class BoundGenericUpstream : public BoundGenericUpstreamBase,
+   // protocols will not change the processing order.
+   using LinkedAbslHashMap = quiche::QuicheLinkedHashMap<uint64_t, UpstreamRequestCallbacks*>;
+   LinkedAbslHashMap pending_requests_;
++  bool saw_connection_close_event_ = false;
+ };
+
+ using OwnedGenericUpstreamBase = UpstreamBase<UniqueEncoderDecoder>;
+@@ -367,9 +398,6 @@ class OwnedGenericUpstream : public OwnedGenericUpstreamBase {
+ public:
+   using UpstreamBase::UpstreamBase;
+
+-  // Tcp::ConnectionPool::UpstreamCallbacks
+-  void onEvent(Network::ConnectionEvent event) override;
+-
+   // UpstreamBase
+   void onUpstreamSuccess() override;
+   void onUpstreamFailure(ConnectionPool::PoolFailureReason reason,
+
+From 6bc37cf070bb573736f58646f405b279ba4cdc1b Mon Sep 17 00:00:00 2001
+From: code <wbphub@gmail.com>
+Date: Mon, 3 Nov 2025 22:48:38 +0800
+Subject: [PATCH 2/2] Update
+ source/extensions/filters/network/generic_proxy/router/upstream.h
+
+Signed-off-by: code <wbphub@gmail.com>
+---
+ .../extensions/filters/network/generic_proxy/router/upstream.h  | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/source/extensions/filters/network/generic_proxy/router/upstream.h b/source/extensions/filters/network/generic_proxy/router/upstream.h
+index 535f133350e1f..cf45841fb8028 100644
+--- a/source/extensions/filters/network/generic_proxy/router/upstream.h
++++ b/source/extensions/filters/network/generic_proxy/router/upstream.h
+@@ -280,7 +280,7 @@ class UpstreamBase : public GenericUpstream,
+       // closing is delayed.
+       // So we need to manually call the onConnectionClose() here.
+       //
+-      // The onConnectionClose() implementation should ensure it is safe to be called
++      // The onConnectionClose() implementation would ensure it is safe to be called
+       // multiple times.
+       onConnectionClose(Network::ConnectionEvent::LocalClose);
+     }
