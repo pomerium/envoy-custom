@@ -10,6 +10,7 @@
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 using Envoy::Event::Dispatcher;
+constexpr auto CloseResponseGracePeriod = std::chrono::seconds(2);
 
 class ConnectionService : public virtual Service,
                           public virtual StreamCallbacks,
@@ -35,8 +36,6 @@ public:
   // ChannelClose message by replying with their own ChannelClose message on the channel if they
   // have not done so already (i.e. if the ChannelClose was received as an expected response to
   // one sent previously).
-  //
-  //
   absl::StatusOr<uint32_t> startChannel(std::unique_ptr<Channel> channel, std::optional<uint32_t> channel_id = std::nullopt) final;
   absl::Status handleMessage(wire::Message&& ssh_msg) override;
   absl::Status maybeStartPassthroughChannel(uint32_t internal_id);
@@ -50,6 +49,8 @@ public:
     absl::Status sendMessageRemote(wire::Message&& msg) override;
     uint32_t channelId() const override { return channel_id_; }
     Stats::Scope& scope() const override { return *scope_; }
+    void setStatsProvider(ChannelStatsProvider& stats_provider) override { stats_provider_ = stats_provider; }
+    Envoy::OptRef<ChannelStatsProvider> statsProvider() const { return stats_provider_; }
 
   private:
     void cleanup() override;
@@ -58,6 +59,8 @@ public:
     const uint32_t channel_id_;
     const Peer local_peer_;
     Stats::ScopeSharedPtr scope_;
+    Envoy::Event::TimerPtr close_timer_;
+    Envoy::OptRef<ChannelStatsProvider> stats_provider_;
   };
 
 protected:
@@ -78,6 +81,7 @@ public:
 };
 
 class DownstreamConnectionService final : public ConnectionService,
+                                          public StreamMgmtServerMessageHandler,
                                           public ChannelEventCallbacks {
   friend class OpenHijackedChannelMiddleware;
 
@@ -92,12 +96,23 @@ public:
                            Envoy::Grpc::RawAsyncClientSharedPtr grpc_client);
   void disableChannelHijack();
 
+  void sendChannelEvent(const pomerium::extensions::ssh::ChannelEvent& ev) override;
+
+  using ConnectionService::handleMessage;
+  using ConnectionService::registerMessageHandlers;
+
+  void registerMessageHandlers(StreamMgmtServerMessageDispatcher& dispatcher) override;
+  absl::Status handleMessage(Grpc::ResponsePtr<ServerMessage>&& message) override;
+
 private:
+  void onStatsTimerFired();
+
   DownstreamTransportCallbacks& transport_;
 
   std::shared_ptr<StreamTracker> stream_tracker_;
   std::unique_ptr<StreamHandle> stream_handle_;
   std::unique_ptr<SshMessageMiddleware> open_hijacked_channel_middleware_;
+  Envoy::Event::TimerPtr stats_timer_;
 };
 
 class UpstreamConnectionService final : public ConnectionService,

@@ -40,6 +40,10 @@ constexpr MiddlewareResult operator|(MiddlewareResult lhs, MiddlewareResult rhs)
   return static_cast<MiddlewareResult>(std::to_underlying(lhs) | std::to_underlying(rhs));
 }
 
+constexpr MiddlewareResult& operator|=(MiddlewareResult& lhs, const MiddlewareResult& rhs) {
+  return lhs = lhs | rhs;
+}
+
 template <typename T>
 class MessageMiddleware {
 public:
