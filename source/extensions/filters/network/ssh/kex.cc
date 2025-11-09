@@ -5,6 +5,7 @@
 #include "source/extensions/filters/network/ssh/kex_alg.h"
 #include "source/extensions/filters/network/ssh/message_handler.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
+#include "source/extensions/filters/network/ssh/wire/encoding.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
@@ -490,11 +491,22 @@ void generateKeyMaterial(bytes& out, char tag, KexResult* kex_result) {
   // translated from go ssh/transport.go
   bytes digestsSoFar;
 
+  bytes encoded_k;
+  Buffer::OwnedImpl buf;
+  switch (kex_result->shared_secret_encoding) {
+  case SharedSecretEncoding::Bignum:
+    wire::writeBignum(buf, kex_result->shared_secret);
+    encoded_k = wire::flushTo<bytes>(buf);
+    break;
+  case SharedSecretEncoding::String:
+    wire::write_opt<wire::LengthPrefixed>(buf, kex_result->shared_secret);
+    encoded_k = wire::flushTo<bytes>(buf);
+    break;
+  }
+
   using namespace std::placeholders;
   while (out.size() < out.capacity()) {
     openssh::Hash hash(kex_result->hash);
-    bytes encoded_k;
-    kex_result->encodeSharedSecret(encoded_k);
     hash.write(encoded_k);
     hash.write(kex_result->exchange_hash);
     if (digestsSoFar.size() == 0) {

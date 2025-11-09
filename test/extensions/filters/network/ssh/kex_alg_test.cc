@@ -1,4 +1,5 @@
 #include "source/extensions/filters/network/ssh/kex_alg.h"
+#include "source/extensions/filters/network/ssh/wire/encoding.h"
 #include "test/extensions/filters/network/ssh/wire/test_field_reflect.h"
 #include "test/test_common/test_common.h"
 #include "gtest/gtest.h"
@@ -25,15 +26,6 @@ TEST(HandshakeMagicsTest, Encode) {
   Buffer::OwnedImpl actual;
   magics.encode(actual);
   ASSERT_EQ(expected, wire::flushTo<bytes>(actual));
-}
-
-TEST(KexResultTest, EncodeSharedSecret) {
-  KexResult result;
-  result.shared_secret = {0x00, 0x00, 0x01, 0x02};
-  bytes actual;
-  result.encodeSharedSecret(actual);
-  bytes expected{0x00, 0x00, 0x00, 0x02, 0x01, 0x02};
-  EXPECT_EQ(expected, actual);
 }
 
 bytes hexToBytes(std::string_view hex) {
@@ -74,10 +66,13 @@ public:
     return list;
   }
   constexpr HashFunction hash_algorithm() const override { return SHA256; }
+  constexpr SharedSecretEncoding shared_secret_encoding() const override { return shared_secret_encoding_; }
 
   using KexAlgorithm::computeClientResult;
   using KexAlgorithm::computeExchangeHash;
   using KexAlgorithm::computeServerResult;
+
+  SharedSecretEncoding shared_secret_encoding_{};
 };
 
 /*
@@ -96,7 +91,7 @@ From https://datatracker.ietf.org/doc/html/rfc5656#section-4:
       mpint    K,   shared secret
 */
 
-class KexAlgorithmTestSuite : public testing::Test {
+class KexAlgorithmTestSuite : public testing::TestWithParam<SharedSecretEncoding> {
 public:
   void SetUp() {
     client_version = to_bytes("SSH-2.0-Client"sv);
@@ -122,7 +117,14 @@ public:
     wire::write_opt<wire::LengthPrefixed>(dest, server_host_key_blob);
     wire::write_opt<wire::LengthPrefixed>(dest, client_ephemeral_key);
     wire::write_opt<wire::LengthPrefixed>(dest, server_ephemeral_key);
-    wire::writeBignum(dest, shared_secret);
+    switch (GetParam()) {
+    case SharedSecretEncoding::Bignum:
+      wire::writeBignum(dest, shared_secret);
+      break;
+    case SharedSecretEncoding::String:
+      wire::write_opt<wire::LengthPrefixed>(dest, shared_secret);
+      break;
+    }
   }
 
   bytes client_version;
@@ -136,7 +138,7 @@ public:
   bytes shared_secret;
 };
 
-TEST_F(KexAlgorithmTestSuite, ComputeExchangeHash) {
+TEST_P(KexAlgorithmTestSuite, ComputeExchangeHash) {
   Buffer::OwnedImpl expected;
   writeExchangeHashFields(expected);
   openssh::Hash h("SHA256");
@@ -148,6 +150,7 @@ TEST_F(KexAlgorithmTestSuite, ComputeExchangeHash) {
 
   algs.kex = "curve25519-sha256";
   auto kexAlg = TestKexAlgorithm(&magics, &algs, server_host_key.get());
+  kexAlg.shared_secret_encoding_ = GetParam();
   auto actualExchangeHash = kexAlg.computeExchangeHash(server_host_key_blob,
                                                        client_ephemeral_key,
                                                        server_ephemeral_key,
@@ -155,11 +158,12 @@ TEST_F(KexAlgorithmTestSuite, ComputeExchangeHash) {
   EXPECT_EQ(actualExchangeHash, expectedExchangeHash);
 }
 
-TEST_F(KexAlgorithmTestSuite, ComputeServerResult) {
+TEST_P(KexAlgorithmTestSuite, ComputeServerResult) {
   HandshakeMagics magics{client_version, server_version, client_kex_init, server_kex_init};
   Algorithms algs;
   algs.kex = "curve25519-sha256";
   auto kexAlg = TestKexAlgorithm(&magics, &algs, server_host_key.get());
+  kexAlg.shared_secret_encoding_ = GetParam();
   auto result = kexAlg.computeServerResult(server_host_key_blob,
                                            client_ephemeral_key,
                                            server_ephemeral_key,
@@ -175,6 +179,7 @@ TEST_F(KexAlgorithmTestSuite, ComputeServerResult) {
 
   EXPECT_EQ(resPtr->exchange_hash, exchangeHash);
   EXPECT_EQ(resPtr->shared_secret, shared_secret);
+  EXPECT_EQ(resPtr->shared_secret_encoding, GetParam());
   EXPECT_EQ(resPtr->host_key_blob, server_host_key_blob);
   EXPECT_EQ(resPtr->signature, *server_host_key->sign(exchangeHash));
   EXPECT_EQ(resPtr->hash, SHA256);
@@ -185,12 +190,13 @@ TEST_F(KexAlgorithmTestSuite, ComputeServerResult) {
   EXPECT_FALSE(resPtr->server_supports_ext_info);
 }
 
-TEST_F(KexAlgorithmTestSuite, ComputeServerResult_SignError) {
+TEST_P(KexAlgorithmTestSuite, ComputeServerResult_SignError) {
   HandshakeMagics magics{client_version, server_version, client_kex_init, server_kex_init};
   Algorithms algs;
   algs.kex = "curve25519-sha256";
   auto badSigner = server_host_key->toPublicKey();
   auto kexAlg = TestKexAlgorithm(&magics, &algs, badSigner.get());
+  kexAlg.shared_secret_encoding_ = GetParam();
   auto result = kexAlg.computeServerResult(server_host_key_blob,
                                            client_ephemeral_key,
                                            server_ephemeral_key,
@@ -198,11 +204,12 @@ TEST_F(KexAlgorithmTestSuite, ComputeServerResult_SignError) {
   ASSERT_EQ(absl::InvalidArgumentError("error signing exchange hash: invalid argument"), result.status());
 }
 
-TEST_F(KexAlgorithmTestSuite, ComputeClientResult) {
+TEST_P(KexAlgorithmTestSuite, ComputeClientResult) {
   HandshakeMagics magics{client_version, server_version, client_kex_init, server_kex_init};
   Algorithms algs;
   algs.kex = "curve25519-sha256";
   auto kexAlg = TestKexAlgorithm(&magics, &algs, server_host_key.get());
+  kexAlg.shared_secret_encoding_ = GetParam();
 
   Buffer::OwnedImpl exchangeHashBuf;
   writeExchangeHashFields(exchangeHashBuf);
@@ -222,6 +229,7 @@ TEST_F(KexAlgorithmTestSuite, ComputeClientResult) {
 
   EXPECT_EQ(resPtr->exchange_hash, exchangeHash);
   EXPECT_EQ(resPtr->shared_secret, shared_secret);
+  EXPECT_EQ(resPtr->shared_secret_encoding, GetParam());
   EXPECT_EQ(resPtr->host_key_blob, server_host_key_blob);
   EXPECT_EQ(resPtr->signature, *signature);
   EXPECT_EQ(resPtr->hash, SHA256);
@@ -232,11 +240,12 @@ TEST_F(KexAlgorithmTestSuite, ComputeClientResult) {
   EXPECT_FALSE(resPtr->server_supports_ext_info);
 }
 
-TEST_F(KexAlgorithmTestSuite, ComputeClientResult_InvalidHostKeyBlob) {
+TEST_P(KexAlgorithmTestSuite, ComputeClientResult_InvalidHostKeyBlob) {
   HandshakeMagics magics{client_version, server_version, client_kex_init, server_kex_init};
   Algorithms algs;
   algs.kex = "curve25519-sha256";
   auto kexAlg = TestKexAlgorithm(&magics, &algs, server_host_key.get());
+  kexAlg.shared_secret_encoding_ = GetParam();
   server_host_key_blob[0] = ~server_host_key_blob[0];
   auto result = kexAlg.computeClientResult(server_host_key_blob,
                                            client_ephemeral_key,
@@ -246,11 +255,12 @@ TEST_F(KexAlgorithmTestSuite, ComputeClientResult_InvalidHostKeyBlob) {
   ASSERT_EQ(absl::InvalidArgumentError("error reading host key blob: invalid format"), result.status());
 }
 
-TEST_F(KexAlgorithmTestSuite, ComputeClientResult_SignatureVerifyFailed) {
+TEST_P(KexAlgorithmTestSuite, ComputeClientResult_SignatureVerifyFailed) {
   HandshakeMagics magics{client_version, server_version, client_kex_init, server_kex_init};
   Algorithms algs;
   algs.kex = "curve25519-sha256";
   auto kexAlg = TestKexAlgorithm(&magics, &algs, server_host_key.get());
+  kexAlg.shared_secret_encoding_ = GetParam();
 
   Buffer::OwnedImpl exchangeHashBuf;
   writeExchangeHashFields(exchangeHashBuf);
@@ -276,6 +286,9 @@ TEST_F(KexAlgorithmTestSuite, ComputeClientResult_SignatureVerifyFailed) {
                                       *signatureWithWrongKey);
   ASSERT_EQ(absl::PermissionDeniedError("signature failed verification: incorrect signature"), result.status());
 }
+
+INSTANTIATE_TEST_SUITE_P(KexAlgorithmTest, KexAlgorithmTestSuite,
+                         testing::Values(SharedSecretEncoding::Bignum, SharedSecretEncoding::String));
 
 } // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

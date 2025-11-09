@@ -137,6 +137,19 @@ envoy_cc_test(
 )
 
 envoy_cc_test(
+    name = "kex_alg_mlkem_test",
+    srcs = [
+        "kex_alg_mlkem_test.cc",
+    ],
+    repository = "@envoy",
+    deps = [
+        "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "//test/extensions/filters/network/ssh/wire:wire_test_util",
+        "//test/test_common:test_common_lib",
+    ],
+)
+
+envoy_cc_test(
     name = "packet_cipher_aead_test",
     srcs = [
         "packet_cipher_aead_test.cc",

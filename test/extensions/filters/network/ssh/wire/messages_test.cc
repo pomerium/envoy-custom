@@ -33,7 +33,7 @@ TEST(MessagesTest, Message_Visit) {
                                       KexEcdhInitMsg>);
   EXPECT_STATIC_ASSERT(wire::detail::is_overloaded_message<callable_arg_type_t<decltype(overload)>>);
   EXPECT_STATIC_ASSERT(std::is_same_v<wire::detail::overload_set_for_t<callable_arg_type_t<decltype(overload)>>,
-                                      OverloadSet<KexEcdhInitMsg>>);
+                                      OverloadSet<KexEcdhInitMsg, KexHybridInitMsg>>);
   EXPECT_STATIC_ASSERT(!wire::detail::top_level_visitor<false, decltype(overload)>::is_catchall_visitor);
 
   EXPECT_STATIC_ASSERT(std::is_same_v<callable_arg_type_t<decltype(non_overload)>,
