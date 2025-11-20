@@ -230,7 +230,10 @@ absl::Status SshServerTransport::handleMessage(wire::Message&& msg) {
           if (!upstreamReady()) {
             return absl::InvalidArgumentError(fmt::format("unexpected message received: {}", msg.msg_type()));
           }
+          received_port_forward_request_ = true; // controls the mode hint for the internal channel
           if (authInfo().channel_mode == ChannelMode::Hijacked) {
+            // TODO: these messages will not be relayed to a real upstream during handoff; we
+            // should be storing them to replay during the handoff sequence.
             ENVOY_LOG(debug, "sending global request to hijacked stream: {}", msg.request_name());
             ClientMessage clientMsg;
             auto* globalReq = clientMsg.mutable_global_request();
@@ -347,6 +350,17 @@ void SshServerTransport::initHandoff(pomerium::extensions::ssh::SSHChannelContro
   }
 }
 
+void SshServerTransport::hijackedChannelFailed(absl::Status err) {
+  terminate(err);
+}
+
+pomerium::extensions::ssh::InternalCLIModeHint SshServerTransport::modeHint() const {
+  if (received_port_forward_request_) {
+    return pomerium::extensions::ssh::InternalCLIModeHint::MODE_TUNNEL_STATUS;
+  }
+  return pomerium::extensions::ssh::InternalCLIModeHint::MODE_DEFAULT;
+}
+
 void SshServerTransport::initUpstream(AuthInfoSharedPtr auth_info) {
   auth_info->server_version = server_version_;
   bool first_init = (auth_info_ == nullptr);
@@ -380,8 +394,8 @@ void SshServerTransport::initUpstream(AuthInfoSharedPtr auth_info) {
     RELEASE_ASSERT(auth_info_->allow_response->target_case() == pomerium::extensions::ssh::AllowResponse::kInternal,
                    "wrong target mode in AllowResponse for internal session");
 
-    const auto& internal = auth_info_->allow_response->internal();
-    connection_service_->enableChannelHijack(*this, internal, grpc_client_);
+    auto* internal = auth_info_->allow_response->mutable_internal();
+    connection_service_->enableChannelHijack(*this, *internal, grpc_client_);
 
     sendMessageToConnection(wire::UserAuthSuccessMsg{})
       .IgnoreError();

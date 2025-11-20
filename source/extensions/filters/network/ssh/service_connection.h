@@ -78,6 +78,7 @@ public:
   virtual ~HijackedChannelCallbacks() = default;
   virtual void initHandoff(pomerium::extensions::ssh::SSHChannelControlAction_HandOffUpstream*) PURE;
   virtual void hijackedChannelFailed(absl::Status) PURE;
+  virtual pomerium::extensions::ssh::InternalCLIModeHint modeHint() const PURE;
 };
 
 class DownstreamConnectionService final : public ConnectionService,

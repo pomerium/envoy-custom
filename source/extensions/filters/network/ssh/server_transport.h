@@ -65,9 +65,8 @@ public:
 
   // HijackedChannelCallbacks
   void initHandoff(pomerium::extensions::ssh::SSHChannelControlAction_HandOffUpstream* handoff_msg) override;
-  void hijackedChannelFailed(absl::Status err) override {
-    terminate(err);
-  }
+  void hijackedChannelFailed(absl::Status err) override;
+  pomerium::extensions::ssh::InternalCLIModeHint modeHint() const override;
 
 private:
   void initServices();
@@ -91,6 +90,7 @@ private:
   Envoy::OptRef<Envoy::Event::Dispatcher> connection_dispatcher_;
   StreamTrackerSharedPtr stream_tracker_;
   bool respond_called_{};
+  bool received_port_forward_request_{};
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
