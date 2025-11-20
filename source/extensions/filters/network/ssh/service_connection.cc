@@ -301,6 +301,7 @@ public:
     // set the channel id (this shouldn't be present if set_metadata is used)
     // XXX: should we use a separate key for this?
     sshMetadata.set_channel_id(callbacks_->channelId());
+    sshMetadata.set_mode_hint(hijack_callbacks_.modeHint());
 
     // send the combined metadata
     typedMetadata["com.pomerium.ssh"].PackFrom(sshMetadata);

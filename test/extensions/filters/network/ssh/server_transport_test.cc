@@ -302,6 +302,10 @@ public:
     EXPECT_CALL(serve_channel_stream_, sendMessageRaw_(ProtoBufferStrictEq(channelMsg), false));
   }
 
+  void ExpectSendOnManagementStream(const ClientMessage& msg) {
+    EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(msg), false));
+  }
+
   // stream_index identifies the specific stream (in order of creation), if multiple streams are
   // created during a test.
   void ReceiveOnServeChannelStream(const ChannelMessage& msg, size_t stream_index = 0) {
@@ -682,7 +686,8 @@ public:
     return absl::OkStatus();
   }
 
-  absl::StatusOr<uint32_t> StartChannel(bool expect_failure = false) {
+  absl::StatusOr<uint32_t> StartChannel(bool expect_failure = false,
+                                        pomerium::extensions::ssh::InternalCLIModeHint expect_mode_hint = {}) {
     auto nextInternalId = transport_.channelIdManager().nextInternalIdForTest();
 
     // The allow response can contain metadata which will be sent back at the start of the
@@ -691,6 +696,7 @@ public:
     (*metadataReq.mutable_metadata()->mutable_filter_metadata())["foo"] = Protobuf::Struct{};
     pomerium::extensions::ssh::FilterMetadata sshMetadata;
     sshMetadata.set_channel_id(nextInternalId);
+    sshMetadata.set_mode_hint(expect_mode_hint);
     (*metadataReq.mutable_metadata()->mutable_typed_filter_metadata())["com.pomerium.ssh"].PackFrom(sshMetadata);
 
     // when the downstream sends messages, they should be written to the hijacked stream
@@ -1032,6 +1038,8 @@ TEST_F(HijackedModeTest, TcpipForwardRequestSuccess) {
       manage_stream_callbacks_->onReceiveMessage(std::move(response));
     });
 
+  // This mimics the behavior of openssh client when the -R flag is used. The global request is sent
+  // after UserAuthSuccess is received, and before ChannelOpen is sent.
   ASSERT_OK(WriteMsg(wire::GlobalRequestMsg{
     .want_reply = true,
     .request = wire::TcpipForwardMsg{
@@ -1050,6 +1058,12 @@ TEST_F(HijackedModeTest, TcpipForwardRequestSuccess) {
     },
   };
   ASSERT_EQ(expectedReply, actualReply);
+
+  // The global request is sent to the management server before the channel open request,
+  // but since the messages are not sent on the same grpc stream, the management server may
+  // not receive the messages in the same order. To avoid a logic race, the server transport
+  // will set the mode hint in the filter metadata when the channel is opened.
+  EXPECT_OK(StartChannel(false, pomerium::extensions::ssh::MODE_TUNNEL_STATUS));
 }
 
 TEST_F(HijackedModeTest, TcpipForwardRequestSuccess_NoExtraData) {

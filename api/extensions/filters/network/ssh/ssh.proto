@@ -395,9 +395,15 @@ message Permissions {
   bool                require_verify        = 13;
 }
 
+enum InternalCLIModeHint {
+  MODE_DEFAULT       = 0;
+  MODE_TUNNEL_STATUS = 1;
+}
+
 message FilterMetadata {
-  uint64 stream_id  = 1;
-  uint32 channel_id = 2;
+  uint64              stream_id  = 1;
+  uint32              channel_id = 2;
+  InternalCLIModeHint mode_hint  = 3;
 }
 
 message ServerPort {
