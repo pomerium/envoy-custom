@@ -49,6 +49,18 @@ message CodecConfig {
 
   // Starting value for internal channel IDs. Defaults to 0. Can be set > 0 for easier debugging.
   uint32 internal_channel_id_start = 6;
+
+  AlgorithmOptions algorithm_options = 7;
+}
+
+message AlgorithmOptions {
+  // Optional list of key exchange algorithms to explicitly disable. By default, all supported
+  // algorithms are enabled.
+  repeated string disable_kex_algorithms = 1;
+
+  // Optional list of packet cipher algorithms to explicitly disable. By default, all supported
+  // algorithms are enabled.
+  repeated string disable_packet_cipher_algorithms = 2;
 }
 
 message ReverseTunnelCluster {
