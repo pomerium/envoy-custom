@@ -218,6 +218,9 @@ absl::StatusOr<std::unique_ptr<SSHKey>> SSHKey::fromPrivateKeyDataSource(const :
 }
 
 absl::StatusOr<SSHKeyPtr> SSHKey::fromPublicKeyBlob(const bytes& public_key) {
+  if (public_key.empty()) {
+    return absl::InvalidArgumentError("invalid format");
+  }
   detail::sshkey_ptr key;
   if (auto err = sshkey_from_blob(public_key.data(), public_key.size(), std::out_ptr(key)); err != 0) {
     return statusFromErr(err);

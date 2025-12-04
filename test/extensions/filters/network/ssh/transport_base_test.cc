@@ -760,11 +760,11 @@ TYPED_TEST(TransportBaseTest, TestRekeyWithQueuedMessages) {
     /*C<-S*/ EXPECT_CALL(client, onMessageDecoded(MSG(wire::KexInitMsg, _)));
     EXPECT_CALL(client, onKexStarted(false));
     if constexpr (TypeParam::client_initiates) {
-      /*C->S*/ EXPECT_CALL(client, sendMessageDirect(MSG(wire::KexEcdhInitMsg, _)));
-      /*C<-S*/ EXPECT_CALL(client, onMessageDecoded(MSG(wire::KexEcdhReplyMsg, _)));
+      /*C->S*/ EXPECT_CALL(client, sendMessageDirect(MSG(wire::KexHybridInitMsg, _)));
+      /*C<-S*/ EXPECT_CALL(client, onMessageDecoded(MSG(wire::KexHybridReplyMsg, _)));
     } else {
-      /*C<-S*/ EXPECT_CALL(client, onMessageDecoded(MSG(wire::KexEcdhInitMsg, _)));
-      /*C->S*/ EXPECT_CALL(client, sendMessageDirect(MSG(wire::KexEcdhReplyMsg, _)));
+      /*C<-S*/ EXPECT_CALL(client, onMessageDecoded(MSG(wire::KexHybridInitMsg, _)));
+      /*C->S*/ EXPECT_CALL(client, sendMessageDirect(MSG(wire::KexHybridReplyMsg, _)));
     }
     /*C->S*/ EXPECT_CALL(client, sendMessageDirect(MSG(wire::NewKeysMsg, _)));
     /*C<-S*/ EXPECT_CALL(client, onMessageDecoded(MSG(wire::NewKeysMsg, _)));
@@ -793,11 +793,11 @@ TYPED_TEST(TransportBaseTest, TestRekeyWithQueuedMessages) {
     /*S->|*/ EXPECT_CALL(server, sendMessageToConnection(MSG(wire::DebugMsg, FIELD_EQ(message, "server->client queued message 2"s))));
     /*S->C*/ EXPECT_CALL(server, sendMessageDirect(MSG(wire::KexInitMsg, _)));
     if constexpr (TypeParam::client_initiates) {
-      /*S<-C*/ EXPECT_CALL(server, onMessageDecoded(MSG(wire::KexEcdhInitMsg, _)));
-      /*S->C*/ EXPECT_CALL(server, sendMessageDirect(MSG(wire::KexEcdhReplyMsg, _)));
+      /*S<-C*/ EXPECT_CALL(server, onMessageDecoded(MSG(wire::KexHybridInitMsg, _)));
+      /*S->C*/ EXPECT_CALL(server, sendMessageDirect(MSG(wire::KexHybridReplyMsg, _)));
     } else {
-      /*S<-C*/ EXPECT_CALL(server, sendMessageDirect(MSG(wire::KexEcdhInitMsg, _)));
-      /*S->C*/ EXPECT_CALL(server, onMessageDecoded(MSG(wire::KexEcdhReplyMsg, _)));
+      /*S<-C*/ EXPECT_CALL(server, sendMessageDirect(MSG(wire::KexHybridInitMsg, _)));
+      /*S->C*/ EXPECT_CALL(server, onMessageDecoded(MSG(wire::KexHybridReplyMsg, _)));
     }
     /*S->C*/ EXPECT_CALL(server, sendMessageDirect(MSG(wire::NewKeysMsg, _)));
     /*S<-C*/ EXPECT_CALL(server, onMessageDecoded(MSG(wire::NewKeysMsg, _)));

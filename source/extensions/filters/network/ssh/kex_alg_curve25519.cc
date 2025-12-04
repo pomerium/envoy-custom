@@ -6,10 +6,6 @@
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
 
-extern "C" {
-#include "openssh/kex.h"
-}
-
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 absl::StatusOr<std::optional<KexResultSharedPtr>> Curve25519Sha256KexAlgorithm::handleServerRecv(wire::Message& msg) {
@@ -23,20 +19,22 @@ absl::StatusOr<std::optional<KexResultSharedPtr>> Curve25519Sha256KexAlgorithm::
         return absl::InvalidArgumentError(
           fmt::format("invalid peer public key size (expected 32, got {})", sz));
       }
-      fixed_bytes<X25519_PUBLIC_VALUE_LEN> client_pub_key;
-      std::copy_n(msg.client_pub_key->begin(), X25519_PUBLIC_VALUE_LEN, client_pub_key.begin());
 
-      Curve25519Keypair server_keypair;
-      kexc25519_keygen(server_keypair.priv.data(), server_keypair.pub.data());
+      Curve25519Keypair server_keypair{};
+      X25519_keypair(server_keypair.pub.data(), server_keypair.priv.data());
 
-      fixed_bytes<X25519_SHARED_KEY_LEN> shared_secret;
+      fixed_bytes<X25519_SHARED_KEY_LEN> shared_secret{};
       // NB: this function validates that the output is not all-zeros
-      if (X25519(shared_secret.data(), server_keypair.priv.data(), client_pub_key.data()) == 0) {
+      if (X25519(shared_secret.data(),
+                 server_keypair.priv.data(),
+                 std::span{*msg.client_pub_key}.first<X25519_PUBLIC_VALUE_LEN>().data()) == 0) {
         return absl::InvalidArgumentError("x25519 error");
       }
+      server_keypair.priv.fill(0);
 
       auto blob = signer_->toPublicKeyBlob();
-      auto res = computeServerResult(blob, client_pub_key, server_keypair.pub, shared_secret);
+      auto res = computeServerResult(blob, *msg.client_pub_key, server_keypair.pub,
+                                     std::exchange(shared_secret, {}));
       if (!res.ok()) {
         return statusf("error computing server result: {}", res.status());
       }
@@ -59,15 +57,15 @@ absl::StatusOr<std::optional<KexResultSharedPtr>> Curve25519Sha256KexAlgorithm::
           fmt::format("invalid peer public key size (expected 32, got {})", sz));
       }
 
-      fixed_bytes<X25519_PUBLIC_VALUE_LEN> server_pub_key;
-      std::copy_n(msg.ephemeral_pub_key->begin(), X25519_PUBLIC_VALUE_LEN, server_pub_key.begin());
-
-      fixed_bytes<X25519_SHARED_KEY_LEN> shared_secret;
-      if (!X25519(shared_secret.data(), client_keypair_.priv.data(), server_pub_key.data())) {
+      fixed_bytes<X25519_SHARED_KEY_LEN> shared_secret{};
+      if (!X25519(shared_secret.data(), client_keypair_.priv.data(),
+                  std::span{*msg.ephemeral_pub_key}.first<X25519_PUBLIC_VALUE_LEN>().data())) {
         return absl::InvalidArgumentError("x25519 error");
       }
+      client_keypair_.priv.fill(0);
 
-      auto res = computeClientResult(*msg.host_key, client_keypair_.pub, server_pub_key, shared_secret, *msg.signature);
+      auto res = computeClientResult(*msg.host_key, client_keypair_.pub, *msg.ephemeral_pub_key,
+                                     std::exchange(shared_secret, {}), *msg.signature);
       if (!res.ok()) {
         return res.status();
       }
@@ -79,13 +77,10 @@ absl::StatusOr<std::optional<KexResultSharedPtr>> Curve25519Sha256KexAlgorithm::
 }
 
 wire::Message Curve25519Sha256KexAlgorithm::buildClientInit() {
-  Curve25519Keypair client_keypair;
-  kexc25519_keygen(client_keypair.priv.data(), client_keypair.pub.data());
-  client_keypair_ = client_keypair;
-  auto msg = wire::KexEcdhInitMsg{};
-
-  msg.client_pub_key = to_bytes(client_keypair.pub);
-  return msg;
+  X25519_keypair(client_keypair_.pub.data(), client_keypair_.priv.data());
+  return wire::KexEcdhInitMsg{
+    .client_pub_key = to_bytes(client_keypair_.pub),
+  };
 }
 
 const KexAlgorithm::MessageTypeList& Curve25519Sha256KexAlgorithm::clientInitMessageTypes() const {
@@ -94,11 +89,11 @@ const KexAlgorithm::MessageTypeList& Curve25519Sha256KexAlgorithm::clientInitMes
 }
 
 wire::Message Curve25519Sha256KexAlgorithm::buildServerReply(const KexResult& res) {
-  wire::KexEcdhReplyMsg reply;
-  reply.host_key = res.host_key_blob;
-  reply.ephemeral_pub_key = res.server_ephemeral_pub_key;
-  reply.signature = res.signature;
-  return reply;
+  return wire::KexEcdhReplyMsg{
+    .host_key = res.host_key_blob,
+    .ephemeral_pub_key = res.server_ephemeral_pub_key,
+    .signature = res.signature,
+  };
 }
 
 const KexAlgorithm::MessageTypeList& Curve25519Sha256KexAlgorithm::serverReplyMessageTypes() const {

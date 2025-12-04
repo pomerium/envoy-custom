@@ -8,6 +8,7 @@
 
 #include "source/extensions/filters/network/ssh/kex.h"
 #include "source/extensions/filters/network/ssh/kex_alg_curve25519.h"
+#include "source/extensions/filters/network/ssh/kex_alg_mlkem.h"
 #include "source/extensions/filters/network/ssh/packet_cipher_aead.h"
 #include "source/extensions/filters/network/ssh/packet_cipher_etm.h"
 #include "source/extensions/filters/network/ssh/wire/packet.h"
@@ -65,6 +66,7 @@ public:
         secrets_provider_(secrets_provider),
         scope_(context.scope().createScope("ssh")) {
     algorithm_factories_.registerType<Curve25519Sha256KexAlgorithmFactory>();
+    algorithm_factories_.registerType<Mlkem768x25519KexAlgorithmFactory>();
     cipher_factories_.registerType<Chacha20Poly1305CipherFactory>();
     cipher_factories_.registerType<AESGCM128CipherFactory>();
     cipher_factories_.registerType<AESGCM256CipherFactory>();

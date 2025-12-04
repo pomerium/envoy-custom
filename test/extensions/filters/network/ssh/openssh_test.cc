@@ -142,6 +142,11 @@ TEST(SSHKeyTest, FromPrivateKeyBytes_InvalidData) {
   ASSERT_EQ(absl::InvalidArgumentError("invalid format"), fromBytes.status());
 }
 
+TEST(SSHKeyTest, FromPrivateKeyBytes_EmptyData) {
+  auto fromBytes = SSHKey::fromPrivateKeyBytes("");
+  ASSERT_EQ(absl::InvalidArgumentError("invalid format"), fromBytes.status());
+}
+
 TEST(SSHKeyTest, FromPrivateKeyBytes_InvalidBase64Data) {
   auto fromBytes = SSHKey::fromPrivateKeyBytes("LS0tLS1Cnot base64"s);
   ASSERT_EQ(absl::InvalidArgumentError("invalid base64"), fromBytes.status());
@@ -214,6 +219,11 @@ TEST(SSHKeyTest, FromToPublicKeyBlob) {
 
 TEST(SSHKeyTest, FromPublicKeyBlob_Invalid) {
   auto r = SSHKey::fromPublicKeyBlob(bytes{'i', 'n', 'v', 'a', 'l', 'i', 'd'});
+  EXPECT_EQ(absl::InvalidArgumentError("invalid format"), r.status());
+}
+
+TEST(SSHKeyTest, FromPublicKeyBlob_Empty) {
+  auto r = SSHKey::fromPublicKeyBlob({});
   EXPECT_EQ(absl::InvalidArgumentError("invalid format"), r.status());
 }
 
@@ -428,7 +438,7 @@ TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate) {
   auto sigAlgs = absl::StrJoin(key_->signatureAlgorithmsForKeyType(), ",");
   auto stat = key_->convertToSignedUserCertificate(1, {"principal1", "principal2"}, {"extension1", "extension2"}, absl::Now(), absl::Now() + absl::Hours(1), *signer_);
   ASSERT_OK(stat);
-  EXPECT_EQ(keyType + 4, key_->keyType()); // for the algorithms we use here, this is fine.
+  EXPECT_EQ(keyType + 3, key_->keyType()); // for the algorithms we use here, this is fine.
                                            // the openssh type converter function isn't public
   const auto* key = key_->sshkeyForTest();
   EXPECT_TRUE(sshkey_is_cert(key));

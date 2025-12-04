@@ -33,26 +33,27 @@ enum HashFunction : int {
   SHA512 = SSH_DIGEST_SHA512,
 };
 
+enum class SharedSecretEncoding {
+  Bignum = 0,
+  String = 1
+};
+
 struct KexResult {
   bytes exchange_hash; // 'H'
-  bytes shared_secret; // 'K'; not encoded as a length-prefixed bignum
+  bytes shared_secret; // 'K'; no encoding
   bytes host_key_blob;
   bytes signature;
-  HashFunction hash;
+  HashFunction hash{};
+  SharedSecretEncoding shared_secret_encoding{};
   bytes session_id;
   bytes server_ephemeral_pub_key;
   Algorithms algorithms;
-  bool client_supports_ext_info;
-  bool server_supports_ext_info;
+  bool client_supports_ext_info{};
+  bool server_supports_ext_info{};
 
   auto operator<=>(const KexResult&) const = default;
-
-  void encodeSharedSecret(bytes& out) {
-    Envoy::Buffer::OwnedImpl tmp;
-    wire::writeBignum(tmp, shared_secret);
-    wire::flushTo<bytes>(tmp, out);
-  }
 };
+
 using KexResultSharedPtr = std::shared_ptr<KexResult>;
 
 class KexAlgorithm : public Logger::Loggable<Logger::Id::filter> {
@@ -71,6 +72,7 @@ public:
   virtual wire::Message buildServerReply(const KexResult&) PURE;
   virtual const MessageTypeList& serverReplyMessageTypes() const PURE;
   constexpr virtual HashFunction hash_algorithm() const PURE;
+  constexpr virtual SharedSecretEncoding shared_secret_encoding() const PURE;
 
 protected:
   const HandshakeMagics* magics_;
@@ -86,7 +88,14 @@ protected:
     wire::write_opt<wire::LengthPrefixed>(exchangeHash, host_key_blob);
     wire::write_opt<wire::LengthPrefixed>(exchangeHash, client_pub_key);
     wire::write_opt<wire::LengthPrefixed>(exchangeHash, server_pub_key);
-    wire::writeBignum(exchangeHash, shared_secret);
+    switch (shared_secret_encoding()) {
+    case SharedSecretEncoding::Bignum:
+      wire::writeBignum(exchangeHash, shared_secret);
+      break;
+    case SharedSecretEncoding::String:
+      wire::write_opt<wire::LengthPrefixed>(exchangeHash, shared_secret);
+      break;
+    }
 
     auto exchangeHashBuf = linearizeToSpan(exchangeHash);
     openssh::Hash hash(hash_algorithm());
@@ -95,7 +104,6 @@ protected:
     exchangeHash.drain(exchangeHash.length());
     return digest;
   }
-
   absl::StatusOr<KexResultSharedPtr> computeServerResult(wire::Writer auto const& host_key_blob,
                                                          wire::Writer auto const& client_pub_key,
                                                          wire::Writer auto const& server_pub_key,
@@ -115,6 +123,7 @@ protected:
     result->shared_secret = to_bytes(shared_secret);
     result->signature = *sig;
     result->hash = SHA256;
+    result->shared_secret_encoding = shared_secret_encoding();
     result->server_ephemeral_pub_key = to_bytes(server_pub_key);
     // session id is not set here
 
@@ -147,6 +156,7 @@ protected:
     result->shared_secret = to_bytes(shared_secret);
     result->signature = signature;
     result->hash = SHA256;
+    result->shared_secret_encoding = shared_secret_encoding();
     result->server_ephemeral_pub_key = to_bytes(server_pub_key);
     // session id is not set here
 

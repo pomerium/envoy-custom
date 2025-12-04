@@ -412,7 +412,7 @@ void SshConnectionDriver::TaskCallbacksImpl::setTimeout(std::chrono::millisecond
     timeout_timer_->disableTimer();
   }
   timeout_timer_ = parent_.connectionDispatcher()->createTimer([this, name] {
-    taskFailure(absl::DeadlineExceededError("task timed out: " + name));
+    taskFailure(absl::DeadlineExceededError(fmt::format("task timed out: {} ()", name, task_->errorDetails())));
   });
   timeout_timer_->enableTimer(timeout);
 }

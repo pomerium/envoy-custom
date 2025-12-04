@@ -570,7 +570,7 @@ INSTANTIATE_TEST_SUITE_P(ClientMessagesPreUserAuth, ClientMessagesPreUserAuthTes
                            {wire::DebugMsg{.message = "foo"s}, ""sv},
                            {wire::UnimplementedMsg{.sequence_number = 1234}, ""sv},
                            {wire::ExtInfoMsg{}, ""sv},
-                           {wire::KexInitMsg{}, "no common algorithm for key exchange; client offered: []; server offered: [\"curve25519-sha256\", \"curve25519-sha256@libssh.org\"]"sv},
+                           {wire::KexInitMsg{}, "no common algorithm for key exchange; client offered: []; server offered: [\"mlkem768x25519-sha256\", \"curve25519-sha256\", \"curve25519-sha256@libssh.org\"]"sv},
 
                            {wire::ServiceAcceptMsg{}, "unexpected message received: ServiceAccept (6)"sv},
                            {wire::NewKeysMsg{}, "unexpected message received: NewKeys (21)"sv},
@@ -1565,7 +1565,7 @@ INSTANTIATE_TEST_SUITE_P(ClientMessagesPostUserAuth, ClientMessagesPostUserAuthT
                            {wire::DebugMsg{.message = "foo"s}, ""sv},
                            {wire::UnimplementedMsg{.sequence_number = 1234}, ""sv},
                            {wire::ExtInfoMsg{}, "unexpected message received: ExtInfo (7)"sv},
-                           {wire::KexInitMsg{}, "no common algorithm for key exchange; client offered: []; server offered: [\"curve25519-sha256\", \"curve25519-sha256@libssh.org\"]"sv},
+                           {wire::KexInitMsg{}, "no common algorithm for key exchange; client offered: []; server offered: [\"mlkem768x25519-sha256\", \"curve25519-sha256\", \"curve25519-sha256@libssh.org\"]"sv},
 
                            {wire::ServiceAcceptMsg{}, "unexpected message received: ServiceAccept (6)"sv},
                            {wire::NewKeysMsg{}, "unexpected message received: NewKeys (21)"sv},

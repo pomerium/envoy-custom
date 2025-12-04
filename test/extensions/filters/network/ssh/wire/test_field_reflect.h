@@ -304,6 +304,12 @@ TEST_FIELDS(KexEcdhReplyMsg,
             host_key,
             ephemeral_pub_key,
             signature);
+TEST_FIELDS(KexHybridInitMsg,
+            client_init);
+TEST_FIELDS(KexHybridReplyMsg,
+            host_key,
+            server_reply,
+            signature);
 TEST_FIELDS(UserAuthPubKeyOkMsg,
             public_key_alg,
             public_key);

@@ -160,6 +160,26 @@ struct KexEcdhReplyMsg : Msg<SshMessageType::KexECDHReply> {
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
+// https://datatracker.ietf.org/doc/html/draft-ietf-sshm-mlkem-hybrid-kex-03#name-pq-t-hybrid-key-exchange-me
+struct KexHybridInitMsg : Msg<SshMessageType::KexHybridInit> {
+  field<bytes, LengthPrefixed> client_init;
+
+  constexpr auto operator<=>(const KexHybridInitMsg&) const = default;
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
+};
+
+// https://datatracker.ietf.org/doc/html/draft-ietf-sshm-mlkem-hybrid-kex-03#name-pq-t-hybrid-key-exchange-me
+struct KexHybridReplyMsg : Msg<SshMessageType::KexHybridReply> {
+  field<bytes, LengthPrefixed> host_key;
+  field<bytes, LengthPrefixed> server_reply;
+  field<bytes, LengthPrefixed> signature;
+
+  constexpr auto operator<=>(const KexHybridReplyMsg&) const = default;
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
+};
+
 // https://datatracker.ietf.org/doc/html/rfc4253#section-10
 struct ServiceRequestMsg final : Msg<SshMessageType::ServiceRequest> {
   field<std::string, LengthPrefixed> service_name;
@@ -752,8 +772,8 @@ using top_level_message = sub_message<                      // Message ID
   ExtInfoMsg,                                               // 7
   KexInitMsg,                                               // 20
   NewKeysMsg,                                               // 21
-  OverloadSet<KexEcdhInitMsg>,                              // 30 (2 overloads, 1 supported)
-  OverloadSet<KexEcdhReplyMsg>,                             // 31 (3 overloads, 1 supported)
+  OverloadSet<KexEcdhInitMsg, KexHybridInitMsg>,            // 30 (3 overloads, 2 supported)
+  OverloadSet<KexEcdhReplyMsg, KexHybridReplyMsg>,          // 31 (4 overloads, 2 supported)
   UserAuthRequestMsg,                                       // 50
   UserAuthFailureMsg,                                       // 51
   UserAuthSuccessMsg,                                       // 52
@@ -785,8 +805,10 @@ static_assert(std::regular<top_level_message>);
 //
 // If the types in top_level_message are updated, make sure these definitions are also kept in sync
 // (they could be pulled automatically from top_level_message but it's not worth the complexity).
-template <> struct overload_set_for<KexEcdhInitMsg> : std::type_identity<OverloadSet<KexEcdhInitMsg>> {};
-template <> struct overload_set_for<KexEcdhReplyMsg> : std::type_identity<OverloadSet<KexEcdhReplyMsg>> {};
+template <> struct overload_set_for<KexEcdhInitMsg> : std::type_identity<OverloadSet<KexEcdhInitMsg, KexHybridInitMsg>> {};
+template <> struct overload_set_for<KexEcdhReplyMsg> : std::type_identity<OverloadSet<KexEcdhReplyMsg, KexHybridReplyMsg>> {};
+template <> struct overload_set_for<KexHybridInitMsg> : std::type_identity<OverloadSet<KexEcdhInitMsg, KexHybridInitMsg>> {};
+template <> struct overload_set_for<KexHybridReplyMsg> : std::type_identity<OverloadSet<KexEcdhReplyMsg, KexHybridReplyMsg>> {};
 template <> struct overload_set_for<UserAuthPubKeyOkMsg> : std::type_identity<OverloadSet<UserAuthPubKeyOkMsg, UserAuthInfoRequestMsg>> {};
 template <> struct overload_set_for<UserAuthInfoRequestMsg> : std::type_identity<OverloadSet<UserAuthPubKeyOkMsg, UserAuthInfoRequestMsg>> {};
 template <> struct overload_set_for<UserAuthInfoResponseMsg> : std::type_identity<OverloadSet<UserAuthInfoResponseMsg>> {};
