@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package envoy.extensions.health_check.event_sinks.grpc;
+
+import "envoy/config/core/v3/grpc_service.proto";
+import "envoy/data/core/v3/health_check_event.proto";
+import "google/protobuf/empty.proto";
+import "validate/validate.proto";
+
+service HealthCheckEventSink {
+  rpc LogHealthCheckEvent(envoy.data.core.v3.HealthCheckEvent) returns (google.protobuf.Empty);
+}
+
+message Config {
+  envoy.config.core.v3.GrpcService grpc_service = 4 [(validate.rules).message.required = true];
+}
