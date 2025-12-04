@@ -8,7 +8,6 @@
 #pragma clang diagnostic ignored "-Wshorten-64-to-32"
 #include "source/common/upstream/upstream_impl.h"
 #pragma clang diagnostic pop
-#include "source/extensions/io_socket/user_space/io_handle_impl.h"
 #include "envoy/registry/registry.h"
 #include "source/common/upstream/cluster_factory_impl.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
@@ -54,6 +53,7 @@ class ReverseTunnelClusterContext {
 public:
   virtual ~ReverseTunnelClusterContext() = default;
   virtual const Upstream::ClusterInfoConstSharedPtr& clusterInfo() PURE;
+  virtual const envoy::config::cluster::v3::Cluster& clusterConfig() PURE;
   virtual std::shared_ptr<StreamTracker> streamTracker() PURE;
   virtual std::shared_ptr<const envoy::config::core::v3::Address> chooseUpstreamAddress() PURE;
   virtual ReverseTunnelStats& reverseTunnelStats() PURE;
@@ -66,27 +66,6 @@ public:
   virtual const pomerium::extensions::ssh::EndpointMetadata& hostMetadata() PURE;
   virtual HostDrainManager& hostDrainManager() PURE;
   virtual ReverseTunnelClusterContext& clusterContext() PURE;
-};
-
-class InternalStreamPassthroughState : public Envoy::Extensions::IoSocket::UserSpace::PassthroughStateImpl {
-public:
-  using enum PassthroughStateImpl::State;
-
-  void initialize(std::unique_ptr<envoy::config::core::v3::Metadata> metadata,
-                  const StreamInfo::FilterState::Objects& filter_state_objects) override {
-    ASSERT(state_ == State::Created);
-    PassthroughStateImpl::initialize(std::move(metadata), filter_state_objects);
-    ASSERT(state_ == State::Initialized);
-  }
-
-  bool isInitialized() const {
-    return state_ == State::Initialized;
-  }
-
-  static std::shared_ptr<InternalStreamPassthroughState> fromIoHandle(IoHandle& io_handle) {
-    return std::dynamic_pointer_cast<InternalStreamPassthroughState>(
-      dynamic_cast<Extensions::IoSocket::UserSpace::IoHandleImpl&>(io_handle).passthroughState());
-  }
 };
 
 } // namespace Network

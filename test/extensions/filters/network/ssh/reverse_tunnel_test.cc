@@ -75,6 +75,7 @@ public:
     config_helper_.addConfigModifier([this](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
       // note: update eds_helpers_ if this changes
       configureUpstreamTunnelCluster(*bootstrap.mutable_static_resources()->mutable_clusters(1)); // http_cluster_1
+      configureUpstreamTunnelCluster(*bootstrap.mutable_static_resources()->mutable_clusters(2)); // http_cluster_2
       configureUpstreamTunnelCluster(*bootstrap.mutable_static_resources()->mutable_clusters(3)); // tcp_cluster
     });
   }
@@ -138,9 +139,11 @@ public:
   // separate files for each cluster, otherwise they will both get the EDS updates when updating
   // any of them, regardless of the load assignment's cluster_name.
   EdsHelper http_cluster_eds_{"http_cluster_1"};
+  EdsHelper grpc_cluster_eds_{"http_cluster_2"};
   EdsHelper tcp_cluster_eds_{"tcp_cluster"};
   std::unordered_map<std::string, EdsHelper*> eds_helpers_{
     {"http_cluster_1", &http_cluster_eds_},
+    {"http_cluster_2", &grpc_cluster_eds_},
     {"tcp_cluster", &tcp_cluster_eds_},
   };
 };
@@ -190,6 +193,162 @@ TEST_P(HttpReverseTunnelIntegrationTest, TestHttp) {
   ASSERT_TRUE(response->waitForEndStream(driver->defaultTimeout()));
   ASSERT_EQ("200", response->headers().Status()->value().getStringView());
   codec_client_->close(Network::ConnectionCloseType::FlushWrite);
+  ASSERT_TRUE(driver->wait(th));
+  ASSERT_TRUE(driver->disconnect());
+}
+
+TEST_P(HttpReverseTunnelIntegrationTest, TestHttpHealthChecks) {
+  config_helper_.addConfigModifier([](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+    auto* httpCluster = bootstrap.mutable_static_resources()->mutable_clusters(1);
+    auto* hc = httpCluster->add_health_checks();
+    *hc->mutable_http_health_check()->mutable_host() = "example";
+    *hc->mutable_http_health_check()->mutable_path() = "/health";
+    hc->mutable_timeout()->set_seconds(1);
+    hc->mutable_interval()->set_nanos(1000);
+    hc->mutable_healthy_threshold()->set_value(1);
+    hc->mutable_unhealthy_threshold()->set_value(1);
+    hc->set_always_log_health_check_success(true);
+    hc->set_always_log_health_check_failures(true);
+    hc->mutable_reuse_connection()->set_value(false); // allow the channel to be closed
+  });
+  initialize();
+  auto driver = makeSshConnectionDriver();
+  RELEASE_ASSERT(driver->connectionDispatcher().ptr() == dispatcher_.get(), "");
+  driver->connect();
+
+  const auto httpPort = lookupPort("http");
+  ASSERT_TRUE(driver->waitForKex());
+  ASSERT_TRUE(driver->waitForUserAuth());
+  ASSERT_TRUE(driver->requestReversePortForward("http-cluster-1", httpPort, httpPort));
+
+  setClusterLoad("http_cluster_1",
+                 {{
+                   .stream_id = *driver->serverStreamId(),
+                   .requested_host = "http-cluster-1",
+                   .requested_port = httpPort,
+                   .server_port = httpPort,
+                   .is_dynamic = false,
+                 }});
+
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>("http-cluster-1", httpPort, 1)
+              .then(driver->createTask<Tasks::WaitForChannelData>("GET /health HTTP/1.1\r\nhost: example\r\nuser-agent: Envoy/HC\r\n")
+                      .then(driver->createTask<Tasks::SendChannelData>("HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n")
+                              .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>())))
+              .start();
+  ASSERT_TRUE(driver->wait(th));
+  ASSERT_TRUE(driver->disconnect());
+}
+
+TEST_P(HttpReverseTunnelIntegrationTest, TestMultiProtocolHealthChecks) {
+  // test that health checks to the same logical host shared across 2 clusters (each with different
+  // protocols) work correctly
+  config_helper_.addConfigModifier([](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+    {
+      auto* httpCluster = bootstrap.mutable_static_resources()->mutable_clusters(1);
+      auto* hc = httpCluster->add_health_checks();
+      *hc->mutable_http_health_check()->mutable_host() = "example";
+      *hc->mutable_http_health_check()->mutable_path() = "/health";
+      hc->mutable_timeout()->set_seconds(1);
+      hc->mutable_interval()->set_nanos(1000);
+      hc->mutable_healthy_threshold()->set_value(1);
+      hc->mutable_unhealthy_threshold()->set_value(1);
+      hc->set_always_log_health_check_success(true);
+      hc->set_always_log_health_check_failures(true);
+      hc->mutable_reuse_connection()->set_value(false);
+    }
+    {
+      auto* grpcCluster = bootstrap.mutable_static_resources()->mutable_clusters(2);
+      auto* hc = grpcCluster->add_health_checks();
+      hc->mutable_grpc_health_check();
+      hc->mutable_timeout()->set_seconds(1);
+      hc->mutable_interval()->set_nanos(1000);
+      hc->mutable_healthy_threshold()->set_value(1);
+      hc->mutable_unhealthy_threshold()->set_value(1);
+      hc->set_always_log_health_check_success(true);
+      hc->set_always_log_health_check_failures(true);
+      hc->mutable_reuse_connection()->set_value(false);
+    }
+  });
+  initialize();
+
+  auto driver = makeSshConnectionDriver();
+  RELEASE_ASSERT(driver->connectionDispatcher().ptr() == dispatcher_.get(), "");
+  driver->connect();
+
+  const auto httpPort = lookupPort("http");
+  ASSERT_TRUE(driver->waitForKex());
+  ASSERT_TRUE(driver->waitForUserAuth());
+
+  ASSERT_TRUE(driver->requestReversePortForward("http-cluster-1", httpPort, httpPort));
+  ASSERT_TRUE(driver->requestReversePortForward("http-cluster-2", httpPort, httpPort));
+
+  auto th1 = driver->createTask<Tasks::AcceptReversePortForward>("http-cluster-1", httpPort, 1)
+               .then(driver->createTask<Tasks::WaitForChannelData>("GET /health HTTP/1.1\r\nhost: example\r\nuser-agent: Envoy/HC\r\n"))
+               .start();
+  auto th2 = driver->createTask<Tasks::AcceptReversePortForward>("http-cluster-2", httpPort, 2)
+               .then(driver->createTask<Tasks::WaitForChannelData>("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"))
+               .start();
+
+  setClusterLoad("http_cluster_1",
+                 {{
+                   .stream_id = *driver->serverStreamId(),
+                   .requested_host = "http-cluster-1",
+                   .requested_port = httpPort,
+                   .server_port = httpPort,
+                   .is_dynamic = false,
+                 }});
+
+  setClusterLoad("http_cluster_2",
+                 {{
+                   .stream_id = *driver->serverStreamId(),
+                   .requested_host = "http-cluster-2",
+                   .requested_port = httpPort,
+                   .server_port = httpPort,
+                   .is_dynamic = false,
+                 }});
+
+  ASSERT_TRUE(driver->wait(th1));
+  ASSERT_TRUE(driver->wait(th2));
+
+  ASSERT_TRUE(driver->disconnect());
+}
+
+TEST_P(HttpReverseTunnelIntegrationTest, TestGrpcHealthChecks) {
+  config_helper_.addConfigModifier([](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+    auto* grpcCluster = bootstrap.mutable_static_resources()->mutable_clusters(2);
+    auto* hc = grpcCluster->add_health_checks();
+    hc->mutable_grpc_health_check();
+    hc->mutable_timeout()->set_seconds(1);
+    hc->mutable_interval()->set_nanos(1000);
+    hc->mutable_healthy_threshold()->set_value(1);
+    hc->mutable_unhealthy_threshold()->set_value(1);
+    hc->set_always_log_health_check_success(true);
+    hc->set_always_log_health_check_failures(true);
+    hc->mutable_reuse_connection()->set_value(false); // allow the channel to be closed
+  });
+  initialize();
+  auto driver = makeSshConnectionDriver();
+  RELEASE_ASSERT(driver->connectionDispatcher().ptr() == dispatcher_.get(), "");
+  driver->connect();
+
+  const auto httpPort = lookupPort("http");
+  ASSERT_TRUE(driver->waitForKex());
+  ASSERT_TRUE(driver->waitForUserAuth());
+  ASSERT_TRUE(driver->requestReversePortForward("http-cluster-2", httpPort, httpPort));
+
+  setClusterLoad("http_cluster_2",
+                 {{
+                   .stream_id = *driver->serverStreamId(),
+                   .requested_host = "http-cluster-2",
+                   .requested_port = httpPort,
+                   .server_port = httpPort,
+                   .is_dynamic = false,
+                 }});
+
+  // TODO: this isn't actually testing the payload, just that any http2 request came in.
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>("http-cluster-2", httpPort, 1)
+              .then(driver->createTask<Tasks::WaitForChannelData>("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"))
+              .start();
   ASSERT_TRUE(driver->wait(th));
   ASSERT_TRUE(driver->disconnect());
 }
@@ -1103,6 +1262,33 @@ TEST_P(ChannelCloseTimeoutTest, UpstreamIgnoresChannelCloseDuringHostDrain) {
   downstream->waitForDisconnect();
 }
 
+class StaticTcpHealthCheckTest : public StaticPortForwardTest {
+  using StaticPortForwardTest::StaticPortForwardTest;
+
+  void SetUp() override {
+    config_helper_.addConfigModifier([](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+      auto* cluster = bootstrap.mutable_static_resources()->mutable_clusters(3);
+      auto* hc = cluster->add_health_checks();
+      hc->mutable_tcp_health_check();
+      hc->mutable_timeout()->set_seconds(1);
+      hc->mutable_interval()->set_nanos(1000);
+      hc->mutable_healthy_threshold()->set_value(1);
+      hc->mutable_unhealthy_threshold()->set_value(1);
+      hc->set_always_log_health_check_success(true);
+      hc->set_always_log_health_check_failures(true);
+      hc->mutable_reuse_connection()->set_value(false);
+    });
+    StaticPortForwardTest::SetUp();
+  }
+};
+
+TEST_P(StaticTcpHealthCheckTest, HealthCheck) {
+  ASSERT_TRUE(driver->wait(
+    driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
+      .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>(Tasks::ExpectEOF::Yes))
+      .start()));
+}
+
 class DynamicPortForwardTest : public BaseReverseTunnelIntegrationTest,
                                public testing::WithParamInterface<Network::Address::IpVersion> {
 public:
@@ -1670,6 +1856,10 @@ INSTANTIATE_TEST_SUITE_P(ChannelStats, ChannelStatsIntegrationTest,
                          TestUtility::ipTestParamsToString);
 
 INSTANTIATE_TEST_SUITE_P(ChannelCloseTimeout, ChannelCloseTimeoutTest,
+                         testing::ValuesIn(TestEnvironment::getIpVersionsForTest()),
+                         TestUtility::ipTestParamsToString);
+
+INSTANTIATE_TEST_SUITE_P(StaticTcpHealthCheck, StaticTcpHealthCheckTest,
                          testing::ValuesIn(TestEnvironment::getIpVersionsForTest()),
                          TestUtility::ipTestParamsToString);
 

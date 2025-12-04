@@ -26,6 +26,35 @@
 
 using Envoy::Extensions::IoSocket::UserSpace::IoHandleFactory;
 
+namespace Envoy::Network {
+
+class InternalStreamPassthroughState : public Envoy::Extensions::IoSocket::UserSpace::PassthroughStateImpl {
+public:
+  using enum PassthroughStateImpl::State;
+
+  void initialize(std::unique_ptr<envoy::config::core::v3::Metadata> metadata,
+                  const StreamInfo::FilterState::Objects& filter_state_objects) override {
+    ASSERT(state_ == State::Created);
+    PassthroughStateImpl::initialize(std::move(metadata), filter_state_objects);
+    ASSERT(state_ == State::Initialized);
+  }
+
+  bool isInitialized() const {
+    return state_ == State::Initialized;
+  }
+
+  bool isHealthCheck() const {
+    return isInitialized() && metadata_ == nullptr && filter_state_objects_.empty();
+  }
+
+  static std::shared_ptr<InternalStreamPassthroughState> fromIoHandle(IoHandle& io_handle) {
+    return std::dynamic_pointer_cast<InternalStreamPassthroughState>(
+      dynamic_cast<Extensions::IoSocket::UserSpace::IoHandleImpl&>(io_handle).passthroughState());
+  }
+};
+
+} // namespace Envoy::Network
+
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 static constexpr auto EventTypeMask = Event::FileReadyType::Closed | Event::FileReadyType::Read | Event::FileReadyType::Write;
@@ -681,6 +710,7 @@ public:
                             const pomerium::extensions::ssh::EndpointMetadata& host_metadata,
                             Network::HostDrainManager& host_drain_manager,
                             std::shared_ptr<const envoy::config::core::v3::Address> upstream_address,
+                            Network::ReverseTunnelClusterContext& cluster_context,
                             std::shared_ptr<Network::InternalStreamPassthroughState> passthrough_state)
       : remote_(std::move(remote)),
         local_dispatcher_(local_dispatcher),
@@ -689,7 +719,8 @@ public:
         host_drain_callback_(host_drain_manager.addHostDrainCallback(local_dispatcher, [this] {
           onHostDraining();
         })),
-        upstream_address_(upstream_address) {
+        upstream_address_(upstream_address), //
+        cluster_config_(cluster_context.clusterConfig()) {
     ASSERT(local_dispatcher_.isThreadSafe());
     loadPassthroughMetadata(passthrough_state);
   }
@@ -727,8 +758,13 @@ public:
       req.address_connected = metadata_.matched_permission().requested_host();
     }
     req.port_connected = metadata_.server_port().value();
-    req.originator_address = downstream_address_->ip()->addressAsString(),
-    req.originator_port = downstream_address_->ip()->port();
+    if (downstream_address_ != nullptr) {
+      req.originator_address = downstream_address_->ip()->addressAsString(),
+      req.originator_port = downstream_address_->ip()->port();
+    } else {
+      req.originator_address = "127.0.0.1";
+      req.originator_port = 0;
+    }
 
     wire::ChannelOpenMsg open{
       .sender_channel = channel_id_,
@@ -819,9 +855,13 @@ public:
     pomerium::extensions::ssh::ChannelEvent ev;
     auto* opened = ev.mutable_internal_channel_opened();
     opened->set_channel_id(channel_id_);
-    opened->set_hostname(server_name_); // TODO: it would be better to pass cluster id here instead
+    opened->set_hostname(server_name_);
     opened->set_path(path_);
-    opened->set_peer_address(downstream_address_->asStringView());
+    if (downstream_address_ != nullptr) {
+      opened->set_peer_address(downstream_address_->asStringView());
+    } else {
+      opened->set_peer_address("envoy_health_check");
+    }
     event_callbacks_.sendChannelEvent(ev);
     return absl::OkStatus();
   }
@@ -946,6 +986,32 @@ private:
   void loadPassthroughMetadata(std::shared_ptr<Network::InternalStreamPassthroughState> passthrough_state) {
     RELEASE_ASSERT(passthrough_state->isInitialized(), "");
 
+    if (passthrough_state->isHealthCheck()) {
+      // Most likely there will be 0 or 1 health checks
+      for (const auto& hc : cluster_config_.health_checks()) {
+        if (hc.has_http_health_check()) {
+          auto http = hc.http_health_check();
+          server_name_ = http.host();
+          path_ = http.path();
+        } else if (hc.has_grpc_health_check()) {
+          auto grpc = hc.grpc_health_check();
+          server_name_ = grpc.authority();
+          auto serviceName = grpc.service_name();
+          if (serviceName == "") {
+            serviceName = "grpc.health.v1.Health";
+          }
+          path_ = fmt::format("/{}/Check", serviceName);
+        }
+
+        if (server_name_ == "") {
+          server_name_ = fmt::format("{}:{}", upstream_address_->socket_address().address(),
+                                     upstream_address_->socket_address().port_value());
+        }
+        break;
+      }
+      return;
+    }
+
     envoy::config::core::v3::Metadata passthrough_metadata;
     StreamInfo::FilterStateImpl passthrough_filter_state{StreamInfo::FilterState::LifeSpan::Connection};
 
@@ -1037,6 +1103,7 @@ private:
   Envoy::Common::CallbackHandlePtr host_drain_callback_;
   Envoy::Network::Address::InstanceConstSharedPtr downstream_address_;
   std::shared_ptr<const envoy::config::core::v3::Address> upstream_address_;
+  const envoy::config::cluster::v3::Cluster& cluster_config_;
   std::string server_name_;
   std::string path_;
 };
@@ -1104,6 +1171,7 @@ public:
                                                              hostContext->hostMetadata(),
                                                              hostContext->hostDrainManager(),
                                                              upstreamAddr,
+                                                             hostContext->clusterContext(),
                                                              passthroughState);
         auto id = ctx->streamCallbacks().startChannel(std::move(c), std::nullopt);
         if (!id.ok()) {
@@ -1117,7 +1185,6 @@ public:
   }
 };
 REGISTER_FACTORY(SshTunnelClientConnectionFactory, ClientConnectionFactory);
-
 } // namespace Envoy::Network
 
 namespace Envoy::Upstream {
@@ -1177,7 +1244,13 @@ public:
                  envoy::config::endpoint::v3::Endpoint::HealthCheckConfig::default_instance(),
                  0, // priority class (only 0 is used)
                  envoy::config::core::v3::HEALTHY) {
-    setDisableActiveHealthCheck(true);
+    setDisableActiveHealthCheck(false);
+  }
+
+  CreateConnectionData createHealthCheckConnection(Event::Dispatcher& dispatcher,
+                                                   Network::TransportSocketOptionsConstSharedPtr transport_socket_options,
+                                                   const envoy::config::core::v3::Metadata* metadata) const override {
+    return HostImpl::createHealthCheckConnection(dispatcher, transport_socket_options, metadata);
   }
 
   void setEdsHealthStatus(HealthStatus health_status) override {
@@ -1191,10 +1264,12 @@ public:
 class ReverseTunnelClusterContextImpl : public Network::ReverseTunnelClusterContext {
 public:
   ReverseTunnelClusterContextImpl(ClusterInfoConstSharedPtr cluster_info,
+                                  const envoy::config::cluster::v3::Cluster& cluster_config,
                                   std::shared_ptr<StreamTracker> stream_tracker,
                                   const envoy::config::endpoint::v3::ClusterLoadAssignment& load_assignment,
                                   ReverseTunnelStats& reverse_tunnel_stats)
       : cluster_info_(cluster_info),
+        cluster_config_(cluster_config),
         stream_tracker_(std::move(stream_tracker)),
         reverse_tunnel_stats_(reverse_tunnel_stats) {
     for (const auto& endpoint : load_assignment.endpoints()) {
@@ -1206,6 +1281,7 @@ public:
   }
 
   const ClusterInfoConstSharedPtr& clusterInfo() override { return cluster_info_; }
+  const envoy::config::cluster::v3::Cluster& clusterConfig() override { return cluster_config_; }
   std::shared_ptr<StreamTracker> streamTracker() override { return stream_tracker_; }
   ReverseTunnelStats& reverseTunnelStats() override { return reverse_tunnel_stats_; }
 
@@ -1217,6 +1293,7 @@ public:
 
 private:
   ClusterInfoConstSharedPtr cluster_info_;
+  const envoy::config::cluster::v3::Cluster& cluster_config_; // owned by SshReverseTunnelCluster
   std::shared_ptr<StreamTracker> stream_tracker_;
   std::vector<std::shared_ptr<const envoy::config::core::v3::Address>> upstream_addresses_;
   ReverseTunnelStats& reverse_tunnel_stats_; // owned by the cluster
@@ -1254,7 +1331,7 @@ SshReverseTunnelCluster::SshReverseTunnelCluster(const envoy::config::cluster::v
       reverse_tunnel_stats_(reverse_tunnel_stat_names_, info_->statsScope(), reverse_tunnel_stat_names_.ssh_reverse_tunnel_),
       dispatcher_(cluster_context.serverFactoryContext().mainThreadDispatcher()),
       owned_context_(std::make_unique<ReverseTunnelClusterContextImpl>(
-        info_, stream_tracker_, load_assignment, reverse_tunnel_stats_)) {
+        info_, cluster_, stream_tracker_, load_assignment, reverse_tunnel_stats_)) {
   ASSERT_IS_MAIN_OR_TEST_THREAD();
   RETURN_ONLY_IF_NOT_OK_REF(creation_status);
 
