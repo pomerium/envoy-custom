@@ -14,9 +14,11 @@ absl::StatusOr<std::optional<KexResultSharedPtr>> Mlkem768x25519KexAlgorithm::ha
       }
       auto& msg = opt_msg->get();
 
-      if (msg.client_init->size() != MLKEM768_PUBLIC_KEY_BYTES + X25519_PUBLIC_VALUE_LEN) {
+      const size_t expectedClientInitSize = MLKEM768_PUBLIC_KEY_BYTES + X25519_PUBLIC_VALUE_LEN;
+      if (msg.client_init->size() != expectedClientInitSize) {
         return absl::InvalidArgumentError(
-          fmt::format("invalid client init size (expected 1216, got {})", msg.client_init->size()));
+          fmt::format("invalid client init size (expected {}, got {})",
+                      expectedClientInitSize, msg.client_init->size()));
       }
 
       auto clientMlkemPub = std::span{*msg.client_init}.first<MLKEM768_PUBLIC_KEY_BYTES>();
@@ -73,9 +75,11 @@ absl::StatusOr<std::optional<KexResultSharedPtr>> Mlkem768x25519KexAlgorithm::ha
         return absl::InvalidArgumentError("invalid key exchange reply");
       }
       auto& msg = opt_msg->get();
-      if (msg.server_reply->size() != MLKEM768_CIPHERTEXT_BYTES + X25519_PUBLIC_VALUE_LEN) {
+      const size_t expectedServerReplySize = MLKEM768_CIPHERTEXT_BYTES + X25519_PUBLIC_VALUE_LEN;
+      if (msg.server_reply->size() != expectedServerReplySize) {
         return absl::InvalidArgumentError(
-          fmt::format("invalid server reply size (expected 1120, got {})", msg.server_reply->size()));
+          fmt::format("invalid server reply size (expected {}, got {})",
+                      expectedServerReplySize, msg.server_reply->size()));
       }
       auto ciphertext = std::span{*msg.server_reply}.first<MLKEM768_CIPHERTEXT_BYTES>();
       auto serverX25519Pub = std::span{*msg.server_reply}.subspan<MLKEM768_CIPHERTEXT_BYTES, X25519_PUBLIC_VALUE_LEN>();
