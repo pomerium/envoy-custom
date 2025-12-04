@@ -26,7 +26,7 @@ load("@hedron_compile_commands//:workspace_setup_transitive_transitive_transitiv
 
 hedron_compile_commands_setup_transitive_transitive_transitive()
 
-envoy_version = "40ab4828a48f05103573ddee3c807dfa0e3e23f7"
+envoy_version = "35e736f3dba538646bff402975604cfd3fe4a700"
 
 openssh_version = "V_10_0_P2"
 
@@ -51,7 +51,7 @@ http_archive(
         "//patches/envoy:0005-suppress-duplicate-wip-warnings.patch",
         "//patches/envoy:tmp-fix-upstream-connection-callbacks.patch",
     ],
-    sha256 = "200880a3d9673184398c66166aa60253a6adce9f720019bd4a033fca571f45b5",
+    sha256 = "8fe2f975197a6021780a8d19e0ece987b160bcdd76d40728e5d6c283f105962e",
     strip_prefix = "envoy-" + envoy_version,
     url = "https://github.com/envoyproxy/envoy/archive/" + envoy_version + ".zip",
 )
