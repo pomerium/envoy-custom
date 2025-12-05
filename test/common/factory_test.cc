@@ -1,5 +1,6 @@
 #include "source/common/factory.h"
 #include "gtest/gtest.h"
+#include <algorithm>
 #include "test/test_common/test_common.h"
 
 using string_list = std::vector<std::string>;
@@ -113,6 +114,56 @@ TEST(FactoryTest, NamesByPriority_Reverse) {
   EXPECT_EQ(expected, r.namesByPriority());
 }
 
+TEST(FactoryTest, NamesByPriority_MaskedNames) {
+  TestObjectFactoryRegistry r;
+  r.registerType<SpecificTestObjectFactory1>();
+  r.registerType<SpecificTestObjectFactory2>();
+  r.registerType<SpecificTestObjectFactory3>();
+  std::vector<std::string> allNames{
+    "specific1",
+    "specific1@openssh.com",
+    "specific2",
+    "specific3",
+    "specific3@openssh.com",
+  };
+  std::vector<std::string> maskedNames;
+  for (auto name : allNames) {
+    maskedNames.push_back(name);
+    r.setMaskedNames(maskedNames);
+    auto expected = allNames;
+    expected.erase(
+      std::remove_if(expected.begin(), expected.end(), [&](const std::string& str) {
+        return std::find(maskedNames.begin(), maskedNames.end(), str) != maskedNames.end();
+      }),
+      expected.end());
+    EXPECT_EQ(expected, r.namesByPriority());
+  }
+  while (!maskedNames.empty()) {
+    maskedNames.pop_back();
+    r.setMaskedNames(maskedNames);
+    auto expected = allNames;
+    expected.erase(
+      std::remove_if(expected.begin(), expected.end(), [&](const std::string& str) {
+        return std::find(maskedNames.begin(), maskedNames.end(), str) != maskedNames.end();
+      }),
+      expected.end());
+    EXPECT_EQ(expected, r.namesByPriority());
+  }
+}
+
+TEST(FactoryTest, NamesByPriority_MaskedNames_RegisterAfterMaskSet) {
+  TestObjectFactoryRegistry r;
+  r.setMaskedNames({"specific1", "specific1@openssh.com"});
+  EXPECT_EQ(string_list{}, r.namesByPriority());
+  r.registerType<SpecificTestObjectFactory1>();
+  EXPECT_EQ(string_list{}, r.namesByPriority()); // should stay empty
+
+  // after removing the mask, the names should be returned
+  r.setMaskedNames({});
+  auto expected = string_list{"specific1", "specific1@openssh.com"};
+  EXPECT_EQ(expected, r.namesByPriority());
+}
+
 TEST(FactoryTest, FactoryForName) {
   TestObjectFactoryRegistry r;
   r.registerType<SpecificTestObjectFactory1>();
@@ -130,6 +181,62 @@ TEST(FactoryTest, FactoryForName) {
     auto obj = f->create(0, "");
     EXPECT_EQ(number, obj->number());
   }
+}
+
+TEST(FactoryTest, FactoryForName_MaskedNames) {
+  TestObjectFactoryRegistry r;
+  r.registerType<SpecificTestObjectFactory1>();
+  r.registerType<SpecificTestObjectFactory2>();
+  r.registerType<SpecificTestObjectFactory3>();
+  std::vector<std::string> allNames{
+    "specific1",
+    "specific1@openssh.com",
+    "specific2",
+    "specific3",
+    "specific3@openssh.com",
+  };
+  std::vector<std::string> maskedNames;
+  for (auto name : allNames) {
+    maskedNames.push_back(name);
+    r.setMaskedNames(maskedNames);
+    for (auto name : allNames) {
+      if (std::find(maskedNames.begin(), maskedNames.end(), name) != maskedNames.end()) {
+        EXPECT_THROW_WITH_MESSAGE(r.factoryForName(name),
+                                  EnvoyException,
+                                  "no factory for name: " + name);
+      } else {
+        EXPECT_NO_THROW(r.factoryForName(name));
+      }
+    }
+  }
+  while (!maskedNames.empty()) {
+    maskedNames.pop_back();
+    r.setMaskedNames(maskedNames);
+    for (auto name : allNames) {
+      if (std::find(maskedNames.begin(), maskedNames.end(), name) != maskedNames.end()) {
+        EXPECT_THROW_WITH_MESSAGE(r.factoryForName(name),
+                                  EnvoyException,
+                                  "no factory for name: " + name);
+      } else {
+        EXPECT_NO_THROW(r.factoryForName(name));
+      }
+    }
+  }
+}
+
+TEST(FactoryTest, FactoryForName_MaskedNames_RegisterAfterMask) {
+  TestObjectFactoryRegistry r;
+  r.setMaskedNames({"specific1", "specific1@openssh.com"});
+  EXPECT_THROW_WITH_MESSAGE(r.factoryForName("specific1"), EnvoyException, "no factory for name: specific1");
+  EXPECT_THROW_WITH_MESSAGE(r.factoryForName("specific1@openssh.com"), EnvoyException, "no factory for name: specific1@openssh.com");
+  r.registerType<SpecificTestObjectFactory1>();
+  EXPECT_THROW_WITH_MESSAGE(r.factoryForName("specific1"), EnvoyException, "no factory for name: specific1");
+  EXPECT_THROW_WITH_MESSAGE(r.factoryForName("specific1@openssh.com"), EnvoyException, "no factory for name: specific1@openssh.com");
+
+  // after removing the mask, the factories should be returned
+  r.setMaskedNames({});
+  EXPECT_NO_THROW(r.factoryForName("specific1"));
+  EXPECT_NO_THROW(r.factoryForName("specific1@openssh.com"));
 }
 
 TEST(FactoryTest, DuplicateRegistration) {

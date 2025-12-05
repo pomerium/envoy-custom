@@ -213,11 +213,40 @@ inline absl::Duration defaultTimeout() {
   return absl::Minutes(1);
 }
 
+struct TransportTestOpts {
+  pomerium::extensions::ssh::AlgorithmOptions alg_opts;
+};
+
+// XXX: There is no way to have tests parameterized on both types and values at the same time. These
+// test options could be used as compile-time options, but every unique type parameter generates a
+// separate copy of the full test suite, which makes compile times explode. Instead, separate
+// instances of the same test suite are each given a prefix name matching one of the parameters
+// below. The test suites will use their own names obtained at runtime to load the matching params.
+static const auto named_test_opts = std::unordered_map<std::string_view, TransportTestOpts>{
+  {"Default", {}},
+  {"AesGcmDisabled", {
+                       .alg_opts = [] {
+                         pomerium::extensions::ssh::AlgorithmOptions opts;
+                         opts.add_disable_packet_cipher_algorithms("aes128-gcm@openssh.com");
+                         opts.add_disable_packet_cipher_algorithms("aes256-gcm@openssh.com");
+                         return opts;
+                       }(),
+                     }},
+  {"Chacha20Poly1305Disabled", {
+                                 .alg_opts = [] {
+                                   pomerium::extensions::ssh::AlgorithmOptions opts;
+                                   opts.add_disable_packet_cipher_algorithms("chacha20-poly1305@openssh.com");
+                                   return opts;
+                                 }(),
+                               }},
+};
+
 template <typename TestOptions>
 class TransportBaseTest : public testing::Test {
 public:
   TransportBaseTest()
-      : api_([this] {
+      : test_options_(named_test_opts.at(*absl::StrSplit(testing::UnitTest::GetInstance()->current_test_suite()->name(), '/').begin())),
+        api_([this] {
           auto api = Api::createApiForTest();
           ON_CALL(context_, api()).WillByDefault(ReturnRef(*api.get()));
           return api;
@@ -236,6 +265,7 @@ public:
     }
     auto userCaKeyFile = copyTestdataToWritableTmp("regress/unittests/sshkey/testdata/ecdsa_1", 0600);
     conf->mutable_user_ca_key()->set_filename(userCaKeyFile);
+    conf->mutable_algorithm_options()->CopyFrom(test_options_.alg_opts);
     return conf;
   }
 
@@ -246,6 +276,7 @@ public:
     }
     auto userCaKeyFile = copyTestdataToWritableTmp("regress/unittests/sshkey/testdata/ecdsa_2", 0600);
     conf->mutable_user_ca_key()->set_filename(userCaKeyFile);
+    conf->mutable_algorithm_options()->CopyFrom(test_options_.alg_opts);
     return conf;
   }
 
@@ -388,6 +419,7 @@ public:
   }
 
 protected:
+  TransportTestOpts test_options_;
   testing::NiceMock<Envoy::Server::Configuration::MockServerFactoryContext> context_;
   Api::ApiPtr api_;
   Thread::ThreadPtr server_thread_;
@@ -404,17 +436,9 @@ protected:
 };
 // NOLINTEND(readability-identifier-naming)
 
-struct ClientInitiatesOptions {
-  static constexpr bool client_initiates = true;
-};
-struct ServerInitiatesOptions {
-  static constexpr bool client_initiates = false;
-};
-using transportBaseTestTypes = testing::Types<ClientInitiatesOptions, ServerInitiatesOptions>;
+TYPED_TEST_SUITE_P(TransportBaseTest);
 
-TYPED_TEST_SUITE(TransportBaseTest, transportBaseTestTypes);
-
-TYPED_TEST(TransportBaseTest, TestHandshake) {
+TYPED_TEST_P(TransportBaseTest, TestHandshake) {
   EXPECT_CALL(this->Client(), onKexStarted(true));
   EXPECT_CALL(this->Server(), onKexStarted(true));
 
@@ -441,7 +465,7 @@ TYPED_TEST(TransportBaseTest, TestHandshake) {
   EXPECT_EQ(this->Server().sessionId(), serverKexResult->session_id);
 }
 
-TYPED_TEST(TransportBaseTest, TestHandshakeWithExtInfo) {
+TYPED_TEST_P(TransportBaseTest, TestHandshakeWithExtInfo) {
   wire::ExtInfoMsg info;
   info.extensions->emplace_back(wire::PingExtension{.version = "0"s});
   this->Client().SetOutgoingExtInfo(auto(info));
@@ -480,7 +504,7 @@ TYPED_TEST(TransportBaseTest, TestHandshakeWithExtInfo) {
   EXPECT_EQ(std::nullopt, this->Server().outgoingExtInfo());
 }
 
-TYPED_TEST(TransportBaseTest, TestVersionExchange_InvalidVersion) {
+TYPED_TEST_P(TransportBaseTest, TestVersionExchangeInvalidVersion) {
   EXPECT_CALL(this->ServerCallbacks(), onDecodingFailure("version string contains invalid characters"sv))
     .WillOnce([this](std::string_view) {
       this->Client().Exit();
@@ -493,7 +517,7 @@ TYPED_TEST(TransportBaseTest, TestVersionExchange_InvalidVersion) {
   this->Join();
 }
 
-TYPED_TEST(TransportBaseTest, TestVersionExchangeIncomplete) {
+TYPED_TEST_P(TransportBaseTest, TestVersionExchangeIncomplete) {
   EXPECT_CALL(this->ClientCallbacks(), writeToConnection)
     .WillOnce(Invoke([&](Envoy::Buffer::Instance& input) {
       // send two buffers,
@@ -523,7 +547,7 @@ TYPED_TEST(TransportBaseTest, TestVersionExchangeIncomplete) {
   this->Join();
 }
 
-TYPED_TEST(TransportBaseTest, TestKexInitFailureAfterVersionExchange) {
+TYPED_TEST_P(TransportBaseTest, TestKexInitFailureAfterVersionExchange) {
   EXPECT_CALL(this->Client(), onVersionExchangeCompleted)
     .WillOnce(InvokeWithoutArgs([this] {
       this->Client().Exit();
@@ -549,14 +573,31 @@ TYPED_TEST(TransportBaseTest, TestKexInitFailureAfterVersionExchange) {
   this->Join();
 }
 
-TYPED_TEST(TransportBaseTest, TestDecryptPacketFailure) {
+TYPED_TEST_P(TransportBaseTest, TestDecryptPacketFailure) {
   EXPECT_CALL(this->Client(), onKexStarted(true));
   EXPECT_CALL(this->Server(), onKexStarted(true));
   EXPECT_CALL(this->Client(), onKexCompleted(_, true));
   EXPECT_CALL(this->Server(), onKexCompleted(_, true))
     .WillOnce(Invoke([this](std::shared_ptr<KexResult> result, bool initial) {
       this->Server().TransportBase::onKexCompleted(result, initial);
+      if (result->algorithms.server_to_client.cipher == CipherAES128GCM ||
+          result->algorithms.server_to_client.cipher == CipherAES256GCM ||
+          result->algorithms.client_to_server.cipher == CipherAES128GCM ||
+          result->algorithms.client_to_server.cipher == CipherAES256GCM) {
+        // https://datatracker.ietf.org/doc/html/rfc5647#section-8.1
+        // In AES-GCM, the sequence number is implicitly contained in the cipher IV. The number
+        // we track ourselves is not used when encrypting and decrypting packets, so changing it
+        // manually here would not have the desired effect.
+        this->Client().Exit();
+        this->Server().Exit();
+        GTEST_SKIP() << "not applicable for aes-gcm";
+      }
+
       this->Client().Post([this](auto& self) {
+        EXPECT_CALL(this->ClientCallbacks(), onDecodingFailure(HasSubstr("failed to decrypt packet"s)))
+          .WillOnce(InvokeWithoutArgs([this] {
+            this->Client().Exit();
+          }));
         // change the receiver's sequence number, so they will fail to decrypt the packet
         self.seq_read_++;
         // then send them a message
@@ -567,16 +608,12 @@ TYPED_TEST(TransportBaseTest, TestDecryptPacketFailure) {
       });
     }));
 
-  EXPECT_CALL(this->ClientCallbacks(), onDecodingFailure(HasSubstr("failed to decrypt packet"s)))
-    .WillOnce(InvokeWithoutArgs([this] {
-      this->Client().Exit();
-    }));
   this->Start();
   this->InitiateVersionExchange();
   this->Join();
 }
 
-TYPED_TEST(TransportBaseTest, TestReadIncompletePacket) {
+TYPED_TEST_P(TransportBaseTest, TestReadIncompletePacket) {
   EXPECT_CALL(this->Client(), onKexStarted(true));
   EXPECT_CALL(this->Server(), onKexStarted(true));
   EXPECT_CALL(this->Server(), onKexCompleted(_, true));
@@ -622,7 +659,7 @@ TYPED_TEST(TransportBaseTest, TestReadIncompletePacket) {
   this->Join();
 }
 
-TYPED_TEST(TransportBaseTest, TestDecodePacketFailure) {
+TYPED_TEST_P(TransportBaseTest, TestDecodePacketFailure) {
   EXPECT_CALL(this->Client(), onKexCompleted(_, true))
     .WillOnce(Invoke([this](std::shared_ptr<KexResult> result, bool initial) {
       this->Client().TransportBase::onKexCompleted(result, initial);
@@ -651,7 +688,7 @@ TYPED_TEST(TransportBaseTest, TestDecodePacketFailure) {
   this->Join();
 }
 
-TYPED_TEST(TransportBaseTest, TestDecodeMessageFailure) {
+TYPED_TEST_P(TransportBaseTest, TestDecodeMessageFailure) {
   EXPECT_CALL(this->Client(), onKexStarted(true));
   EXPECT_CALL(this->Server(), onKexStarted(true));
   EXPECT_CALL(this->Server(), onKexCompleted(_, true));
@@ -682,7 +719,7 @@ TYPED_TEST(TransportBaseTest, TestDecodeMessageFailure) {
   this->Join();
 }
 
-TYPED_TEST(TransportBaseTest, Terminate) {
+TYPED_TEST_P(TransportBaseTest, Terminate) {
   this->Start();
   EXPECT_CALL(this->ClientCallbacks(), onDecodingFailure("test error"));
   this->Client().Post([&](auto& client) {
@@ -693,7 +730,7 @@ TYPED_TEST(TransportBaseTest, Terminate) {
   this->Join();
 }
 
-TYPED_TEST(TransportBaseTest, TestRekeyManual) {
+TYPED_TEST_P(TransportBaseTest, TestRekeyManual) {
   EXPECT_CALL(this->Client(), onKexStarted(true));
   EXPECT_CALL(this->Server(), onKexStarted(true));
 
@@ -734,7 +771,7 @@ TYPED_TEST(TransportBaseTest, TestRekeyManual) {
   this->Join();
 }
 
-TYPED_TEST(TransportBaseTest, TestRekeyWithQueuedMessages) {
+TYPED_TEST_P(TransportBaseTest, TestRekeyWithQueuedMessages) {
   if (!this->StartAndWaitForInitialKeyExchange()) {
     return;
   }
@@ -861,7 +898,7 @@ TYPED_TEST(TransportBaseTest, TestRekeyWithQueuedMessages) {
   this->Join();
 }
 
-TYPED_TEST(TransportBaseTest, TestDisconnectAlwaysSentDuringRekey) {
+TYPED_TEST_P(TransportBaseTest, TestDisconnectAlwaysSentDuringRekey) {
   if (!this->StartAndWaitForInitialKeyExchange()) {
     return;
   }
@@ -895,7 +932,7 @@ TYPED_TEST(TransportBaseTest, TestDisconnectAlwaysSentDuringRekey) {
   this->Join();
 }
 
-TYPED_TEST(TransportBaseTest, TestSimultaneousRekeyOnRWThresholds) {
+TYPED_TEST_P(TransportBaseTest, TestSimultaneousRekeyOnRWThresholds) {
   this->ClientConfig().mutable_rekey_threshold()->set_value(16384);
   this->ServerConfig().mutable_rekey_threshold()->set_value(16384);
 
@@ -977,7 +1014,7 @@ TYPED_TEST(TransportBaseTest, TestSimultaneousRekeyOnRWThresholds) {
   this->Join();
 }
 
-TYPED_TEST(TransportBaseTest, TestRekeyOnReadThreshold) {
+TYPED_TEST_P(TransportBaseTest, TestRekeyOnReadThreshold) {
   // Only set server rekey threshold; client's remains the default. The client will be sending lots
   // of messages to the server, but the server won't send messages back.
   this->ServerConfig().mutable_rekey_threshold()->set_value(16384);
@@ -1061,7 +1098,7 @@ TYPED_TEST(TransportBaseTest, TestRekeyOnReadThreshold) {
   this->Join();
 }
 
-TYPED_TEST(TransportBaseTest, TestRekeyOnWriteThreshold) {
+TYPED_TEST_P(TransportBaseTest, TestRekeyOnWriteThreshold) {
   // Only set client rekey threshold; server's remains the default.
   this->ClientConfig().mutable_rekey_threshold()->set_value(16384);
 
@@ -1144,7 +1181,7 @@ TYPED_TEST(TransportBaseTest, TestRekeyOnWriteThreshold) {
   this->Join();
 }
 
-TYPED_TEST(TransportBaseTest, TestSimultaneousRekeyOnSeqNumThreshold) {
+TYPED_TEST_P(TransportBaseTest, TestSimultaneousRekeyOnSeqNumThreshold) {
   if (!this->StartAndWaitForInitialKeyExchange()) {
     return;
   }
@@ -1212,7 +1249,7 @@ TYPED_TEST(TransportBaseTest, TestSimultaneousRekeyOnSeqNumThreshold) {
   EXPECT_EQ(this->Client().seq_write_, 0);
 }
 
-TYPED_TEST(TransportBaseTest, TestInitiateKexFailedOnWriteRekey) {
+TYPED_TEST_P(TransportBaseTest, TestInitiateKexFailedOnWriteRekey) {
   if (!this->StartAndWaitForInitialKeyExchange()) {
     return;
   }
@@ -1244,7 +1281,7 @@ TYPED_TEST(TransportBaseTest, TestInitiateKexFailedOnWriteRekey) {
   this->Join();
 }
 
-TYPED_TEST(TransportBaseTest, TestInitiateKexFailedOnReadRekey) {
+TYPED_TEST_P(TransportBaseTest, TestInitiateKexFailedOnReadRekey) {
   if (!this->StartAndWaitForInitialKeyExchange()) {
     return;
   }
@@ -1282,7 +1319,7 @@ TYPED_TEST(TransportBaseTest, TestInitiateKexFailedOnReadRekey) {
   this->Join();
 }
 
-TYPED_TEST(TransportBaseTest, TestErrorSendingQueuedMessagesAfterRekey) {
+TYPED_TEST_P(TransportBaseTest, TestErrorSendingQueuedMessagesAfterRekey) {
   if (!this->StartAndWaitForInitialKeyExchange()) {
     return;
   }
@@ -1359,7 +1396,7 @@ TYPED_TEST(TransportBaseTest, TestErrorSendingQueuedMessagesAfterRekey) {
   this->Join();
 }
 
-TYPED_TEST(TransportBaseTest, TestRekeyTriggeredDuringQueueReplay) {
+TYPED_TEST_P(TransportBaseTest, TestRekeyTriggeredDuringQueueReplay) {
   // This tests the following scenario: a key re-exchange is triggered, and several messages are
   // subsequently placed in the queue. Once the key exchange is completed, the transport begins
   // replaying the queued messages. While doing so, it exhausts the rekey limit and must pause
@@ -1423,7 +1460,7 @@ TYPED_TEST(TransportBaseTest, TestRekeyTriggeredDuringQueueReplay) {
   this->Join();
 }
 
-TYPED_TEST(TransportBaseTest, TestErrorEncodingPacket) {
+TYPED_TEST_P(TransportBaseTest, TestErrorEncodingPacket) {
   this->Start();
   this->Client().Post([this](auto& client) {
     wire::Message msg{wire::IgnoreMsg{.data = bytes(wire::MaxPacketSize + 1, 0)}};
@@ -1435,7 +1472,7 @@ TYPED_TEST(TransportBaseTest, TestErrorEncodingPacket) {
   this->Join();
 }
 
-TYPED_TEST(TransportBaseTest, TestUnimplementedMsg) {
+TYPED_TEST_P(TransportBaseTest, TestUnimplementedMsg) {
   if (!this->StartAndWaitForInitialKeyExchange()) {
     return;
   }
@@ -1463,6 +1500,45 @@ TYPED_TEST(TransportBaseTest, TestUnimplementedMsg) {
 
   this->Join();
 }
+
+REGISTER_TYPED_TEST_SUITE_P(TransportBaseTest,
+                            TestHandshake,
+                            TestHandshakeWithExtInfo,
+                            TestVersionExchangeInvalidVersion,
+                            TestVersionExchangeIncomplete,
+                            TestKexInitFailureAfterVersionExchange,
+                            TestDecryptPacketFailure,
+                            TestReadIncompletePacket,
+                            TestDecodePacketFailure,
+                            TestDecodeMessageFailure,
+                            Terminate,
+                            TestRekeyManual,
+                            TestRekeyWithQueuedMessages,
+                            TestDisconnectAlwaysSentDuringRekey,
+                            TestSimultaneousRekeyOnRWThresholds,
+                            TestRekeyOnReadThreshold,
+                            TestRekeyOnWriteThreshold,
+                            TestSimultaneousRekeyOnSeqNumThreshold,
+                            TestInitiateKexFailedOnWriteRekey,
+                            TestInitiateKexFailedOnReadRekey,
+                            TestErrorSendingQueuedMessagesAfterRekey,
+                            TestRekeyTriggeredDuringQueueReplay,
+                            TestErrorEncodingPacket,
+                            TestUnimplementedMsg);
+
+struct ClientInitiatesOptions {
+  static constexpr bool client_initiates = true;
+};
+struct ServerInitiatesOptions {
+  static constexpr bool client_initiates = false;
+};
+
+using transportBaseTestTypes = testing::Types<ClientInitiatesOptions,
+                                              ServerInitiatesOptions>;
+
+INSTANTIATE_TYPED_TEST_SUITE_P(Default, TransportBaseTest, transportBaseTestTypes);
+INSTANTIATE_TYPED_TEST_SUITE_P(AesGcmDisabled, TransportBaseTest, transportBaseTestTypes);
+INSTANTIATE_TYPED_TEST_SUITE_P(Chacha20Poly1305Disabled, TransportBaseTest, transportBaseTestTypes);
 
 } // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

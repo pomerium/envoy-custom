@@ -65,6 +65,11 @@ public:
         config_(config),
         secrets_provider_(secrets_provider),
         scope_(context.scope().createScope("ssh")) {
+    auto maskedKexAlgNames = config_->algorithm_options().disable_kex_algorithms();
+    algorithm_factories_.setMaskedNames({maskedKexAlgNames.begin(), maskedKexAlgNames.end()});
+    auto maskedCipherAlgNames = config_->algorithm_options().disable_packet_cipher_algorithms();
+    cipher_factories_.setMaskedNames({maskedCipherAlgNames.begin(), maskedCipherAlgNames.end()});
+
     algorithm_factories_.registerType<Curve25519Sha256KexAlgorithmFactory>();
     algorithm_factories_.registerType<Mlkem768x25519KexAlgorithmFactory>();
     cipher_factories_.registerType<Chacha20Poly1305CipherFactory>();

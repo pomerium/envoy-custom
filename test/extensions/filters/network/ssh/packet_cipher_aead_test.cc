@@ -8,7 +8,7 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 namespace test {
 
 struct CipherParameters {
-  const char *const alg;
+  const char* const alg;
   size_t ivSize;
   size_t keySize;
 };
@@ -115,8 +115,8 @@ TEST_P(AEADPacketCipherTest, DecryptBadSeqNum) {
 TEST_P(AEADPacketCipherTest, DecryptBadCiphertext) {
   Buffer::OwnedImpl buffer;
   buffer.writeBEInt(uint32_t(64));
-  buffer.add( "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
-  buffer.add( "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+  buffer.add("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+  buffer.add("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
 
   Buffer::OwnedImpl decrypted;
   auto r = read_cipher_->decryptPacket(0, decrypted, buffer);
@@ -125,19 +125,25 @@ TEST_P(AEADPacketCipherTest, DecryptBadCiphertext) {
 }
 
 std::vector<CipherParameters> AllAEADCipherParameters{
-  { .alg = CipherChacha20Poly1305,
+  {
+    .alg = CipherChacha20Poly1305,
     .ivSize = 0,
-    .keySize = 64 },
-  { .alg = CipherAES128GCM,
+    .keySize = 64,
+  },
+  {
+    .alg = CipherAES128GCM,
     .ivSize = 12,
-    .keySize = 16 },
-  { .alg = CipherAES256GCM,
+    .keySize = 16,
+  },
+  {
+    .alg = CipherAES256GCM,
     .ivSize = 12,
-    .keySize = 32 },
+    .keySize = 32,
+  },
 };
 
 INSTANTIATE_TEST_SUITE_P(AEADPacketCipherTestSuite, AEADPacketCipherTest,
-  testing::ValuesIn(AllAEADCipherParameters));
+                         testing::ValuesIn(AllAEADCipherParameters));
 
 TEST(AEADPacketCipherFactoryTest, Factory) {
   DirectionalPacketCipherFactoryRegistry factories;
@@ -160,7 +166,6 @@ TEST(AEADPacketCipherFactoryTest, Factory) {
 
   ASSERT_THAT(factories.factoryForName("aes256-gcm@openssh.com").get(),
               WhenDynamicCastTo<AESGCM256CipherFactory*>(NotNull()));
-
 
   for (auto params : AllAEADCipherParameters) {
     auto factory = factories.factoryForName(params.alg);

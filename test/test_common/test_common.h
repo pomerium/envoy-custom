@@ -182,7 +182,9 @@ inline bool isDebuggerAttached() {
 }
 
 struct TestParameterNames {
-  TestParameterNames(std::initializer_list<std::string_view> names)
+  TestParameterNames(std::initializer_list<std::string> names)
+      : names_(names) {}
+  TestParameterNames(const std::vector<std::string>& names)
       : names_(names) {}
 
   template <typename ParamType>
@@ -191,7 +193,7 @@ struct TestParameterNames {
     return std::string(names_[info.index]);
   }
 
-  std::vector<std::string_view> names_;
+  std::vector<std::string> names_;
 };
 
 // =================================================================================================
