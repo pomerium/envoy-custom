@@ -1,8 +1,19 @@
 diff --git a/bazel/repository_locations.bzl b/bazel/repository_locations.bzl
-index caf9659217..411e66514d 100644
+index 1293e432c8..2f4f9ffa25 100644
 --- a/bazel/repository_locations.bzl
 +++ b/bazel/repository_locations.bzl
-@@ -397,8 +397,8 @@ REPOSITORY_LOCATIONS_SPEC = dict(
+@@ -263,8 +263,8 @@ REPOSITORY_LOCATIONS_SPEC = dict(
+         project_name = "c-ares",
+         project_desc = "C library for asynchronous DNS requests",
+         project_url = "https://c-ares.haxx.se/",
+-        version = "1.34.5",
+-        sha256 = "7d935790e9af081c25c495fd13c2cfcda4792983418e96358ef6e7320ee06346",
++        version = "1.34.6",
++        sha256 = "912dd7cc3b3e8a79c52fd7fb9c0f4ecf0aaa73e45efda880266a2d6e26b84ef5",
+         strip_prefix = "c-ares-{version}",
+         urls = ["https://github.com/c-ares/c-ares/releases/download/v{version}/c-ares-{version}.tar.gz"],
+         use_category = ["dataplane_core", "controlplane"],
+@@ -393,8 +393,8 @@ REPOSITORY_LOCATIONS_SPEC = dict(
          project_name = "tcmalloc",
          project_desc = "Fast, multi-threaded malloc implementation",
          project_url = "https://github.com/google/tcmalloc",
