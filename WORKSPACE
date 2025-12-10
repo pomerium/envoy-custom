@@ -28,7 +28,7 @@ hedron_compile_commands_setup_transitive_transitive_transitive()
 
 envoy_version = "bad8280de85c25b147a90c1d9b8a8c67a13e7134"
 
-openssh_version = "V_10_0_P2"
+openssh_version = "V_10_2_P1"
 
 magic_enum_version = "a413fcc9c46a020a746907136a384c227f3cd095"
 
@@ -112,10 +112,10 @@ filegroup(
             license = "BSD",
             license_url = "https://github.com/openssh/openssh-portable/blob/master/LICENCE",
             project_name = "openssh-portable",
-            sha256 = "885b67c6dddb116037f6ed45f4bf83b45fd235f334df73eb878d1e0b8b8c613b",
+            sha256 = "8eb83ec34ac4714ca3c545e593d5cfb7f383ee80cfcafd9a04424539390a6398",
             strip_prefix = "openssh-portable-" + openssh_version,
             urls = ["https://github.com/openssh/openssh-portable/archive/" + openssh_version + ".zip"],
-            version = "master",
+            version = openssh_version,
         ),
     ),
     patch_args = [
@@ -130,6 +130,8 @@ filegroup(
         "//patches/openssh:0002-no-define-mkstemp.patch",
         # Links in the no-op security key implementation used in some openssh tests. We use libssh
         # standalone, but disable the security key feature, so the symbols are left undefined.
+        # This also links in ssh-pkcs11.o which provides the no-op implementations of some pkcs11
+        # functions.
         "//patches/openssh:0003-ssh-sk-null.patch",
         # Avoid a memory leak in a test program in the configure script that would otherwise
         # disable P-521 elliptic key support in asan builds.

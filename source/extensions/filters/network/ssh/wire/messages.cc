@@ -61,6 +61,30 @@ absl::StatusOr<size_t> KexEcdhReplyMsg::encode(Envoy::Buffer::Instance& buffer) 
                    signature);
 }
 
+// KexHybridInitMessage
+absl::StatusOr<size_t> KexHybridInitMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
+  return decodeMsg(buffer, type, payload_size,
+                   client_init);
+}
+absl::StatusOr<size_t> KexHybridInitMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
+  return encodeMsg(buffer, type,
+                   client_init);
+}
+
+// KexHybridReplyMsg
+absl::StatusOr<size_t> KexHybridReplyMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
+  return decodeMsg(buffer, type, payload_size,
+                   host_key,
+                   server_reply,
+                   signature);
+}
+absl::StatusOr<size_t> KexHybridReplyMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
+  return encodeMsg(buffer, type,
+                   host_key,
+                   server_reply,
+                   signature);
+}
+
 // ServiceRequestMsg
 absl::StatusOr<size_t> ServiceRequestMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
   return decodeMsg(buffer, type, payload_size,

@@ -16,19 +16,21 @@ namespace wire {
 enum class SshMessageType : uint8_t {
   Invalid = 0,
   // Transport layer protocol
-  Disconnect = 1,     // https://datatracker.ietf.org/doc/html/rfc4253#section-11.1
-  Ignore = 2,         // https://datatracker.ietf.org/doc/html/rfc4253#section-11.2
-  Unimplemented = 3,  // https://datatracker.ietf.org/doc/html/rfc4253#section-11.4
-  Debug = 4,          // https://datatracker.ietf.org/doc/html/rfc4253#section-11.3
-  ServiceRequest = 5, // https://datatracker.ietf.org/doc/html/rfc4253#section-10
-  ServiceAccept = 6,  // https://datatracker.ietf.org/doc/html/rfc4253#section-10
-  ExtInfo = 7,        // https://datatracker.ietf.org/doc/html/rfc8308#section-2.3
-  KexInit = 20,       // https://datatracker.ietf.org/doc/html/rfc4253#section-7.1
-  NewKeys = 21,       // https://datatracker.ietf.org/doc/html/rfc4253#section-7.3
-  KexDHInit = 30,     // https://datatracker.ietf.org/doc/html/rfc4253#section-8
-  KexDHReply = 31,    // https://datatracker.ietf.org/doc/html/rfc4253#section-8
-  KexECDHInit = 30,   // https://datatracker.ietf.org/doc/html/rfc5656#section-4
-  KexECDHReply = 31,  // https://datatracker.ietf.org/doc/html/rfc5656#section-4
+  Disconnect = 1,      // https://datatracker.ietf.org/doc/html/rfc4253#section-11.1
+  Ignore = 2,          // https://datatracker.ietf.org/doc/html/rfc4253#section-11.2
+  Unimplemented = 3,   // https://datatracker.ietf.org/doc/html/rfc4253#section-11.4
+  Debug = 4,           // https://datatracker.ietf.org/doc/html/rfc4253#section-11.3
+  ServiceRequest = 5,  // https://datatracker.ietf.org/doc/html/rfc4253#section-10
+  ServiceAccept = 6,   // https://datatracker.ietf.org/doc/html/rfc4253#section-10
+  ExtInfo = 7,         // https://datatracker.ietf.org/doc/html/rfc8308#section-2.3
+  KexInit = 20,        // https://datatracker.ietf.org/doc/html/rfc4253#section-7.1
+  NewKeys = 21,        // https://datatracker.ietf.org/doc/html/rfc4253#section-7.3
+  KexDHInit = 30,      // https://datatracker.ietf.org/doc/html/rfc4253#section-8
+  KexDHReply = 31,     // https://datatracker.ietf.org/doc/html/rfc4253#section-8
+  KexECDHInit = 30,    // https://datatracker.ietf.org/doc/html/rfc5656#section-4
+  KexECDHReply = 31,   // https://datatracker.ietf.org/doc/html/rfc5656#section-4
+  KexHybridInit = 30,  // https://datatracker.ietf.org/doc/html/draft-ietf-sshm-mlkem-hybrid-kex-03#name-pq-t-hybrid-key-exchange-mes
+  KexHybridReply = 31, // https://datatracker.ietf.org/doc/html/draft-ietf-sshm-mlkem-hybrid-kex-03#name-pq-t-hybrid-key-exchange-mes
 
   // User authentication protocol
   UserAuthRequest = 50,      // https://datatracker.ietf.org/doc/html/rfc4252#section-5

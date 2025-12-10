@@ -136,8 +136,8 @@ protected:
   virtual MiddlewareResult onMessageReceived(wire::Message& msg) PURE;
 
   // Can be overridden to provide more details/current state on failure
-  virtual absl::Status errorDetails() {
-    return absl::InternalError("task failed via assertion");
+  virtual std::string errorDetails() {
+    return "no details";
   }
 
   void taskFailure(absl::Status err) {
@@ -161,7 +161,7 @@ private:
   void startInternalUntyped(std::any input) {
     startUntyped(std::move(input));
     if (testing::Test::HasFailure()) {
-      taskFailure(errorDetails());
+      taskFailure(absl::InternalError(fmt::format("task failed via assertion ({})", errorDetails())));
     }
   }
   absl::StatusOr<MiddlewareResult> interceptMessage(wire::Message& msg) final {
@@ -181,7 +181,7 @@ private:
                    "Do not return MiddlewareResult::UninstallSelf from Task::interceptMessage; "
                    "call taskSuccess() or taskFailure() instead.");
     if (testing::Test::HasFailure() && !task_success_called_ && !task_failure_called_) {
-      taskFailure(errorDetails());
+      taskFailure(absl::InternalError(fmt::format("task failed via assertion ({})", errorDetails())));
     }
     if (task_success_called_ || task_failure_called_) {
       res |= MiddlewareResult::UninstallSelf;
@@ -382,11 +382,11 @@ public:
       DEFAULT_CONTINUE);
   }
 
-  absl::Status errorDetails() override {
+  std::string errorDetails() override {
     if (details_.empty()) {
-      return absl::InternalError("channel open was never received");
+      return "channel open was never received";
     } else {
-      return absl::InternalError(fmt::format("channel open was received, but did not match: {}", details_));
+      return fmt::format("channel open was received, but did not match: {}", details_);
     }
   }
 
@@ -462,8 +462,8 @@ public:
       },
       DEFAULT_CONTINUE);
   }
-  absl::Status errorDetails() override {
-    return absl::InternalError(fmt::format("expected bytes not received: '{}'", absl::CHexEscape(expected_data_)));
+  std::string errorDetails() override {
+    return fmt::format("expected bytes not received: '{}'", absl::CHexEscape(expected_data_));
   }
   Channel channel_{};
   std::string expected_data_;
