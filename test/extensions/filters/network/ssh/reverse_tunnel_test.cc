@@ -1569,11 +1569,31 @@ TEST_F(SshReverseTunnelClusterUnitTest, DeltaXdsConfigUpdate) {
   auto* resource = resources.Add();
   envoy::config::endpoint::v3::ClusterLoadAssignment cluster_load_assignment;
   cluster_load_assignment.set_cluster_name("test_cluster");
+
+  auto* endpoint = cluster_load_assignment.add_endpoints()->add_lb_endpoints();
+  pomerium::extensions::ssh::EndpointMetadata endpointMetadata;
+  endpointMetadata.mutable_matched_permission()->set_requested_host("example");
+  endpointMetadata.mutable_matched_permission()->set_requested_port(443);
+  endpointMetadata.mutable_server_port()->set_value(443);
+  (*endpoint
+      ->mutable_metadata()
+      ->mutable_typed_filter_metadata())["com.pomerium.ssh.endpoint"]
+    .PackFrom(endpointMetadata);
+  endpoint->set_health_status(envoy::config::core::v3::HealthStatus::HEALTHY);
+  auto* socketAddress = endpoint->mutable_endpoint()->mutable_address()->mutable_socket_address();
+  socketAddress->set_address("ssh:123456");
+  socketAddress->set_port_value(12345);
+
   resource->mutable_resource()->PackFrom(cluster_load_assignment);
   const auto decoded_resources =
     TestUtility::decodeResources<envoy::config::endpoint::v3::ClusterLoadAssignment>(
       resources, "cluster_name");
-  ASSERT_OK(reverseTunnelCluster->onConfigUpdate(decoded_resources.refvec_, {}, "v1"));
+  ASSERT_OK(reverseTunnelCluster->onConfigUpdate(decoded_resources.refvec_, {}, ""));
+  ASSERT_EQ(1, reverseTunnelCluster->prioritySet().crossPriorityHostMap()->size());
+  Protobuf::RepeatedPtrField<std::string> removed;
+  removed.Add("test_cluster");
+  ASSERT_OK(reverseTunnelCluster->onConfigUpdate({}, removed, ""));
+  ASSERT_EQ(0, reverseTunnelCluster->prioritySet().crossPriorityHostMap()->size());
 }
 
 } // namespace test

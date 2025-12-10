@@ -1308,9 +1308,15 @@ absl::Status SshReverseTunnelCluster::onConfigUpdate(const std::vector<Config::D
 }
 
 absl::Status SshReverseTunnelCluster::onConfigUpdate(const std::vector<Config::DecodedResourceRef>& added_resources,
-                                                     const Protobuf::RepeatedPtrField<std::string>&,
+                                                     const Protobuf::RepeatedPtrField<std::string>& removed_resources,
                                                      const std::string&) {
-  // On a delta xds update, rebuild using only the added resource. Same logic as the EDS cluster
+
+  if (added_resources.empty() && removed_resources.size() == 1) {
+    ASSERT(removed_resources[0] == edsServiceName());
+    envoy::config::endpoint::v3::ClusterLoadAssignment empty;
+    empty.set_cluster_name(removed_resources[0]);
+    return update(empty);
+  }
   return onConfigUpdate(added_resources, "");
 }
 
