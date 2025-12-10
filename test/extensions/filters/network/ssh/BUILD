@@ -259,6 +259,7 @@ envoy_cc_test(
 
 envoy_cc_test(
     name = "kex_test",
+    size = "large",
     srcs = [
         "kex_test.cc",
     ],
