@@ -122,7 +122,7 @@ func (x Diagnostic_Severity) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Diagnostic_Severity.Descriptor instead.
 func (Diagnostic_Severity) EnumDescriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{9, 0}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{10, 0}
 }
 
 type MirrorSessionTarget_Mode int32
@@ -168,7 +168,7 @@ func (x MirrorSessionTarget_Mode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use MirrorSessionTarget_Mode.Descriptor instead.
 func (MirrorSessionTarget_Mode) EnumDescriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{25, 0}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{26, 0}
 }
 
 type CodecConfig struct {
@@ -192,7 +192,8 @@ type CodecConfig struct {
 	// Max number of concurrent open channels. Default (and max) is 32768
 	MaxConcurrentChannels uint32 `protobuf:"varint,5,opt,name=max_concurrent_channels,json=maxConcurrentChannels,proto3" json:"max_concurrent_channels,omitempty"`
 	// Starting value for internal channel IDs. Defaults to 0. Can be set > 0 for easier debugging.
-	InternalChannelIdStart uint32 `protobuf:"varint,6,opt,name=internal_channel_id_start,json=internalChannelIdStart,proto3" json:"internal_channel_id_start,omitempty"`
+	InternalChannelIdStart uint32            `protobuf:"varint,6,opt,name=internal_channel_id_start,json=internalChannelIdStart,proto3" json:"internal_channel_id_start,omitempty"`
+	AlgorithmOptions       *AlgorithmOptions `protobuf:"bytes,7,opt,name=algorithm_options,json=algorithmOptions,proto3" json:"algorithm_options,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
@@ -269,6 +270,69 @@ func (x *CodecConfig) GetInternalChannelIdStart() uint32 {
 	return 0
 }
 
+func (x *CodecConfig) GetAlgorithmOptions() *AlgorithmOptions {
+	if x != nil {
+		return x.AlgorithmOptions
+	}
+	return nil
+}
+
+type AlgorithmOptions struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Optional list of key exchange algorithms to explicitly disable. By default, all supported
+	// algorithms are enabled.
+	DisableKexAlgorithms []string `protobuf:"bytes,1,rep,name=disable_kex_algorithms,json=disableKexAlgorithms,proto3" json:"disable_kex_algorithms,omitempty"`
+	// Optional list of packet cipher algorithms to explicitly disable. By default, all supported
+	// algorithms are enabled.
+	DisablePacketCipherAlgorithms []string `protobuf:"bytes,2,rep,name=disable_packet_cipher_algorithms,json=disablePacketCipherAlgorithms,proto3" json:"disable_packet_cipher_algorithms,omitempty"`
+	unknownFields                 protoimpl.UnknownFields
+	sizeCache                     protoimpl.SizeCache
+}
+
+func (x *AlgorithmOptions) Reset() {
+	*x = AlgorithmOptions{}
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AlgorithmOptions) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AlgorithmOptions) ProtoMessage() {}
+
+func (x *AlgorithmOptions) ProtoReflect() protoreflect.Message {
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AlgorithmOptions.ProtoReflect.Descriptor instead.
+func (*AlgorithmOptions) Descriptor() ([]byte, []int) {
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *AlgorithmOptions) GetDisableKexAlgorithms() []string {
+	if x != nil {
+		return x.DisableKexAlgorithms
+	}
+	return nil
+}
+
+func (x *AlgorithmOptions) GetDisablePacketCipherAlgorithms() []string {
+	if x != nil {
+		return x.DisablePacketCipherAlgorithms
+	}
+	return nil
+}
+
 type ReverseTunnelCluster struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -279,7 +343,7 @@ type ReverseTunnelCluster struct {
 
 func (x *ReverseTunnelCluster) Reset() {
 	*x = ReverseTunnelCluster{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[1]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -291,7 +355,7 @@ func (x *ReverseTunnelCluster) String() string {
 func (*ReverseTunnelCluster) ProtoMessage() {}
 
 func (x *ReverseTunnelCluster) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[1]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -304,7 +368,7 @@ func (x *ReverseTunnelCluster) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReverseTunnelCluster.ProtoReflect.Descriptor instead.
 func (*ReverseTunnelCluster) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{1}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *ReverseTunnelCluster) GetName() string {
@@ -338,7 +402,7 @@ type ChannelMessage struct {
 
 func (x *ChannelMessage) Reset() {
 	*x = ChannelMessage{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[2]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -350,7 +414,7 @@ func (x *ChannelMessage) String() string {
 func (*ChannelMessage) ProtoMessage() {}
 
 func (x *ChannelMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[2]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -363,7 +427,7 @@ func (x *ChannelMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChannelMessage.ProtoReflect.Descriptor instead.
 func (*ChannelMessage) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{2}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ChannelMessage) GetMessage() isChannelMessage_Message {
@@ -434,7 +498,7 @@ type ChannelControl struct {
 
 func (x *ChannelControl) Reset() {
 	*x = ChannelControl{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[3]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -446,7 +510,7 @@ func (x *ChannelControl) String() string {
 func (*ChannelControl) ProtoMessage() {}
 
 func (x *ChannelControl) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[3]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -459,7 +523,7 @@ func (x *ChannelControl) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChannelControl.ProtoReflect.Descriptor instead.
 func (*ChannelControl) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{3}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ChannelControl) GetProtocol() string {
@@ -494,7 +558,7 @@ type ClientMessage struct {
 
 func (x *ClientMessage) Reset() {
 	*x = ClientMessage{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[4]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -506,7 +570,7 @@ func (x *ClientMessage) String() string {
 func (*ClientMessage) ProtoMessage() {}
 
 func (x *ClientMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[4]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -519,7 +583,7 @@ func (x *ClientMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClientMessage.ProtoReflect.Descriptor instead.
 func (*ClientMessage) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{4}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ClientMessage) GetMessage() isClientMessage_Message {
@@ -611,7 +675,7 @@ type StreamEvent struct {
 
 func (x *StreamEvent) Reset() {
 	*x = StreamEvent{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[5]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -623,7 +687,7 @@ func (x *StreamEvent) String() string {
 func (*StreamEvent) ProtoMessage() {}
 
 func (x *StreamEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[5]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -636,7 +700,7 @@ func (x *StreamEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamEvent.ProtoReflect.Descriptor instead.
 func (*StreamEvent) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{5}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *StreamEvent) GetEvent() isStreamEvent_Event {
@@ -720,7 +784,7 @@ type DownstreamConnectEvent struct {
 
 func (x *DownstreamConnectEvent) Reset() {
 	*x = DownstreamConnectEvent{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[6]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -732,7 +796,7 @@ func (x *DownstreamConnectEvent) String() string {
 func (*DownstreamConnectEvent) ProtoMessage() {}
 
 func (x *DownstreamConnectEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[6]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -745,7 +809,7 @@ func (x *DownstreamConnectEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DownstreamConnectEvent.ProtoReflect.Descriptor instead.
 func (*DownstreamConnectEvent) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{6}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *DownstreamConnectEvent) GetStreamId() uint64 {
@@ -771,7 +835,7 @@ type DownstreamDisconnectedEvent struct {
 
 func (x *DownstreamDisconnectedEvent) Reset() {
 	*x = DownstreamDisconnectedEvent{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[7]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -783,7 +847,7 @@ func (x *DownstreamDisconnectedEvent) String() string {
 func (*DownstreamDisconnectedEvent) ProtoMessage() {}
 
 func (x *DownstreamDisconnectedEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[7]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -796,7 +860,7 @@ func (x *DownstreamDisconnectedEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DownstreamDisconnectedEvent.ProtoReflect.Descriptor instead.
 func (*DownstreamDisconnectedEvent) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{7}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *DownstreamDisconnectedEvent) GetReason() string {
@@ -814,7 +878,7 @@ type UpstreamConnectEvent struct {
 
 func (x *UpstreamConnectEvent) Reset() {
 	*x = UpstreamConnectEvent{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[8]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -826,7 +890,7 @@ func (x *UpstreamConnectEvent) String() string {
 func (*UpstreamConnectEvent) ProtoMessage() {}
 
 func (x *UpstreamConnectEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[8]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -839,7 +903,7 @@ func (x *UpstreamConnectEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpstreamConnectEvent.ProtoReflect.Descriptor instead.
 func (*UpstreamConnectEvent) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{8}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{9}
 }
 
 type Diagnostic struct {
@@ -853,7 +917,7 @@ type Diagnostic struct {
 
 func (x *Diagnostic) Reset() {
 	*x = Diagnostic{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[9]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -865,7 +929,7 @@ func (x *Diagnostic) String() string {
 func (*Diagnostic) ProtoMessage() {}
 
 func (x *Diagnostic) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[9]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -878,7 +942,7 @@ func (x *Diagnostic) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Diagnostic.ProtoReflect.Descriptor instead.
 func (*Diagnostic) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{9}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Diagnostic) GetSeverity() Diagnostic_Severity {
@@ -911,7 +975,7 @@ type ChannelStatsList struct {
 
 func (x *ChannelStatsList) Reset() {
 	*x = ChannelStatsList{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[10]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -923,7 +987,7 @@ func (x *ChannelStatsList) String() string {
 func (*ChannelStatsList) ProtoMessage() {}
 
 func (x *ChannelStatsList) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[10]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -936,7 +1000,7 @@ func (x *ChannelStatsList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChannelStatsList.ProtoReflect.Descriptor instead.
 func (*ChannelStatsList) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{10}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ChannelStatsList) GetItems() []*ChannelStats {
@@ -959,7 +1023,7 @@ type ChannelStats struct {
 
 func (x *ChannelStats) Reset() {
 	*x = ChannelStats{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[11]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -971,7 +1035,7 @@ func (x *ChannelStats) String() string {
 func (*ChannelStats) ProtoMessage() {}
 
 func (x *ChannelStats) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[11]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -984,7 +1048,7 @@ func (x *ChannelStats) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChannelStats.ProtoReflect.Descriptor instead.
 func (*ChannelStats) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{11}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ChannelStats) GetChannelId() uint32 {
@@ -1036,7 +1100,7 @@ type ChannelEvent struct {
 
 func (x *ChannelEvent) Reset() {
 	*x = ChannelEvent{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[12]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1048,7 +1112,7 @@ func (x *ChannelEvent) String() string {
 func (*ChannelEvent) ProtoMessage() {}
 
 func (x *ChannelEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[12]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1061,7 +1125,7 @@ func (x *ChannelEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChannelEvent.ProtoReflect.Descriptor instead.
 func (*ChannelEvent) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{12}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ChannelEvent) GetEvent() isChannelEvent_Event {
@@ -1134,7 +1198,7 @@ type GlobalRequest struct {
 
 func (x *GlobalRequest) Reset() {
 	*x = GlobalRequest{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[13]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1146,7 +1210,7 @@ func (x *GlobalRequest) String() string {
 func (*GlobalRequest) ProtoMessage() {}
 
 func (x *GlobalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[13]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1159,7 +1223,7 @@ func (x *GlobalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GlobalRequest.ProtoReflect.Descriptor instead.
 func (*GlobalRequest) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{13}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *GlobalRequest) GetWantReply() bool {
@@ -1220,7 +1284,7 @@ type TcpipForwardRequest struct {
 
 func (x *TcpipForwardRequest) Reset() {
 	*x = TcpipForwardRequest{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[14]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1232,7 +1296,7 @@ func (x *TcpipForwardRequest) String() string {
 func (*TcpipForwardRequest) ProtoMessage() {}
 
 func (x *TcpipForwardRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[14]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1245,7 +1309,7 @@ func (x *TcpipForwardRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TcpipForwardRequest.ProtoReflect.Descriptor instead.
 func (*TcpipForwardRequest) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{14}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *TcpipForwardRequest) GetRemoteAddress() string {
@@ -1272,7 +1336,7 @@ type CancelTcpipForwardRequest struct {
 
 func (x *CancelTcpipForwardRequest) Reset() {
 	*x = CancelTcpipForwardRequest{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[15]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1284,7 +1348,7 @@ func (x *CancelTcpipForwardRequest) String() string {
 func (*CancelTcpipForwardRequest) ProtoMessage() {}
 
 func (x *CancelTcpipForwardRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[15]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1297,7 +1361,7 @@ func (x *CancelTcpipForwardRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelTcpipForwardRequest.ProtoReflect.Descriptor instead.
 func (*CancelTcpipForwardRequest) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{15}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *CancelTcpipForwardRequest) GetRemoteAddress() string {
@@ -1328,7 +1392,7 @@ type GlobalRequestResponse struct {
 
 func (x *GlobalRequestResponse) Reset() {
 	*x = GlobalRequestResponse{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[16]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1340,7 +1404,7 @@ func (x *GlobalRequestResponse) String() string {
 func (*GlobalRequestResponse) ProtoMessage() {}
 
 func (x *GlobalRequestResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[16]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1353,7 +1417,7 @@ func (x *GlobalRequestResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GlobalRequestResponse.ProtoReflect.Descriptor instead.
 func (*GlobalRequestResponse) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{16}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *GlobalRequestResponse) GetSuccess() bool {
@@ -1405,7 +1469,7 @@ type TcpipForwardResponse struct {
 
 func (x *TcpipForwardResponse) Reset() {
 	*x = TcpipForwardResponse{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[17]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1417,7 +1481,7 @@ func (x *TcpipForwardResponse) String() string {
 func (*TcpipForwardResponse) ProtoMessage() {}
 
 func (x *TcpipForwardResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[17]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1430,7 +1494,7 @@ func (x *TcpipForwardResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TcpipForwardResponse.ProtoReflect.Descriptor instead.
 func (*TcpipForwardResponse) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{17}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *TcpipForwardResponse) GetServerPort() uint32 {
@@ -1459,7 +1523,7 @@ type AuthenticationRequest struct {
 
 func (x *AuthenticationRequest) Reset() {
 	*x = AuthenticationRequest{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[18]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1471,7 +1535,7 @@ func (x *AuthenticationRequest) String() string {
 func (*AuthenticationRequest) ProtoMessage() {}
 
 func (x *AuthenticationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[18]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1484,7 +1548,7 @@ func (x *AuthenticationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AuthenticationRequest.ProtoReflect.Descriptor instead.
 func (*AuthenticationRequest) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{18}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *AuthenticationRequest) GetProtocol() string {
@@ -1540,7 +1604,7 @@ type InfoResponse struct {
 
 func (x *InfoResponse) Reset() {
 	*x = InfoResponse{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[19]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1552,7 +1616,7 @@ func (x *InfoResponse) String() string {
 func (*InfoResponse) ProtoMessage() {}
 
 func (x *InfoResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[19]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1565,7 +1629,7 @@ func (x *InfoResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InfoResponse.ProtoReflect.Descriptor instead.
 func (*InfoResponse) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{19}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *InfoResponse) GetMethod() string {
@@ -1597,7 +1661,7 @@ type ServerMessage struct {
 
 func (x *ServerMessage) Reset() {
 	*x = ServerMessage{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[20]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1609,7 +1673,7 @@ func (x *ServerMessage) String() string {
 func (*ServerMessage) ProtoMessage() {}
 
 func (x *ServerMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[20]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1622,7 +1686,7 @@ func (x *ServerMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerMessage.ProtoReflect.Descriptor instead.
 func (*ServerMessage) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{20}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ServerMessage) GetMessage() isServerMessage_Message {
@@ -1689,7 +1753,7 @@ type AuthenticationResponse struct {
 
 func (x *AuthenticationResponse) Reset() {
 	*x = AuthenticationResponse{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[21]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1701,7 +1765,7 @@ func (x *AuthenticationResponse) String() string {
 func (*AuthenticationResponse) ProtoMessage() {}
 
 func (x *AuthenticationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[21]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1714,7 +1778,7 @@ func (x *AuthenticationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AuthenticationResponse.ProtoReflect.Descriptor instead.
 func (*AuthenticationResponse) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{21}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *AuthenticationResponse) GetResponse() isAuthenticationResponse_Response {
@@ -1791,7 +1855,7 @@ type AllowResponse struct {
 
 func (x *AllowResponse) Reset() {
 	*x = AllowResponse{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[22]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1803,7 +1867,7 @@ func (x *AllowResponse) String() string {
 func (*AllowResponse) ProtoMessage() {}
 
 func (x *AllowResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[22]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1816,7 +1880,7 @@ func (x *AllowResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AllowResponse.ProtoReflect.Descriptor instead.
 func (*AllowResponse) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{22}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *AllowResponse) GetUsername() string {
@@ -1895,7 +1959,7 @@ type UpstreamTarget struct {
 
 func (x *UpstreamTarget) Reset() {
 	*x = UpstreamTarget{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[23]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1907,7 +1971,7 @@ func (x *UpstreamTarget) String() string {
 func (*UpstreamTarget) ProtoMessage() {}
 
 func (x *UpstreamTarget) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[23]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1920,7 +1984,7 @@ func (x *UpstreamTarget) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpstreamTarget.ProtoReflect.Descriptor instead.
 func (*UpstreamTarget) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{23}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *UpstreamTarget) GetHostname() string {
@@ -1967,7 +2031,7 @@ type InternalTarget struct {
 
 func (x *InternalTarget) Reset() {
 	*x = InternalTarget{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[24]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1979,7 +2043,7 @@ func (x *InternalTarget) String() string {
 func (*InternalTarget) ProtoMessage() {}
 
 func (x *InternalTarget) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[24]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1992,7 +2056,7 @@ func (x *InternalTarget) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InternalTarget.ProtoReflect.Descriptor instead.
 func (*InternalTarget) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{24}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *InternalTarget) GetSetMetadata() *v3.Metadata {
@@ -2012,7 +2076,7 @@ type MirrorSessionTarget struct {
 
 func (x *MirrorSessionTarget) Reset() {
 	*x = MirrorSessionTarget{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[25]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2024,7 +2088,7 @@ func (x *MirrorSessionTarget) String() string {
 func (*MirrorSessionTarget) ProtoMessage() {}
 
 func (x *MirrorSessionTarget) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[25]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2037,7 +2101,7 @@ func (x *MirrorSessionTarget) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MirrorSessionTarget.ProtoReflect.Descriptor instead.
 func (*MirrorSessionTarget) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{25}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *MirrorSessionTarget) GetSourceId() uint64 {
@@ -2064,7 +2128,7 @@ type AllowedMethod struct {
 
 func (x *AllowedMethod) Reset() {
 	*x = AllowedMethod{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[26]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2076,7 +2140,7 @@ func (x *AllowedMethod) String() string {
 func (*AllowedMethod) ProtoMessage() {}
 
 func (x *AllowedMethod) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[26]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2089,7 +2153,7 @@ func (x *AllowedMethod) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AllowedMethod.ProtoReflect.Descriptor instead.
 func (*AllowedMethod) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{26}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *AllowedMethod) GetMethod() string {
@@ -2119,7 +2183,7 @@ type DenyResponse struct {
 
 func (x *DenyResponse) Reset() {
 	*x = DenyResponse{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[27]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2131,7 +2195,7 @@ func (x *DenyResponse) String() string {
 func (*DenyResponse) ProtoMessage() {}
 
 func (x *DenyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[27]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2144,7 +2208,7 @@ func (x *DenyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DenyResponse.ProtoReflect.Descriptor instead.
 func (*DenyResponse) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{27}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *DenyResponse) GetPartial() bool {
@@ -2175,7 +2239,7 @@ type InfoRequest struct {
 
 func (x *InfoRequest) Reset() {
 	*x = InfoRequest{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[28]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2187,7 +2251,7 @@ func (x *InfoRequest) String() string {
 func (*InfoRequest) ProtoMessage() {}
 
 func (x *InfoRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[28]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2200,7 +2264,7 @@ func (x *InfoRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InfoRequest.ProtoReflect.Descriptor instead.
 func (*InfoRequest) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{28}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *InfoRequest) GetMethod() string {
@@ -2230,7 +2294,7 @@ type SSHDownstreamChannelInfo struct {
 
 func (x *SSHDownstreamChannelInfo) Reset() {
 	*x = SSHDownstreamChannelInfo{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[29]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2242,7 +2306,7 @@ func (x *SSHDownstreamChannelInfo) String() string {
 func (*SSHDownstreamChannelInfo) ProtoMessage() {}
 
 func (x *SSHDownstreamChannelInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[29]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2255,7 +2319,7 @@ func (x *SSHDownstreamChannelInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SSHDownstreamChannelInfo.ProtoReflect.Descriptor instead.
 func (*SSHDownstreamChannelInfo) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{29}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *SSHDownstreamChannelInfo) GetChannelType() string {
@@ -2307,7 +2371,7 @@ type SSHDownstreamPTYInfo struct {
 
 func (x *SSHDownstreamPTYInfo) Reset() {
 	*x = SSHDownstreamPTYInfo{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[30]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2319,7 +2383,7 @@ func (x *SSHDownstreamPTYInfo) String() string {
 func (*SSHDownstreamPTYInfo) ProtoMessage() {}
 
 func (x *SSHDownstreamPTYInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[30]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2332,7 +2396,7 @@ func (x *SSHDownstreamPTYInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SSHDownstreamPTYInfo.ProtoReflect.Descriptor instead.
 func (*SSHDownstreamPTYInfo) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{30}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *SSHDownstreamPTYInfo) GetTermEnv() string {
@@ -2389,7 +2453,7 @@ type SSHChannelControlAction struct {
 
 func (x *SSHChannelControlAction) Reset() {
 	*x = SSHChannelControlAction{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[31]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2401,7 +2465,7 @@ func (x *SSHChannelControlAction) String() string {
 func (*SSHChannelControlAction) ProtoMessage() {}
 
 func (x *SSHChannelControlAction) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[31]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2414,7 +2478,7 @@ func (x *SSHChannelControlAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SSHChannelControlAction.ProtoReflect.Descriptor instead.
 func (*SSHChannelControlAction) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{31}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *SSHChannelControlAction) GetAction() isSSHChannelControlAction_Action {
@@ -2456,7 +2520,7 @@ type PublicKeyMethodRequest struct {
 
 func (x *PublicKeyMethodRequest) Reset() {
 	*x = PublicKeyMethodRequest{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[32]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2468,7 +2532,7 @@ func (x *PublicKeyMethodRequest) String() string {
 func (*PublicKeyMethodRequest) ProtoMessage() {}
 
 func (x *PublicKeyMethodRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[32]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2481,7 +2545,7 @@ func (x *PublicKeyMethodRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PublicKeyMethodRequest.ProtoReflect.Descriptor instead.
 func (*PublicKeyMethodRequest) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{32}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *PublicKeyMethodRequest) GetPublicKey() []byte {
@@ -2515,7 +2579,7 @@ type PublicKeyAllowResponse struct {
 
 func (x *PublicKeyAllowResponse) Reset() {
 	*x = PublicKeyAllowResponse{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[33]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2527,7 +2591,7 @@ func (x *PublicKeyAllowResponse) String() string {
 func (*PublicKeyAllowResponse) ProtoMessage() {}
 
 func (x *PublicKeyAllowResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[33]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2540,7 +2604,7 @@ func (x *PublicKeyAllowResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PublicKeyAllowResponse.ProtoReflect.Descriptor instead.
 func (*PublicKeyAllowResponse) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{33}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *PublicKeyAllowResponse) GetPublicKey() []byte {
@@ -2566,7 +2630,7 @@ type KeyboardInteractiveMethodRequest struct {
 
 func (x *KeyboardInteractiveMethodRequest) Reset() {
 	*x = KeyboardInteractiveMethodRequest{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[34]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2578,7 +2642,7 @@ func (x *KeyboardInteractiveMethodRequest) String() string {
 func (*KeyboardInteractiveMethodRequest) ProtoMessage() {}
 
 func (x *KeyboardInteractiveMethodRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[34]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2591,7 +2655,7 @@ func (x *KeyboardInteractiveMethodRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KeyboardInteractiveMethodRequest.ProtoReflect.Descriptor instead.
 func (*KeyboardInteractiveMethodRequest) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{34}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *KeyboardInteractiveMethodRequest) GetSubmethods() []string {
@@ -2613,7 +2677,7 @@ type KeyboardInteractiveAllowResponse struct {
 
 func (x *KeyboardInteractiveAllowResponse) Reset() {
 	*x = KeyboardInteractiveAllowResponse{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[35]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2625,7 +2689,7 @@ func (x *KeyboardInteractiveAllowResponse) String() string {
 func (*KeyboardInteractiveAllowResponse) ProtoMessage() {}
 
 func (x *KeyboardInteractiveAllowResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[35]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2638,7 +2702,7 @@ func (x *KeyboardInteractiveAllowResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KeyboardInteractiveAllowResponse.ProtoReflect.Descriptor instead.
 func (*KeyboardInteractiveAllowResponse) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{35}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *KeyboardInteractiveAllowResponse) GetSessionId() string {
@@ -2681,7 +2745,7 @@ type KeyboardInteractiveInfoPrompts struct {
 
 func (x *KeyboardInteractiveInfoPrompts) Reset() {
 	*x = KeyboardInteractiveInfoPrompts{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[36]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2693,7 +2757,7 @@ func (x *KeyboardInteractiveInfoPrompts) String() string {
 func (*KeyboardInteractiveInfoPrompts) ProtoMessage() {}
 
 func (x *KeyboardInteractiveInfoPrompts) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[36]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2706,7 +2770,7 @@ func (x *KeyboardInteractiveInfoPrompts) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KeyboardInteractiveInfoPrompts.ProtoReflect.Descriptor instead.
 func (*KeyboardInteractiveInfoPrompts) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{36}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *KeyboardInteractiveInfoPrompts) GetName() string {
@@ -2746,7 +2810,7 @@ type KeyboardInteractiveInfoPromptResponses struct {
 
 func (x *KeyboardInteractiveInfoPromptResponses) Reset() {
 	*x = KeyboardInteractiveInfoPromptResponses{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[37]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2758,7 +2822,7 @@ func (x *KeyboardInteractiveInfoPromptResponses) String() string {
 func (*KeyboardInteractiveInfoPromptResponses) ProtoMessage() {}
 
 func (x *KeyboardInteractiveInfoPromptResponses) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[37]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2771,7 +2835,7 @@ func (x *KeyboardInteractiveInfoPromptResponses) ProtoReflect() protoreflect.Mes
 
 // Deprecated: Use KeyboardInteractiveInfoPromptResponses.ProtoReflect.Descriptor instead.
 func (*KeyboardInteractiveInfoPromptResponses) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{37}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *KeyboardInteractiveInfoPromptResponses) GetResponses() []string {
@@ -2802,7 +2866,7 @@ type Permissions struct {
 
 func (x *Permissions) Reset() {
 	*x = Permissions{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[38]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2814,7 +2878,7 @@ func (x *Permissions) String() string {
 func (*Permissions) ProtoMessage() {}
 
 func (x *Permissions) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[38]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2827,7 +2891,7 @@ func (x *Permissions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Permissions.ProtoReflect.Descriptor instead.
 func (*Permissions) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{38}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *Permissions) GetPermitPortForwarding() bool {
@@ -2932,7 +2996,7 @@ type FilterMetadata struct {
 
 func (x *FilterMetadata) Reset() {
 	*x = FilterMetadata{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[39]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2944,7 +3008,7 @@ func (x *FilterMetadata) String() string {
 func (*FilterMetadata) ProtoMessage() {}
 
 func (x *FilterMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[39]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2957,7 +3021,7 @@ func (x *FilterMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FilterMetadata.ProtoReflect.Descriptor instead.
 func (*FilterMetadata) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{39}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *FilterMetadata) GetStreamId() uint64 {
@@ -2991,7 +3055,7 @@ type ServerPort struct {
 
 func (x *ServerPort) Reset() {
 	*x = ServerPort{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[40]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3003,7 +3067,7 @@ func (x *ServerPort) String() string {
 func (*ServerPort) ProtoMessage() {}
 
 func (x *ServerPort) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[40]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3016,7 +3080,7 @@ func (x *ServerPort) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerPort.ProtoReflect.Descriptor instead.
 func (*ServerPort) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{40}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *ServerPort) GetValue() uint32 {
@@ -3043,7 +3107,7 @@ type PortForwardPermission struct {
 
 func (x *PortForwardPermission) Reset() {
 	*x = PortForwardPermission{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[41]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3055,7 +3119,7 @@ func (x *PortForwardPermission) String() string {
 func (*PortForwardPermission) ProtoMessage() {}
 
 func (x *PortForwardPermission) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[41]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3068,7 +3132,7 @@ func (x *PortForwardPermission) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortForwardPermission.ProtoReflect.Descriptor instead.
 func (*PortForwardPermission) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{41}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *PortForwardPermission) GetRequestedHost() string {
@@ -3095,7 +3159,7 @@ type EndpointMetadata struct {
 
 func (x *EndpointMetadata) Reset() {
 	*x = EndpointMetadata{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[42]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3107,7 +3171,7 @@ func (x *EndpointMetadata) String() string {
 func (*EndpointMetadata) ProtoMessage() {}
 
 func (x *EndpointMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[42]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3120,7 +3184,7 @@ func (x *EndpointMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EndpointMetadata.ProtoReflect.Descriptor instead.
 func (*EndpointMetadata) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{42}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *EndpointMetadata) GetServerPort() *ServerPort {
@@ -3149,7 +3213,7 @@ type ChannelEvent_InternalChannelOpenedEvent struct {
 
 func (x *ChannelEvent_InternalChannelOpenedEvent) Reset() {
 	*x = ChannelEvent_InternalChannelOpenedEvent{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[43]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3161,7 +3225,7 @@ func (x *ChannelEvent_InternalChannelOpenedEvent) String() string {
 func (*ChannelEvent_InternalChannelOpenedEvent) ProtoMessage() {}
 
 func (x *ChannelEvent_InternalChannelOpenedEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[43]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3174,7 +3238,7 @@ func (x *ChannelEvent_InternalChannelOpenedEvent) ProtoReflect() protoreflect.Me
 
 // Deprecated: Use ChannelEvent_InternalChannelOpenedEvent.ProtoReflect.Descriptor instead.
 func (*ChannelEvent_InternalChannelOpenedEvent) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{12, 0}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{13, 0}
 }
 
 func (x *ChannelEvent_InternalChannelOpenedEvent) GetChannelId() uint32 {
@@ -3217,7 +3281,7 @@ type ChannelEvent_InternalChannelClosedEvent struct {
 
 func (x *ChannelEvent_InternalChannelClosedEvent) Reset() {
 	*x = ChannelEvent_InternalChannelClosedEvent{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[44]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3229,7 +3293,7 @@ func (x *ChannelEvent_InternalChannelClosedEvent) String() string {
 func (*ChannelEvent_InternalChannelClosedEvent) ProtoMessage() {}
 
 func (x *ChannelEvent_InternalChannelClosedEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[44]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3242,7 +3306,7 @@ func (x *ChannelEvent_InternalChannelClosedEvent) ProtoReflect() protoreflect.Me
 
 // Deprecated: Use ChannelEvent_InternalChannelClosedEvent.ProtoReflect.Descriptor instead.
 func (*ChannelEvent_InternalChannelClosedEvent) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{12, 1}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{13, 1}
 }
 
 func (x *ChannelEvent_InternalChannelClosedEvent) GetChannelId() uint32 {
@@ -3282,7 +3346,7 @@ type ChannelEvent_ChannelStatsEvent struct {
 
 func (x *ChannelEvent_ChannelStatsEvent) Reset() {
 	*x = ChannelEvent_ChannelStatsEvent{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[45]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3294,7 +3358,7 @@ func (x *ChannelEvent_ChannelStatsEvent) String() string {
 func (*ChannelEvent_ChannelStatsEvent) ProtoMessage() {}
 
 func (x *ChannelEvent_ChannelStatsEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[45]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3307,7 +3371,7 @@ func (x *ChannelEvent_ChannelStatsEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChannelEvent_ChannelStatsEvent.ProtoReflect.Descriptor instead.
 func (*ChannelEvent_ChannelStatsEvent) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{12, 2}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{13, 2}
 }
 
 func (x *ChannelEvent_ChannelStatsEvent) GetStatsList() *ChannelStatsList {
@@ -3328,7 +3392,7 @@ type SSHChannelControlAction_HandOffUpstream struct {
 
 func (x *SSHChannelControlAction_HandOffUpstream) Reset() {
 	*x = SSHChannelControlAction_HandOffUpstream{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[46]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3340,7 +3404,7 @@ func (x *SSHChannelControlAction_HandOffUpstream) String() string {
 func (*SSHChannelControlAction_HandOffUpstream) ProtoMessage() {}
 
 func (x *SSHChannelControlAction_HandOffUpstream) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[46]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3353,7 +3417,7 @@ func (x *SSHChannelControlAction_HandOffUpstream) ProtoReflect() protoreflect.Me
 
 // Deprecated: Use SSHChannelControlAction_HandOffUpstream.ProtoReflect.Descriptor instead.
 func (*SSHChannelControlAction_HandOffUpstream) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{31, 0}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{32, 0}
 }
 
 func (x *SSHChannelControlAction_HandOffUpstream) GetDownstreamChannelInfo() *SSHDownstreamChannelInfo {
@@ -3387,7 +3451,7 @@ type KeyboardInteractiveInfoPrompts_Prompt struct {
 
 func (x *KeyboardInteractiveInfoPrompts_Prompt) Reset() {
 	*x = KeyboardInteractiveInfoPrompts_Prompt{}
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[48]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3399,7 +3463,7 @@ func (x *KeyboardInteractiveInfoPrompts_Prompt) String() string {
 func (*KeyboardInteractiveInfoPrompts_Prompt) ProtoMessage() {}
 
 func (x *KeyboardInteractiveInfoPrompts_Prompt) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[48]
+	mi := &file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3412,7 +3476,7 @@ func (x *KeyboardInteractiveInfoPrompts_Prompt) ProtoReflect() protoreflect.Mess
 
 // Deprecated: Use KeyboardInteractiveInfoPrompts_Prompt.ProtoReflect.Descriptor instead.
 func (*KeyboardInteractiveInfoPrompts_Prompt) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{36, 0}
+	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{37, 0}
 }
 
 func (x *KeyboardInteractiveInfoPrompts_Prompt) GetPrompt() string {
@@ -3433,14 +3497,18 @@ var File_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh
 
 const file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDesc = "" +
 	"\n" +
-	"Mgithub.com/pomerium/envoy-custom/api/extensions/filters/network/ssh/ssh.proto\x12\x17pomerium.extensions.ssh\x1a\"envoy/config/core/v3/address.proto\x1a\x1fenvoy/config/core/v3/base.proto\x1a(envoy/config/core/v3/config_source.proto\x1a$envoy/config/core/v3/extension.proto\x1a'envoy/config/core/v3/grpc_service.proto\x1a\x19google/protobuf/any.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1aAgithub.com/envoyproxy/protoc-gen-validate/validate/validate.proto\"\xce\x03\n" +
+	"Mgithub.com/pomerium/envoy-custom/api/extensions/filters/network/ssh/ssh.proto\x12\x17pomerium.extensions.ssh\x1a\"envoy/config/core/v3/address.proto\x1a\x1fenvoy/config/core/v3/base.proto\x1a(envoy/config/core/v3/config_source.proto\x1a$envoy/config/core/v3/extension.proto\x1a'envoy/config/core/v3/grpc_service.proto\x1a\x19google/protobuf/any.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1aAgithub.com/envoyproxy/protoc-gen-validate/validate/validate.proto\"\xa6\x04\n" +
 	"\vCodecConfig\x12N\n" +
 	"\thost_keys\x18\x01 \x03(\v2 .envoy.config.core.v3.DataSourceB\x0f\xfaB\f\x92\x01\t\b\x01\"\x05\x8a\x01\x02\x10\x01R\bhostKeys\x12J\n" +
 	"\vuser_ca_key\x18\x02 \x01(\v2 .envoy.config.core.v3.DataSourceB\b\xfaB\x05\x8a\x01\x02\x10\x01R\tuserCaKey\x12U\n" +
 	"\x0frekey_threshold\x18\x03 \x01(\v2\x1c.google.protobuf.UInt64ValueB\x0e\xfaB\v2\t\x18\x80\x80\x80\x80\x04(\x80\x02R\x0erekeyThreshold\x12N\n" +
 	"\fgrpc_service\x18\x04 \x01(\v2!.envoy.config.core.v3.GrpcServiceB\b\xfaB\x05\x8a\x01\x02\x10\x01R\vgrpcService\x12A\n" +
 	"\x17max_concurrent_channels\x18\x05 \x01(\rB\t\xfaB\x06*\x04\x18\x80\x80\x02R\x15maxConcurrentChannels\x129\n" +
-	"\x19internal_channel_id_start\x18\x06 \x01(\rR\x16internalChannelIdStart\"m\n" +
+	"\x19internal_channel_id_start\x18\x06 \x01(\rR\x16internalChannelIdStart\x12V\n" +
+	"\x11algorithm_options\x18\a \x01(\v2).pomerium.extensions.ssh.AlgorithmOptionsR\x10algorithmOptions\"\x91\x01\n" +
+	"\x10AlgorithmOptions\x124\n" +
+	"\x16disable_kex_algorithms\x18\x01 \x03(\tR\x14disableKexAlgorithms\x12G\n" +
+	" disable_packet_cipher_algorithms\x18\x02 \x03(\tR\x1ddisablePacketCipherAlgorithms\"m\n" +
 	"\x14ReverseTunnelCluster\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12A\n" +
 	"\n" +
@@ -3698,144 +3766,146 @@ func file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ss
 }
 
 var file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes = make([]protoimpl.MessageInfo, 50)
+var file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes = make([]protoimpl.MessageInfo, 51)
 var file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_goTypes = []any{
 	(InternalCLIModeHint)(0),                        // 0: pomerium.extensions.ssh.InternalCLIModeHint
 	(Diagnostic_Severity)(0),                        // 1: pomerium.extensions.ssh.Diagnostic.Severity
 	(MirrorSessionTarget_Mode)(0),                   // 2: pomerium.extensions.ssh.MirrorSessionTarget.Mode
 	(*CodecConfig)(nil),                             // 3: pomerium.extensions.ssh.CodecConfig
-	(*ReverseTunnelCluster)(nil),                    // 4: pomerium.extensions.ssh.ReverseTunnelCluster
-	(*ChannelMessage)(nil),                          // 5: pomerium.extensions.ssh.ChannelMessage
-	(*ChannelControl)(nil),                          // 6: pomerium.extensions.ssh.ChannelControl
-	(*ClientMessage)(nil),                           // 7: pomerium.extensions.ssh.ClientMessage
-	(*StreamEvent)(nil),                             // 8: pomerium.extensions.ssh.StreamEvent
-	(*DownstreamConnectEvent)(nil),                  // 9: pomerium.extensions.ssh.DownstreamConnectEvent
-	(*DownstreamDisconnectedEvent)(nil),             // 10: pomerium.extensions.ssh.DownstreamDisconnectedEvent
-	(*UpstreamConnectEvent)(nil),                    // 11: pomerium.extensions.ssh.UpstreamConnectEvent
-	(*Diagnostic)(nil),                              // 12: pomerium.extensions.ssh.Diagnostic
-	(*ChannelStatsList)(nil),                        // 13: pomerium.extensions.ssh.ChannelStatsList
-	(*ChannelStats)(nil),                            // 14: pomerium.extensions.ssh.ChannelStats
-	(*ChannelEvent)(nil),                            // 15: pomerium.extensions.ssh.ChannelEvent
-	(*GlobalRequest)(nil),                           // 16: pomerium.extensions.ssh.GlobalRequest
-	(*TcpipForwardRequest)(nil),                     // 17: pomerium.extensions.ssh.TcpipForwardRequest
-	(*CancelTcpipForwardRequest)(nil),               // 18: pomerium.extensions.ssh.CancelTcpipForwardRequest
-	(*GlobalRequestResponse)(nil),                   // 19: pomerium.extensions.ssh.GlobalRequestResponse
-	(*TcpipForwardResponse)(nil),                    // 20: pomerium.extensions.ssh.TcpipForwardResponse
-	(*AuthenticationRequest)(nil),                   // 21: pomerium.extensions.ssh.AuthenticationRequest
-	(*InfoResponse)(nil),                            // 22: pomerium.extensions.ssh.InfoResponse
-	(*ServerMessage)(nil),                           // 23: pomerium.extensions.ssh.ServerMessage
-	(*AuthenticationResponse)(nil),                  // 24: pomerium.extensions.ssh.AuthenticationResponse
-	(*AllowResponse)(nil),                           // 25: pomerium.extensions.ssh.AllowResponse
-	(*UpstreamTarget)(nil),                          // 26: pomerium.extensions.ssh.UpstreamTarget
-	(*InternalTarget)(nil),                          // 27: pomerium.extensions.ssh.InternalTarget
-	(*MirrorSessionTarget)(nil),                     // 28: pomerium.extensions.ssh.MirrorSessionTarget
-	(*AllowedMethod)(nil),                           // 29: pomerium.extensions.ssh.AllowedMethod
-	(*DenyResponse)(nil),                            // 30: pomerium.extensions.ssh.DenyResponse
-	(*InfoRequest)(nil),                             // 31: pomerium.extensions.ssh.InfoRequest
-	(*SSHDownstreamChannelInfo)(nil),                // 32: pomerium.extensions.ssh.SSHDownstreamChannelInfo
-	(*SSHDownstreamPTYInfo)(nil),                    // 33: pomerium.extensions.ssh.SSHDownstreamPTYInfo
-	(*SSHChannelControlAction)(nil),                 // 34: pomerium.extensions.ssh.SSHChannelControlAction
-	(*PublicKeyMethodRequest)(nil),                  // 35: pomerium.extensions.ssh.PublicKeyMethodRequest
-	(*PublicKeyAllowResponse)(nil),                  // 36: pomerium.extensions.ssh.PublicKeyAllowResponse
-	(*KeyboardInteractiveMethodRequest)(nil),        // 37: pomerium.extensions.ssh.KeyboardInteractiveMethodRequest
-	(*KeyboardInteractiveAllowResponse)(nil),        // 38: pomerium.extensions.ssh.KeyboardInteractiveAllowResponse
-	(*KeyboardInteractiveInfoPrompts)(nil),          // 39: pomerium.extensions.ssh.KeyboardInteractiveInfoPrompts
-	(*KeyboardInteractiveInfoPromptResponses)(nil),  // 40: pomerium.extensions.ssh.KeyboardInteractiveInfoPromptResponses
-	(*Permissions)(nil),                             // 41: pomerium.extensions.ssh.Permissions
-	(*FilterMetadata)(nil),                          // 42: pomerium.extensions.ssh.FilterMetadata
-	(*ServerPort)(nil),                              // 43: pomerium.extensions.ssh.ServerPort
-	(*PortForwardPermission)(nil),                   // 44: pomerium.extensions.ssh.PortForwardPermission
-	(*EndpointMetadata)(nil),                        // 45: pomerium.extensions.ssh.EndpointMetadata
-	(*ChannelEvent_InternalChannelOpenedEvent)(nil), // 46: pomerium.extensions.ssh.ChannelEvent.InternalChannelOpenedEvent
-	(*ChannelEvent_InternalChannelClosedEvent)(nil), // 47: pomerium.extensions.ssh.ChannelEvent.InternalChannelClosedEvent
-	(*ChannelEvent_ChannelStatsEvent)(nil),          // 48: pomerium.extensions.ssh.ChannelEvent.ChannelStatsEvent
-	(*SSHChannelControlAction_HandOffUpstream)(nil), // 49: pomerium.extensions.ssh.SSHChannelControlAction.HandOffUpstream
-	nil, // 50: pomerium.extensions.ssh.KeyboardInteractiveAllowResponse.ClaimsEntry
-	(*KeyboardInteractiveInfoPrompts_Prompt)(nil), // 51: pomerium.extensions.ssh.KeyboardInteractiveInfoPrompts.Prompt
-	nil,                             // 52: pomerium.extensions.ssh.Permissions.ForceEnvEntry
-	(*v3.DataSource)(nil),           // 53: envoy.config.core.v3.DataSource
-	(*wrapperspb.UInt64Value)(nil),  // 54: google.protobuf.UInt64Value
-	(*v3.GrpcService)(nil),          // 55: envoy.config.core.v3.GrpcService
-	(*v3.ConfigSource)(nil),         // 56: envoy.config.core.v3.ConfigSource
-	(*v3.Metadata)(nil),             // 57: envoy.config.core.v3.Metadata
-	(*wrapperspb.BytesValue)(nil),   // 58: google.protobuf.BytesValue
-	(*anypb.Any)(nil),               // 59: google.protobuf.Any
-	(*v3.Address)(nil),              // 60: envoy.config.core.v3.Address
-	(*timestamppb.Timestamp)(nil),   // 61: google.protobuf.Timestamp
-	(*v3.TypedExtensionConfig)(nil), // 62: envoy.config.core.v3.TypedExtensionConfig
-	(*structpb.ListValue)(nil),      // 63: google.protobuf.ListValue
+	(*AlgorithmOptions)(nil),                        // 4: pomerium.extensions.ssh.AlgorithmOptions
+	(*ReverseTunnelCluster)(nil),                    // 5: pomerium.extensions.ssh.ReverseTunnelCluster
+	(*ChannelMessage)(nil),                          // 6: pomerium.extensions.ssh.ChannelMessage
+	(*ChannelControl)(nil),                          // 7: pomerium.extensions.ssh.ChannelControl
+	(*ClientMessage)(nil),                           // 8: pomerium.extensions.ssh.ClientMessage
+	(*StreamEvent)(nil),                             // 9: pomerium.extensions.ssh.StreamEvent
+	(*DownstreamConnectEvent)(nil),                  // 10: pomerium.extensions.ssh.DownstreamConnectEvent
+	(*DownstreamDisconnectedEvent)(nil),             // 11: pomerium.extensions.ssh.DownstreamDisconnectedEvent
+	(*UpstreamConnectEvent)(nil),                    // 12: pomerium.extensions.ssh.UpstreamConnectEvent
+	(*Diagnostic)(nil),                              // 13: pomerium.extensions.ssh.Diagnostic
+	(*ChannelStatsList)(nil),                        // 14: pomerium.extensions.ssh.ChannelStatsList
+	(*ChannelStats)(nil),                            // 15: pomerium.extensions.ssh.ChannelStats
+	(*ChannelEvent)(nil),                            // 16: pomerium.extensions.ssh.ChannelEvent
+	(*GlobalRequest)(nil),                           // 17: pomerium.extensions.ssh.GlobalRequest
+	(*TcpipForwardRequest)(nil),                     // 18: pomerium.extensions.ssh.TcpipForwardRequest
+	(*CancelTcpipForwardRequest)(nil),               // 19: pomerium.extensions.ssh.CancelTcpipForwardRequest
+	(*GlobalRequestResponse)(nil),                   // 20: pomerium.extensions.ssh.GlobalRequestResponse
+	(*TcpipForwardResponse)(nil),                    // 21: pomerium.extensions.ssh.TcpipForwardResponse
+	(*AuthenticationRequest)(nil),                   // 22: pomerium.extensions.ssh.AuthenticationRequest
+	(*InfoResponse)(nil),                            // 23: pomerium.extensions.ssh.InfoResponse
+	(*ServerMessage)(nil),                           // 24: pomerium.extensions.ssh.ServerMessage
+	(*AuthenticationResponse)(nil),                  // 25: pomerium.extensions.ssh.AuthenticationResponse
+	(*AllowResponse)(nil),                           // 26: pomerium.extensions.ssh.AllowResponse
+	(*UpstreamTarget)(nil),                          // 27: pomerium.extensions.ssh.UpstreamTarget
+	(*InternalTarget)(nil),                          // 28: pomerium.extensions.ssh.InternalTarget
+	(*MirrorSessionTarget)(nil),                     // 29: pomerium.extensions.ssh.MirrorSessionTarget
+	(*AllowedMethod)(nil),                           // 30: pomerium.extensions.ssh.AllowedMethod
+	(*DenyResponse)(nil),                            // 31: pomerium.extensions.ssh.DenyResponse
+	(*InfoRequest)(nil),                             // 32: pomerium.extensions.ssh.InfoRequest
+	(*SSHDownstreamChannelInfo)(nil),                // 33: pomerium.extensions.ssh.SSHDownstreamChannelInfo
+	(*SSHDownstreamPTYInfo)(nil),                    // 34: pomerium.extensions.ssh.SSHDownstreamPTYInfo
+	(*SSHChannelControlAction)(nil),                 // 35: pomerium.extensions.ssh.SSHChannelControlAction
+	(*PublicKeyMethodRequest)(nil),                  // 36: pomerium.extensions.ssh.PublicKeyMethodRequest
+	(*PublicKeyAllowResponse)(nil),                  // 37: pomerium.extensions.ssh.PublicKeyAllowResponse
+	(*KeyboardInteractiveMethodRequest)(nil),        // 38: pomerium.extensions.ssh.KeyboardInteractiveMethodRequest
+	(*KeyboardInteractiveAllowResponse)(nil),        // 39: pomerium.extensions.ssh.KeyboardInteractiveAllowResponse
+	(*KeyboardInteractiveInfoPrompts)(nil),          // 40: pomerium.extensions.ssh.KeyboardInteractiveInfoPrompts
+	(*KeyboardInteractiveInfoPromptResponses)(nil),  // 41: pomerium.extensions.ssh.KeyboardInteractiveInfoPromptResponses
+	(*Permissions)(nil),                             // 42: pomerium.extensions.ssh.Permissions
+	(*FilterMetadata)(nil),                          // 43: pomerium.extensions.ssh.FilterMetadata
+	(*ServerPort)(nil),                              // 44: pomerium.extensions.ssh.ServerPort
+	(*PortForwardPermission)(nil),                   // 45: pomerium.extensions.ssh.PortForwardPermission
+	(*EndpointMetadata)(nil),                        // 46: pomerium.extensions.ssh.EndpointMetadata
+	(*ChannelEvent_InternalChannelOpenedEvent)(nil), // 47: pomerium.extensions.ssh.ChannelEvent.InternalChannelOpenedEvent
+	(*ChannelEvent_InternalChannelClosedEvent)(nil), // 48: pomerium.extensions.ssh.ChannelEvent.InternalChannelClosedEvent
+	(*ChannelEvent_ChannelStatsEvent)(nil),          // 49: pomerium.extensions.ssh.ChannelEvent.ChannelStatsEvent
+	(*SSHChannelControlAction_HandOffUpstream)(nil), // 50: pomerium.extensions.ssh.SSHChannelControlAction.HandOffUpstream
+	nil, // 51: pomerium.extensions.ssh.KeyboardInteractiveAllowResponse.ClaimsEntry
+	(*KeyboardInteractiveInfoPrompts_Prompt)(nil), // 52: pomerium.extensions.ssh.KeyboardInteractiveInfoPrompts.Prompt
+	nil,                             // 53: pomerium.extensions.ssh.Permissions.ForceEnvEntry
+	(*v3.DataSource)(nil),           // 54: envoy.config.core.v3.DataSource
+	(*wrapperspb.UInt64Value)(nil),  // 55: google.protobuf.UInt64Value
+	(*v3.GrpcService)(nil),          // 56: envoy.config.core.v3.GrpcService
+	(*v3.ConfigSource)(nil),         // 57: envoy.config.core.v3.ConfigSource
+	(*v3.Metadata)(nil),             // 58: envoy.config.core.v3.Metadata
+	(*wrapperspb.BytesValue)(nil),   // 59: google.protobuf.BytesValue
+	(*anypb.Any)(nil),               // 60: google.protobuf.Any
+	(*v3.Address)(nil),              // 61: envoy.config.core.v3.Address
+	(*timestamppb.Timestamp)(nil),   // 62: google.protobuf.Timestamp
+	(*v3.TypedExtensionConfig)(nil), // 63: envoy.config.core.v3.TypedExtensionConfig
+	(*structpb.ListValue)(nil),      // 64: google.protobuf.ListValue
 }
 var file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_depIdxs = []int32{
-	53, // 0: pomerium.extensions.ssh.CodecConfig.host_keys:type_name -> envoy.config.core.v3.DataSource
-	53, // 1: pomerium.extensions.ssh.CodecConfig.user_ca_key:type_name -> envoy.config.core.v3.DataSource
-	54, // 2: pomerium.extensions.ssh.CodecConfig.rekey_threshold:type_name -> google.protobuf.UInt64Value
-	55, // 3: pomerium.extensions.ssh.CodecConfig.grpc_service:type_name -> envoy.config.core.v3.GrpcService
-	56, // 4: pomerium.extensions.ssh.ReverseTunnelCluster.eds_config:type_name -> envoy.config.core.v3.ConfigSource
-	57, // 5: pomerium.extensions.ssh.ChannelMessage.metadata:type_name -> envoy.config.core.v3.Metadata
-	58, // 6: pomerium.extensions.ssh.ChannelMessage.raw_bytes:type_name -> google.protobuf.BytesValue
-	6,  // 7: pomerium.extensions.ssh.ChannelMessage.channel_control:type_name -> pomerium.extensions.ssh.ChannelControl
-	59, // 8: pomerium.extensions.ssh.ChannelControl.control_action:type_name -> google.protobuf.Any
-	8,  // 9: pomerium.extensions.ssh.ClientMessage.event:type_name -> pomerium.extensions.ssh.StreamEvent
-	21, // 10: pomerium.extensions.ssh.ClientMessage.auth_request:type_name -> pomerium.extensions.ssh.AuthenticationRequest
-	22, // 11: pomerium.extensions.ssh.ClientMessage.info_response:type_name -> pomerium.extensions.ssh.InfoResponse
-	16, // 12: pomerium.extensions.ssh.ClientMessage.global_request:type_name -> pomerium.extensions.ssh.GlobalRequest
-	9,  // 13: pomerium.extensions.ssh.StreamEvent.downstream_connected:type_name -> pomerium.extensions.ssh.DownstreamConnectEvent
-	10, // 14: pomerium.extensions.ssh.StreamEvent.downstream_disconnected:type_name -> pomerium.extensions.ssh.DownstreamDisconnectedEvent
-	11, // 15: pomerium.extensions.ssh.StreamEvent.upstream_connected:type_name -> pomerium.extensions.ssh.UpstreamConnectEvent
-	15, // 16: pomerium.extensions.ssh.StreamEvent.channel_event:type_name -> pomerium.extensions.ssh.ChannelEvent
-	60, // 17: pomerium.extensions.ssh.DownstreamConnectEvent.source_address:type_name -> envoy.config.core.v3.Address
-	1,  // 18: pomerium.extensions.ssh.Diagnostic.severity:type_name -> pomerium.extensions.ssh.Diagnostic.Severity
-	14, // 19: pomerium.extensions.ssh.ChannelStatsList.items:type_name -> pomerium.extensions.ssh.ChannelStats
-	61, // 20: pomerium.extensions.ssh.ChannelStats.start_time:type_name -> google.protobuf.Timestamp
-	61, // 21: pomerium.extensions.ssh.ChannelStats.end_time:type_name -> google.protobuf.Timestamp
-	46, // 22: pomerium.extensions.ssh.ChannelEvent.internal_channel_opened:type_name -> pomerium.extensions.ssh.ChannelEvent.InternalChannelOpenedEvent
-	47, // 23: pomerium.extensions.ssh.ChannelEvent.internal_channel_closed:type_name -> pomerium.extensions.ssh.ChannelEvent.InternalChannelClosedEvent
-	48, // 24: pomerium.extensions.ssh.ChannelEvent.channel_stats:type_name -> pomerium.extensions.ssh.ChannelEvent.ChannelStatsEvent
-	17, // 25: pomerium.extensions.ssh.GlobalRequest.tcpip_forward_request:type_name -> pomerium.extensions.ssh.TcpipForwardRequest
-	18, // 26: pomerium.extensions.ssh.GlobalRequest.cancel_tcpip_forward_request:type_name -> pomerium.extensions.ssh.CancelTcpipForwardRequest
-	20, // 27: pomerium.extensions.ssh.GlobalRequestResponse.tcpip_forward_response:type_name -> pomerium.extensions.ssh.TcpipForwardResponse
-	59, // 28: pomerium.extensions.ssh.AuthenticationRequest.method_request:type_name -> google.protobuf.Any
-	59, // 29: pomerium.extensions.ssh.InfoResponse.response:type_name -> google.protobuf.Any
-	24, // 30: pomerium.extensions.ssh.ServerMessage.auth_response:type_name -> pomerium.extensions.ssh.AuthenticationResponse
-	19, // 31: pomerium.extensions.ssh.ServerMessage.global_request_response:type_name -> pomerium.extensions.ssh.GlobalRequestResponse
-	25, // 32: pomerium.extensions.ssh.AuthenticationResponse.allow:type_name -> pomerium.extensions.ssh.AllowResponse
-	30, // 33: pomerium.extensions.ssh.AuthenticationResponse.deny:type_name -> pomerium.extensions.ssh.DenyResponse
-	31, // 34: pomerium.extensions.ssh.AuthenticationResponse.info_request:type_name -> pomerium.extensions.ssh.InfoRequest
-	26, // 35: pomerium.extensions.ssh.AllowResponse.upstream:type_name -> pomerium.extensions.ssh.UpstreamTarget
-	27, // 36: pomerium.extensions.ssh.AllowResponse.internal:type_name -> pomerium.extensions.ssh.InternalTarget
-	28, // 37: pomerium.extensions.ssh.AllowResponse.mirror_session:type_name -> pomerium.extensions.ssh.MirrorSessionTarget
-	29, // 38: pomerium.extensions.ssh.UpstreamTarget.allowed_methods:type_name -> pomerium.extensions.ssh.AllowedMethod
-	62, // 39: pomerium.extensions.ssh.UpstreamTarget.extensions:type_name -> envoy.config.core.v3.TypedExtensionConfig
-	57, // 40: pomerium.extensions.ssh.InternalTarget.set_metadata:type_name -> envoy.config.core.v3.Metadata
-	2,  // 41: pomerium.extensions.ssh.MirrorSessionTarget.mode:type_name -> pomerium.extensions.ssh.MirrorSessionTarget.Mode
-	59, // 42: pomerium.extensions.ssh.AllowedMethod.method_data:type_name -> google.protobuf.Any
-	59, // 43: pomerium.extensions.ssh.InfoRequest.request:type_name -> google.protobuf.Any
-	49, // 44: pomerium.extensions.ssh.SSHChannelControlAction.hand_off:type_name -> pomerium.extensions.ssh.SSHChannelControlAction.HandOffUpstream
-	41, // 45: pomerium.extensions.ssh.PublicKeyAllowResponse.permissions:type_name -> pomerium.extensions.ssh.Permissions
-	50, // 46: pomerium.extensions.ssh.KeyboardInteractiveAllowResponse.claims:type_name -> pomerium.extensions.ssh.KeyboardInteractiveAllowResponse.ClaimsEntry
-	51, // 47: pomerium.extensions.ssh.KeyboardInteractiveInfoPrompts.prompts:type_name -> pomerium.extensions.ssh.KeyboardInteractiveInfoPrompts.Prompt
-	61, // 48: pomerium.extensions.ssh.Permissions.valid_start_time:type_name -> google.protobuf.Timestamp
-	61, // 49: pomerium.extensions.ssh.Permissions.valid_end_time:type_name -> google.protobuf.Timestamp
-	52, // 50: pomerium.extensions.ssh.Permissions.force_env:type_name -> pomerium.extensions.ssh.Permissions.ForceEnvEntry
-	0,  // 51: pomerium.extensions.ssh.FilterMetadata.mode_hint:type_name -> pomerium.extensions.ssh.InternalCLIModeHint
-	43, // 52: pomerium.extensions.ssh.EndpointMetadata.server_port:type_name -> pomerium.extensions.ssh.ServerPort
-	44, // 53: pomerium.extensions.ssh.EndpointMetadata.matched_permission:type_name -> pomerium.extensions.ssh.PortForwardPermission
-	14, // 54: pomerium.extensions.ssh.ChannelEvent.InternalChannelClosedEvent.stats:type_name -> pomerium.extensions.ssh.ChannelStats
-	12, // 55: pomerium.extensions.ssh.ChannelEvent.InternalChannelClosedEvent.diagnostics:type_name -> pomerium.extensions.ssh.Diagnostic
-	13, // 56: pomerium.extensions.ssh.ChannelEvent.ChannelStatsEvent.stats_list:type_name -> pomerium.extensions.ssh.ChannelStatsList
-	32, // 57: pomerium.extensions.ssh.SSHChannelControlAction.HandOffUpstream.downstream_channel_info:type_name -> pomerium.extensions.ssh.SSHDownstreamChannelInfo
-	33, // 58: pomerium.extensions.ssh.SSHChannelControlAction.HandOffUpstream.downstream_pty_info:type_name -> pomerium.extensions.ssh.SSHDownstreamPTYInfo
-	25, // 59: pomerium.extensions.ssh.SSHChannelControlAction.HandOffUpstream.upstream_auth:type_name -> pomerium.extensions.ssh.AllowResponse
-	63, // 60: pomerium.extensions.ssh.KeyboardInteractiveAllowResponse.ClaimsEntry.value:type_name -> google.protobuf.ListValue
-	7,  // 61: pomerium.extensions.ssh.StreamManagement.ManageStream:input_type -> pomerium.extensions.ssh.ClientMessage
-	5,  // 62: pomerium.extensions.ssh.StreamManagement.ServeChannel:input_type -> pomerium.extensions.ssh.ChannelMessage
-	23, // 63: pomerium.extensions.ssh.StreamManagement.ManageStream:output_type -> pomerium.extensions.ssh.ServerMessage
-	5,  // 64: pomerium.extensions.ssh.StreamManagement.ServeChannel:output_type -> pomerium.extensions.ssh.ChannelMessage
-	63, // [63:65] is the sub-list for method output_type
-	61, // [61:63] is the sub-list for method input_type
-	61, // [61:61] is the sub-list for extension type_name
-	61, // [61:61] is the sub-list for extension extendee
-	0,  // [0:61] is the sub-list for field type_name
+	54, // 0: pomerium.extensions.ssh.CodecConfig.host_keys:type_name -> envoy.config.core.v3.DataSource
+	54, // 1: pomerium.extensions.ssh.CodecConfig.user_ca_key:type_name -> envoy.config.core.v3.DataSource
+	55, // 2: pomerium.extensions.ssh.CodecConfig.rekey_threshold:type_name -> google.protobuf.UInt64Value
+	56, // 3: pomerium.extensions.ssh.CodecConfig.grpc_service:type_name -> envoy.config.core.v3.GrpcService
+	4,  // 4: pomerium.extensions.ssh.CodecConfig.algorithm_options:type_name -> pomerium.extensions.ssh.AlgorithmOptions
+	57, // 5: pomerium.extensions.ssh.ReverseTunnelCluster.eds_config:type_name -> envoy.config.core.v3.ConfigSource
+	58, // 6: pomerium.extensions.ssh.ChannelMessage.metadata:type_name -> envoy.config.core.v3.Metadata
+	59, // 7: pomerium.extensions.ssh.ChannelMessage.raw_bytes:type_name -> google.protobuf.BytesValue
+	7,  // 8: pomerium.extensions.ssh.ChannelMessage.channel_control:type_name -> pomerium.extensions.ssh.ChannelControl
+	60, // 9: pomerium.extensions.ssh.ChannelControl.control_action:type_name -> google.protobuf.Any
+	9,  // 10: pomerium.extensions.ssh.ClientMessage.event:type_name -> pomerium.extensions.ssh.StreamEvent
+	22, // 11: pomerium.extensions.ssh.ClientMessage.auth_request:type_name -> pomerium.extensions.ssh.AuthenticationRequest
+	23, // 12: pomerium.extensions.ssh.ClientMessage.info_response:type_name -> pomerium.extensions.ssh.InfoResponse
+	17, // 13: pomerium.extensions.ssh.ClientMessage.global_request:type_name -> pomerium.extensions.ssh.GlobalRequest
+	10, // 14: pomerium.extensions.ssh.StreamEvent.downstream_connected:type_name -> pomerium.extensions.ssh.DownstreamConnectEvent
+	11, // 15: pomerium.extensions.ssh.StreamEvent.downstream_disconnected:type_name -> pomerium.extensions.ssh.DownstreamDisconnectedEvent
+	12, // 16: pomerium.extensions.ssh.StreamEvent.upstream_connected:type_name -> pomerium.extensions.ssh.UpstreamConnectEvent
+	16, // 17: pomerium.extensions.ssh.StreamEvent.channel_event:type_name -> pomerium.extensions.ssh.ChannelEvent
+	61, // 18: pomerium.extensions.ssh.DownstreamConnectEvent.source_address:type_name -> envoy.config.core.v3.Address
+	1,  // 19: pomerium.extensions.ssh.Diagnostic.severity:type_name -> pomerium.extensions.ssh.Diagnostic.Severity
+	15, // 20: pomerium.extensions.ssh.ChannelStatsList.items:type_name -> pomerium.extensions.ssh.ChannelStats
+	62, // 21: pomerium.extensions.ssh.ChannelStats.start_time:type_name -> google.protobuf.Timestamp
+	62, // 22: pomerium.extensions.ssh.ChannelStats.end_time:type_name -> google.protobuf.Timestamp
+	47, // 23: pomerium.extensions.ssh.ChannelEvent.internal_channel_opened:type_name -> pomerium.extensions.ssh.ChannelEvent.InternalChannelOpenedEvent
+	48, // 24: pomerium.extensions.ssh.ChannelEvent.internal_channel_closed:type_name -> pomerium.extensions.ssh.ChannelEvent.InternalChannelClosedEvent
+	49, // 25: pomerium.extensions.ssh.ChannelEvent.channel_stats:type_name -> pomerium.extensions.ssh.ChannelEvent.ChannelStatsEvent
+	18, // 26: pomerium.extensions.ssh.GlobalRequest.tcpip_forward_request:type_name -> pomerium.extensions.ssh.TcpipForwardRequest
+	19, // 27: pomerium.extensions.ssh.GlobalRequest.cancel_tcpip_forward_request:type_name -> pomerium.extensions.ssh.CancelTcpipForwardRequest
+	21, // 28: pomerium.extensions.ssh.GlobalRequestResponse.tcpip_forward_response:type_name -> pomerium.extensions.ssh.TcpipForwardResponse
+	60, // 29: pomerium.extensions.ssh.AuthenticationRequest.method_request:type_name -> google.protobuf.Any
+	60, // 30: pomerium.extensions.ssh.InfoResponse.response:type_name -> google.protobuf.Any
+	25, // 31: pomerium.extensions.ssh.ServerMessage.auth_response:type_name -> pomerium.extensions.ssh.AuthenticationResponse
+	20, // 32: pomerium.extensions.ssh.ServerMessage.global_request_response:type_name -> pomerium.extensions.ssh.GlobalRequestResponse
+	26, // 33: pomerium.extensions.ssh.AuthenticationResponse.allow:type_name -> pomerium.extensions.ssh.AllowResponse
+	31, // 34: pomerium.extensions.ssh.AuthenticationResponse.deny:type_name -> pomerium.extensions.ssh.DenyResponse
+	32, // 35: pomerium.extensions.ssh.AuthenticationResponse.info_request:type_name -> pomerium.extensions.ssh.InfoRequest
+	27, // 36: pomerium.extensions.ssh.AllowResponse.upstream:type_name -> pomerium.extensions.ssh.UpstreamTarget
+	28, // 37: pomerium.extensions.ssh.AllowResponse.internal:type_name -> pomerium.extensions.ssh.InternalTarget
+	29, // 38: pomerium.extensions.ssh.AllowResponse.mirror_session:type_name -> pomerium.extensions.ssh.MirrorSessionTarget
+	30, // 39: pomerium.extensions.ssh.UpstreamTarget.allowed_methods:type_name -> pomerium.extensions.ssh.AllowedMethod
+	63, // 40: pomerium.extensions.ssh.UpstreamTarget.extensions:type_name -> envoy.config.core.v3.TypedExtensionConfig
+	58, // 41: pomerium.extensions.ssh.InternalTarget.set_metadata:type_name -> envoy.config.core.v3.Metadata
+	2,  // 42: pomerium.extensions.ssh.MirrorSessionTarget.mode:type_name -> pomerium.extensions.ssh.MirrorSessionTarget.Mode
+	60, // 43: pomerium.extensions.ssh.AllowedMethod.method_data:type_name -> google.protobuf.Any
+	60, // 44: pomerium.extensions.ssh.InfoRequest.request:type_name -> google.protobuf.Any
+	50, // 45: pomerium.extensions.ssh.SSHChannelControlAction.hand_off:type_name -> pomerium.extensions.ssh.SSHChannelControlAction.HandOffUpstream
+	42, // 46: pomerium.extensions.ssh.PublicKeyAllowResponse.permissions:type_name -> pomerium.extensions.ssh.Permissions
+	51, // 47: pomerium.extensions.ssh.KeyboardInteractiveAllowResponse.claims:type_name -> pomerium.extensions.ssh.KeyboardInteractiveAllowResponse.ClaimsEntry
+	52, // 48: pomerium.extensions.ssh.KeyboardInteractiveInfoPrompts.prompts:type_name -> pomerium.extensions.ssh.KeyboardInteractiveInfoPrompts.Prompt
+	62, // 49: pomerium.extensions.ssh.Permissions.valid_start_time:type_name -> google.protobuf.Timestamp
+	62, // 50: pomerium.extensions.ssh.Permissions.valid_end_time:type_name -> google.protobuf.Timestamp
+	53, // 51: pomerium.extensions.ssh.Permissions.force_env:type_name -> pomerium.extensions.ssh.Permissions.ForceEnvEntry
+	0,  // 52: pomerium.extensions.ssh.FilterMetadata.mode_hint:type_name -> pomerium.extensions.ssh.InternalCLIModeHint
+	44, // 53: pomerium.extensions.ssh.EndpointMetadata.server_port:type_name -> pomerium.extensions.ssh.ServerPort
+	45, // 54: pomerium.extensions.ssh.EndpointMetadata.matched_permission:type_name -> pomerium.extensions.ssh.PortForwardPermission
+	15, // 55: pomerium.extensions.ssh.ChannelEvent.InternalChannelClosedEvent.stats:type_name -> pomerium.extensions.ssh.ChannelStats
+	13, // 56: pomerium.extensions.ssh.ChannelEvent.InternalChannelClosedEvent.diagnostics:type_name -> pomerium.extensions.ssh.Diagnostic
+	14, // 57: pomerium.extensions.ssh.ChannelEvent.ChannelStatsEvent.stats_list:type_name -> pomerium.extensions.ssh.ChannelStatsList
+	33, // 58: pomerium.extensions.ssh.SSHChannelControlAction.HandOffUpstream.downstream_channel_info:type_name -> pomerium.extensions.ssh.SSHDownstreamChannelInfo
+	34, // 59: pomerium.extensions.ssh.SSHChannelControlAction.HandOffUpstream.downstream_pty_info:type_name -> pomerium.extensions.ssh.SSHDownstreamPTYInfo
+	26, // 60: pomerium.extensions.ssh.SSHChannelControlAction.HandOffUpstream.upstream_auth:type_name -> pomerium.extensions.ssh.AllowResponse
+	64, // 61: pomerium.extensions.ssh.KeyboardInteractiveAllowResponse.ClaimsEntry.value:type_name -> google.protobuf.ListValue
+	8,  // 62: pomerium.extensions.ssh.StreamManagement.ManageStream:input_type -> pomerium.extensions.ssh.ClientMessage
+	6,  // 63: pomerium.extensions.ssh.StreamManagement.ServeChannel:input_type -> pomerium.extensions.ssh.ChannelMessage
+	24, // 64: pomerium.extensions.ssh.StreamManagement.ManageStream:output_type -> pomerium.extensions.ssh.ServerMessage
+	6,  // 65: pomerium.extensions.ssh.StreamManagement.ServeChannel:output_type -> pomerium.extensions.ssh.ChannelMessage
+	64, // [64:66] is the sub-list for method output_type
+	62, // [62:64] is the sub-list for method input_type
+	62, // [62:62] is the sub-list for extension type_name
+	62, // [62:62] is the sub-list for extension extendee
+	0,  // [0:62] is the sub-list for field type_name
 }
 
 func init() {
@@ -3845,50 +3915,50 @@ func file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ss
 	if File_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto != nil {
 		return
 	}
-	file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[2].OneofWrappers = []any{
+	file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[3].OneofWrappers = []any{
 		(*ChannelMessage_Metadata)(nil),
 		(*ChannelMessage_RawBytes)(nil),
 		(*ChannelMessage_ChannelControl)(nil),
 	}
-	file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[4].OneofWrappers = []any{
+	file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[5].OneofWrappers = []any{
 		(*ClientMessage_Event)(nil),
 		(*ClientMessage_AuthRequest)(nil),
 		(*ClientMessage_InfoResponse)(nil),
 		(*ClientMessage_GlobalRequest)(nil),
 	}
-	file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[5].OneofWrappers = []any{
+	file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[6].OneofWrappers = []any{
 		(*StreamEvent_DownstreamConnected)(nil),
 		(*StreamEvent_DownstreamDisconnected)(nil),
 		(*StreamEvent_UpstreamConnected)(nil),
 		(*StreamEvent_ChannelEvent)(nil),
 	}
-	file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[12].OneofWrappers = []any{
+	file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[13].OneofWrappers = []any{
 		(*ChannelEvent_InternalChannelOpened)(nil),
 		(*ChannelEvent_InternalChannelClosed)(nil),
 		(*ChannelEvent_ChannelStats)(nil),
 	}
-	file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[13].OneofWrappers = []any{
+	file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[14].OneofWrappers = []any{
 		(*GlobalRequest_TcpipForwardRequest)(nil),
 		(*GlobalRequest_CancelTcpipForwardRequest)(nil),
 	}
-	file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[16].OneofWrappers = []any{
+	file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[17].OneofWrappers = []any{
 		(*GlobalRequestResponse_TcpipForwardResponse)(nil),
 	}
-	file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[20].OneofWrappers = []any{
+	file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[21].OneofWrappers = []any{
 		(*ServerMessage_AuthResponse)(nil),
 		(*ServerMessage_GlobalRequestResponse)(nil),
 	}
-	file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[21].OneofWrappers = []any{
+	file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[22].OneofWrappers = []any{
 		(*AuthenticationResponse_Allow)(nil),
 		(*AuthenticationResponse_Deny)(nil),
 		(*AuthenticationResponse_InfoRequest)(nil),
 	}
-	file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[22].OneofWrappers = []any{
+	file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[23].OneofWrappers = []any{
 		(*AllowResponse_Upstream)(nil),
 		(*AllowResponse_Internal)(nil),
 		(*AllowResponse_MirrorSession)(nil),
 	}
-	file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[31].OneofWrappers = []any{
+	file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_msgTypes[32].OneofWrappers = []any{
 		(*SSHChannelControlAction_HandOff)(nil),
 	}
 	type x struct{}
@@ -3897,7 +3967,7 @@ func file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ss
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDesc), len(file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   50,
+			NumMessages:   51,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

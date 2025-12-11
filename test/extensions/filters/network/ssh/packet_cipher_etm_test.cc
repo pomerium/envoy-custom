@@ -104,12 +104,18 @@ TEST_P(ETMPacketCipherTest, DecryptBadCiphertext) {
 }
 
 std::vector<CipherParameters> AllETMCipherParameters{
-  {.alg = CipherAES128CTR,
-   .keySize = 16},
-  {.alg = CipherAES192CTR,
-   .keySize = 24},
-  {.alg = CipherAES256CTR,
-   .keySize = 32},
+  {
+    .alg = CipherAES128CTR,
+    .keySize = 16,
+  },
+  {
+    .alg = CipherAES192CTR,
+    .keySize = 24,
+  },
+  {
+    .alg = CipherAES256CTR,
+    .keySize = 32,
+  },
 };
 
 INSTANTIATE_TEST_SUITE_P(ETMPacketCipherTestSuite, ETMPacketCipherTest,

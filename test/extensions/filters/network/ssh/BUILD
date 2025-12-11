@@ -1,5 +1,6 @@
 load(
     "@envoy//bazel:envoy_build_system.bzl",
+    "envoy_cc_benchmark_binary",
     "envoy_cc_mock",
     "envoy_cc_test",
     "envoy_cc_test_library",
@@ -258,6 +259,7 @@ envoy_cc_test(
 
 envoy_cc_test(
     name = "kex_test",
+    size = "large",
     srcs = [
         "kex_test.cc",
     ],
@@ -442,5 +444,16 @@ envoy_cc_test(
     repository = "@envoy",
     deps = [
         ":integration_lib",
+    ],
+)
+
+envoy_cc_benchmark_binary(
+    name = "packet_cipher_bench_test",
+    srcs = ["packet_cipher_bench_test.cc"],
+    repository = "@envoy",
+    deps = [
+        "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "//test/test_common:test_common_lib",
+        "@com_github_google_benchmark//:benchmark",
     ],
 )
