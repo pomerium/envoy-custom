@@ -269,7 +269,9 @@ public:
         channel_open_(channel_open) {}
 
   void onStreamClosed(absl::Status err) override {
-    if (!handoff_started_) {
+    // In some cases the stream is expected to be closed: after handoff starts, or if a channel
+    // open failure was received
+    if ((!open_complete_ || open_success_) && !handoff_started_) {
       hijack_callbacks_.hijackedChannelFailed(err);
     }
   }
@@ -312,6 +314,37 @@ public:
   }
 
   absl::Status onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& msg) override {
+    auto stat = processChannelMessage(std::move(msg));
+    if (!stat.ok()) {
+      hijack_callbacks_.hijackedChannelFailed(stat);
+    }
+    return absl::OkStatus();
+  }
+
+  absl::Status readMessage(wire::Message&& msg) override {
+    if (!open_complete_) [[unlikely]] {
+      return absl::InvalidArgumentError(fmt::format(
+        "unexpected message received before channel open confirmation: {}", msg.msg_type()));
+    }
+    if (handoff_complete_) {
+      return callbacks_->sendMessageRemote(std::move(msg));
+    }
+    sendMessageToStream(std::move(msg));
+    return absl::OkStatus();
+  }
+
+  absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&& msg) override {
+    callbacks_->sendMessageLocal(std::move(msg));
+    return absl::OkStatus();
+  }
+
+  absl::Status onChannelOpenFailed(wire::ChannelOpenFailureMsg&& msg) override {
+    callbacks_->sendMessageLocal(std::move(msg));
+    return absl::OkStatus();
+  }
+
+private:
+  absl::Status processChannelMessage(Grpc::ResponsePtr<ChannelMessage>&& msg) {
     switch (msg->message_case()) {
     case pomerium::extensions::ssh::ChannelMessage::kRawBytes: {
       wire::Message anyMsg{};
@@ -333,6 +366,7 @@ public:
             return absl::InvalidArgumentError("unexpected ChannelOpenConfirmation message");
           }
           open_complete_ = true;
+          open_success_ = true;
           // ConnectionService normally calls this, but it never will for a hijacked channel since
           // it only handles messages on the read path (outgoing).
           // Note that the downstream channel ID has already been bound, so we don't need to do it
@@ -341,13 +375,15 @@ public:
           return onChannelOpened(std::move(msg));
         },
         [&](wire::ChannelOpenFailureMsg& msg) {
+          if (open_complete_) {
+            return absl::InvalidArgumentError("unexpected ChannelOpenFailure message");
+          }
+          open_complete_ = true;
+          open_success_ = false;
           // When this happens normally on the read path, the channel is destroyed after
-          // onChannelOpenFailed is called by the ConnectionService. Here, this should trigger a
-          // connection error.
+          // onChannelOpenFailed is called by the ConnectionService.
           ENVOY_LOG(debug, "hijacked channel open failed");
-          auto stat = onChannelOpenFailed(std::move(msg));
-          ASSERT(!stat.ok()); // sanity check
-          return stat;
+          return onChannelOpenFailed(std::move(msg));
         },
         [&](auto&) {
           if (!open_complete_) [[unlikely]] {
@@ -399,30 +435,6 @@ public:
     }
   }
 
-  absl::Status
-  readMessage(wire::Message&& msg) override {
-    if (!open_complete_) [[unlikely]] {
-      return absl::InvalidArgumentError(fmt::format(
-        "unexpected message received before channel open confirmation: {}", msg.msg_type()));
-    }
-    if (handoff_complete_) {
-      return callbacks_->sendMessageRemote(std::move(msg));
-    }
-    sendMessageToStream(std::move(msg));
-    return absl::OkStatus();
-  }
-
-  absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&& msg) override {
-    callbacks_->sendMessageLocal(std::move(msg));
-    return absl::OkStatus();
-  }
-
-  absl::Status onChannelOpenFailed(wire::ChannelOpenFailureMsg&& msg) override {
-    // return an error here to end the connection, instead of going through the grpc callbacks
-    return absl::InvalidArgumentError(*msg.description);
-  }
-
-private:
   void sendMessageToStream(wire::Message&& msg) {
     ChannelMessage channelMsg;
     google::protobuf::BytesValue b;
@@ -439,6 +451,7 @@ private:
   bool handoff_started_{false};
   bool handoff_complete_{false};
   bool open_complete_{false};
+  bool open_success_{false};
   HijackedChannelCallbacks& hijack_callbacks_;
   std::unique_ptr<ChannelStreamServiceClient> channel_client_;
   pomerium::extensions::ssh::InternalTarget config_;

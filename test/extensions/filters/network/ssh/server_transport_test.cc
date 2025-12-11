@@ -733,6 +733,7 @@ public:
     ASSERT(last_downstream_id_ != 0);
     wire::ChannelOpenFailureMsg msg;
     msg.recipient_channel = last_downstream_id_;
+    msg.reason_code = SSH2_OPEN_ADMINISTRATIVELY_PROHIBITED;
     msg.description = "test error"s;
     auto channelMsg = std::make_unique<ChannelMessage>();
     *channelMsg->mutable_raw_bytes()->mutable_value() = *wire::encodeTo<std::string>(msg);
@@ -866,6 +867,19 @@ TEST_F(HijackedModeTest, HijackedMode_WrongChannelOpenConfirmation) {
   SendChannelOpenConfirmation(*channel1);
 }
 
+TEST_F(HijackedModeTest, HijackedMode_WrongChannelOpenFailure) {
+  ASSERT_OK(SetupHijackedMode());
+  auto channel1 = StartChannel();
+  ASSERT_OK(channel1.status());
+
+  SendChannelOpenConfirmation(*channel1);
+  wire::ChannelOpenConfirmationMsg confirm;
+  ASSERT_OK(ReadMsg(confirm));
+
+  EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("unexpected ChannelOpenFailure message"));
+  SendChannelOpenFailure();
+}
+
 TEST_F(HijackedModeTest, HijackedMode_OpenChannelFromUpstreamUnimplemented) {
   ASSERT_OK(SetupHijackedMode());
   auto channel1 = StartChannel();
@@ -966,8 +980,11 @@ TEST_F(HijackedModeTest, HijackedMode_ChannelOpenFailure) {
   ASSERT_OK(SetupHijackedMode());
   auto channel1 = StartChannel();
   ASSERT_OK(channel1.status());
-  EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("test error"));
   SendChannelOpenFailure();
+  wire::ChannelOpenFailureMsg failure;
+  ASSERT_OK(ReadMsg(failure));
+  ASSERT_EQ(SSH2_OPEN_ADMINISTRATIVELY_PROHIBITED, *failure.reason_code);
+  ASSERT_EQ("test error", *failure.description);
 }
 
 TEST_F(HijackedModeTest, HijackedMode_InvalidChannelControlMsg) {
