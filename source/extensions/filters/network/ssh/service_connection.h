@@ -6,6 +6,7 @@
 #include "source/extensions/filters/network/ssh/service.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "source/common/common/linked_object.h"
+#include "source/common/common/callback_impl.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -37,6 +38,17 @@ public:
   // have not done so already (i.e. if the ChannelClose was received as an expected response to
   // one sent previously).
   absl::StatusOr<uint32_t> startChannel(std::unique_ptr<Channel> channel, std::optional<uint32_t> channel_id = std::nullopt) final;
+  void onServerDraining(std::chrono::milliseconds delay) final {
+    ENVOY_LOG(debug, "ssh: stream {}: handling graceful shutdown (delay: {})", transport_.streamId(), delay);
+    runInterruptCallbacks(absl::UnavailableError("server shutting down"));
+    transport_.terminate(absl::UnavailableError("server shutting down"));
+  }
+  size_t runInterruptCallbacks(absl::Status status) {
+    auto n = interrupt_callbacks_.size();
+    ENVOY_LOG(debug, "ssh: stream {}: running {} interrupt callbacks", transport_.streamId(), n);
+    interrupt_callbacks_.runCallbacks(status, transport_);
+    return n;
+  }
   absl::Status handleMessage(wire::Message&& ssh_msg) override;
   absl::Status maybeStartPassthroughChannel(uint32_t internal_id);
   void registerMessageHandlers(SshMessageDispatcher& dispatcher) override;
@@ -51,6 +63,9 @@ public:
     Stats::Scope& scope() const override { return *scope_; }
     void setStatsProvider(ChannelStatsProvider& stats_provider) override { stats_provider_ = stats_provider; }
     Envoy::OptRef<ChannelStatsProvider> statsProvider() const { return stats_provider_; }
+    Envoy::Common::CallbackHandlePtr addInterruptCallback(std::function<void(absl::Status, TransportCallbacks& transport)> cb) final {
+      return parent_.interrupt_callbacks_.add(std::move(cb));
+    }
 
   private:
     void cleanup() override;
@@ -71,6 +86,7 @@ protected:
   // field order is important: callbacks must not be destroyed before the channels are
   std::list<std::unique_ptr<ChannelCallbacksImpl>> channel_callbacks_;
   absl::flat_hash_map<uint32_t, std::unique_ptr<Channel>> channels_;
+  Envoy::Common::CallbackManager<void, absl::Status, TransportCallbacks&> interrupt_callbacks_;
 };
 
 class HijackedChannelCallbacks {

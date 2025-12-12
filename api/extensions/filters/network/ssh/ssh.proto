@@ -343,10 +343,20 @@ message SSHChannelControlAction {
     AllowResponse            upstream_auth           = 4;
   }
 
+  message InterruptOptions {
+    // If set, Envoy will send a channel data message to the client just before disconnecting
+    // with the specified contents.
+    bytes send_channel_data = 1;
+  }
+
   oneof action {
     // HandOffUpstream instructs Envoy to end the "hijacked" internal stream, and connect the
     // downstream client to the real upstream server.
     HandOffUpstream hand_off = 2;
+
+    // Configures logic for handling cleanup or other finalization tasks if the connection
+    // is interrupted.
+    InterruptOptions set_interrupt_options = 3;
   }
 }
 

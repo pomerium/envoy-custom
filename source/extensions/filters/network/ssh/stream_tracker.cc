@@ -1,6 +1,7 @@
 #include "source/extensions/filters/network/ssh/stream_tracker.h"
 #include "source/common/visit.h"
 #include "source/extensions/filters/network/ssh/channel.h"
+#include "absl/synchronization/notification.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -20,7 +21,26 @@ StreamTracker::StreamTracker(Server::Configuration::ServerFactoryContext& contex
       scope_(context.scope()),
       stat_names_(scope_.symbolTable()),
       stats_(stat_names_, scope_, stat_names_.ssh_) {
-  thread_local_stream_table_.set([](Event::Dispatcher&) {
+  drain_cb_ = context.drainManager().addOnDrainCloseCb(Network::DrainDirection::InboundOnly, [this](std::chrono::milliseconds delay) {
+    ASSERT(main_thread_dispatcher_.isThreadSafe());
+    ENVOY_LOG(info, "ssh: starting graceful shutdown");
+    thread_local_stream_table_.runOnAllThreads(
+      [delay](Envoy::OptRef<ThreadLocalStreamTable> obj) {
+        for (auto& [stream_id, ctx] : obj->get()) {
+          basic_visit(
+            ctx,
+            [&](Envoy::Event::Dispatcher*) {},
+            [&](StreamContext& ctx) {
+              ctx.streamCallbacks().onServerDraining(delay);
+            });
+        }
+      },
+      [start = absl::Now()] {
+        ENVOY_LOG(info, "ssh: graceful shutdown completed after {}", absl::FormatDuration(absl::Now() - start));
+      });
+    return absl::OkStatus();
+  });
+  thread_local_stream_table_.set([](Envoy::Event::Dispatcher&) {
     return std::make_shared<ThreadLocalStreamTable>();
   });
 }
@@ -31,7 +51,7 @@ void StreamTracker::tryLock(stream_id_t key, absl::AnyInvocable<void(Envoy::OptR
   if (auto&& it = table.find(key); it != table.end()) {
     basic_visit(
       it->second,
-      [&](Event::Dispatcher* d) {
+      [&](Envoy::Event::Dispatcher* d) {
         d->post([this, key, cb = std::move(cb)] mutable {
           tryLock(key, std::move(cb));
         });
