@@ -17,7 +17,6 @@
 #include "source/extensions/filters/network/ssh/service_userauth.h"   // IWYU pragma: keep
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include <atomic>
 
 extern "C" {
 #include "openssh/ssh2.h"
@@ -35,33 +34,44 @@ public:
       : server_config_(newConfig()),
         client_host_key_(*openssh::SSHKey::generate(KEY_ED25519, 256)),
         secrets_provider_(*server_config_),
-        transport_(
-          server_factory_context_,
-          server_config_,
-          [this] {
-            auto client = std::make_shared<testing::NiceMock<Grpc::MockAsyncClient>>();
-            ON_CALL(*client, startRaw("pomerium.extensions.ssh.StreamManagement", "ManageStream", _, _))
-              .WillByDefault(Invoke([this](absl::string_view, absl::string_view,
-                                           Envoy::Grpc::RawAsyncStreamCallbacks& callbacks,
-                                           const Http::AsyncClient::StreamOptions&) {
-                // dynamic cast the reference, not the pointer, so that failures throw an exception instead
-                // of returning nullptr
-                ASSERT(manage_stream_callbacks_ == nullptr);
-                manage_stream_callbacks_ = &dynamic_cast<Envoy::Grpc::AsyncStreamCallbacks<ServerMessage>&>(callbacks);
-                return &manage_stream_stream_;
-              }));
-            ON_CALL(*client, startRaw("pomerium.extensions.ssh.StreamManagement", "ServeChannel", _, _))
-              .WillByDefault(Invoke([this](absl::string_view, absl::string_view,
-                                           Envoy::Grpc::RawAsyncStreamCallbacks& callbacks,
-                                           const Http::AsyncClient::StreamOptions&) {
-                serve_channel_callbacks_.push_back(&dynamic_cast<Envoy::Grpc::AsyncStreamCallbacks<ChannelMessage>&>(callbacks));
-                return &serve_channel_stream_;
-              }));
+        transport_([this] {
+          ON_CALL(server_factory_context_.drain_manager_, addOnDrainCloseCb)
+            .WillByDefault([this](Network::DrainDirection, Network::DrainDecision::DrainCloseCb cb) {
+              return drain_close_callbacks_.add(std::move(cb));
+            });
+          ON_CALL(server_factory_context_.drain_manager_, startDrainSequence)
+            .WillByDefault([this](Network::DrainDirection, std::function<void()> completion) {
+              ASSERT_OK(drain_close_callbacks_.runCallbacks(std::chrono::milliseconds{}));
+              completion();
+            });
+          return SshServerTransport(
+            server_factory_context_,
+            server_config_,
+            [this] {
+              auto client = std::make_shared<testing::NiceMock<Grpc::MockAsyncClient>>();
+              ON_CALL(*client, startRaw("pomerium.extensions.ssh.StreamManagement", "ManageStream", _, _))
+                .WillByDefault(Invoke([this](absl::string_view, absl::string_view,
+                                             Envoy::Grpc::RawAsyncStreamCallbacks& callbacks,
+                                             const Http::AsyncClient::StreamOptions&) {
+                  // dynamic cast the reference, not the pointer, so that failures throw an exception instead
+                  // of returning nullptr
+                  ASSERT(manage_stream_callbacks_ == nullptr);
+                  manage_stream_callbacks_ = &dynamic_cast<Envoy::Grpc::AsyncStreamCallbacks<ServerMessage>&>(callbacks);
+                  return &manage_stream_stream_;
+                }));
+              ON_CALL(*client, startRaw("pomerium.extensions.ssh.StreamManagement", "ServeChannel", _, _))
+                .WillByDefault(Invoke([this](absl::string_view, absl::string_view,
+                                             Envoy::Grpc::RawAsyncStreamCallbacks& callbacks,
+                                             const Http::AsyncClient::StreamOptions&) {
+                  serve_channel_callbacks_.push_back(&dynamic_cast<Envoy::Grpc::AsyncStreamCallbacks<ChannelMessage>&>(callbacks));
+                  return &serve_channel_stream_;
+                }));
 
-            return client;
-          },
-          StreamTracker::fromContext(server_factory_context_),
-          secrets_provider_) {}
+              return client;
+            },
+            StreamTracker::fromContext(server_factory_context_),
+            secrets_provider_);
+        }()) {}
 
   const wire::KexInitMsg kex_init_ = {
     .cookie = {{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}},
@@ -98,11 +108,17 @@ public:
     EXPECT_CALL(server_codec_callbacks_, connection())
       .Times(AnyNumber());
 
+    terminate_cb_ = new NiceMock<Envoy::Event::MockSchedulableCallback>(&mock_connection_.dispatcher_);
+    EXPECT_CALL(*terminate_cb_, scheduleCallbackNextIteration)
+      .Times(testing::AtMost(1))
+      .WillOnce([&] {
+        terminate_cb_->scheduleCallbackCurrentIteration();
+        terminate_cb_->invokeCallback();
+      });
     transport_.onConnected();
     // check that the connection dispatcher is set after onConnected()
     ASSERT_TRUE(transport_.connectionDispatcher().has_value());
     ASSERT_EQ(transport_.connectionDispatcher().ptr(), &mock_connection_.dispatcher_);
-
     // Replace the transport's ChannelIDManager to set the starting channel ID to 100. This makes
     // it easier to differentiate internal IDs in tests. The default starting ID is also 0, which
     // causes fields to be omitted when printing protobuf messages.
@@ -315,6 +331,7 @@ public:
 
   testing::NiceMock<Server::Configuration::MockServerFactoryContext> server_factory_context_;
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> server_config_;
+  Envoy::Common::CallbackManager<absl::Status, std::chrono::milliseconds> drain_close_callbacks_;
 
   seqnum_t read_seqnum_{};
   seqnum_t write_seqnum_{};
@@ -331,6 +348,7 @@ public:
   testing::NiceMock<Grpc::MockAsyncStream> manage_stream_stream_;
   testing::NiceMock<Grpc::MockAsyncStream> serve_channel_stream_;
   SshServerTransport transport_;
+  NiceMock<Envoy::Event::MockSchedulableCallback>* terminate_cb_;
 
 private:
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> newConfig() {
@@ -368,6 +386,19 @@ TEST_F(ServerTransportTest, Terminate) {
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("test error"sv));
 
   transport_.terminate(absl::ResourceExhaustedError("test error"));
+
+  wire::DisconnectMsg disconnect;
+  ASSERT_OK(ReadMsg(disconnect));
+  EXPECT_EQ(disconnect.description, "Resource Exhausted: test error");
+}
+
+TEST_F(ServerTransportTest, TerminateTwice) {
+  ASSERT_OK(ReadExtInfo());
+
+  EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("test error"sv));
+
+  transport_.terminate(absl::ResourceExhaustedError("test error"));
+  transport_.terminate(absl::InternalError("ignored"));
 
   wire::DisconnectMsg disconnect;
   ASSERT_OK(ReadMsg(disconnect));
@@ -499,12 +530,18 @@ TEST_F(ServerTransportTest, HostKeysProve_NoKeyForAlgorithm) {
 TEST_F(ServerTransportTest, TcpipForwardRequest_UpstreamNotReady) {
   ASSERT_OK(ReadExtInfo());
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("unexpected message received: GlobalRequest (80)"))
-    .Times(2);
+    .Times(1);
 
   ASSERT_OK(WriteMsg(wire::GlobalRequestMsg{
     .want_reply = true,
     .request = wire::TcpipForwardMsg{},
   }));
+}
+
+TEST_F(ServerTransportTest, TcpipForwardCancel_UpstreamNotReady) {
+  ASSERT_OK(ReadExtInfo());
+  EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("unexpected message received: GlobalRequest (80)"))
+    .Times(1);
 
   ASSERT_OK(WriteMsg(wire::GlobalRequestMsg{
     .want_reply = true,
@@ -1029,6 +1066,33 @@ TEST_F(HijackedModeTest, HijackedMode_InvalidControlMsg) {
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("received invalid channel message: unknown message type: 0"));
   auto channelMsg = std::make_unique<ChannelMessage>();
   serve_channel_callbacks_[0]->onReceiveMessage(std::move(channelMsg));
+}
+
+TEST_F(HijackedModeTest, HijackedMode_InterruptConfig) {
+  ASSERT_OK(SetupHijackedMode());
+  auto channel1 = StartChannel();
+  ASSERT_OK(channel1.status());
+
+  SendChannelOpenConfirmation(*channel1);
+  wire::ChannelOpenConfirmationMsg confirm;
+  ASSERT_OK(ReadMsg(confirm));
+
+  auto channelMsg = std::make_unique<ChannelMessage>();
+  SSHChannelControlAction action;
+  *action.mutable_set_interrupt_options()->mutable_send_channel_data() = "goodbye world";
+  channelMsg->mutable_channel_control()->mutable_control_action()->PackFrom(action);
+
+  serve_channel_callbacks_[0]->onReceiveMessage(std::move(channelMsg));
+
+  EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("server shutting down"));
+  server_factory_context_.drainManager().startDrainSequence(Network::DrainDirection::All, [] {});
+  wire::ChannelDataMsg msg;
+  ASSERT_OK(ReadMsg(msg));
+  ASSERT_EQ("goodbye world"_bytes, *msg.data);
+  wire::DisconnectMsg serverDisconnect;
+  ASSERT_OK(ReadMsg(serverDisconnect));
+  EXPECT_THAT(*serverDisconnect.description, HasSubstr("server shutting down"));
+  EXPECT_EQ(SSH2_DISCONNECT_SERVICE_NOT_AVAILABLE, *serverDisconnect.reason_code);
 }
 
 TEST_F(HijackedModeTest, HijackedMode_NoChannelRequest) {

@@ -1,8 +1,10 @@
 #pragma once
 
+#include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #pragma clang unsafe_buffer_usage begin
 #include "envoy/stats/scope.h"
+#include "envoy/common/callback.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #pragma clang unsafe_buffer_usage end
 
@@ -40,6 +42,8 @@ public:
   // provider's populateChannelStats() method will be invoked at regular intervals to obtain stats
   // for the channel.
   virtual void setStatsProvider(ChannelStatsProvider& stats_provider) PURE;
+
+  virtual Common::CallbackHandlePtr addInterruptCallback(std::function<void(absl::Status, TransportCallbacks& transport)> cb) PURE;
 
 private:
   friend class Channel;

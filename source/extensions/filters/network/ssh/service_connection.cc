@@ -272,6 +272,9 @@ public:
     // In some cases the stream is expected to be closed: after handoff starts, or if a channel
     // open failure was received
     if ((!open_complete_ || open_success_) && !handoff_started_) {
+      if (absl::IsInternal(err)) {
+        err = absl::UnavailableError("management server shutting down");
+      }
       hijack_callbacks_.hijackedChannelFailed(err);
     }
   }
@@ -424,6 +427,19 @@ private:
         handoff_complete_ = true;
         return absl::OkStatus();
       }
+      case pomerium::extensions::ssh::SSHChannelControlAction::kSetInterruptOptions: {
+        interrupt_callback_handle_.reset();
+        if (auto data = ctrl_action.set_interrupt_options().send_channel_data(); !data.empty()) {
+          wire::ChannelDataMsg msg;
+          msg.recipient_channel = callbacks_->channelId();
+          msg.data = to_bytes(data);
+          interrupt_callback_handle_ = callbacks_->addInterruptCallback(
+            [msg = std::move(msg)](absl::Status _, TransportCallbacks& transport) {
+              transport.sendMessageToConnection(std::move(msg)).IgnoreError();
+            });
+        }
+        return absl::OkStatus();
+      }
       default:
         return absl::InternalError(fmt::format("received invalid channel message: unknown action type: {}",
                                                static_cast<int>(ctrl_action.action_case())));
@@ -456,6 +472,7 @@ private:
   std::unique_ptr<ChannelStreamServiceClient> channel_client_;
   pomerium::extensions::ssh::InternalTarget config_;
   wire::ChannelOpenMsg channel_open_;
+  Common::CallbackHandlePtr interrupt_callback_handle_;
 };
 
 class OpenHijackedChannelMiddleware : public SshMessageMiddleware {
