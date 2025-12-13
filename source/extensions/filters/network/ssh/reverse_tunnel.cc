@@ -8,12 +8,12 @@
 #include "source/extensions/filters/network/ssh/filter_state_objects.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
-#include <cstddef>
 
 #pragma clang unsafe_buffer_usage begin
 #include "envoy/config/endpoint/v3/endpoint.pb.h"
 #include "envoy/config/endpoint/v3/endpoint.pb.validate.h"
 #include "source/common/network/connection_impl.h"
+#include "source/extensions/io_socket/user_space/io_handle_impl.h"
 #include "source/common/network/connection_socket_impl.h"
 #include "envoy/network/client_connection_factory.h"
 #include "source/common/grpc/common.h"
@@ -25,6 +25,35 @@
 #pragma clang unsafe_buffer_usage end
 
 using Envoy::Extensions::IoSocket::UserSpace::IoHandleFactory;
+
+namespace Envoy::Network {
+
+class InternalStreamPassthroughState : public Envoy::Extensions::IoSocket::UserSpace::PassthroughStateImpl {
+public:
+  using enum PassthroughStateImpl::State;
+
+  void initialize(std::unique_ptr<envoy::config::core::v3::Metadata> metadata,
+                  const StreamInfo::FilterState::Objects& filter_state_objects) override {
+    ASSERT(state_ == State::Created);
+    PassthroughStateImpl::initialize(std::move(metadata), filter_state_objects);
+    ASSERT(state_ == State::Initialized);
+  }
+
+  bool isInitialized() const {
+    return state_ == State::Initialized;
+  }
+
+  bool isHealthCheck() const {
+    return isInitialized() && metadata_ == nullptr && filter_state_objects_.empty();
+  }
+
+  static std::shared_ptr<InternalStreamPassthroughState> fromIoHandle(IoHandle& io_handle) {
+    return std::dynamic_pointer_cast<InternalStreamPassthroughState>(
+      dynamic_cast<Extensions::IoSocket::UserSpace::IoHandleImpl&>(io_handle).passthroughState());
+  }
+};
+
+} // namespace Envoy::Network
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -97,13 +126,15 @@ public:
     remote_dispatcher_.post([this] {
       initialized_ = true;
       // First check if the socket has been closed
+      bool isDynamic = metadata_->server_port().is_dynamic();
       if (socket_closed_) {
-        ENVOY_LOG(debug, "channel {}: downstream closed before initialization");
-        onError(absl::CancelledError("downstream closed"));
+        ENVOY_LOG(debug, "channel {}: downstream closed before initialization", peer_state_.id);
+        // If the downstream closes before sending any data, and the upstream is expecting a SOCKS
+        // handshake, we have to send it an EOF before closing the channel because ???
+        onError(absl::CancelledError("downstream closed"), isDynamic);
         return;
       }
       ENVOY_LOG(debug, "channel {}: remote stream handler initialized", peer_state_.id);
-      bool isDynamic = metadata_->server_port().is_dynamic();
       if (isDynamic) {
         ENVOY_LOG(debug, "channel {}: starting socks5 handshake", peer_state_.id);
         startSocks5Handshake();
@@ -256,8 +287,10 @@ private:
       ENVOY_LOG(debug, "channel {}: local peer exited without sending a ChannelClose message");
     }
     // Close it for reading and writing, since reads are impossible
-    ENVOY_BUG(io_handle_->isOpen(), "bug: io handle is closed");
-    io_handle_->close();
+    // ENVOY_BUG(io_handle_->isOpen(), "bug: io handle is closed");
+    if (io_handle_->isOpen()) {
+      io_handle_->close();
+    }
 
     // If we did receive a channel close, allow the response to be received by the downstream.
     // Once that happens, we will receive the socket close event, where the deferred deletion is
@@ -673,6 +706,7 @@ public:
                             const pomerium::extensions::ssh::EndpointMetadata& host_metadata,
                             Network::HostDrainManager& host_drain_manager,
                             std::shared_ptr<const envoy::config::core::v3::Address> upstream_address,
+                            Network::ReverseTunnelClusterContext& cluster_context,
                             std::shared_ptr<Network::InternalStreamPassthroughState> passthrough_state)
       : remote_(std::move(remote)),
         local_dispatcher_(local_dispatcher),
@@ -681,7 +715,8 @@ public:
         host_drain_callback_(host_drain_manager.addHostDrainCallback(local_dispatcher, [this] {
           onHostDraining();
         })),
-        upstream_address_(upstream_address) {
+        upstream_address_(upstream_address), //
+        cluster_config_(cluster_context.clusterConfig()) {
     ASSERT(local_dispatcher_.isThreadSafe());
     loadPassthroughMetadata(passthrough_state);
   }
@@ -719,8 +754,13 @@ public:
       req.address_connected = metadata_.matched_permission().requested_host();
     }
     req.port_connected = metadata_.server_port().value();
-    req.originator_address = downstream_address_->ip()->addressAsString(),
-    req.originator_port = downstream_address_->ip()->port();
+    if (downstream_address_ != nullptr) {
+      req.originator_address = downstream_address_->ip()->addressAsString(),
+      req.originator_port = downstream_address_->ip()->port();
+    } else {
+      req.originator_address = "127.0.0.1";
+      req.originator_port = 0;
+    }
 
     wire::ChannelOpenMsg open{
       .sender_channel = channel_id_,
@@ -811,9 +851,15 @@ public:
     pomerium::extensions::ssh::ChannelEvent ev;
     auto* opened = ev.mutable_internal_channel_opened();
     opened->set_channel_id(channel_id_);
-    opened->set_hostname(server_name_); // TODO: it would be better to pass cluster id here instead
-    opened->set_path(path_);
-    opened->set_peer_address(downstream_address_->asStringView());
+    if (downstream_address_ != nullptr) {
+      opened->set_hostname(server_name_); // TODO: it would be better to pass cluster id here instead
+      opened->set_path(path_);
+      opened->set_peer_address(downstream_address_->asStringView());
+    } else {
+      opened->set_hostname(fmt::format("{}:{}", upstream_address_->socket_address().address(),
+                                       upstream_address_->socket_address().port_value()));
+      opened->set_peer_address("envoy_health_check");
+    }
     event_callbacks_.sendChannelEvent(ev);
     return absl::OkStatus();
   }
@@ -938,6 +984,12 @@ private:
   void loadPassthroughMetadata(std::shared_ptr<Network::InternalStreamPassthroughState> passthrough_state) {
     RELEASE_ASSERT(passthrough_state->isInitialized(), "");
 
+    if (passthrough_state->isHealthCheck()) {
+      for (const auto& hc : cluster_config_.health_checks()) {
+      }
+      return;
+    }
+
     envoy::config::core::v3::Metadata passthrough_metadata;
     StreamInfo::FilterStateImpl passthrough_filter_state{StreamInfo::FilterState::LifeSpan::Connection};
 
@@ -1029,6 +1081,7 @@ private:
   Envoy::Common::CallbackHandlePtr host_drain_callback_;
   Envoy::Network::Address::InstanceConstSharedPtr downstream_address_;
   std::shared_ptr<const envoy::config::core::v3::Address> upstream_address_;
+  const envoy::config::cluster::v3::Cluster& cluster_config_;
   std::string server_name_;
   std::string path_;
 };
@@ -1068,7 +1121,6 @@ public:
     auto& hostContext = streamAddress->hostContext();
     auto upstreamAddr = hostContext.clusterContext().chooseUpstreamAddress();
 
-    ENVOY_LOG(debug, "channel {}: starting remote stream handler");
     using Extensions::NetworkFilters::GenericProxy::Codec::RemoteStreamHandler;
     auto remoteStreamHandler = std::make_unique<RemoteStreamHandler>(std::move(local),
                                                                      dispatcher,
@@ -1097,6 +1149,7 @@ public:
                                                              hostContext->hostMetadata(),
                                                              hostContext->hostDrainManager(),
                                                              upstreamAddr,
+                                                             hostContext->clusterContext(),
                                                              passthroughState);
         auto id = ctx->streamCallbacks().startChannel(std::move(c), std::nullopt);
         if (!id.ok()) {
@@ -1110,7 +1163,6 @@ public:
   }
 };
 REGISTER_FACTORY(SshTunnelClientConnectionFactory, ClientConnectionFactory);
-
 } // namespace Envoy::Network
 
 namespace Envoy::Upstream {
@@ -1170,7 +1222,13 @@ public:
                  envoy::config::endpoint::v3::Endpoint::HealthCheckConfig::default_instance(),
                  0, // priority class (only 0 is used)
                  envoy::config::core::v3::HEALTHY) {
-    setDisableActiveHealthCheck(true);
+    setDisableActiveHealthCheck(false);
+  }
+
+  CreateConnectionData createHealthCheckConnection(Event::Dispatcher& dispatcher,
+                                                   Network::TransportSocketOptionsConstSharedPtr transport_socket_options,
+                                                   const envoy::config::core::v3::Metadata* metadata) const override {
+    return HostImpl::createHealthCheckConnection(dispatcher, transport_socket_options, metadata);
   }
 
   void setEdsHealthStatus(HealthStatus health_status) override {
@@ -1184,10 +1242,12 @@ public:
 class ReverseTunnelClusterContextImpl : public Network::ReverseTunnelClusterContext {
 public:
   ReverseTunnelClusterContextImpl(ClusterInfoConstSharedPtr cluster_info,
+                                  const envoy::config::cluster::v3::Cluster& cluster_config,
                                   std::shared_ptr<StreamTracker> stream_tracker,
                                   const envoy::config::endpoint::v3::ClusterLoadAssignment& load_assignment,
                                   ReverseTunnelStats& reverse_tunnel_stats)
       : cluster_info_(cluster_info),
+        cluster_config_(cluster_config),
         stream_tracker_(std::move(stream_tracker)),
         reverse_tunnel_stats_(reverse_tunnel_stats) {
     for (const auto& endpoint : load_assignment.endpoints()) {
@@ -1199,6 +1259,7 @@ public:
   }
 
   const ClusterInfoConstSharedPtr& clusterInfo() override { return cluster_info_; }
+  const envoy::config::cluster::v3::Cluster& clusterConfig() override { return cluster_config_; }
   std::shared_ptr<StreamTracker> streamTracker() override { return stream_tracker_; }
   ReverseTunnelStats& reverseTunnelStats() override { return reverse_tunnel_stats_; }
 
@@ -1210,6 +1271,7 @@ public:
 
 private:
   ClusterInfoConstSharedPtr cluster_info_;
+  const envoy::config::cluster::v3::Cluster& cluster_config_; // owned by SshReverseTunnelCluster
   std::shared_ptr<StreamTracker> stream_tracker_;
   std::vector<std::shared_ptr<const envoy::config::core::v3::Address>> upstream_addresses_;
   ReverseTunnelStats& reverse_tunnel_stats_; // owned by the cluster
@@ -1247,7 +1309,7 @@ SshReverseTunnelCluster::SshReverseTunnelCluster(const envoy::config::cluster::v
       reverse_tunnel_stats_(reverse_tunnel_stat_names_, info_->statsScope(), reverse_tunnel_stat_names_.ssh_reverse_tunnel_),
       dispatcher_(cluster_context.serverFactoryContext().mainThreadDispatcher()),
       owned_context_(std::make_unique<ReverseTunnelClusterContextImpl>(
-        info_, stream_tracker_, load_assignment, reverse_tunnel_stats_)) {
+        info_, cluster_, stream_tracker_, load_assignment, reverse_tunnel_stats_)) {
   ASSERT_IS_MAIN_OR_TEST_THREAD();
   RETURN_ONLY_IF_NOT_OK_REF(creation_status);
 

@@ -1,19 +1,142 @@
+diff --git a/source/extensions/io_socket/user_space/file_event_impl.cc b/source/extensions/io_socket/user_space/file_event_impl.cc
+index 6608c0a249..9c634faab9 100644
+--- a/source/extensions/io_socket/user_space/file_event_impl.cc
++++ b/source/extensions/io_socket/user_space/file_event_impl.cc
+@@ -12,8 +12,8 @@ FileEventImpl::FileEventImpl(Event::Dispatcher& dispatcher, Event::FileReadyCb c
+                              IoHandle& io_source)
+     : schedulable_(dispatcher.createSchedulableCallback([this, cb]() {
+         auto ephemeral_events = event_listener_.getAndClearEphemeralEvents();
+-        ENVOY_LOG(trace, "User space event {} invokes callbacks on events = {}",
+-                  static_cast<void*>(this), ephemeral_events);
++        ENVOY_LOG(trace, "io handle {} invokes callbacks on events = {}", io_source_.debugId(),
++                  eventsToString(ephemeral_events));
+         THROW_IF_NOT_OK(cb(ephemeral_events));
+       })),
+       io_source_(io_source) {
+@@ -24,6 +24,13 @@ void FileEventImpl::activate(uint32_t events) {
+   // Only supported event types are set.
+   ASSERT((events & (Event::FileReadyType::Read | Event::FileReadyType::Write |
+                     Event::FileReadyType::Closed)) == events);
++  if (!opened_ && (events & Event::FileReadyType::Write) != 0) {
++    ENVOY_LOG(trace, "write event activated for io handle {}; connection now open",
++              io_source_.debugId());
++    opened_ = true;
++  } else if (!opened_) {
++    ENVOY_LOG(trace, "io handle {} not opened yet", io_source_.debugId());
++  }
+   event_listener_.onEventActivated(events);
+   schedulable_->scheduleCallbackNextIteration();
+ }
+@@ -36,7 +43,6 @@ void FileEventImpl::setEnabled(uint32_t events) {
+   // delivering events that are no longer relevant.
+   event_listener_.clearEphemeralEvents();
+   event_listener_.setEnabledEvents(events);
+-  bool was_enabled = schedulable_->enabled();
+   // Recalculate activated events.
+   uint32_t events_to_notify = 0;
+   if ((events & Event::FileReadyType::Read) && (io_source_.isReadable() ||
+@@ -51,14 +57,16 @@ void FileEventImpl::setEnabled(uint32_t events) {
+     events_to_notify |= Event::FileReadyType::Closed;
+   }
+   if (events_to_notify != 0) {
++    ENVOY_LOG(trace, "io handle {} set enabled events {}; activating events {}",
++              io_source_.debugId(), eventsToString(events), eventsToString(events_to_notify));
+     activate(events_to_notify);
+   } else {
++    bool was_enabled = schedulable_->enabled();
++    ENVOY_LOG(trace, "io handle {} set enabled events {} but no events activated{}",
++              io_source_.debugId(), eventsToString(events),
++              was_enabled ? ", canceling scheduled callback " : "");
+     schedulable_->cancel();
+   }
+-  ENVOY_LOG(
+-      trace,
+-      "User space file event {} set enabled events {} and events {} is active. Will {}reschedule.",
+-      static_cast<void*>(this), events, events_to_notify, was_enabled ? "not " : "");
+ }
+ 
+ void FileEventImpl::activateIfEnabled(uint32_t events) {
 diff --git a/source/extensions/io_socket/user_space/file_event_impl.h b/source/extensions/io_socket/user_space/file_event_impl.h
-index ad27383b1d..b9b9c120f5 100644
+index ad27383b1d..55a2225bc2 100644
 --- a/source/extensions/io_socket/user_space/file_event_impl.h
 +++ b/source/extensions/io_socket/user_space/file_event_impl.h
-@@ -34,6 +34,9 @@ public:
+@@ -14,6 +14,26 @@ namespace Extensions {
+ namespace IoSocket {
+ namespace UserSpace {
+ 
++constexpr const char* eventsToString(uint32_t events) {
++  switch (events) {
++  case Event::FileReadyType::Read:
++    return "Read";
++  case Event::FileReadyType::Write:
++    return "Write";
++  case Event::FileReadyType::Closed:
++    return "Closed";
++  case Event::FileReadyType::Read | Event::FileReadyType::Write:
++    return "Read|Write";
++  case Event::FileReadyType::Read | Event::FileReadyType::Closed:
++    return "Read|Closed";
++  case Event::FileReadyType::Write | Event::FileReadyType::Closed:
++    return "Write|Closed";
++  case Event::FileReadyType::Read | Event::FileReadyType::Write | Event::FileReadyType::Closed:
++    return "Read|Write|Closed";
++  }
++  return "(Invalid)";
++}
++
+ // A FileEvent implementation which is used to drive UserSpaceHandle.
+ // Declare the class final to safely call virtual function setEnabled in constructor.
+ class FileEventImpl final : public Event::FileEvent, Logger::Loggable<Logger::Id::io> {
+@@ -34,6 +54,11 @@ public:
    // events are enabled.
    void activateIfEnabled(uint32_t events);
  
 +  // Return the enabled events.
 +  uint32_t getEnabledEvents() { return event_listener_.getEnabledEvents(); }
 +
++  bool opened() const { return opened_; }
++
  private:
    // This class maintains the ephemeral events and enabled events.
    class EventListener {
+@@ -62,6 +87,8 @@ private:
+     uint32_t enabled_events_{};
+   };
+ 
++  bool opened_{false};
++
+   // Used to populate the event operations of enable and activate.
+   EventListener event_listener_;
+ 
+diff --git a/source/extensions/io_socket/user_space/io_handle.h b/source/extensions/io_socket/user_space/io_handle.h
+index 20c9e24f1e..da796ad18f 100644
+--- a/source/extensions/io_socket/user_space/io_handle.h
++++ b/source/extensions/io_socket/user_space/io_handle.h
+@@ -80,7 +80,12 @@ public:
+   /**
+    * Raised by the peer when the peer switch from high water mark to low.
+    */
+-  virtual void onPeerBufferLowWatermark() PURE;
++  virtual void activateWriteIfEnabled() PURE;
++
++  /**
++   * Activates the peer's write event.
++   */
++  virtual void activatePeerWriteIfEnabled() PURE;
+ 
+   /**
+    * @return true if the pending receive buffer is not empty or read_end is set.
+@@ -91,6 +96,8 @@ public:
+    * @return shared state between peering user space IO handles.
+    */
+   virtual PassthroughStateSharedPtr passthroughState() PURE;
++
++  virtual uint32_t debugId() const PURE;
+ };
+ } // namespace UserSpace
+ } // namespace IoSocket
 diff --git a/source/extensions/io_socket/user_space/io_handle_impl.cc b/source/extensions/io_socket/user_space/io_handle_impl.cc
-index c08347967f..9f28141212 100644
+index c08347967f..5d4863e4a3 100644
 --- a/source/extensions/io_socket/user_space/io_handle_impl.cc
 +++ b/source/extensions/io_socket/user_space/io_handle_impl.cc
 @@ -55,9 +55,9 @@ const Network::Address::InstanceConstSharedPtr& IoHandleImpl::getCommonInternalA
@@ -29,96 +152,246 @@ index c08347967f..9f28141212 100644
  
  IoHandleImpl::~IoHandleImpl() {
    if (!closed_) {
-@@ -347,8 +347,24 @@ void IoHandleImpl::activateFileEvents(uint32_t events) {
+@@ -69,15 +69,15 @@ Api::IoCallUint64Result IoHandleImpl::close() {
+   ASSERT(!closed_);
+   if (!closed_) {
+     if (peer_handle_) {
+-      ENVOY_LOG(trace, "socket {} close before peer {} closes.", static_cast<void*>(this),
+-                static_cast<void*>(peer_handle_));
++      ENVOY_LOG(trace, "io handle {} close before peer {} closes.", debug_id_,
++                peer_handle_->debugId());
+       // Notify the peer we won't write more data. shutdown(WRITE).
+       peer_handle_->setWriteEnd();
+       // Notify the peer that we no longer accept data. shutdown(RD).
+       peer_handle_->onPeerDestroy();
+       peer_handle_ = nullptr;
+     } else {
+-      ENVOY_LOG(trace, "socket {} close after peer closed.", static_cast<void*>(this));
++      ENVOY_LOG(trace, "io handle {} close after peer closed.", debug_id_);
+     }
+   }
+   if (user_file_event_) {
+@@ -117,7 +117,7 @@ Api::IoCallUint64Result IoHandleImpl::readv(uint64_t max_length, Buffer::RawSlic
+   }
+   const auto bytes_read = bytes_offset;
+   ASSERT(bytes_read <= max_bytes_to_read);
+-  ENVOY_LOG(trace, "socket {} readv {} bytes", static_cast<void*>(this), bytes_read);
++  ENVOY_LOG(trace, "io handle {} readv {} bytes", debug_id_, bytes_read);
+   return {bytes_read, Api::IoError::none()};
+ }
+ 
+@@ -181,7 +181,7 @@ Api::IoCallUint64Result IoHandleImpl::writev(const Buffer::RawSlice* slices, uin
+     }
+   }
+   peer_handle_->setNewDataAvailable();
+-  ENVOY_LOG(trace, "socket {} writev {} bytes", static_cast<void*>(this), bytes_written);
++  ENVOY_LOG(trace, "io handle {} writev {} bytes", debug_id_, bytes_written);
+   return {bytes_written, Api::IoError::none()};
+ }
+ 
+@@ -212,7 +212,7 @@ Api::IoCallUint64Result IoHandleImpl::write(Buffer::Instance& buffer) {
+                // Below value comes from Buffer::OwnedImpl::default_read_reservation_size_.
+                MAX_FRAGMENT * FRAGMENT_SIZE);
+   peer_handle_->setNewDataAvailable();
+-  ENVOY_LOG(trace, "socket {} write {} bytes of {}", static_cast<void*>(this), total_bytes_to_write,
++  ENVOY_LOG(trace, "io handle {} write {} bytes of {}", debug_id_, total_bytes_to_write,
+             max_bytes_to_write);
+   return {total_bytes_to_write, Api::IoError::none()};
+ }
+@@ -277,8 +277,8 @@ Api::SysCallIntResult IoHandleImpl::connect(Network::Address::InstanceConstShare
+     // found. Use write or read to determine if peer is closed.
+     return {0, 0};
+   } else {
+-    ENVOY_LOG(debug, "user namespace handle {} connect to previously closed peer {}.",
+-              static_cast<void*>(this), address->asStringView());
++    ENVOY_LOG(debug, "user namespace handle {} connect to previously closed peer {}.", debug_id_,
++              address->asStringView());
+     return Api::SysCallIntResult{-1, SOCKET_ERROR_INVAL};
+   }
+ }
+@@ -328,7 +328,14 @@ void IoHandleImpl::initializeFileEvent(Event::Dispatcher& dispatcher, Event::Fil
+   ASSERT(user_file_event_ == nullptr, "Attempting to initialize two `file_event_` for the same "
+                                       "file descriptor. This is not allowed.");
+   ASSERT(trigger != Event::FileTriggerType::Level, "Native level trigger is not supported.");
++  ENVOY_LOG(debug, "io handle {} file events initialized: {}", debug_id_, eventsToString(events));
++  read_event_disabled_ = (events & Event::FileReadyType::Read) == 0; // order is important
+   user_file_event_ = std::make_unique<FileEventImpl>(dispatcher, cb, events, *this);
++  // A valid user_file_event_ is one condition which enables isWritable(). The peer may be waiting
++  // on this condition before activating a write event.
++  if (isWritable()) { // this can still be false depending on read_event_disabled_
++    activatePeerWriteIfEnabled();
++  }
+ }
+ 
+ Network::IoHandlePtr IoHandleImpl::duplicate() {
+@@ -347,8 +354,20 @@ void IoHandleImpl::activateFileEvents(uint32_t events) {
  }
  
  void IoHandleImpl::enableFileEvents(uint32_t events) {
-+  ENVOY_LOG(debug, "socket {} file events enabled: {}", static_cast<void*>(this), events);
++  ENVOY_LOG(debug, "io handle {} file events enabled: {}", debug_id_, events);
    if (user_file_event_) {
 +    bool activate_peer_write{};
-+    if (write_requires_read_event_enabled_) {
-+      bool was_enabled = (user_file_event_->getEnabledEvents() & Event::FileReadyType::Read) != 0;
-+      bool enabled = (events & Event::FileReadyType::Read) != 0;
-+      if (was_enabled != enabled) {
-+        read_event_disabled_ = !enabled;
-+        activate_peer_write = enabled && !isPeerShutDownWrite();
-+        ENVOY_LOG(debug, "socket {} write {}", static_cast<void*>(this),
-+                  enabled ? "enabled" : "disabled");
-+      }
++    bool was_enabled = (user_file_event_->getEnabledEvents() & Event::FileReadyType::Read) != 0;
++    bool read_enabled = (events & Event::FileReadyType::Read) != 0;
++    read_event_disabled_ = !read_enabled;
++    if (was_enabled != read_enabled && write_requires_read_event_enabled_) {
++      activate_peer_write = read_enabled && !isPeerShutDownWrite();
++      ENVOY_LOG(debug, "io handle {} write {}", debug_id_, read_enabled ? "enabled" : "disabled");
 +    }
      user_file_event_->setEnabled(events);
 +    if (activate_peer_write) {
-+      ENVOY_LOG(trace, "socket {} activating peer write event", static_cast<void*>(this));
-+      peer_handle_->onPeerBufferLowWatermark();
++      peer_handle_->activateWriteIfEnabled();
 +    }
    } else {
      ENVOY_BUG(false, "Null user_file_event_");
    }
 diff --git a/source/extensions/io_socket/user_space/io_handle_impl.h b/source/extensions/io_socket/user_space/io_handle_impl.h
-index 0b2e67553d..fe12a2ee9e 100644
+index 0b2e67553d..c2587b158e 100644
 --- a/source/extensions/io_socket/user_space/io_handle_impl.h
 +++ b/source/extensions/io_socket/user_space/io_handle_impl.h
-@@ -130,7 +130,10 @@ public:
+@@ -1,5 +1,6 @@
+ #pragma once
+ 
++#include <cstdlib>
+ #include <memory>
+ 
+ #include "envoy/api/io_error.h"
+@@ -98,11 +99,20 @@ public:
+   void setWatermarks(uint32_t watermark) { pending_received_data_.setWatermarks(watermark); }
+   void onBelowLowWatermark() {
+     if (peer_handle_) {
+-      ENVOY_LOG(debug, "Socket {} switches to low watermark. Notify {}.", static_cast<void*>(this),
++      ENVOY_LOG(debug, "io handle {} switches to low watermark. Notify {}.", debug_id_,
+                 static_cast<void*>(peer_handle_));
+-      peer_handle_->onPeerBufferLowWatermark();
++      peer_handle_->activateWriteIfEnabled();
+     }
+   }
++
++  void activatePeerWriteIfEnabled() override {
++    if (peer_handle_) {
++      ENVOY_LOG(debug, "io handle {} activating write event for peer {}", debug_id_,
++                peer_handle_->debugId());
++      peer_handle_->activateWriteIfEnabled();
++    }
++  }
++
+   void onAboveHighWatermark() {
+     // Low to high is checked by peer after peer writes data.
+   }
+@@ -110,10 +120,24 @@ public:
+   // UserSpace::IoHandle
+   void setWriteEnd() override {
+     receive_data_end_stream_ = true;
++    if (user_file_event_ != nullptr) {
++      if (!user_file_event_->opened()) {
++        // NB: if the connection is still in the "connecting" state (no Write event received yet),
++        // it is not valid to activate a Read event without also activating Write or Close at the
++        // same time. However, a connection in this state may only have Read|Write events enabled,
++        // not Close events. If setNewDataAvailable() is called here, it will activate Read|Close,
++        // but after the connection's Read|Write mask is applied, it is left with only a Read event,
++        // which is invalid.
++        ENVOY_LOG(debug,
++                  "io handle {} closed while connecting; not activating read event (enabled={})",
++                  debug_id_, user_file_event_->getEnabledEvents());
++        return;
++      }
++    }
+     setNewDataAvailable();
+   }
+   void setNewDataAvailable() override {
+-    ENVOY_LOG(trace, "{} on socket {}", __FUNCTION__, static_cast<void*>(this));
++    ENVOY_LOG(trace, "{} on io handle {}", __FUNCTION__, debug_id_);
+     if (user_file_event_) {
+       user_file_event_->activateIfEnabled(
+           Event::FileReadyType::Read |
+@@ -125,12 +149,15 @@ public:
+     peer_handle_ = nullptr;
+     write_shutdown_ = true;
+   }
+-  void onPeerBufferLowWatermark() override {
++  void activateWriteIfEnabled() override {
+     if (user_file_event_) {
        user_file_event_->activateIfEnabled(Event::FileReadyType::Write);
      }
    }
 -  bool isWritable() const override { return !pending_received_data_.highWatermarkTriggered(); }
 +  bool isWritable() const override {
 +    return !pending_received_data_.highWatermarkTriggered() &&
-+           (!write_requires_read_event_enabled_ || !read_event_disabled_);
++           (!write_requires_read_event_enabled_ || !readEventDisabled());
 +  }
    bool isPeerShutDownWrite() const override { return receive_data_end_stream_; }
    bool isPeerWritable() const override {
      return peer_handle_ != nullptr && !peer_handle_->isPeerShutDownWrite() &&
-@@ -155,6 +158,8 @@ public:
+@@ -149,41 +176,56 @@ public:
+     ASSERT(!peer_handle_);
+     ASSERT(!write_shutdown_);
+     peer_handle_ = writable_peer;
+-    ENVOY_LOG(trace, "io handle {} set peer handle to {}.", static_cast<void*>(this),
+-              static_cast<void*>(writable_peer));
++    ENVOY_LOG(trace, "io handle {} set peer handle to {}.", debug_id_, writable_peer->debugId());
+   }
  
    PassthroughStateSharedPtr passthroughState() override { return passthrough_state_; }
  
 +  void setWriteRequiresReadEventEnabled(bool b) { write_requires_read_event_enabled_ = b; }
++  uint32_t debugId() const override { return debug_id_; }
 +
  private:
    friend class IoHandleFactory;
    explicit IoHandleImpl(PassthroughStateSharedPtr passthrough_state = nullptr);
-@@ -165,25 +170,33 @@ private:
+ 
+   static const Network::Address::InstanceConstSharedPtr& getCommonInternalAddress();
+ 
++  bool readEventDisabled() const { return user_file_event_ == nullptr || read_event_disabled_; }
++
+   // Support isOpen() and close(). Network::IoHandle owner must invoke close() to avoid potential
    // resource leak.
-   bool closed_{false};
- 
--  // The attached file event with this socket.
--  std::unique_ptr<FileEventImpl> user_file_event_;
--
-   // True if pending_received_data_ is not addable. Note that pending_received_data_ may have
-   // pending data to drain.
-   bool receive_data_end_stream_{false};
- 
--  // The buffer owned by this socket. This buffer is populated by the write operations of the peer
--  // socket and drained by read operations of this socket.
--  Buffer::WatermarkBuffer pending_received_data_;
+-  bool closed_{false};
++  bool closed_ : 1 {false};
++
++  // True if pending_received_data_ is not addable. Note that pending_received_data_ may have
++  // pending data to drain.
++  bool receive_data_end_stream_ : 1 {false};
++
 +  // The flag whether the peer is valid. Any write attempt must check this flag.
-+  bool write_shutdown_{false};
++  bool write_shutdown_ : 1 {false};
 +
 +  // If true: when the FileReadyType::Read file event is not enabled, writes to this socket's
 +  // buffer will return EAGAIN, and isWritable() will return false.
-+  bool write_requires_read_event_enabled_{false};
++  bool write_requires_read_event_enabled_ : 1 {false};
 +
 +  // Keeps track of whether the FileReadyType::Read event has been explicitly disabled. Updated when
 +  // enableFileEvents is called. Only applicable if writable_requires_read_event_enabled_ is true.
-+  bool read_event_disabled_{false};
++  bool read_event_disabled_ : 1 {false};
 +
-+  // The attached file event with this socket.
-+  std::unique_ptr<FileEventImpl> user_file_event_;
++  inline static thread_local uint32_t debug_id_counter_ = 0;
++  uint32_t debug_id_{++debug_id_counter_};
  
-   // Destination of the write(). The value remains non-null until the peer is closed.
-   UserSpace::IoHandle* peer_handle_{nullptr};
+   // The attached file event with this socket.
+   std::unique_ptr<FileEventImpl> user_file_event_;
  
+-  // True if pending_received_data_ is not addable. Note that pending_received_data_ may have
+-  // pending data to drain.
+-  bool receive_data_end_stream_{false};
++  // Destination of the write(). The value remains non-null until the peer is closed.
++  UserSpace::IoHandle* peer_handle_{nullptr};
++
++  // Shared state between peer handles.
++  PassthroughStateSharedPtr passthrough_state_{nullptr};
+ 
+   // The buffer owned by this socket. This buffer is populated by the write operations of the peer
+   // socket and drained by read operations of this socket.
+   Buffer::WatermarkBuffer pending_received_data_;
+-
+-  // Destination of the write(). The value remains non-null until the peer is closed.
+-  UserSpace::IoHandle* peer_handle_{nullptr};
+-
 -  // The flag whether the peer is valid. Any write attempt must check this flag.
 -  bool write_shutdown_{false};
 -
-   // Shared state between peer handles.
-   PassthroughStateSharedPtr passthrough_state_{nullptr};
-+
-+  // The buffer owned by this socket. This buffer is populated by the write operations of the peer
-+  // socket and drained by read operations of this socket.
-+  Buffer::WatermarkBuffer pending_received_data_;
+-  // Shared state between peer handles.
+-  PassthroughStateSharedPtr passthrough_state_{nullptr};
  };
  
  class PassthroughStateImpl : public PassthroughState, public Logger::Loggable<Logger::Id::io> {
