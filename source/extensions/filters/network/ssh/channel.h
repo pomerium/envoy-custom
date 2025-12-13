@@ -43,6 +43,7 @@ public:
   // for the channel.
   virtual void setStatsProvider(ChannelStatsProvider& stats_provider) PURE;
 
+  [[nodiscard]]
   virtual Common::CallbackHandlePtr addInterruptCallback(std::function<void(absl::Status, TransportCallbacks& transport)> cb) PURE;
 
 private:

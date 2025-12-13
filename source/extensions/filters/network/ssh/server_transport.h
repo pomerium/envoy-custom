@@ -90,9 +90,6 @@ private:
   Envoy::OptRef<Envoy::Event::Dispatcher> connection_dispatcher_;
   StreamTrackerSharedPtr stream_tracker_;
 
-  Envoy::Event::SchedulableCallbackPtr terminate_callback_;
-  std::optional<absl::Status> terminate_status_;
-
   bool respond_called_{};
   bool received_port_forward_request_{};
 };
