@@ -89,6 +89,7 @@ private:
 
   Envoy::OptRef<Envoy::Event::Dispatcher> connection_dispatcher_;
   StreamTrackerSharedPtr stream_tracker_;
+
   bool respond_called_{};
   bool received_port_forward_request_{};
 };

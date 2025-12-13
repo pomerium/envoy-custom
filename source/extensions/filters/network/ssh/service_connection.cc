@@ -179,10 +179,16 @@ ConnectionService::ChannelCallbacksImpl::ChannelCallbacksImpl(ConnectionService&
 void ConnectionService::ChannelCallbacksImpl::sendMessageLocal(wire::Message&& msg) {
   msg.visit(
     [&](wire::ChannelCloseMsg& msg) {
+      if (closed_internally_) {
+        // Ignore any close messages from the Channel implementation if this channel has already
+        // been closed internally.
+        return;
+      }
       msg.recipient_channel = channel_id_;
-      auto stat = channel_id_mgr_.processOutgoingChannelMsg(msg, local_peer_);
+      auto sendOk = channel_id_mgr_.processOutgoingChannelMsg(msg, local_peer_);
       // This should always succeed, since we just set the recipient_channel ourselves.
-      THROW_IF_NOT_OK(stat);
+      THROW_IF_NOT_OK(sendOk.status());
+      ASSERT(*sendOk, fmt::format("unexpected call to sendMessageLocal on internally-closed channel {}", channel_id_));
 
       close_timer_ = parent_.transport_.connectionDispatcher()->createTimer([this] {
         // If the grace period elapses and we don't receive a channel close reply, terminate the
@@ -195,9 +201,10 @@ void ConnectionService::ChannelCallbacksImpl::sendMessageLocal(wire::Message&& m
     },
     [&](wire::ChannelMsg auto& msg) {
       msg.recipient_channel = channel_id_;
-      auto stat = channel_id_mgr_.processOutgoingChannelMsg(msg, local_peer_);
+      auto sendOk = channel_id_mgr_.processOutgoingChannelMsg(msg, local_peer_);
       // This should always succeed, since we just set the recipient_channel ourselves.
-      THROW_IF_NOT_OK(stat);
+      THROW_IF_NOT_OK(sendOk.status());
+      ASSERT(*sendOk, fmt::format("unexpected call to sendMessageLocal on internally-closed channel {}", channel_id_));
     },
     [](auto&) {});
   // Errors here should always terminate the connection - this would either be a protocol error
@@ -215,11 +222,15 @@ absl::Status ConnectionService::ChannelCallbacksImpl::sendMessageRemote(wire::Me
   return msg.visit(
     [&](wire::ChannelMsg auto& msg) {
       msg.recipient_channel = channel_id_;
-      auto stat = channel_id_mgr_.processOutgoingChannelMsg(msg, local_peer_ == Peer::Downstream
-                                                                   ? Peer::Upstream
-                                                                   : Peer::Downstream);
-      if (!stat.ok()) {
-        return stat;
+      auto sendOk = channel_id_mgr_.processOutgoingChannelMsg(msg, local_peer_ == Peer::Downstream
+                                                                     ? Peer::Upstream
+                                                                     : Peer::Downstream);
+      if (!sendOk.ok()) {
+        return sendOk.status();
+      }
+      if (!*sendOk) {
+        ENVOY_LOG(debug, "dropping message to internally-closed channel {}: {}", *msg.recipient_channel, msg.msg_type());
+        return absl::OkStatus();
       }
       ENVOY_LOG(debug, "sending messsage to remote channel {}: {}", *msg.recipient_channel, msg.msg_type());
       parent_.transport_.forward(std::move(msg));
@@ -237,7 +248,7 @@ void ConnectionService::ChannelCallbacksImpl::cleanup() {
   ASSERT(parent_.transport_.connectionDispatcher()->isThreadSafe());
   ENVOY_LOG(debug, "channel {}: cleanup", channel_id_);
   ASSERT(inserted());
-  channel_id_mgr_.releaseChannelID(channel_id_, local_peer_);
+  channel_id_mgr_.releaseChannelID(channel_id_, local_peer_, closed_internally_);
   removeFromList(parent_.channel_callbacks_);
 }
 
@@ -272,7 +283,9 @@ public:
     // In some cases the stream is expected to be closed: after handoff starts, or if a channel
     // open failure was received
     if ((!open_complete_ || open_success_) && !handoff_started_) {
-      hijack_callbacks_.hijackedChannelFailed(err);
+      ENVOY_LOG(error, "ssh: channel {}: connection to management server closed unexpectedly: {}",
+                callbacks_->channelId(), err);
+      channel_client_.reset();
     }
   }
 
@@ -424,6 +437,19 @@ private:
         handoff_complete_ = true;
         return absl::OkStatus();
       }
+      case pomerium::extensions::ssh::SSHChannelControlAction::kSetInterruptOptions: {
+        interrupt_callback_handle_.reset();
+        if (auto data = ctrl_action.set_interrupt_options().send_channel_data(); !data.empty()) {
+          wire::ChannelDataMsg msg;
+          msg.recipient_channel = callbacks_->channelId();
+          msg.data = to_bytes(data);
+          interrupt_callback_handle_ = callbacks_->addInterruptCallback(
+            [msg = std::move(msg)](absl::Status _, TransportCallbacks& transport) {
+              transport.sendMessageToConnection(std::move(msg)).IgnoreError();
+            });
+        }
+        return absl::OkStatus();
+      }
       default:
         return absl::InternalError(fmt::format("received invalid channel message: unknown action type: {}",
                                                static_cast<int>(ctrl_action.action_case())));
@@ -456,6 +482,7 @@ private:
   std::unique_ptr<ChannelStreamServiceClient> channel_client_;
   pomerium::extensions::ssh::InternalTarget config_;
   wire::ChannelOpenMsg channel_open_;
+  Common::CallbackHandlePtr interrupt_callback_handle_;
 };
 
 class OpenHijackedChannelMiddleware : public SshMessageMiddleware {

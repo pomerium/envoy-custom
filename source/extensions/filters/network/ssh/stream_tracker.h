@@ -1,7 +1,5 @@
 #pragma once
 
-#include "source/extensions/filters/network/ssh/channel.h"
-
 #pragma clang unsafe_buffer_usage begin
 #include "envoy/event/dispatcher.h"
 #include "envoy/server/factory_context.h"
@@ -9,18 +7,16 @@
 #include "api/extensions/filters/network/ssh/ssh.pb.validate.h"
 #pragma clang unsafe_buffer_usage end
 
+#include "source/extensions/filters/network/ssh/channel.h"
 #include "source/extensions/filters/network/ssh/common.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
-
-using Envoy::Event::Dispatcher;
-using Envoy::Event::FileReadyType;
-using Envoy::Event::PlatformDefaultTriggerType;
 
 class StreamCallbacks {
 public:
   virtual ~StreamCallbacks() = default;
   virtual absl::StatusOr<uint32_t> startChannel(std::unique_ptr<Channel> channel, std::optional<uint32_t> channel_id = std::nullopt) PURE;
+  virtual void onServerDraining(std::chrono::milliseconds delay) PURE;
 };
 
 class StreamContext {
@@ -98,11 +94,12 @@ private:
   void onStreamEnd(stream_id_t stream_id);
 
   ThreadLocal::TypedSlot<ThreadLocalStreamTable> thread_local_stream_table_;
-  Dispatcher& main_thread_dispatcher_;
+  Envoy::Event::Dispatcher& main_thread_dispatcher_;
 
   Stats::Scope& scope_;
   StreamTrackerStatNames stat_names_;
   StreamTrackerStats stats_;
+  Envoy::Common::CallbackHandlePtr drain_cb_;
 };
 using StreamTrackerPtr = std::unique_ptr<StreamTracker>;
 using StreamTrackerSharedPtr = std::shared_ptr<StreamTracker>;
