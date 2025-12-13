@@ -38,20 +38,12 @@ public:
   // have not done so already (i.e. if the ChannelClose was received as an expected response to
   // one sent previously).
   absl::StatusOr<uint32_t> startChannel(std::unique_ptr<Channel> channel, std::optional<uint32_t> channel_id = std::nullopt) final;
-  void onServerDraining(std::chrono::milliseconds delay) final {
-    ENVOY_LOG(debug, "ssh: stream {}: handling graceful shutdown (delay: {})", transport_.streamId(), delay);
-    runInterruptCallbacks(absl::UnavailableError("server shutting down"));
-    transport_.terminate(absl::UnavailableError("server shutting down"));
-  }
-  size_t runInterruptCallbacks(absl::Status status) {
-    auto n = interrupt_callbacks_.size();
-    ENVOY_LOG(debug, "ssh: stream {}: running {} interrupt callbacks", transport_.streamId(), n);
-    interrupt_callbacks_.runCallbacks(status, transport_);
-    return n;
-  }
+  void onServerDraining(std::chrono::milliseconds delay) final;
+
   absl::Status handleMessage(wire::Message&& ssh_msg) override;
   absl::Status maybeStartPassthroughChannel(uint32_t internal_id);
   void registerMessageHandlers(SshMessageDispatcher& dispatcher) override;
+  void shutdown(absl::Status err);
 
   class ChannelCallbacksImpl final : public ChannelCallbacks,
                                      public LinkedObject<ChannelCallbacksImpl> {
@@ -63,9 +55,40 @@ public:
     Stats::Scope& scope() const override { return *scope_; }
     void setStatsProvider(ChannelStatsProvider& stats_provider) override { stats_provider_ = stats_provider; }
     Envoy::OptRef<ChannelStatsProvider> statsProvider() const { return stats_provider_; }
-    Envoy::Common::CallbackHandlePtr addInterruptCallback(std::function<void(absl::Status, TransportCallbacks& transport)> cb) final {
-      return parent_.interrupt_callbacks_.add(std::move(cb));
-    }
+
+    [[nodiscard]]
+    Envoy::Common::CallbackHandlePtr addInterruptCallback(std::function<void(absl::Status, TransportCallbacks& transport)> cb) override;
+
+    // Initiates a channel close from Envoy. This will propagate to both peers and close the channel
+    // as normal.
+    // This is not part of the ChannelCallbacks interface; it is only used by ConnectionService.
+    //
+    // The sequence of events for an internal close is as follows:
+    // 1. Envoy sends a ChannelClose message to the local peer.
+    // 2. The local peer replies with its own ChannelClose message.
+    // 3. The local Channel receives the close message, and sends a ChannelClose message of its
+    //    own to the remote peer (if one exists).
+    // 4. The local Channel is destroyed, and invokes ChannelCallbacks::cleanup(), which releases
+    //    the channel id and marks the channel as closed internally.
+    // 5. The remote peer receives the ChannelClose message (sent in step 3) and replies with a
+    //    ChannelClose message of its own.
+    // 6. The remote channel processes the ChannelClose message, and sends one to its peer
+    //    (the local peer from our perspective).
+    //    Note: at this point, the local channel thinks it has already received a ChannelClose
+    //    from its remote peer, so the real local client will have actually closed that channel
+    //    and we can't send anything to it. The internal ID is still half-released though.
+    // 7. The remote peer transport requests the ChannelIDManager to process its outgoing
+    //    ChannelClose message (sent in step 6), and the ChannelIDManager returns
+    //    a flag indicating the message should be dropped. The message is dropped.
+    // 8. The remote peer's Channel is destroyed, and its channel ID is released. Both sides
+    //    are now released, so the internal channel is freed.
+    //
+    // Note: in the shutdown() case, all local channels are closed at the same time. This usually
+    // results in the local client sending a DisconnectMsg after the last channel is closed. When
+    // that happens, the upstream is reset immediately and the sequence above skips over steps
+    // 5-7, and step 8 happens when the filter chain is destroyed, while parent_.channel_callbacks_
+    // is being deleted.
+    void internalClose(absl::Status err);
 
   private:
     void cleanup() override;
@@ -76,6 +99,8 @@ public:
     Stats::ScopeSharedPtr scope_;
     Envoy::Event::TimerPtr close_timer_;
     Envoy::OptRef<ChannelStatsProvider> stats_provider_;
+    Envoy::Common::CallbackManager<void, absl::Status, TransportCallbacks&> interrupt_callbacks_;
+    bool closed_internally_{false};
   };
 
 protected:
@@ -86,7 +111,7 @@ protected:
   // field order is important: callbacks must not be destroyed before the channels are
   std::list<std::unique_ptr<ChannelCallbacksImpl>> channel_callbacks_;
   absl::flat_hash_map<uint32_t, std::unique_ptr<Channel>> channels_;
-  Envoy::Common::CallbackManager<void, absl::Status, TransportCallbacks&> interrupt_callbacks_;
+  Envoy::Common::CallbackHandlePtr drain_callback_;
 };
 
 class HijackedChannelCallbacks {

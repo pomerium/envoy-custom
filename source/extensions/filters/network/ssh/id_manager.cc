@@ -3,6 +3,9 @@
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 absl::StatusOr<uint32_t> ChannelIDManager::allocateNewChannel(Peer owner) {
+  if (draining_) {
+    return absl::UnavailableError("server is shutting down");
+  }
   auto id = id_alloc_.alloc();
   if (!id.ok()) {
     return id.status();
@@ -31,10 +34,12 @@ absl::Status ChannelIDManager::bindChannelID(uint32_t internal_id, PeerLocalID p
 }
 
 // Note: this should only be called by ChannelCallbacksImpl::cleanup().
-void ChannelIDManager::releaseChannelID(uint32_t internal_id, Peer local_peer) {
+void ChannelIDManager::releaseChannelID(uint32_t internal_id, Peer local_peer, bool set_closed_internally) {
   ASSERT(internal_channels_.contains(internal_id));
   auto& internalChannel = internal_channels_[internal_id];
-  internalChannel.peer_states[local_peer] = ChannelIDState::Released;
+  internalChannel.peer_states[local_peer] = set_closed_internally
+                                              ? ChannelIDState::ClosedReleased
+                                              : ChannelIDState::Released;
 
   ENVOY_LOG(debug, "channel {}: {} ID released [{}]", internal_id, local_peer, internalChannel);
   if (internalChannel.peer_states[Peer::Downstream] != ChannelIDState::Bound &&
@@ -42,12 +47,16 @@ void ChannelIDManager::releaseChannelID(uint32_t internal_id, Peer local_peer) {
     internal_channels_.erase(internal_id);
     id_alloc_.release(internal_id);
     ENVOY_LOG(debug, "released internal channel ID {}", internal_id);
+    if (draining_ && internal_channels_.empty()) {
+      ENVOY_LOG(debug, "channel id manager: drain complete");
+      drain_cb_->runCallbacks();
+    }
   }
 }
 
-absl::Status ChannelIDManager::processOutgoingChannelMsgImpl(wire::field<uint32_t>& recipient_channel,
-                                                             wire::SshMessageType msg_type,
-                                                             Peer dest) {
+absl::StatusOr<bool> ChannelIDManager::processOutgoingChannelMsgImpl(wire::field<uint32_t>& recipient_channel,
+                                                                     wire::SshMessageType msg_type,
+                                                                     Peer dest) {
   uint32_t internalId = *recipient_channel;
   auto it = internal_channels_.find(internalId);
   if (it == internal_channels_.end()) {
@@ -56,13 +65,21 @@ absl::Status ChannelIDManager::processOutgoingChannelMsgImpl(wire::field<uint32_
   }
 
   auto& info = it->second;
-  if (info.peer_states[dest] == ChannelIDState::Unbound) {
+  bool send_ok{true};
+  switch (info.peer_states[dest]) {
+  case ChannelIDState::Unbound:
     return absl::InvalidArgumentError(
       fmt::format("error processing outgoing message of type {}: internal channel {} is not known to {} (state: {})",
                   msg_type, internalId, dest, info.peer_states[dest]));
+  case ChannelIDState::ClosedReleased:
+    send_ok = false;
+    break;
+  default:
+    break;
   }
+
   recipient_channel = info.peer_ids[dest];
-  return absl::OkStatus();
+  return send_ok;
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

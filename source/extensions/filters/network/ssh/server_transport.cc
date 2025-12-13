@@ -101,16 +101,6 @@ void SshServerTransport::onConnected() {
   ASSERT(conn.state() == Network::Connection::State::Open);
   connection_dispatcher_ = conn.dispatcher();
 
-  terminate_callback_ = connection_dispatcher_->createSchedulableCallback([this] {
-    auto status = terminate_status_.value_or(absl::UnknownError("unknown error"));
-    wire::DisconnectMsg msg;
-    msg.reason_code = openssh::statusCodeToDisconnectCode(status.code());
-    msg.description = statusToString(status);
-    sendMessageToConnection(std::move(msg))
-      .IgnoreError();
-
-    TransportBase::terminate(status);
-  });
   auto maxConcurrentChannels = config_->max_concurrent_channels();
   if (maxConcurrentChannels == 0) {
     maxConcurrentChannels = DefaultMaxConcurrentChannels;
@@ -119,12 +109,12 @@ void SshServerTransport::onConnected() {
   setChannelIdManager(conn.streamInfo().filterState(), channel_id_manager_);
   initServices();
   mgmt_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus status, std::string message) {
-    connection_service_->runInterruptCallbacks(absl::CancelledError("management server shutting down"));
     if (status != Grpc::Status::PermissionDenied) {
       // PermissionDenied errors should be auth related, and don't need this extra context.
       message = fmt::format("management server error: {}", message);
     }
-    terminate({static_cast<absl::StatusCode>(status), message});
+    absl::Status err{static_cast<absl::StatusCode>(status), message};
+    connection_service_->shutdown(err);
   });
   stream_id_ = api_.randomGenerator().random();
 
@@ -363,7 +353,6 @@ void SshServerTransport::initHandoff(pomerium::extensions::ssh::SSHChannelContro
 }
 
 void SshServerTransport::hijackedChannelFailed(absl::Status err) {
-  connection_service_->runInterruptCallbacks(err);
   terminate(err);
 }
 
@@ -501,21 +490,20 @@ void SshServerTransport::sendMgmtClientMessage(const ClientMessage& msg) {
 }
 
 void SshServerTransport::terminate(absl::Status status) {
-  if (terminate_status_.has_value()) {
-    ENVOY_LOG(debug, "warn: terminate called twice (previous status: {}; new status: {})",
-              terminate_status_.value(), status);
-    return;
-  }
   if (mgmt_client_ != nullptr) {
     mgmt_client_->setOnRemoteCloseCallback(nullptr);
     if (auto& stream = mgmt_client_->stream(); stream != nullptr) {
-      stream.closeStream();
+      stream.resetStream();
     }
   }
-  terminate_status_ = status;
-  if (terminate_callback_ != nullptr) {
-    terminate_callback_->scheduleCallbackNextIteration();
-  }
+
+  wire::DisconnectMsg msg;
+  msg.reason_code = openssh::statusCodeToDisconnectCode(status.code());
+  msg.description = statusToString(status);
+  sendMessageToConnection(std::move(msg))
+    .IgnoreError();
+
+  TransportBase::terminate(status);
 }
 
 void SshServerTransport::onEvent(Network::ConnectionEvent event) {

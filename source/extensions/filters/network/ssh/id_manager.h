@@ -6,6 +6,11 @@
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/common.h"
 
+#pragma clang unsafe_buffer_usage begin
+#include "envoy/event/dispatcher.h"
+#include "source/common/common/callback_impl.h"
+#pragma clang unsafe_buffer_usage end
+
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 constexpr uint32_t DefaultMaxConcurrentChannels = 32768;
@@ -19,6 +24,7 @@ enum class ChannelIDState {
   Unbound = 0,
   Bound = 1,
   Released = 2,
+  ClosedReleased = 3,
 };
 
 struct PeerLocalID {
@@ -106,7 +112,7 @@ public:
   absl::StatusOr<uint32_t> allocateNewChannel(Peer owner);
 
   absl::Status bindChannelID(uint32_t internal_id, PeerLocalID peer_local_id);
-  void releaseChannelID(uint32_t internal_id, Peer local_peer);
+  void releaseChannelID(uint32_t internal_id, Peer local_peer, bool set_closed_internally = false);
 
   std::optional<Peer> owner(uint32_t internal_id) {
     if (!internal_channels_.contains(internal_id)) {
@@ -116,19 +122,36 @@ public:
   }
 
   template <wire::ChannelMsg M>
-  absl::Status processOutgoingChannelMsg(M& msg, Peer dest) {
+  absl::StatusOr<bool> processOutgoingChannelMsg(M& msg, Peer dest) {
     return processOutgoingChannelMsgImpl(msg.recipient_channel, msg.msg_type(), dest);
   }
 
   size_t numActiveChannels() const { return internal_channels_.size(); }
   uint32_t nextInternalIdForTest() const { return id_alloc_.peekNext(); }
 
+  [[nodiscard]]
+  Envoy::Common::CallbackHandlePtr startDrain(Envoy::Event::Dispatcher& dispatcher, std::function<void()> complete_cb) {
+    if (draining_) {
+      return nullptr;
+    }
+    draining_ = true;
+    auto handle = drain_cb_->add(dispatcher, std::move(complete_cb));
+    if (internal_channels_.empty()) {
+      // already drained
+      drain_cb_->runCallbacks();
+    }
+    return handle;
+  }
+
 private:
-  absl::Status processOutgoingChannelMsgImpl(wire::field<uint32_t>& recipient_channel,
-                                             wire::SshMessageType msg_type,
-                                             Peer dest);
+  absl::StatusOr<bool> processOutgoingChannelMsgImpl(wire::field<uint32_t>& recipient_channel,
+                                                     wire::SshMessageType msg_type,
+                                                     Peer dest);
   absl::flat_hash_map<uint32_t, InternalChannelInfo> internal_channels_;
   IDAllocator<uint32_t> id_alloc_;
+  bool draining_{false};
+  std::shared_ptr<Envoy::Common::ThreadSafeCallbackManager> drain_cb_ =
+    Common::ThreadSafeCallbackManager::create();
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
