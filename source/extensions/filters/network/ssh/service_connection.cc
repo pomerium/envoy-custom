@@ -167,6 +167,29 @@ absl::Status ConnectionService::maybeStartPassthroughChannel(uint32_t internal_i
   return startChannel(std::move(passthrough), internal_id).status();
 }
 
+void ConnectionService::onServerDraining(std::chrono::milliseconds delay) {
+  ENVOY_LOG(debug, "ssh: stream {}: handling graceful shutdown (delay: {})", transport_.streamId(), delay);
+  shutdown(absl::UnavailableError("server shutting down"));
+}
+
+void ConnectionService::shutdown(absl::Status err) {
+  if (drain_callback_ != nullptr) {
+    return;
+  }
+  drain_callback_ = transport_.channelIdManager().startDrain(*transport_.connectionDispatcher(), [this] {
+    transport_.terminate(absl::UnavailableError("server shutting down"));
+  });
+  for (auto& cb : channel_callbacks_) {
+    auto channelId = cb->channelId();
+    if (!channels_.contains(channelId)) {
+      // Channel already received a close message and is awaiting a reply. In this case, do
+      // nothing and wait for the channel to be closed on its own.
+      continue;
+    }
+    cb->internalClose(err);
+  }
+}
+
 // ConnectionService::ChannelCallbacksImpl
 
 ConnectionService::ChannelCallbacksImpl::ChannelCallbacksImpl(ConnectionService& parent, uint32_t channel_id, Peer local_peer)
@@ -239,6 +262,27 @@ absl::Status ConnectionService::ChannelCallbacksImpl::sendMessageRemote(wire::Me
     [&](auto&) -> absl::Status {
       throw Envoy::EnvoyException("bug: invalid message passed to sendMessageRemote()");
     });
+}
+
+Envoy::Common::CallbackHandlePtr
+ConnectionService::ChannelCallbacksImpl::addInterruptCallback(std::function<void(absl::Status, TransportCallbacks& transport)> cb) {
+  return interrupt_callbacks_.add(std::move(cb));
+}
+
+void ConnectionService::ChannelCallbacksImpl::internalClose(absl::Status err) {
+  if (close_timer_ != nullptr) {
+    // close sequence is already in progress, don't do anything
+    return;
+  }
+  ENVOY_LOG(debug, "ssh: stream {}: starting internal shutdown for channel {}",
+            parent_.transport_.streamId(), channel_id_);
+  interrupt_callbacks_.runCallbacks(err, parent_.transport_);
+
+  // this will start close_timer_
+  sendMessageLocal(wire::ChannelCloseMsg{
+    .recipient_channel = channel_id_,
+  });
+  closed_internally_ = true;
 }
 
 void ConnectionService::ChannelCallbacksImpl::cleanup() {
