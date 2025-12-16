@@ -19,6 +19,7 @@ envoy_cc_binary(
     stamped = True,
     deps = [
         "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "//source/extensions/health_check/event_sinks/grpc:grpc_event_sink",
         "//source/extensions/http/early_header_mutation/trace_context:pomerium_trace_context",
         "//source/extensions/request_id/uuidx:pomerium_uuidx",
         "//source/extensions/tracers/pomerium_otel",
