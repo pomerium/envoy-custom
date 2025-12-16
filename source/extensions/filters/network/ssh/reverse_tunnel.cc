@@ -8,12 +8,12 @@
 #include "source/extensions/filters/network/ssh/filter_state_objects.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
-#include <cstddef>
 
 #pragma clang unsafe_buffer_usage begin
 #include "envoy/config/endpoint/v3/endpoint.pb.h"
 #include "envoy/config/endpoint/v3/endpoint.pb.validate.h"
 #include "source/common/network/connection_impl.h"
+#include "source/extensions/io_socket/user_space/io_handle_impl.h"
 #include "source/common/network/connection_socket_impl.h"
 #include "envoy/network/client_connection_factory.h"
 #include "source/common/grpc/common.h"
@@ -87,6 +87,8 @@ public:
     };
     *local_queue = &local_queue_;
 
+    remote_stream_handler_sync.syncPoint("initialize");
+
     // The remote dispatcher could be running concurrently, but it won't pick up this callback
     // until after the next time it acquires post_lock_ (see dispatcher_impl.cc). Because this call
     // to post() adds the callback to the queue while holding post_lock_, the write to peer_state_
@@ -97,13 +99,16 @@ public:
     remote_dispatcher_.post([this] {
       initialized_ = true;
       // First check if the socket has been closed
+      bool isDynamic = metadata_->server_port().is_dynamic();
       if (socket_closed_) {
-        ENVOY_LOG(debug, "channel {}: downstream closed before initialization");
-        onError(absl::CancelledError("downstream closed"));
+        ENVOY_LOG(debug, "channel {}: downstream closed before initialization", peer_state_.id);
+        // If the downstream closes before sending any data, and the upstream is expecting a SOCKS
+        // handshake, we have to send it an EOF before closing the channel because openssh client
+        // can become stuck
+        onError(absl::CancelledError("downstream closed"), isDynamic);
         return;
       }
       ENVOY_LOG(debug, "channel {}: remote stream handler initialized", peer_state_.id);
-      bool isDynamic = metadata_->server_port().is_dynamic();
       if (isDynamic) {
         ENVOY_LOG(debug, "channel {}: starting socks5 handshake", peer_state_.id);
         startSocks5Handshake();
@@ -145,6 +150,7 @@ public:
 private:
   // Network::ConnectionCallbacks
   void onEvent(Network::ConnectionEvent event) override {
+    ENVOY_LOG(debug, "downstream connection event: {}", std::to_underlying(event));
     // These events are from the perspective of the downstream client connection, so LocalClose
     // means the downstream closed the connection, and RemoteClose means the upstream (us) closed
     // the connection.
@@ -152,6 +158,7 @@ private:
         event == Network::ConnectionEvent::RemoteClose) {
       // This is the last event received; the downstream connection will be destroyed and it is
       // safe to delete this object.
+      remote_stream_handler_sync.syncPoint("downstream_closed");
       socket_closed_ = true;
       if (!initialized_) {
         // Downstream closed before initialization
@@ -253,11 +260,12 @@ private:
     onRemoteQueueReadyRead();
     if (!received_channel_close_) {
       // If we didn't see a channel close, then shutdown() has not yet been called on the io handle.
-      ENVOY_LOG(debug, "channel {}: local peer exited without sending a ChannelClose message");
+      ENVOY_LOG(debug, "channel {}: local peer exited without sending a ChannelClose message", peer_state_.id);
     }
     // Close it for reading and writing, since reads are impossible
-    ENVOY_BUG(io_handle_->isOpen(), "bug: io handle is closed");
-    io_handle_->close();
+    if (io_handle_->isOpen()) {
+      io_handle_->close();
+    }
 
     // If we did receive a channel close, allow the response to be received by the downstream.
     // Once that happens, we will receive the socket close event, where the deferred deletion is
@@ -1068,7 +1076,6 @@ public:
     auto& hostContext = streamAddress->hostContext();
     auto upstreamAddr = hostContext.clusterContext().chooseUpstreamAddress();
 
-    ENVOY_LOG(debug, "channel {}: starting remote stream handler");
     using Extensions::NetworkFilters::GenericProxy::Codec::RemoteStreamHandler;
     auto remoteStreamHandler = std::make_unique<RemoteStreamHandler>(std::move(local),
                                                                      dispatcher,

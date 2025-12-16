@@ -576,9 +576,14 @@ TYPED_TEST_P(TransportBaseTest, TestKexInitFailureAfterVersionExchange) {
 TYPED_TEST_P(TransportBaseTest, TestDecryptPacketFailure) {
   EXPECT_CALL(this->Client(), onKexStarted(true));
   EXPECT_CALL(this->Server(), onKexStarted(true));
-  EXPECT_CALL(this->Client(), onKexCompleted(_, true));
+  absl::Notification clientKexCompleted;
+  EXPECT_CALL(this->Client(), onKexCompleted(_, true))
+    .WillOnce(Invoke([this, &clientKexCompleted](std::shared_ptr<KexResult> result, bool initial) {
+      this->Client().TransportBase::onKexCompleted(result, initial);
+      clientKexCompleted.Notify();
+    }));
   EXPECT_CALL(this->Server(), onKexCompleted(_, true))
-    .WillOnce(Invoke([this](std::shared_ptr<KexResult> result, bool initial) {
+    .WillOnce(Invoke([this, &clientKexCompleted](std::shared_ptr<KexResult> result, bool initial) {
       this->Server().TransportBase::onKexCompleted(result, initial);
       if (result->algorithms.server_to_client.cipher == CipherAES128GCM ||
           result->algorithms.server_to_client.cipher == CipherAES256GCM ||
@@ -588,6 +593,9 @@ TYPED_TEST_P(TransportBaseTest, TestDecryptPacketFailure) {
         // In AES-GCM, the sequence number is implicitly contained in the cipher IV. The number
         // we track ourselves is not used when encrypting and decrypting packets, so changing it
         // manually here would not have the desired effect.
+
+        // Wait for the client's onKexCompleted, otherwise the expectation will fail
+        clientKexCompleted.WaitForNotificationWithTimeout(defaultTimeout());
         this->Client().Exit();
         this->Server().Exit();
         GTEST_SKIP() << "not applicable for aes-gcm";

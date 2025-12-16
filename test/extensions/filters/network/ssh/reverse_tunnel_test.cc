@@ -10,6 +10,7 @@
 #include "envoy/config/endpoint/v3/endpoint.pb.validate.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "gtest/gtest.h"
+#include <mutex>
 
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "test/extensions/filters/network/ssh/ssh_task.h"
@@ -256,10 +257,9 @@ TEST_P(StaticPortForwardTest, PingClientToServer_ServerCloses) {
               .start();
 
   auto tcp_client = makeTcpConnectionWithServerName(route_port, route_name);
-  EXPECT_TRUE(tcp_client->write("ping"));
+  (void)tcp_client->write("ping"); // note: this can fail but it's not an issue if it does
   tcp_client->waitForData("pong");
   tcp_client->waitForDisconnect();
-  tcp_client->close();
 
   ASSERT_TRUE(driver->wait(th));
 }
@@ -291,7 +291,7 @@ TEST_P(StaticPortForwardTest, PingServerToClient_ServerCloses) {
 
   auto tcp_client = makeTcpConnectionWithServerName(route_port, route_name);
   tcp_client->waitForData("ping");
-  EXPECT_TRUE(tcp_client->write("pong"));
+  (void)tcp_client->write("pong"); // note: this can fail but it's not an issue if it does
   tcp_client->waitForDisconnect();
   tcp_client->close();
 
@@ -440,15 +440,20 @@ public:
 };
 
 TEST_P(StaticPortForwardTest, UpstreamFlowControl_ClientReadDisabledUntilChannelClosed) {
+  auto local_window_exhausted = test_server_->counter(stat_local_window_exhausted);
+  Tasks::Channel channel;
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
+              .saveOutput(&channel)
+              .start();
+
   auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
+  ASSERT_TRUE(driver->wait(th));
   downstream->readDisable(true);
 
-  auto local_window_exhausted = test_server_->counter(stat_local_window_exhausted);
   ASSERT_TRUE(driver->wait(
-    driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
-      .then(driver->createTask<SendDataUntilRemoteWindowExhausted>(*local_window_exhausted)
-              .then(driver->createTask<Tasks::SendChannelCloseAndWait>()))
-      .start()));
+    driver->createTask<SendDataUntilRemoteWindowExhausted>(*local_window_exhausted)
+      .then(driver->createTask<Tasks::SendChannelCloseAndWait>())
+      .start(channel)));
 
   EXPECT_EQ(1, test_server_->counter(stat_window_adjustment_paused)->value());
   EXPECT_EQ(0, test_server_->counter(stat_window_adjustment_resumed)->value());
@@ -491,26 +496,26 @@ TEST_P(StaticPortForwardTest, UpstreamFlowControl_ClientReadDisabledUntilChannel
 
 TEST_P(StaticPortForwardTest, UpstreamFlowControl_ClientReadDisabledThenEnabledBeforeChannelClose) {
   // As above, except re-enable the downstream before closing the channel
-  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
-  downstream->readDisable(true);
-
   auto local_window_exhausted = test_server_->counter(stat_local_window_exhausted);
-
   size_t total_bytes_written{};
   Tasks::Channel channel;
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
+              .saveOutput(&channel)
+              .start();
+  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
+  ASSERT_TRUE(driver->wait(th));
+  downstream->readDisable(true);
   ASSERT_TRUE(driver->wait(
-    driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
-      .saveOutput(&channel)
-      .then(driver->createTask<SendDataUntilRemoteWindowExhausted>(*local_window_exhausted, &total_bytes_written))
-      .start()));
+    driver->createTask<SendDataUntilRemoteWindowExhausted>(*local_window_exhausted, &total_bytes_written)
+      .start(channel)));
 
   EXPECT_EQ(1, test_server_->counter(stat_window_adjustment_paused)->value());
   EXPECT_EQ(0, test_server_->counter(stat_window_adjustment_resumed)->value());
 
-  auto th = driver->createTask<Tasks::WaitForChannelMsg<wire::ChannelWindowAdjustMsg>>().start(channel);
+  auto th2 = driver->createTask<Tasks::WaitForChannelMsg<wire::ChannelWindowAdjustMsg>>().start(channel);
   downstream->readDisable(false);
   // Make sure the server sends us a window adjust message
-  ASSERT_TRUE(driver->wait(th));
+  ASSERT_TRUE(driver->wait(th2));
   // Window adjustments should be enabled immediately in response to the upstream socket re-enabling
   // read events on its io handle.
   EXPECT_EQ(1, test_server_->counter(stat_window_adjustment_resumed)->value());
@@ -520,28 +525,30 @@ TEST_P(StaticPortForwardTest, UpstreamFlowControl_ClientReadDisabledThenEnabledB
   downstream->clearData();
 
   // We should be able to send data again
-  auto th2 = driver->createTask<Tasks::SendChannelData>("ping")
+  auto th3 = driver->createTask<Tasks::SendChannelData>("ping")
                .then(driver->createTask<Tasks::WaitForChannelData>("pong")
                        .then(driver->createTask<Tasks::SendChannelCloseAndWait>()))
                .start(channel);
   downstream->waitForData("ping");
-  EXPECT_TRUE(downstream->write("pong"));
-  ASSERT_TRUE(driver->wait(th2));
+  (void)downstream->write("pong");
+  ASSERT_TRUE(driver->wait(th3));
 
   downstream->waitForDisconnect(true);
-  downstream->close();
 }
 
 TEST_P(StaticPortForwardTest, UpstreamFlowControl_UpstreamIgnoresWindow) {
-  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
-  downstream->readDisable(true);
   auto local_window_exhausted = test_server_->counter(stat_local_window_exhausted);
-
+  Tasks::Channel channel;
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
+              .saveOutput(&channel)
+              .start();
+  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
+  ASSERT_TRUE(driver->wait(th));
+  downstream->readDisable(true);
   ASSERT_TRUE(driver->wait(
-    driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
-      .then(driver->createTask<SendDataUntilRemoteWindowExhausted>(*local_window_exhausted)
-              .then(driver->createTask<SendDataAndWaitForClose>()))
-      .start()));
+    driver->createTask<SendDataUntilRemoteWindowExhausted>(*local_window_exhausted)
+      .then(driver->createTask<SendDataAndWaitForClose>())
+      .start(channel)));
 
   downstream->readDisable(false); // Won't receive disconnect while read-disabled
   downstream->waitForDisconnect(true);
@@ -556,18 +563,18 @@ TEST_P(StaticPortForwardTest, UpstreamFlowControl_DownstreamDisconnectsAfterRead
   // This exercises logic that sometimes depends on the order in which events are invoked; run it
   // several times to avoid flakes (hopefully)
   for (int i = 0; i < 10; i++) {
-    auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
-    downstream->readDisable(true);
     auto local_window_exhausted = test_server_->counter(stat_local_window_exhausted);
     local_window_exhausted->reset();
-
     Tasks::Channel channel;
+    auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
+                .saveOutput(&channel)
+                .start();
+    auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
+    ASSERT_TRUE(driver->wait(th));
+    downstream->readDisable(true);
     ASSERT_TRUE(driver->wait(
-      driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
-        .saveOutput(&channel)
-        .then(driver->createTask<SendDataUntilRemoteWindowExhausted>(*local_window_exhausted))
-        .start()));
-
+      driver->createTask<SendDataUntilRemoteWindowExhausted>(*local_window_exhausted)
+        .start(channel)));
     downstream->readDisable(false);
     downstream->close(Network::ConnectionCloseType::AbortReset);
     ASSERT_TRUE(driver->wait(driver->createTask<Tasks::WaitForChannelCloseByPeer>().start(channel)));
@@ -575,16 +582,16 @@ TEST_P(StaticPortForwardTest, UpstreamFlowControl_DownstreamDisconnectsAfterRead
 }
 
 TEST_P(StaticPortForwardTest, DownstreamFlowControl) {
-  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
-
   Tasks::Channel channel;
-  ASSERT_TRUE(driver->wait(driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
-                             .saveOutput(&channel)
-                             .start()));
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
+              .saveOutput(&channel)
+              .start();
+  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
+  ASSERT_TRUE(driver->wait(th));
   uint32_t upstream_window = channel.upstream_initial_window_size;
 
-  auto th = driver->createTask<ReceiveDataUntilLocalWindowExhausted>()
-              .start(channel);
+  auto th2 = driver->createTask<ReceiveDataUntilLocalWindowExhausted>()
+               .start(channel);
   uint32_t n = 0;
   while (upstream_window > 0) {
     std::string buf(std::min(upstream_window, 16384u), '-');
@@ -595,7 +602,7 @@ TEST_P(StaticPortForwardTest, DownstreamFlowControl) {
   }
   ENVOY_LOG_MISC(debug, "test: sent {} bytes", channel.upstream_initial_window_size - upstream_window);
 
-  ASSERT_TRUE(driver->wait(th));
+  ASSERT_TRUE(driver->wait(th2));
 
   // The upstream window is exhausted, but the read path buffers are empty as all data has been
   // written to the upstream. We can write more data but it will be buffered and not flushed to
@@ -618,7 +625,7 @@ TEST_P(StaticPortForwardTest, DownstreamFlowControl) {
               .then(driver->createTask<Tasks::SendWindowAdjust>(data.size()) // 10 bytes removed above
                       .then(driver->createTask<Tasks::WaitForChannelData>(data)
                               .then(driver->createTask<Tasks::WaitForChannelEOF>()
-                                      .then(driver->createTask<Tasks::SendChannelCloseAndWait>(Tasks::SendEOF(false), Tasks::ExpectEOF(false)))))))
+                                      .then(driver->createTask<Tasks::SendChannelCloseAndWait>(Tasks::SendEOF(false), Tasks::ExpectEOF::No))))))
       .start(channel)));
 
   // Flow control may or may not have been triggered during the first set of writes, but all buffers
@@ -628,12 +635,12 @@ TEST_P(StaticPortForwardTest, DownstreamFlowControl) {
 }
 
 TEST_P(StaticPortForwardTest, UpstreamSendsInvalidMessageAfterBacklogThenDisconnects) {
-  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
-
   Tasks::Channel channel;
-  ASSERT_TRUE(driver->wait(driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
-                             .saveOutput(&channel)
-                             .start()));
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
+              .saveOutput(&channel)
+              .start();
+  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
+  ASSERT_TRUE(driver->wait(th));
 
   for (int i = 0; i < 10000; i++) {
     driver->sendMessage(wire::ChannelDataMsg{
@@ -651,12 +658,12 @@ TEST_P(StaticPortForwardTest, UpstreamSendsInvalidMessageAfterBacklogThenDisconn
 }
 
 TEST_P(StaticPortForwardTest, DownstreamDisconnectsDuringWriteBacklog) {
-  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
-
   Tasks::Channel channel;
-  ASSERT_TRUE(driver->wait(driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
-                             .saveOutput(&channel)
-                             .start()));
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
+              .saveOutput(&channel)
+              .start();
+  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
+  ASSERT_TRUE(driver->wait(th));
 
   for (int i = 0; i < 10000; i++) {
     driver->sendMessage(wire::ChannelDataMsg{
@@ -668,13 +675,75 @@ TEST_P(StaticPortForwardTest, DownstreamDisconnectsDuringWriteBacklog) {
   ASSERT_TRUE(driver->wait(driver->createTask<Tasks::WaitForChannelCloseByPeer>().start(channel)));
 }
 
-TEST_P(StaticPortForwardTest, UpstreamSendsLargeMessageThenDownstreamDisconnects) {
+class ReceiveReversePortForwardChannelOpen : public Task<void, wire::ChannelOpenMsg> {
+public:
+  void start() override {
+    callbacks_->setTimeout(default_timeout_, "ReceiveReversePortForwardChannelOpen");
+  }
+
+  MiddlewareResult onMessageReceived(wire::Message& msg) override {
+    return msg.visit(
+      [&](const wire::ChannelOpenMsg& open_msg) {
+        return open_msg.request.visit(
+          [&](const wire::ForwardedTcpipChannelOpenMsg&) {
+            taskSuccess(open_msg);
+            return Break;
+          },
+          DEFAULT_CONTINUE);
+      },
+      DEFAULT_CONTINUE);
+  }
+};
+
+TEST_P(StaticPortForwardTest, DownstreamDisconnectsBeforeOpen) {
+  {
+    wire::ChannelOpenMsg msg;
+    auto th = driver->createTask<ReceiveReversePortForwardChannelOpen>()
+                .saveOutput(&msg)
+                .start();
+    auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
+    ASSERT_TRUE(driver->wait(th));
+    downstream->close(Network::ConnectionCloseType::NoFlush);
+    driver->sendMessage(std::move(msg));
+  }
+  {
+    wire::ChannelOpenMsg msg;
+    auto th = driver->createTask<ReceiveReversePortForwardChannelOpen>()
+                .saveOutput(&msg)
+                .start();
+    auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
+    ASSERT_TRUE(driver->wait(th));
+    downstream->close(Network::ConnectionCloseType::Abort);
+    driver->sendMessage(std::move(msg));
+  }
+  {
+    wire::ChannelOpenMsg msg;
+    auto th = driver->createTask<ReceiveReversePortForwardChannelOpen>()
+                .saveOutput(&msg)
+                .start();
+    auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
+    ASSERT_TRUE(driver->wait(th));
+    downstream->close(Network::ConnectionCloseType::AbortReset);
+    driver->sendMessage(std::move(msg));
+  }
+}
+
+TEST_P(StaticPortForwardTest, DownstreamDisconnectsWithNoDataSent) {
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1).start();
+
   auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
+  ASSERT_TRUE(driver->wait(th));
+  downstream->close();
+}
+
+TEST_P(StaticPortForwardTest, UpstreamSendsLargeMessageThenDownstreamDisconnects) {
 
   Tasks::Channel channel;
-  ASSERT_TRUE(driver->wait(driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
-                             .saveOutput(&channel)
-                             .start()));
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
+              .saveOutput(&channel)
+              .start();
+  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
+  ASSERT_TRUE(driver->wait(th));
 
   driver->sendMessage(wire::ChannelDataMsg{
     .recipient_channel = channel.remote_id,
@@ -697,50 +766,47 @@ public:
 };
 
 TEST_P(StaticPortForwardTest, UpstreamPacketTooLarge) {
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
+              .then(driver->createTask<SendTooLargePacket>()
+                      .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>()))
+              .start();
   auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
-
-  ASSERT_TRUE(driver->wait(
-    driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
-      .then(driver->createTask<SendTooLargePacket>()
-              .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>()))
-      .start()));
+  ASSERT_TRUE(driver->wait(th));
 
   downstream->close();
 }
 
 TEST_P(StaticPortForwardTest, UpstreamPacketEmpty) {
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
+              .then(driver->createTask<Tasks::SendChannelData>("")
+                      .then(driver->createTask<Tasks::SendChannelCloseAndWait>()))
+              .start();
   auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
-
   // this should be a no-op
-  ASSERT_TRUE(driver->wait(
-    driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
-      .then(driver->createTask<Tasks::SendChannelData>("")
-              .then(driver->createTask<Tasks::SendChannelCloseAndWait>()))
-      .start()));
+  ASSERT_TRUE(driver->wait(th));
 
   downstream->close();
 }
 
 TEST_P(StaticPortForwardTest, UpstreamSendsInvalidWindowAdjust) {
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
+              .then(driver->createTask<Tasks::SendWindowAdjust>(std::numeric_limits<uint32_t>::max())
+                      .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>()))
+              .start();
   auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
-
-  ASSERT_TRUE(driver->wait(
-    driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
-      .then(driver->createTask<Tasks::SendWindowAdjust>(std::numeric_limits<uint32_t>::max())
-              .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>()))
-      .start()));
+  ASSERT_TRUE(driver->wait(th));
 
   downstream->close();
 }
 
 TEST_P(StaticPortForwardTest, UpstreamSendsUnexpectedChannelMessage) {
-  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
 
   Tasks::Channel channel;
   auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
               .saveOutput(&channel)
               .start();
 
+  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
   ASSERT_TRUE(driver->wait(th));
 
   auto th2 = driver->createTask<Tasks::WaitForDisconnectWithError>("received unexpected message on forwarded-tcpip channel")
@@ -770,11 +836,10 @@ TEST_P(StaticPortForwardTest, UpstreamEOF) {
 TEST_P(StaticPortForwardTest, BlockDownstreamSocksPacket) {
   // See RemoteStreamHandler::initialize() for details
   for (auto hdr : {"\x05\x01\x00"sv, "\x05"sv, "\x04"sv}) {
-    auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
-
     auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
                 .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>())
                 .start();
+    auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
     ASSERT_TRUE(downstream->write(std::string(hdr), false, true));
     downstream->waitForDisconnect();
     ASSERT_TRUE(driver->wait(th));
@@ -792,17 +857,17 @@ public:
 };
 
 TEST_P(StaticPortForwardWithHalfCloseTest, DownstreamHalfClose) {
-  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
-
   Tasks::Channel channel;
   auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
               .saveOutput(&channel)
-              .then(driver->createTask<Tasks::WaitForChannelData>("half close")
-                      .then(driver->createTask<Tasks::WaitForChannelMsg<wire::ChannelEOFMsg>>()))
               .start();
-
-  ASSERT_TRUE(downstream->write("half close", true, true));
+  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
   ASSERT_TRUE(driver->wait(th));
+  auto th2 = driver->createTask<Tasks::WaitForChannelData>("half close")
+               .then(driver->createTask<Tasks::WaitForChannelMsg<wire::ChannelEOFMsg>>())
+               .start(channel);
+  ASSERT_TRUE(downstream->write("half close", true, true));
+  ASSERT_TRUE(driver->wait(th2));
 
   // downstream is half-closed, but can still read
   driver->sendMessage(wire::ChannelDataMsg{
@@ -813,7 +878,7 @@ TEST_P(StaticPortForwardWithHalfCloseTest, DownstreamHalfClose) {
   // Once the upstream closes, the downstream is closed
 
   ASSERT_TRUE(driver->wait(
-    driver->createTask<Tasks::SendChannelCloseAndWait>(Tasks::SendEOF(false), Tasks::ExpectEOF(false))
+    driver->createTask<Tasks::SendChannelCloseAndWait>(Tasks::SendEOF(false), Tasks::ExpectEOF::No)
       .start(channel)));
   downstream->waitForDisconnect();
 }
@@ -822,7 +887,7 @@ TEST_P(StaticPortForwardWithHalfCloseTest, UpstreamHalfClose) {
   auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
               .then(driver->createTask<Tasks::SendChannelEOF>()
                       .then(driver->createTask<Tasks::WaitForChannelEOF>()
-                              .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>(Tasks::ExpectEOF(false)))))
+                              .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>(Tasks::ExpectEOF::No))))
               .start();
 
   auto tcp_client = makeTcpConnectionWithServerName(route_port, route_name);
@@ -835,12 +900,12 @@ TEST_P(StaticPortForwardWithHalfCloseTest, UpstreamHalfClose) {
 }
 
 TEST_P(StaticPortForwardTest, DownstreamClosesAbruptly) {
-  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
-
   Tasks::Channel channel;
-  ASSERT_TRUE(driver->wait(driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
-                             .saveOutput(&channel)
-                             .start()));
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
+              .saveOutput(&channel)
+              .start();
+  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
+  ASSERT_TRUE(driver->wait(th));
 
   driver->sendMessage(wire::ChannelDataMsg{
     .recipient_channel = channel.remote_id,
@@ -851,12 +916,13 @@ TEST_P(StaticPortForwardTest, DownstreamClosesAbruptly) {
 }
 
 TEST_P(StaticPortForwardTest, DownstreamClosesAbruptly2) {
-  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
 
   Tasks::Channel channel;
-  ASSERT_TRUE(driver->wait(driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
-                             .saveOutput(&channel)
-                             .start()));
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
+              .saveOutput(&channel)
+              .start();
+  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
+  ASSERT_TRUE(driver->wait(th));
 
   driver->sendMessage(wire::ChannelDataMsg{
     .recipient_channel = channel.remote_id,
@@ -900,13 +966,13 @@ TEST_P(StaticPortForwardTest, UpstreamDisconnectsBeforeInitialization) {
 }
 
 TEST_P(StaticPortForwardTest, HostDrainClosesDownstreamConnections) {
-  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
   Tasks::Channel channel;
   auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
               .saveOutput(&channel)
               .then(driver->createTask<Tasks::SendChannelData>("ping")
                       .then(driver->createTask<Tasks::WaitForChannelData>("pong")))
               .start();
+  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
 
   // Wait for a simple send/receive to make sure the remote stream handler is initialized
   downstream->waitForData("ping");
@@ -948,29 +1014,31 @@ public:
 };
 
 TEST_P(StaticPortForwardTest, HostDrainBeforeInitializationClosesDownstreamConnections) {
-  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
   Tasks::Channel channel;
-  ASSERT_TRUE(driver->wait(driver->createTask<ReceiveReversePortForwardButDoNotConfirm>()
-                             .saveOutput(&channel)
-                             .start()));
+  auto th = driver->createTask<ReceiveReversePortForwardButDoNotConfirm>()
+              .saveOutput(&channel)
+              .start();
+  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
+  ASSERT_TRUE(driver->wait(th));
 
   setClusterLoad(cluster_name, {});
-  auto th = driver->createTask<Tasks::WaitForChannelCloseByPeer>().start(channel);
+  auto th2 = driver->createTask<Tasks::WaitForChannelCloseByPeer>().start(channel);
   driver->sendMessage(wire::ChannelOpenConfirmationMsg{
     .recipient_channel = channel.remote_id,
     .sender_channel = channel.local_id,
     .initial_window_size = wire::ChannelWindowSize,
     .max_packet_size = wire::ChannelMaxPacketSize,
   });
-  ASSERT_TRUE(driver->wait(th));
+  ASSERT_TRUE(driver->wait(th2));
 
   downstream->waitForDisconnect();
 }
 
 TEST_P(StaticPortForwardTest, HostDrainBeforeChannelOpenFailureClosesDownstreamConnections) {
+  auto th = driver->createTask<Tasks::RejectReversePortForward>(route_name, route_port)
+              .start();
   auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
-  ASSERT_TRUE(driver->wait(driver->createTask<Tasks::RejectReversePortForward>(route_name, route_port)
-                             .start()));
+  ASSERT_TRUE(driver->wait(th));
 
   setClusterLoad(cluster_name, {});
   downstream->waitForDisconnect();
@@ -989,10 +1057,11 @@ TEST_P(StaticPortForwardTest, InternalDownstreamChannelOpenFails) {
   channels.resize(100);
   std::vector<IntegrationTcpClientPtr> downstreams;
   for (int i = 0; i < 100; i++) {
+    auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, i)
+                .saveOutput(&channels[i])
+                .start();
     downstreams.push_back(makeTcpConnectionWithServerName(route_port, route_name));
-    ASSERT_TRUE(driver->wait(driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, i)
-                               .saveOutput(&channels[i])
-                               .start()));
+    ASSERT_TRUE(driver->wait(th));
   }
   // 101st channel should fail to open
   auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
@@ -1012,13 +1081,13 @@ class ChannelCloseTimeoutTest : public Envoy::Event::TestUsingSimulatedTime,
 };
 
 TEST_P(ChannelCloseTimeoutTest, UpstreamIgnoresChannelCloseDuringHostDrain) {
-  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
   Tasks::Channel channel;
   auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
               .saveOutput(&channel)
               .then(driver->createTask<Tasks::SendChannelData>("ping")
                       .then(driver->createTask<Tasks::WaitForChannelData>("pong")))
               .start();
+  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
 
   downstream->waitForData("ping");
   EXPECT_TRUE(downstream->write("pong"));
@@ -1123,24 +1192,137 @@ public:
 };
 
 TEST_P(DynamicPortForwardTest, DynamicPortForward) {
-  auto downstream = makeTcpConnectionWithServerName(lookupPort("tcp"), "tcp-cluster");
-
   Tasks::Channel channel;
-  ASSERT_TRUE(driver->wait(driver->createTask<Tasks::AcceptReversePortForward>("", virtual_port, 1)
-                             .saveOutput(&channel)
-                             .then(driver->createTask<DoSocks5ServerHandshake>(version_))
-                             .start()));
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>("", virtual_port, 1)
+              .saveOutput(&channel)
+              .then(driver->createTask<DoSocks5ServerHandshake>(version_))
+              .start();
 
-  auto th = driver->createTask<Tasks::SendChannelData>("ping")
-              .then(driver->createTask<Tasks::WaitForChannelData>("pong")
-                      .then(driver->createTask<Tasks::SendChannelCloseAndWait>()))
-              .start(channel);
+  auto downstream = makeTcpConnectionWithServerName(lookupPort("tcp"), "tcp-cluster");
+  ASSERT_TRUE(driver->wait(th));
+
+  auto th2 = driver->createTask<Tasks::SendChannelData>("ping")
+               .then(driver->createTask<Tasks::WaitForChannelData>("pong")
+                       .then(driver->createTask<Tasks::SendChannelCloseAndWait>()))
+               .start(channel);
 
   downstream->waitForData("ping");
-  EXPECT_TRUE(downstream->write("pong"));
+  (void)downstream->write("pong");
+
+  ASSERT_TRUE(driver->wait(th2));
 
   downstream->waitForDisconnect();
-  downstream->close();
+}
+
+TEST_P(DynamicPortForwardTest, DownstreamResetAfterOpen) {
+  Tasks::Channel channel;
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>("", virtual_port, 1)
+              .saveOutput(&channel)
+              .then(driver->createTask<DoSocks5ServerHandshake>(version_))
+              .start();
+
+  auto downstream = makeTcpConnectionWithServerName(lookupPort("tcp"), "tcp-cluster");
+  ASSERT_TRUE(driver->wait(th));
+
+  auto th2 = driver->createTask<Tasks::WaitForChannelCloseByPeer>(Tasks::ExpectEOF::Yes)
+               .start(channel);
+  // AbortReset here will raise the LocalClose event, and not wait for the upstream to handle the
+  // downstream EOF
+  downstream->close(Network::ConnectionCloseType::AbortReset);
+  ASSERT_TRUE(driver->wait(th2));
+}
+
+TEST_P(DynamicPortForwardTest, DownstreamCloseAfterOpen) {
+  Tasks::Channel channel;
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>("", virtual_port, 1)
+              .saveOutput(&channel)
+              .then(driver->createTask<DoSocks5ServerHandshake>(version_))
+              .start();
+
+  auto downstream = makeTcpConnectionWithServerName(lookupPort("tcp"), "tcp-cluster");
+  ASSERT_TRUE(driver->wait(th));
+
+  auto th2 = driver->createTask<Tasks::WaitForChannelEOF>()
+               .then(driver->createTask<Tasks::SendChannelEOF>()
+                       .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>(Tasks::ExpectEOF::No)))
+               .start(channel);
+  downstream->close(Network::ConnectionCloseType::NoFlush);
+  ASSERT_TRUE(driver->wait(th2));
+}
+
+class DoIncompleteSocks5ServerHandshake : public Task<Tasks::Channel, Tasks::Channel> {
+public:
+  void start(Tasks::Channel channel) override {
+    channel_ = channel;
+    setChannelFilter(channel);
+    callbacks_->setTimeout(default_timeout_, "DoIncompleteSocks5ServerHandshake");
+  }
+
+  MiddlewareResult onMessageReceived(wire::Message& msg) override {
+    return msg.visit(
+      [&](wire::ChannelDataMsg& msg) {
+        received_buffer_.append_range(*msg.data);
+        if (received_buffer_ == "\x05\x01\x00"sv) {
+          // If we never send an initial reply, the client should send no more than this
+          taskSuccess(channel_);
+        }
+        return Break;
+      },
+      DEFAULT_CONTINUE);
+  }
+
+  std::string received_buffer_;
+  Tasks::Channel channel_;
+};
+
+TEST_P(DynamicPortForwardTest, DownstreamResetBeforeOpen) {
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>("", virtual_port, 1)
+              .then(driver->createTask<DoIncompleteSocks5ServerHandshake>()
+                      .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>(Tasks::ExpectEOF::Yes)))
+              .start();
+
+  auto downstream = makeTcpConnectionWithServerName(lookupPort("tcp"), "tcp-cluster");
+  downstream->close(Network::ConnectionCloseType::AbortReset);
+  ASSERT_TRUE(driver->wait(th));
+}
+
+static std::once_flag enable_once;
+
+TEST_P(DynamicPortForwardTest, DownstreamResetBeforeInitialize) {
+  std::call_once(enable_once, [] {
+    remote_stream_handler_sync.enable();
+  });
+  remote_stream_handler_sync.waitOn("initialize");
+  remote_stream_handler_sync.waitOn("downstream_closed");
+
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>("", virtual_port, 1)
+              .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>(Tasks::ExpectEOF::Yes))
+              .start();
+
+  auto downstream = makeTcpConnectionWithServerName(lookupPort("tcp"), "tcp-cluster");
+  downstream->close(Network::ConnectionCloseType::AbortReset);
+
+  remote_stream_handler_sync.barrierOn("downstream_closed");
+  remote_stream_handler_sync.signal("downstream_closed");
+  remote_stream_handler_sync.signal("initialize");
+
+  ASSERT_TRUE(driver->wait(th));
+}
+
+TEST_P(DynamicPortForwardTest, DownstreamClosesDuringUpstreamSocks5Handshake) {
+  Tasks::Channel channel;
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>("", virtual_port, 1)
+              .saveOutput(&channel)
+              .then(driver->createTask<DoIncompleteSocks5ServerHandshake>())
+              .start();
+
+  auto downstream = makeTcpConnectionWithServerName(lookupPort("tcp"), "tcp-cluster");
+  ASSERT_TRUE(driver->wait(th));
+
+  auto th2 = driver->createTask<Tasks::WaitForChannelCloseByPeer>(Tasks::ExpectEOF::Yes)
+               .start(channel);
+  downstream->close(Network::ConnectionCloseType::NoFlush);
+  ASSERT_TRUE(driver->wait(th2));
 }
 
 class ConflictingModesPortForwardTest : public BaseReverseTunnelIntegrationTest,
@@ -1179,24 +1361,24 @@ public:
 };
 
 TEST_P(ConflictingModesPortForwardTest, UpstreamExpectingDynamicMode) {
+  Tasks::Channel channel;
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>(requested_host_, virtual_port, 1)
+              .saveOutput(&channel)
+              .start();
   auto downstream = makeTcpConnectionWithServerName(lookupPort("tcp"), "tcp-cluster");
 
-  Tasks::Channel channel;
-  ASSERT_TRUE(driver->wait(driver->createTask<Tasks::AcceptReversePortForward>(requested_host_, virtual_port, 1)
-                             .saveOutput(&channel)
-                             .start()));
+  ASSERT_TRUE(driver->wait(th));
 
   // mimic openssh server behavior
-  auto th = driver->createTask<Tasks::WaitForChannelData>("not a socks5 handshake")
-              .then(driver->createTask<Tasks::SendChannelCloseAndWait>(Tasks::SendEOF(true)))
-              .start(channel);
+  auto th2 = driver->createTask<Tasks::WaitForChannelData>("not a socks5 handshake")
+               .then(driver->createTask<Tasks::SendChannelCloseAndWait>(Tasks::SendEOF(true)))
+               .start(channel);
 
   EXPECT_TRUE(downstream->write("not a socks5 handshake"));
-  ASSERT_TRUE(driver->wait(th));
+  ASSERT_TRUE(driver->wait(th2));
   EXPECT_TRUE(driver->waitForDiagnostic("ssh client may be expecting dynamic port-forwarding"));
 
   downstream->waitForDisconnect();
-  downstream->close();
 }
 
 class DoSocks5ServerHandshakeWithExtraData : public DoSocks5ServerHandshake {
@@ -1221,13 +1403,12 @@ public:
 };
 
 TEST_P(DynamicPortForwardTest, Socks5HandshakeMoreDataAfterHandshakeComplete) {
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>("", virtual_port, 1)
+              .then(driver->createTask<DoSocks5ServerHandshakeWithExtraData>(version_)
+                      .then(driver->createTask<Tasks::SendChannelCloseAndWait>()))
+              .start();
   auto downstream = makeTcpConnectionWithServerName(lookupPort("tcp"), "tcp-cluster");
-
-  ASSERT_TRUE(driver->wait(
-    driver->createTask<Tasks::AcceptReversePortForward>("", virtual_port, 1)
-      .then(driver->createTask<DoSocks5ServerHandshakeWithExtraData>(version_)
-              .then(driver->createTask<Tasks::SendChannelCloseAndWait>()))
-      .start()));
+  ASSERT_TRUE(driver->wait(th));
 
   downstream->waitForData("hello world");
   downstream->waitForDisconnect();
@@ -1235,14 +1416,13 @@ TEST_P(DynamicPortForwardTest, Socks5HandshakeMoreDataAfterHandshakeComplete) {
 }
 
 TEST_P(DynamicPortForwardTest, Socks5HandshakeError) {
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>("", virtual_port, 1)
+              .then(driver->createTask<Tasks::WaitForChannelData>("\x05\x01\x00"s)
+                      .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>(Tasks::ExpectEOF::Yes)) // in parallel
+                      .then(driver->createTask<Tasks::SendChannelData>("\x04\x00"_bytes)))               //
+              .start();
   auto downstream = makeTcpConnectionWithServerName(lookupPort("tcp"), "tcp-cluster");
-
-  ASSERT_TRUE(driver->wait(
-    driver->createTask<Tasks::AcceptReversePortForward>("", virtual_port, 1)
-      .then(driver->createTask<Tasks::WaitForChannelData>("\x05\x01\x00"s)
-              .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>(Tasks::ExpectEOF(true))) // in parallel
-              .then(driver->createTask<Tasks::SendChannelData>("\x04\x00"_bytes)))                //
-      .start()));
+  ASSERT_TRUE(driver->wait(th));
 
   downstream->waitForDisconnect();
   downstream->close();
@@ -1397,20 +1577,21 @@ public:
 };
 
 TEST_P(ChannelStatsIntegrationTest, TestPeriodicEvents) {
-  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
 
   Tasks::Channel channel;
-  ASSERT_TRUE(driver->wait(
-    driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
-      .saveOutput(&channel)
-      .start()));
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
+              .saveOutput(&channel)
+              .start();
+  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
 
-  auto th = driver->createTask<Tasks::WaitForChannelData>("response")
-              .then(driver->createTask<Tasks::SendChannelData>("request"))
-              .start(channel);
+  ASSERT_TRUE(driver->wait(th));
+
+  auto th2 = driver->createTask<Tasks::WaitForChannelData>("response")
+               .then(driver->createTask<Tasks::SendChannelData>("request"))
+               .start(channel);
   EXPECT_TRUE(downstream->write("response"));
   downstream->waitForData("request");
-  ASSERT_TRUE(driver->wait(th));
+  ASSERT_TRUE(driver->wait(th2));
 
   // FIXME: definitely doing something wrong here. This should be using advanceTimeWait() to
   // process timers on all threads, but it blocks, and I can't figure out why. We need to wait for
@@ -1429,12 +1610,12 @@ TEST_P(ChannelStatsIntegrationTest, TestPeriodicEvents) {
   EXPECT_TRUE(stats.items(0).has_start_time());
   EXPECT_FALSE(stats.items(0).has_end_time());
 
-  auto th2 = driver->createTask<Tasks::WaitForChannelData>("response")
+  auto th3 = driver->createTask<Tasks::WaitForChannelData>("response")
                .then(driver->createTask<Tasks::SendChannelData>("request"))
                .start(channel);
   EXPECT_TRUE(downstream->write("response"));
   downstream->waitForData("request");
-  ASSERT_TRUE(driver->wait(th2));
+  ASSERT_TRUE(driver->wait(th3));
 
   // simTime().advanceTimeAndRun(std::chrono::milliseconds(6000), *dispatcher_,
   //                             Envoy::Event::Dispatcher::RunType::NonBlock);
@@ -1446,9 +1627,9 @@ TEST_P(ChannelStatsIntegrationTest, TestPeriodicEvents) {
   // EXPECT_EQ(14, stats2.tx_bytes_total());
   // EXPECT_EQ(16, stats2.rx_bytes_total());
 
-  auto th3 = driver->createTask<Tasks::SendChannelCloseAndWait>().start(channel);
+  auto th4 = driver->createTask<Tasks::SendChannelCloseAndWait>().start(channel);
   downstream->waitForDisconnect();
-  ASSERT_TRUE(driver->wait(th3));
+  ASSERT_TRUE(driver->wait(th4));
   pomerium::extensions::ssh::ChannelStats close_stats;
   ASSERT_TRUE(driver->waitForStatsOnChannelClose(&close_stats));
   // EXPECT_THAT(DurationUtil::durationToMilliseconds(close_stats.channel_duration()), testing::Ge(5000 * iterations)); // TODO
