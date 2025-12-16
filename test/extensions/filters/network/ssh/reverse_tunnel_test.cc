@@ -10,6 +10,7 @@
 #include "envoy/config/endpoint/v3/endpoint.pb.validate.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "gtest/gtest.h"
+#include <mutex>
 
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "test/extensions/filters/network/ssh/ssh_task.h"
@@ -1285,9 +1286,12 @@ TEST_P(DynamicPortForwardTest, DownstreamResetBeforeOpen) {
   ASSERT_TRUE(driver->wait(th));
 }
 
-TEST_P(DynamicPortForwardTest, DownstreamResetBeforeInitialize) {
-  remote_stream_handler_sync.enable();
+static std::once_flag enable_once;
 
+TEST_P(DynamicPortForwardTest, DownstreamResetBeforeInitialize) {
+  std::call_once(enable_once, [] {
+    remote_stream_handler_sync.enable();
+  });
   remote_stream_handler_sync.waitOn("initialize");
   remote_stream_handler_sync.waitOn("downstream_closed");
 
