@@ -161,3 +161,5 @@ DECLARE_FACTORY(SshReverseTunnelClusterFactory);
 
 } // namespace Upstream
 } // namespace Envoy
+
+inline Envoy::Thread::ThreadSynchronizer remote_stream_handler_sync;

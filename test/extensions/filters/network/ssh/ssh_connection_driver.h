@@ -196,6 +196,7 @@ protected:
     void taskSuccess(std::any output, std::function<void(const std::any&, void*)> apply_fn) override;
     void taskFailure(absl::Status stat) override;
     void setTimeout(std::chrono::milliseconds timeout, const std::string& name) override;
+    void setTimeout(std::chrono::milliseconds timeout, std::function<void()> cb) override;
 
     void sendMessage(wire::Message&& msg) override;
     void loop(std::chrono::milliseconds interval, std::function<void()> cb) override;

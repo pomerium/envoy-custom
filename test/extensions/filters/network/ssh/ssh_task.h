@@ -37,11 +37,12 @@ class TaskCallbacks {
 public:
   virtual ~TaskCallbacks() = default;
   virtual void sendMessage(wire::Message&&) PURE;
-  // virtual KexResult& kexResult() PURE;
-  // virtual openssh::SSHKey& clientKey() PURE;
-  // virtual void waitForManagementRequest(Protobuf::Message& req) PURE;
-  // virtual void sendManagementResponse(const Protobuf::Message& resp) PURE;
+  // Starts a timer that will call taskFailure() after the timeout, unless taskSuccess() has been
+  // called before the timer elapses.
   virtual void setTimeout(std::chrono::milliseconds timeout, const std::string& name) PURE;
+  // Starts a timer that will invoke the given callback after the timeout, unless taskSuccess() or
+  // taskFailure() have been called before the timer elapses.
+  virtual void setTimeout(std::chrono::milliseconds timeout, std::function<void()> cb) PURE;
   virtual void loop(std::chrono::milliseconds interval, std::function<void()> cb) PURE;
 
 private:
@@ -539,13 +540,18 @@ public:
   MiddlewareResult onMessageReceived(wire::Message&) override { return Continue; }
 };
 
-enum class ExpectEOF : bool {};
+enum class ExpectEOF {
+  Optional = 0,
+  Yes = 1,
+  No = 2,
+};
+
 enum class SendEOF : bool {};
 
 class WaitForChannelCloseByPeer : public Task<Channel> {
 public:
-  explicit WaitForChannelCloseByPeer(ExpectEOF expect_eof = ExpectEOF(true))
-      : expect_eof_(expect_eof) {}
+  explicit WaitForChannelCloseByPeer(ExpectEOF expect_eof = ExpectEOF::Optional)
+      : eof_requirement_(expect_eof) {}
   void start(Channel channel) override {
     channel_ = channel;
     setChannelFilter(channel);
@@ -554,6 +560,9 @@ public:
   MiddlewareResult onMessageReceived(wire::Message& msg) override {
     return msg.visit(
       [&](const wire::ChannelCloseMsg&) {
+        if (eof_requirement_ == ExpectEOF::Yes && !eof_received_) {
+          taskFailure(absl::InvalidArgumentError(fmt::format("expected EOF before close for channel {}", channel_.local_id)));
+        }
         callbacks_->sendMessage(wire::ChannelCloseMsg{
           .recipient_channel = channel_.remote_id,
         });
@@ -561,15 +570,21 @@ public:
         return Break;
       },
       [&](const wire::ChannelEOFMsg&) {
-        if (expect_eof_ == ExpectEOF(false)) {
+        if (eof_received_) {
+          taskFailure(absl::InvalidArgumentError("EOF received twice"));
+          return Break;
+        }
+        if (eof_requirement_ == ExpectEOF::No) {
           taskFailure(absl::InvalidArgumentError(fmt::format("unexpected EOF for channel {}", channel_.local_id)));
         }
+        eof_received_ = true;
         return Break;
       },
       DEFAULT_CONTINUE);
   }
   Channel channel_{};
-  const ExpectEOF expect_eof_;
+  bool eof_received_{false};
+  const ExpectEOF eof_requirement_;
 };
 
 class WaitForChannelEOF : public Task<Channel, Channel> {
@@ -596,9 +611,9 @@ public:
 
 class SendChannelCloseAndWait : public Task<Channel> {
 public:
-  SendChannelCloseAndWait(SendEOF send_eof = SendEOF(false), ExpectEOF expect_eof = ExpectEOF(true))
+  SendChannelCloseAndWait(SendEOF send_eof = SendEOF(false), ExpectEOF expect_eof = ExpectEOF::Optional)
       : send_eof_(send_eof),
-        expect_eof_(expect_eof) {}
+        eof_requirement_(expect_eof) {}
   void start(Channel channel) override {
     channel_ = channel;
     setChannelFilter(channel);
@@ -615,11 +630,14 @@ public:
   MiddlewareResult onMessageReceived(wire::Message& msg) override {
     return msg.visit(
       [&](const wire::ChannelCloseMsg&) {
+        if (eof_requirement_ == ExpectEOF::Yes && !eof_received_) {
+          taskFailure(absl::InvalidArgumentError(fmt::format("expected EOF before close for channel {}", channel_.local_id)));
+        }
         taskSuccess();
         return Break;
       },
       [&](const wire::ChannelEOFMsg&) {
-        if (expect_eof_ == ExpectEOF(false)) {
+        if (eof_requirement_ == ExpectEOF::No) {
           taskFailure(absl::InvalidArgumentError(fmt::format("unexpected EOF for channel {}", channel_.local_id)));
         }
         return Break;
@@ -628,7 +646,8 @@ public:
   }
   Channel channel_{};
   const SendEOF send_eof_;
-  const ExpectEOF expect_eof_;
+  bool eof_received_{false};
+  const ExpectEOF eof_requirement_;
 };
 
 class WaitForDisconnectWithError : public Task<> {

@@ -417,6 +417,14 @@ void SshConnectionDriver::TaskCallbacksImpl::setTimeout(std::chrono::millisecond
   timeout_timer_->enableTimer(timeout);
 }
 
+void SshConnectionDriver::TaskCallbacksImpl::setTimeout(std::chrono::milliseconds timeout, std::function<void()> cb) {
+  if (timeout_timer_ != nullptr) {
+    timeout_timer_->disableTimer();
+  }
+  timeout_timer_ = parent_.connectionDispatcher()->createTimer(cb);
+  timeout_timer_->enableTimer(timeout);
+}
+
 void SshConnectionDriver::TaskCallbacksImpl::sendMessage(wire::Message&& msg) {
   parent_.sendMessage(std::move(msg));
 }
