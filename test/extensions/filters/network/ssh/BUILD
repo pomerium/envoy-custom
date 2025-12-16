@@ -438,6 +438,7 @@ envoy_cc_test_library(
 
 envoy_cc_test(
     name = "reverse_tunnel_test",
+    size = "large",
     srcs = [
         "reverse_tunnel_test.cc",
     ],
