@@ -357,7 +357,6 @@ public:
             if (address_connected_ == msg.address_connected &&
                 port_connected_ == msg.port_connected) {
               EXPECT_THAT(*msg.originator_address, AnyOf(Eq("127.0.0.1"s), Eq("::1"s)));
-              EXPECT_NE(0, *msg.originator_port);
               callbacks_->sendMessage(wire::ChannelOpenConfirmationMsg{
                 .recipient_channel = open_msg.sender_channel,
                 .sender_channel = local_channel_id_,

@@ -10,6 +10,7 @@ namespace test {
 class MockReverseTunnelClusterContext : public ReverseTunnelClusterContext {
 public:
   MOCK_METHOD(const Upstream::ClusterInfoConstSharedPtr&, clusterInfo, ());
+  MOCK_METHOD(const envoy::config::cluster::v3::Cluster&, clusterConfig, ());
   MOCK_METHOD(std::shared_ptr<StreamTracker>, streamTracker, ());
   MOCK_METHOD(std::shared_ptr<const envoy::config::core::v3::Address>, chooseUpstreamAddress, ());
   MOCK_METHOD(ReverseTunnelStats&, reverseTunnelStats, ());
@@ -40,7 +41,7 @@ TEST(SshStreamAddressTest, TestAddress) {
   Network::Address::SshStreamAddress address(1, ctx);
 
   EXPECT_EQ(1, address.streamId());
-  EXPECT_EQ(&ctx, &address.hostContext());
+  EXPECT_EQ(&ctx, dynamic_cast<FakeHostContext*>(&address.hostContext()));
   EXPECT_EQ("ssh:1", address.asString());
   EXPECT_EQ("ssh:1", address.asStringView());
   EXPECT_EQ("ssh:1", address.logicalName());
