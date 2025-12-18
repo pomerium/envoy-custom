@@ -1235,7 +1235,7 @@ public:
       : HostContextImpl(metadata, *this, cluster_context),
         HostImpl(creation_status,
                  cluster_context.clusterInfo(),
-                 fmt::format("ssh:{}", stream_id),
+                 "", // empty hostname is important - if this is set, it may affect host rewrites
                  std::make_shared<Network::Address::SshStreamAddress>(stream_id, *this),
                  metadata,
                  nullptr,
