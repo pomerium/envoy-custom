@@ -100,6 +100,7 @@ void SshServerTransport::onConnected() {
 
   ASSERT(conn.state() == Network::Connection::State::Open);
   connection_dispatcher_ = conn.dispatcher();
+
   auto maxConcurrentChannels = config_->max_concurrent_channels();
   if (maxConcurrentChannels == 0) {
     maxConcurrentChannels = DefaultMaxConcurrentChannels;
@@ -112,7 +113,8 @@ void SshServerTransport::onConnected() {
       // PermissionDenied errors should be auth related, and don't need this extra context.
       message = fmt::format("management server error: {}", message);
     }
-    terminate({static_cast<absl::StatusCode>(status), message});
+    absl::Status err{static_cast<absl::StatusCode>(status), message};
+    connection_service_->shutdown(err);
   });
   stream_id_ = api_.randomGenerator().random();
 
@@ -488,6 +490,13 @@ void SshServerTransport::sendMgmtClientMessage(const ClientMessage& msg) {
 }
 
 void SshServerTransport::terminate(absl::Status status) {
+  if (mgmt_client_ != nullptr) {
+    mgmt_client_->setOnRemoteCloseCallback(nullptr);
+    if (auto& stream = mgmt_client_->stream(); stream != nullptr) {
+      stream.resetStream();
+    }
+  }
+
   wire::DisconnectMsg msg;
   msg.reason_code = openssh::statusCodeToDisconnectCode(status.code());
   msg.description = statusToString(status);
