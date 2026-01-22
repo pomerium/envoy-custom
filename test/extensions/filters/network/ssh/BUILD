@@ -370,6 +370,7 @@ envoy_cc_test(
         ":test_mocks",
         "//source/extensions/filters/network/ssh:pomerium_ssh",
         "//test/test_common:test_common_lib",
+        "@envoy//test/mocks/event:event_mocks",
     ],
 )
 

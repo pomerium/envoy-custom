@@ -25,6 +25,28 @@ void AbslStringify(Sink& sink, const Peer& peer) {
 
 namespace test {
 
+class TestConnectionService : public ConnectionService {
+public:
+  using ConnectionService::ConnectionService;
+
+  void closeChannelInternal(uint32_t id, absl::Status err) {
+    for (auto& cc : channel_callbacks_) {
+      if (cc->channelId() == id) {
+        cc->internalClose(err);
+        return;
+      }
+    }
+  }
+  ChannelCallbacksImpl& getChannelCallbacks(uint32_t id) {
+    for (auto& cc : channel_callbacks_) {
+      if (cc->channelId() == id) {
+        return *cc;
+      }
+    }
+    PANIC("test bug: channel id does not exist");
+  }
+};
+
 class ConnectionServiceTest : public testing::TestWithParam<Peer> {
 public:
   ConnectionServiceTest()
@@ -52,7 +74,7 @@ public:
   ChannelIDManager channel_id_manager_{100, 100};
   TestSecretsProvider secrets_provider_;
   testing::StrictMock<MockTransportCallbacks> transport_;
-  ConnectionService service_;
+  TestConnectionService service_;
 };
 
 // NOLINTEND(readability-identifier-naming)
@@ -311,6 +333,156 @@ TEST_P(ConnectionServiceTest, CloseInternalChannel) {
   }));
 
   ASSERT_EQ(0, channel_id_manager_.numActiveChannels());
+}
+
+TEST_P(ConnectionServiceTest, InterruptInternalChannel) {
+  EXPECT_CALL(transport_, streamId)
+    .WillRepeatedly(Return(1));
+  auto ch1 = std::make_unique<testing::StrictMock<MockChannel>>();
+  uint32_t id{};
+  Envoy::Common::CallbackHandlePtr interruptCbHandle;
+  {
+    IN_SEQUENCE;
+    EXPECT_CALL(*ch1, setChannelCallbacks)
+      .WillOnce([&](ChannelCallbacks& cb) {
+        interruptCbHandle = cb.addInterruptCallback([](absl::Status err, TransportCallbacks& transport_callbacks) {
+          EXPECT_EQ(absl::InternalError("test error"), err);
+          EXPECT_OK(transport_callbacks.sendMessageToConnection(wire::ChannelDataMsg{
+            .recipient_channel = 1u, // note: manual channel id translation
+            .data = "testing"_bytes,
+          }));
+        });
+        return absl::OkStatus();
+      });
+    EXPECT_CALL(*ch1, onChannelOpened)
+      .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*ch1, readMessage(MSG(wire::ChannelCloseMsg, _)))
+      .WillOnce([&](wire::Message&&) {
+        return absl::OkStatus();
+      });
+    EXPECT_CALL(*ch1, Die);
+    id = *service_.startChannel(std::move(ch1));
+  }
+  ASSERT_OK(service_.handleMessage(wire::ChannelOpenConfirmationMsg{
+    .recipient_channel = id,
+    .sender_channel = 1, // local peer's ID
+  }));
+  EXPECT_CALL(transport_, sendMessageToConnection(MSG(wire::ChannelDataMsg,
+                                                      FIELD_EQ(recipient_channel, 1u),
+                                                      FIELD_EQ(data, "testing"_bytes))))
+    .WillOnce(Return(0));
+  EXPECT_CALL(transport_, sendMessageToConnection(MSG(wire::ChannelCloseMsg,
+                                                      FIELD_EQ(recipient_channel, 1u))))
+    .WillOnce(InvokeWithoutArgs([&]() {
+      EXPECT_OK(service_.handleMessage(wire::ChannelCloseMsg{
+        .recipient_channel = id,
+      }));
+      return 0;
+    }));
+
+  service_.closeChannelInternal(id, absl::InternalError("test error"));
+}
+
+TEST_P(ConnectionServiceTest, InterruptLocalPassthroughChannel) {
+  EXPECT_CALL(transport_, streamId)
+    .WillRepeatedly(Return(1));
+  IN_SEQUENCE;
+  EXPECT_CALL(transport_, forward(MSG(wire::ChannelOpenMsg,
+                                      FIELD_EQ(sender_channel, 100u),
+                                      FIELD(request, SUB_MSG(wire::SessionChannelOpenMsg, _))),
+                                  _));
+
+  ASSERT_OK(service_.handleMessage(wire::ChannelOpenMsg{
+    .sender_channel = 1, // local peer's ID
+    .request = wire::SessionChannelOpenMsg{},
+  }));
+  ASSERT_EQ(1, channel_id_manager_.numActiveChannels());
+  ASSERT_OK(channel_id_manager_.bindChannelID(100, PeerLocalID{
+                                                     .channel_id = 2, // remote peer's id
+                                                     .local_peer = RemotePeer(),
+                                                   }));
+  auto interruptCallbackHandle =
+    service_.getChannelCallbacks(100)
+      .addInterruptCallback(
+        [](absl::Status err, TransportCallbacks& transport_callbacks) {
+          EXPECT_EQ(absl::InternalError("test error"), err);
+          EXPECT_OK(transport_callbacks.sendMessageToConnection(wire::ChannelDataMsg{
+            .recipient_channel = 1u, // note: manual channel id translation
+            .data = "testing"_bytes,
+          }));
+        });
+
+  // internal close sequence
+  EXPECT_CALL(transport_, sendMessageToConnection(MSG(wire::ChannelDataMsg,
+                                                      FIELD_EQ(recipient_channel, 1u),
+                                                      FIELD_EQ(data, "testing"_bytes))))
+    .WillOnce(Return(0));
+  EXPECT_CALL(transport_, sendMessageToConnection(MSG(wire::ChannelCloseMsg,
+                                                      FIELD_EQ(recipient_channel, 1u))))
+    .WillOnce(InvokeWithoutArgs([&]() {
+      EXPECT_OK(service_.handleMessage(wire::ChannelCloseMsg{
+        .recipient_channel = 100,
+      }));
+      return 0;
+    }));
+  EXPECT_CALL(transport_, forward(MSG(wire::ChannelCloseMsg,
+                                      FIELD_EQ(recipient_channel, 2u)),
+                                  _));
+
+  service_.closeChannelInternal(100, absl::InternalError("test error"));
+}
+
+TEST_P(ConnectionServiceTest, InterruptRemotePassthroughChannel) {
+  EXPECT_CALL(transport_, streamId)
+    .WillRepeatedly(Return(1));
+
+  IN_SEQUENCE;
+  auto internalChannel = *channel_id_manager_.allocateNewChannel(RemotePeer());
+  uint32_t upstreamId = 10u;
+  ASSERT_OK(channel_id_manager_.bindChannelID(
+    internalChannel, PeerLocalID{
+                       .channel_id = upstreamId,
+                       .local_peer = RemotePeer(),
+                     }));
+
+  EXPECT_CALL(transport_, forward(MSG(wire::ChannelOpenConfirmationMsg,
+                                      FIELD_EQ(recipient_channel, upstreamId),
+                                      FIELD_EQ(sender_channel, internalChannel)),
+                                  _));
+
+  ASSERT_OK(service_.handleMessage(wire::ChannelOpenConfirmationMsg{
+    .recipient_channel = internalChannel,
+    .sender_channel = 1u,
+  }));
+  auto interruptCallbackHandle =
+    service_.getChannelCallbacks(internalChannel)
+      .addInterruptCallback(
+        [](absl::Status err, TransportCallbacks& transport_callbacks) {
+          EXPECT_EQ(absl::InternalError("test error"), err);
+          EXPECT_OK(transport_callbacks.sendMessageToConnection(wire::ChannelDataMsg{
+            .recipient_channel = 1u, // note: manual channel id translation
+            .data = "testing"_bytes,
+          }));
+        });
+
+  // internal close sequence
+  EXPECT_CALL(transport_, sendMessageToConnection(MSG(wire::ChannelDataMsg,
+                                                      FIELD_EQ(recipient_channel, 1u),
+                                                      FIELD_EQ(data, "testing"_bytes))))
+    .WillOnce(Return(0));
+  EXPECT_CALL(transport_, sendMessageToConnection(MSG(wire::ChannelCloseMsg,
+                                                      FIELD_EQ(recipient_channel, 1u))))
+    .WillOnce(InvokeWithoutArgs([&]() {
+      EXPECT_OK(service_.handleMessage(wire::ChannelCloseMsg{
+        .recipient_channel = internalChannel,
+      }));
+      return 0;
+    }));
+  EXPECT_CALL(transport_, forward(MSG(wire::ChannelCloseMsg,
+                                      FIELD_EQ(recipient_channel, upstreamId)),
+                                  _));
+
+  service_.closeChannelInternal(internalChannel, absl::InternalError("test error"));
 }
 
 TEST_P(ConnectionServiceTest, CloseLocalPassthroughChannelWithNoRemoteRef) {

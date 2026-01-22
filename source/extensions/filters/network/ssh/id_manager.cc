@@ -54,6 +54,13 @@ void ChannelIDManager::releaseChannelID(uint32_t internal_id, Peer local_peer, b
   }
 }
 
+std::optional<Peer> ChannelIDManager::owner(uint32_t internal_id) {
+  if (!internal_channels_.contains(internal_id)) {
+    return std::nullopt;
+  }
+  return internal_channels_[internal_id].owner;
+}
+
 absl::StatusOr<bool> ChannelIDManager::processOutgoingChannelMsgImpl(wire::field<uint32_t>& recipient_channel,
                                                                      wire::SshMessageType msg_type,
                                                                      Peer dest) {
@@ -80,6 +87,20 @@ absl::StatusOr<bool> ChannelIDManager::processOutgoingChannelMsgImpl(wire::field
 
   recipient_channel = info.peer_ids[dest];
   return send_ok;
+}
+
+[[nodiscard]]
+Envoy::Common::CallbackHandlePtr ChannelIDManager::startDrain(Envoy::Event::Dispatcher& dispatcher, std::function<void()> complete_cb) {
+  if (draining_) {
+    return nullptr;
+  }
+  draining_ = true;
+  auto handle = drain_cb_->add(dispatcher, std::move(complete_cb));
+  if (internal_channels_.empty()) {
+    // already drained
+    drain_cb_->runCallbacks();
+  }
+  return handle;
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

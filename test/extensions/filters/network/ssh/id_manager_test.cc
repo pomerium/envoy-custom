@@ -1,6 +1,7 @@
 #include "source/extensions/filters/network/ssh/id_manager.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "test/test_common/test_common.h"
+#include "test/mocks/event/mocks.h"
 #include "gtest/gtest.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
@@ -142,9 +143,9 @@ TEST(ChannelIDManagerTest, ProcessOutgoingChannelMsg_NoSuchChannel) {
   wire::ChannelDataMsg msg;
   msg.recipient_channel = 10;
   ASSERT_EQ(absl::InvalidArgumentError("error processing outgoing message of type ChannelData (94): no such channel: 10"),
-            mgr.processOutgoingChannelMsg(msg, Peer::Downstream));
+            mgr.processOutgoingChannelMsg(msg, Peer::Downstream).status());
   ASSERT_EQ(absl::InvalidArgumentError("error processing outgoing message of type ChannelData (94): no such channel: 10"),
-            mgr.processOutgoingChannelMsg(msg, Peer::Upstream));
+            mgr.processOutgoingChannelMsg(msg, Peer::Upstream).status());
 }
 
 TEST(ChannelIDManagerTest, ProcessOutgoingChannelMsg_ChannelIDNotBound) {
@@ -157,9 +158,9 @@ TEST(ChannelIDManagerTest, ProcessOutgoingChannelMsg_ChannelIDNotBound) {
 
   // try processing the messages before binding the IDs
   ASSERT_EQ(absl::InvalidArgumentError("error processing outgoing message of type ChannelData (94): internal channel 10 is not known to Downstream (state: Unbound)"),
-            mgr.processOutgoingChannelMsg(msg, Peer::Downstream));
+            mgr.processOutgoingChannelMsg(msg, Peer::Downstream).status());
   ASSERT_EQ(absl::InvalidArgumentError("error processing outgoing message of type ChannelData (94): internal channel 10 is not known to Upstream (state: Unbound)"),
-            mgr.processOutgoingChannelMsg(msg, Peer::Upstream));
+            mgr.processOutgoingChannelMsg(msg, Peer::Upstream).status());
 
   // bind the IDs
   ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
@@ -216,9 +217,102 @@ TEST(ChannelIDManagerTest, ProcessOutgoingChannelMsg_ChannelIDReleased) {
     wire::ChannelDataMsg msg;
     msg.recipient_channel = 10;
     ASSERT_EQ(absl::InvalidArgumentError("error processing outgoing message of type ChannelData (94): no such channel: 10"),
-              mgr.processOutgoingChannelMsg(msg, a));
+              mgr.processOutgoingChannelMsg(msg, a).status());
     ASSERT_EQ(absl::InvalidArgumentError("error processing outgoing message of type ChannelData (94): no such channel: 10"),
-              mgr.processOutgoingChannelMsg(msg, b));
+              mgr.processOutgoingChannelMsg(msg, b).status());
+  }
+}
+
+TEST(ChannelIDManagerTest, Drain) {
+  ChannelIDManager mgr(10);
+  auto id = mgr.allocateNewChannel(Peer::Downstream);
+  ASSERT_OK(id);
+
+  ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
+                                     .channel_id = 1,
+                                     .local_peer = Peer::Downstream,
+                                   }));
+  ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
+                                     .channel_id = 2,
+                                     .local_peer = Peer::Upstream,
+                                   }));
+
+  NiceMock<Envoy::Event::MockDispatcher> dispatcher;
+  Envoy::Common::CallbackHandlePtr cbHandle;
+  bool called{};
+  cbHandle = mgr.startDrain(dispatcher, [&] {
+    called = true;
+  });
+  ASSERT_FALSE(called);
+
+  ASSERT_EQ(absl::UnavailableError("server is shutting down"), mgr.allocateNewChannel(Peer::Downstream).status());
+  ASSERT_EQ(absl::UnavailableError("server is shutting down"), mgr.allocateNewChannel(Peer::Upstream).status());
+
+  mgr.releaseChannelID(*id, Peer::Downstream);
+  ASSERT_FALSE(called);
+  mgr.releaseChannelID(*id, Peer::Upstream);
+  ASSERT_TRUE(called);
+}
+
+TEST(ChannelIDManagerTest, Drain_NoChannels) {
+  ChannelIDManager mgr(10);
+  NiceMock<Envoy::Event::MockDispatcher> dispatcher;
+
+  CHECK_CALLED({
+    auto handle = mgr.startDrain(dispatcher, [&] {
+      CALLED;
+    });
+  });
+}
+
+TEST(ChannelIDManagerTest, Drain_AlreadyDraining) {
+  ChannelIDManager mgr(10);
+  NiceMock<Envoy::Event::MockDispatcher> dispatcher;
+  auto id = mgr.allocateNewChannel(Peer::Downstream);
+  ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
+                                     .channel_id = 1,
+                                     .local_peer = Peer::Downstream,
+                                   }));
+  Envoy::Common::CallbackHandlePtr cbHandle;
+  bool called{};
+  cbHandle = mgr.startDrain(dispatcher, [&] {
+    called = true;
+  });
+  ASSERT_FALSE(called);
+  ASSERT_EQ(nullptr, mgr.startDrain(dispatcher, [&] { FAIL(); }));
+
+  mgr.releaseChannelID(*id, Peer::Downstream);
+  ASSERT_TRUE(called);
+}
+
+TEST(ChannelIDManagerTest, InternalClose) {
+  ChannelIDManager mgr(10);
+  auto id = mgr.allocateNewChannel(Peer::Downstream);
+  ASSERT_OK(id);
+
+  ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
+                                     .channel_id = 1,
+                                     .local_peer = Peer::Downstream,
+                                   }));
+  ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
+                                     .channel_id = 2,
+                                     .local_peer = Peer::Upstream,
+                                   }));
+  mgr.releaseChannelID(*id, Peer::Downstream, true);
+
+  {
+    wire::ChannelDataMsg msg;
+    msg.recipient_channel = *id;
+    auto send = mgr.processOutgoingChannelMsg(msg, Peer::Downstream);
+    ASSERT_OK(send);
+    ASSERT_FALSE(*send);
+    EXPECT_EQ(1u, msg.recipient_channel);
+  }
+  {
+    wire::ChannelDataMsg msg;
+    msg.recipient_channel = *id;
+    ASSERT_OK(mgr.processOutgoingChannelMsg(msg, Peer::Upstream));
+    EXPECT_EQ(2u, msg.recipient_channel);
   }
 }
 

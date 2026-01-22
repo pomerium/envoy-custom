@@ -114,12 +114,7 @@ public:
   absl::Status bindChannelID(uint32_t internal_id, PeerLocalID peer_local_id);
   void releaseChannelID(uint32_t internal_id, Peer local_peer, bool set_closed_internally = false);
 
-  std::optional<Peer> owner(uint32_t internal_id) {
-    if (!internal_channels_.contains(internal_id)) {
-      return std::nullopt;
-    }
-    return internal_channels_[internal_id].owner;
-  }
+  std::optional<Peer> owner(uint32_t internal_id);
 
   template <wire::ChannelMsg M>
   absl::StatusOr<bool> processOutgoingChannelMsg(M& msg, Peer dest) {
@@ -130,18 +125,7 @@ public:
   uint32_t nextInternalIdForTest() const { return id_alloc_.peekNext(); }
 
   [[nodiscard]]
-  Envoy::Common::CallbackHandlePtr startDrain(Envoy::Event::Dispatcher& dispatcher, std::function<void()> complete_cb) {
-    if (draining_) {
-      return nullptr;
-    }
-    draining_ = true;
-    auto handle = drain_cb_->add(dispatcher, std::move(complete_cb));
-    if (internal_channels_.empty()) {
-      // already drained
-      drain_cb_->runCallbacks();
-    }
-    return handle;
-  }
+  Envoy::Common::CallbackHandlePtr startDrain(Envoy::Event::Dispatcher& dispatcher, std::function<void()> complete_cb);
 
 private:
   absl::StatusOr<bool> processOutgoingChannelMsgImpl(wire::field<uint32_t>& recipient_channel,
