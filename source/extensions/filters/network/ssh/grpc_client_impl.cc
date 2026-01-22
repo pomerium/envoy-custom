@@ -73,9 +73,9 @@ void ChannelStreamServiceClient::start(ChannelStreamCallbacks* callbacks, envoy:
   }
 }
 
-void ChannelStreamServiceClient::sendMessage(const ChannelMessage& message) {
+void ChannelStreamServiceClient::sendMessage(const ChannelMessage& message, bool end_stream) {
   ASSERT(stream_ != nullptr);
-  stream_->sendMessage(message, false);
+  stream_->sendMessage(message, end_stream);
 }
 
 void ChannelStreamServiceClient::onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) {

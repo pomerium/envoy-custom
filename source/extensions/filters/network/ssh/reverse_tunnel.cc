@@ -842,45 +842,7 @@ public:
   };
 
   // Local thread
-  absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&& confirm) override {
-    if (host_draining_) {
-      // See comment in onHostDraining() for details
-      maybeSendChannelClose(absl::UnavailableError("host is draining"), false);
-      return absl::OkStatus();
-    }
-    auto callbacksImpl = std::make_unique<RemoteStreamHandlerCallbacksImpl>(*this);
-    remote_callbacks_ = *callbacksImpl;
-    remote_->initialize(std::move(callbacksImpl), confirm, &local_queue_);
-    remote_initialized_ = true;
-
-    start_time_ = local_dispatcher_.timeSource().systemTime();
-    pomerium::extensions::ssh::ChannelEvent ev;
-    auto* opened = ev.mutable_internal_channel_opened();
-    opened->set_channel_id(channel_id_);
-    opened->set_hostname(server_name_);
-    opened->set_path(path_);
-    if (downstream_address_ != nullptr) {
-      opened->set_peer_address(downstream_address_->asStringView());
-    } else {
-      opened->set_peer_address("envoy_health_check");
-    }
-    event_callbacks_.sendChannelEvent(ev);
-    return absl::OkStatus();
-  }
-
-  // Local thread
-  absl::Status onChannelOpenFailed(wire::ChannelOpenFailureMsg&&) override {
-    // If the channel open fails, the following will occur in order:
-    // 1. This object is destroyed (automatically by the connection service)
-    // 2. The remote stream handler is detached
-    // 3. The remote stream handler runs its detach routine in the remote thread. It sees that
-    //    it has not been initialized, and that the io handle is still open. It will close the
-    //    io handle and submit itself for deletion.
-    return absl::OkStatus();
-  }
-
-  // Local thread
-  absl::Status readMessage(wire::Message&& msg) override {
+  absl::Status readMessage(wire::ChannelMessage&& msg) override {
     return msg.visit(
       [&](const wire::ChannelDataMsg& msg) {
         tx_bytes_total_ += msg.data->size();
@@ -902,6 +864,19 @@ public:
         remote_->enqueueMessage(std::make_unique<QueueMessage>(std::move(msg)));
         return absl::OkStatus();
       },
+      [&](const wire::ChannelOpenConfirmationMsg& msg) {
+        onChannelOpened(msg);
+        return absl::OkStatus();
+      },
+      [&](const wire::ChannelOpenFailureMsg&) {
+        // If the channel open fails, the following will occur in order:
+        // 1. This object is destroyed (automatically by the connection service)
+        // 2. The remote stream handler is detached
+        // 3. The remote stream handler runs its detach routine in the remote thread. It sees that
+        //    it has not been initialized, and that the io handle is still open. It will close the
+        //    io handle and submit itself for deletion.
+        return absl::OkStatus();
+      },
       [&](const auto&) {
         return absl::InvalidArgumentError(
           fmt::format("received unexpected message on forwarded-tcpip channel: {}",
@@ -910,6 +885,32 @@ public:
   }
 
 private:
+  // Local thread
+  void onChannelOpened(const wire::ChannelOpenConfirmationMsg& confirm) {
+    if (host_draining_) {
+      // See comment in onHostDraining() for details
+      maybeSendChannelClose(absl::UnavailableError("host is draining"), false);
+      return;
+    }
+    auto callbacksImpl = std::make_unique<RemoteStreamHandlerCallbacksImpl>(*this);
+    remote_callbacks_ = *callbacksImpl;
+    remote_->initialize(std::move(callbacksImpl), confirm, &local_queue_);
+    remote_initialized_ = true;
+
+    start_time_ = local_dispatcher_.timeSource().systemTime();
+    pomerium::extensions::ssh::ChannelEvent ev;
+    auto* opened = ev.mutable_internal_channel_opened();
+    opened->set_channel_id(channel_id_);
+    opened->set_hostname(server_name_);
+    opened->set_path(path_);
+    if (downstream_address_ != nullptr) {
+      opened->set_peer_address(downstream_address_->asStringView());
+    } else {
+      opened->set_peer_address("envoy_health_check");
+    }
+    event_callbacks_.sendChannelEvent(ev);
+  }
+
   void onLocalQueueReadyRead() {
     std::unique_ptr<QueueMessage> msg;
     while (local_queue_->try_dequeue(msg)) {

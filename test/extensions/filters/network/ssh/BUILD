@@ -203,7 +203,24 @@ envoy_cc_test(
         "//source/extensions/filters/network/ssh/wire:wire_lib",
         "//test/extensions/filters/network/ssh/wire:wire_test_util",
         "//test/test_common:test_common_lib",
-        "@envoy//test/mocks/api:api_mocks",
+        "@envoy//test/mocks/event:event_mocks",
+        "@envoy//test/mocks/grpc:grpc_mocks",
+        "@envoy//test/test_common:utility_lib",
+    ],
+)
+
+envoy_cc_test(
+    name = "service_connection_impl_test",
+    srcs = [
+        "service_connection_impl_test.cc",
+    ],
+    repository = "@envoy",
+    deps = [
+        ":test_mocks",
+        "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "//source/extensions/filters/network/ssh/wire:wire_lib",
+        "//test/extensions/filters/network/ssh/wire:wire_test_util",
+        "//test/test_common:test_common_lib",
         "@envoy//test/mocks/event:event_mocks",
         "@envoy//test/mocks/grpc:grpc_mocks",
         "@envoy//test/mocks/server:factory_context_mocks",
@@ -370,6 +387,7 @@ envoy_cc_test(
         ":test_mocks",
         "//source/extensions/filters/network/ssh:pomerium_ssh",
         "//test/test_common:test_common_lib",
+        "@envoy//test/mocks/event:event_mocks",
     ],
 )
 
