@@ -43,8 +43,22 @@ public:
   // for the channel.
   virtual void setStatsProvider(ChannelStatsProvider& stats_provider) PURE;
 
+  // Adds an interrupt callback to be invoked before a channel is closed to perform graceful
+  // shutdown in the event of an unexpected disconnect or other non-connection-fatal issue.
+  // These callbacks can be invoked using runInterruptCallbacks(). The returned handle can be
+  // deleted to remove the callback.
   [[nodiscard]]
-  virtual Common::CallbackHandlePtr addInterruptCallback(std::function<void(absl::Status, TransportCallbacks& transport)> cb) PURE;
+  virtual Common::CallbackHandlePtr addInterruptCallback(std::function<void(absl::Status, TransportCallbacks&)> cb) PURE;
+
+  // Invokes all previously added interrupt callbacks, then clears the interrupt callback list.
+  // Deleting a callback handle obtained from addInterruptCallbacks after calling this function
+  // is a no-op; it is safe to let the callback handles go out of scope normally.
+  // This function can be invoked manually from a Channel implementation. It may also be invoked
+  // by the ConnectionService itself. Either way, any added callbacks are only invoked once.
+  virtual void runInterruptCallbacks(absl::Status err) PURE;
+
+  // Terminates the connection with an error. This will send an immediate Disconnect message.
+  virtual void terminate(absl::Status err) PURE;
 
 private:
   friend class Channel;
@@ -74,15 +88,7 @@ public:
 
   // Handles a channel message (see concept ChannelMsg) read from the local peer, to be sent to
   // the remote peer.
-  virtual absl::Status readMessage(wire::Message&& msg) PURE;
-
-  // Called when the channel is successfully opened. ChannelOpenConfirmation messages are only
-  // sent here, not to readMessage().
-  virtual absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&&) PURE;
-
-  // Called when the channel failed to open. ChannelOpenFailure messages are only sent here,
-  // not to readMessage().
-  virtual absl::Status onChannelOpenFailed(wire::ChannelOpenFailureMsg&&) PURE;
+  virtual absl::Status readMessage(wire::ChannelMessage&& msg) PURE;
 
 protected:
   ChannelCallbacks* callbacks_{};
@@ -92,16 +98,32 @@ class PassthroughChannel : public Channel {
 public:
   PassthroughChannel() = default;
 
-  absl::Status readMessage(wire::Message&& msg) override {
+  absl::Status readMessage(wire::ChannelMessage&& msg) override {
     return callbacks_->sendMessageRemote(std::move(msg));
   }
+};
 
-  absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&& msg) override {
-    return callbacks_->sendMessageRemote(std::move(msg));
-  }
+class ForceCloseChannel : public Channel {
+public:
+  ForceCloseChannel() = default;
 
-  absl::Status onChannelOpenFailed(wire::ChannelOpenFailureMsg&& msg) override {
-    return callbacks_->sendMessageRemote(std::move(msg));
+  absl::Status readMessage(wire::ChannelMessage&& msg) override {
+    return msg.visit(
+      [&](wire::ChannelOpenConfirmationMsg&) {
+        callbacks_->sendMessageLocal(wire::ChannelCloseMsg{
+          .recipient_channel = callbacks_->channelId(),
+        });
+        return absl::OkStatus();
+      },
+      [&](wire::ChannelOpenFailureMsg&) {
+        return absl::OkStatus();
+      },
+      [](wire::ChannelCloseMsg&) {
+        return absl::OkStatus();
+      },
+      [&](auto&) {
+        return absl::InvalidArgumentError(fmt::format("unexpected message received: {}", msg.msg_type()));
+      });
   }
 };
 

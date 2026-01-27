@@ -193,6 +193,7 @@ struct sub_message {
   using key_type = first_type_t<canonical_key_type_t<std::decay_t<decltype(Options::submsg_key)>>...>;
   static constexpr EncodingOptions key_encoding = std::get<0>(std::tuple{Options::submsg_key_encoding...});
   using key_field_type = detail::key_field_t<field<key_type, key_encoding>, sub_message>;
+  using option_types = std::tuple<Options...>;
 
   template <typename T>
   static consteval bool has_option() {
@@ -206,6 +207,14 @@ struct sub_message {
   constexpr sub_message(T&& t)
       : oneof(std::forward<T>(t)),
         key_field_(key_type{std::decay_t<T>::submsg_key}) {}
+
+  template <typename T>
+    requires strict_subset_v<option_types, typename T::option_types>
+  constexpr sub_message(T&& other) {
+    std::forward<T>(other).visit([this](auto&& value) {
+      this->reset(std::forward<decltype(value)>(value));
+    });
+  }
 
   // oneof holds one of the messages in Options, or no value.
   std::optional<std::variant<Options...>> oneof;

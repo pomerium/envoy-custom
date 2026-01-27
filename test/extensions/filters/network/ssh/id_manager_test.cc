@@ -52,14 +52,24 @@ TEST(ChannelIDManagerTest, BindChannelID) {
   auto id = mgr.allocateNewChannel(Peer::Downstream);
   ASSERT_OK(id);
 
+  EXPECT_EQ(ChannelIDState::Unbound, *mgr.peerState(*id, Peer::Downstream));
+  EXPECT_EQ(ChannelIDState::Unbound, *mgr.peerState(*id, Peer::Upstream));
+
   ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
                                      .channel_id = 1,
                                      .local_peer = Peer::Downstream,
                                    }));
+
+  EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Downstream));
+  EXPECT_EQ(ChannelIDState::Unbound, *mgr.peerState(*id, Peer::Upstream));
+
   ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
                                      .channel_id = 2,
                                      .local_peer = Peer::Upstream,
                                    }));
+
+  EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Downstream));
+  EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Upstream));
 }
 
 TEST(ChannelIDManagerTest, BindChannelID_UnknownChannel) {
@@ -104,10 +114,17 @@ TEST(ChannelIDManagerTest, BindAndReleaseChannelID) {
                                      .channel_id = 2,
                                      .local_peer = Peer::Upstream,
                                    }));
-  EXPECT_NO_THROW({
-    mgr.releaseChannelID(*id, Peer::Downstream);
-    mgr.releaseChannelID(*id, Peer::Upstream);
-  });
+  EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Downstream));
+  EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Upstream));
+
+  mgr.releaseChannelID(*id, Peer::Upstream);
+
+  EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Downstream));
+  EXPECT_EQ(ChannelIDState::Released, *mgr.peerState(*id, Peer::Upstream));
+
+  mgr.releaseChannelID(*id, Peer::Downstream);
+  EXPECT_EQ(std::nullopt, mgr.peerState(*id, Peer::Downstream));
+  EXPECT_EQ(std::nullopt, mgr.peerState(*id, Peer::Upstream));
 }
 
 TEST(ChannelIDManagerTest, ProcessOutgoingChannelMsg) {
@@ -285,8 +302,11 @@ TEST(ChannelIDManagerTest, Drain_AlreadyDraining) {
   ASSERT_TRUE(called);
 }
 
-TEST(ChannelIDManagerTest, InternalClose) {
+TEST(ChannelIDManagerTest, Preempt) {
   ChannelIDManager mgr(10);
+
+  ASSERT_FALSE(mgr.isPreemptable(100, Peer::Downstream));
+
   auto id = mgr.allocateNewChannel(Peer::Downstream);
   ASSERT_OK(id);
 
@@ -298,7 +318,13 @@ TEST(ChannelIDManagerTest, InternalClose) {
                                      .channel_id = 2,
                                      .local_peer = Peer::Upstream,
                                    }));
-  mgr.releaseChannelID(*id, Peer::Downstream, true);
+
+  ASSERT_TRUE(mgr.isPreemptable(*id, Peer::Downstream));
+  mgr.preempt(*id, Peer::Downstream);
+  mgr.releaseChannelID(*id, Peer::Downstream);
+
+  EXPECT_EQ(ChannelIDState::Bereft, *mgr.peerState(*id, Peer::Downstream));
+  EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Upstream));
 
   {
     wire::ChannelDataMsg msg;
@@ -306,13 +332,73 @@ TEST(ChannelIDManagerTest, InternalClose) {
     auto send = mgr.processOutgoingChannelMsg(msg, Peer::Downstream);
     ASSERT_OK(send);
     ASSERT_FALSE(*send);
-    EXPECT_EQ(1u, msg.recipient_channel);
+    EXPECT_EQ(*id, msg.recipient_channel);
   }
   {
     wire::ChannelDataMsg msg;
     msg.recipient_channel = *id;
     ASSERT_OK(mgr.processOutgoingChannelMsg(msg, Peer::Upstream));
     EXPECT_EQ(2u, msg.recipient_channel);
+  }
+
+  mgr.releaseChannelID(*id, Peer::Upstream);
+  EXPECT_EQ(0uz, mgr.numActiveChannels());
+}
+
+TEST(ChannelIDManagerTest, PreemptCloseTracking) {
+  ChannelIDManager mgr(10);
+  auto id = mgr.allocateNewChannel(Peer::Downstream);
+  ASSERT_OK(id);
+
+  EXPECT_FALSE(mgr.isPreemptable(*id, Peer::Downstream));
+  EXPECT_FALSE(mgr.isPreemptable(*id, Peer::Upstream));
+
+  ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
+                                     .channel_id = 1,
+                                     .local_peer = Peer::Downstream,
+                                   }));
+
+  EXPECT_TRUE(mgr.isPreemptable(*id, Peer::Downstream));
+  EXPECT_FALSE(mgr.isPreemptable(*id, Peer::Upstream));
+
+  ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
+                                     .channel_id = 2,
+                                     .local_peer = Peer::Upstream,
+                                   }));
+
+  EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Downstream));
+  EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Upstream));
+
+  EXPECT_TRUE(mgr.isPreemptable(*id, Peer::Downstream));
+  EXPECT_TRUE(mgr.isPreemptable(*id, Peer::Upstream));
+
+  mgr.preempt(*id, Peer::Downstream);
+
+  EXPECT_EQ(ChannelIDState::Preempted, *mgr.peerState(*id, Peer::Downstream));
+  EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Upstream));
+
+  {
+    wire::ChannelDataMsg data{
+      .recipient_channel = *id,
+    };
+    ASSERT_TRUE(*mgr.processOutgoingChannelMsg(data, Peer::Downstream));
+
+    wire::ChannelCloseMsg close{
+      .recipient_channel = *id,
+    };
+    ASSERT_TRUE(*mgr.processOutgoingChannelMsg(close, Peer::Downstream));
+  }
+
+  {
+    wire::ChannelDataMsg data{
+      .recipient_channel = *id,
+    };
+    ASSERT_FALSE(*mgr.processOutgoingChannelMsg(data, Peer::Downstream));
+
+    wire::ChannelCloseMsg close{
+      .recipient_channel = *id,
+    };
+    ASSERT_FALSE(*mgr.processOutgoingChannelMsg(close, Peer::Downstream));
   }
 }
 

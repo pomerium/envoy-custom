@@ -1,3 +1,4 @@
+#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include <algorithm>
 #include <cstdlib>
@@ -5,6 +6,7 @@
 #include "source/common/types.h"
 #include "source/extensions/filters/network/ssh/channel.h"
 #include "source/extensions/filters/network/ssh/frame.h"
+#include "source/extensions/filters/network/ssh/id_manager.h"
 #include "source/extensions/filters/network/ssh/service_connection.h"
 
 #include "test/mocks/server/server_factory_context.h"
@@ -29,14 +31,8 @@ class TestConnectionService : public ConnectionService {
 public:
   using ConnectionService::ConnectionService;
 
-  void closeChannelInternal(uint32_t id, absl::Status err) {
-    for (auto& cc : channel_callbacks_) {
-      if (cc->channelId() == id) {
-        cc->internalClose(err);
-        return;
-      }
-    }
-  }
+  using ConnectionService::preempt;
+
   ChannelCallbacksImpl& getChannelCallbacks(uint32_t id) {
     for (auto& cc : channel_callbacks_) {
       if (cc->channelId() == id) {
@@ -229,10 +225,11 @@ TEST_P(ConnectionServiceTest, OpenInternalChannel) {
   auto ch1 = std::make_unique<testing::StrictMock<MockChannel>>();
   IN_SEQUENCE;
   EXPECT_CALL(*ch1, setChannelCallbacks);
-  EXPECT_CALL(*ch1, onChannelOpened)
-    .WillOnce([&](wire::ChannelOpenConfirmationMsg&& msg) {
-      EXPECT_EQ(100, *msg.recipient_channel);
-      EXPECT_EQ(100, *msg.sender_channel);
+  EXPECT_CALL(*ch1, readMessage(MSG(wire::ChannelOpenConfirmationMsg, _)))
+    .WillOnce([&](wire::ChannelMessage&& msg) {
+      auto confirm = msg.message.get<wire::ChannelOpenConfirmationMsg>();
+      EXPECT_EQ(100, *confirm.recipient_channel);
+      EXPECT_EQ(100, *confirm.sender_channel);
       return absl::OkStatus();
     });
   EXPECT_CALL(*ch1, Die);
@@ -249,10 +246,8 @@ TEST_P(ConnectionServiceTest, OpenInternalChannel_ErrorOnChannelOpened) {
   auto ch1 = std::make_unique<testing::StrictMock<MockChannel>>();
   IN_SEQUENCE;
   EXPECT_CALL(*ch1, setChannelCallbacks);
-  EXPECT_CALL(*ch1, onChannelOpened)
-    .WillOnce([&](wire::ChannelOpenConfirmationMsg&&) {
-      return absl::InternalError("test error");
-    });
+  EXPECT_CALL(*ch1, readMessage(MSG(wire::ChannelOpenConfirmationMsg, _)))
+    .WillOnce(Return(absl::InternalError("test error")));
   EXPECT_CALL(*ch1, Die);
   auto id = service_.startChannel(std::move(ch1));
   ASSERT_OK(id);
@@ -263,6 +258,63 @@ TEST_P(ConnectionServiceTest, OpenInternalChannel_ErrorOnChannelOpened) {
       .recipient_channel = *id,
       .sender_channel = 1, // local peer's IDq
     }));
+}
+
+TEST_P(ConnectionServiceTest, ChannelOpenRaceWithPreempt) {
+  auto internalId = *channel_id_manager_.allocateNewChannel(RemotePeer());
+  // Simulate a channel being created by the peer. Our channel's state will be Pending
+  ASSERT_OK(channel_id_manager_.bindChannelID(internalId, PeerLocalID{
+                                                            .channel_id = 1,
+                                                            .local_peer = RemotePeer(),
+                                                          }));
+
+  ASSERT_EQ(ChannelIDState::Bound, channel_id_manager_.peerState(internalId, RemotePeer()));
+  ASSERT_EQ(ChannelIDState::Pending, channel_id_manager_.peerState(internalId, LocalPeer()));
+
+  // Simulate the remote peer preempting the channel
+  channel_id_manager_.preempt(internalId, RemotePeer());
+
+  ASSERT_EQ(ChannelIDState::Preempted, channel_id_manager_.peerState(internalId, RemotePeer()));
+  ASSERT_EQ(ChannelIDState::Pending, channel_id_manager_.peerState(internalId, LocalPeer()));
+
+  // While the remote peer is in the Preempted state, our ChannelOpenConfirmation comes in.
+  // This should initiate a close sequence locally, ignoring the remote peer
+
+  testing::MockFunction<void()> check;
+  {
+    IN_SEQUENCE;
+    EXPECT_CALL(transport_, sendMessageToConnection(MSG(wire::ChannelCloseMsg,
+                                                        FIELD_EQ(recipient_channel, 2u))))
+      .WillOnce(Return(0));
+    EXPECT_CALL(check, Call);
+  }
+
+  ASSERT_OK(service_.handleMessage(wire::ChannelOpenConfirmationMsg{
+    .recipient_channel = internalId,
+    .sender_channel = 2,
+    .initial_window_size = wire::ChannelWindowSize,
+    .max_packet_size = wire::ChannelMaxPacketSize,
+  }));
+  check.Call();
+
+  ASSERT_EQ(ChannelIDState::Preempted, channel_id_manager_.peerState(internalId, RemotePeer()));
+  ASSERT_EQ(ChannelIDState::Bound, channel_id_manager_.peerState(internalId, LocalPeer()));
+
+  // Then, the upstream responds with its own ChannelClose. The remote is stil in Preempted
+  ASSERT_OK(service_.handleMessage(wire::ChannelCloseMsg{
+    .recipient_channel = internalId,
+  }));
+
+  ASSERT_EQ(ChannelIDState::Preempted, channel_id_manager_.peerState(internalId, RemotePeer()));
+  ASSERT_EQ(ChannelIDState::Released, channel_id_manager_.peerState(internalId, LocalPeer()));
+
+  // Lastly, simulate the remote peer preemption finalized
+
+  channel_id_manager_.releaseChannelID(internalId, RemotePeer());
+
+  // The channel should be freed now
+
+  ASSERT_EQ(0uz, channel_id_manager_.numActiveChannels());
 }
 
 TEST_P(ConnectionServiceTest, ChannelOpenFailure) {
@@ -312,18 +364,18 @@ TEST_P(ConnectionServiceTest, ChannelOpenFailure_InvalidChannel) {
 
 TEST_P(ConnectionServiceTest, CloseInternalChannel) {
   auto ch1 = std::make_unique<testing::StrictMock<MockChannel>>();
+
   IN_SEQUENCE;
   EXPECT_CALL(*ch1, setChannelCallbacks);
-  EXPECT_CALL(*ch1, onChannelOpened)
+  EXPECT_CALL(*ch1, readMessage(MSG(wire::ChannelOpenConfirmationMsg, _)))
     .WillOnce(Return(absl::OkStatus()));
   EXPECT_CALL(*ch1, readMessage(MSG(wire::ChannelCloseMsg, _)))
-    .WillOnce([&](wire::Message&&) {
-      return absl::OkStatus();
-    });
+    .WillOnce(Return(absl::OkStatus()));
   EXPECT_CALL(*ch1, Die);
   auto id = service_.startChannel(std::move(ch1));
   ASSERT_OK(id);
   EXPECT_EQ(100, *id);
+
   ASSERT_OK(service_.handleMessage(wire::ChannelOpenConfirmationMsg{
     .recipient_channel = *id,
     .sender_channel = 1, // local peer's ID
@@ -354,12 +406,11 @@ TEST_P(ConnectionServiceTest, InterruptInternalChannel) {
         });
         return absl::OkStatus();
       });
-    EXPECT_CALL(*ch1, onChannelOpened)
+    EXPECT_CALL(*ch1, readMessage(MSG(wire::ChannelOpenConfirmationMsg, _)))
       .WillOnce(Return(absl::OkStatus()));
     EXPECT_CALL(*ch1, readMessage(MSG(wire::ChannelCloseMsg, _)))
-      .WillOnce([&](wire::Message&&) {
-        return absl::OkStatus();
-      });
+      .WillOnce(Return(absl::OkStatus()));
+
     EXPECT_CALL(*ch1, Die);
     id = *service_.startChannel(std::move(ch1));
   }
@@ -380,7 +431,8 @@ TEST_P(ConnectionServiceTest, InterruptInternalChannel) {
       return 0;
     }));
 
-  service_.closeChannelInternal(id, absl::InternalError("test error"));
+  ASSERT_TRUE(channel_id_manager_.isPreemptable(id, LocalPeer()));
+  service_.preempt(service_.getChannelCallbacks(id), absl::InternalError("test error"));
 }
 
 TEST_P(ConnectionServiceTest, InterruptLocalPassthroughChannel) {
@@ -429,7 +481,8 @@ TEST_P(ConnectionServiceTest, InterruptLocalPassthroughChannel) {
                                       FIELD_EQ(recipient_channel, 2u)),
                                   _));
 
-  service_.closeChannelInternal(100, absl::InternalError("test error"));
+  ASSERT_TRUE(channel_id_manager_.isPreemptable(100, LocalPeer()));
+  service_.preempt(service_.getChannelCallbacks(100), absl::InternalError("test error"));
 }
 
 TEST_P(ConnectionServiceTest, InterruptRemotePassthroughChannel) {
@@ -482,7 +535,8 @@ TEST_P(ConnectionServiceTest, InterruptRemotePassthroughChannel) {
                                       FIELD_EQ(recipient_channel, upstreamId)),
                                   _));
 
-  service_.closeChannelInternal(internalChannel, absl::InternalError("test error"));
+  ASSERT_TRUE(channel_id_manager_.isPreemptable(internalChannel, LocalPeer()));
+  service_.preempt(service_.getChannelCallbacks(internalChannel), absl::InternalError("test error"));
 }
 
 TEST_P(ConnectionServiceTest, CloseLocalPassthroughChannelWithNoRemoteRef) {
@@ -498,12 +552,12 @@ TEST_P(ConnectionServiceTest, CloseLocalPassthroughChannelWithNoRemoteRef) {
   ASSERT_EQ(1, channel_id_manager_.numActiveChannels());
   ASSERT_EQ(
     absl::InvalidArgumentError(
-      fmt::format("error processing outgoing message of type ChannelClose (97): internal channel 100 is not known to {} (state: Unbound)",
+      fmt::format("error processing outgoing message of type ChannelClose (97): internal channel 100 is not known to {} (state: Pending)",
                   RemotePeer())),
     service_.handleMessage(wire::ChannelCloseMsg{
       .recipient_channel = 100,
     }));
-  ASSERT_EQ(0, channel_id_manager_.numActiveChannels());
+  ASSERT_EQ(1, channel_id_manager_.numActiveChannels()); // the peer will stay in the Pending state
 }
 
 TEST_P(ConnectionServiceTest, CloseLocalPassthroughChannelWithRemoteRef) {

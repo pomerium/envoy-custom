@@ -828,6 +828,11 @@ struct BasicMessage final {
 
   BasicMessage() = default;
 
+  template <typename Subset>
+    requires strict_subset_v<typename TopLevel::option_types, typename Subset::option_types>
+  BasicMessage(BasicMessage<Subset>&& other)
+      : message(std::move(other.message)) {}
+
   // This constructor is explicit when 'msg' is an lvalue reference to avoid unexpected copying
   // and/or forgetting std::move in places where a function accepts Message&& (common throughout).
   // For example, given the function 'dispatch(Message&&)':
@@ -895,5 +900,18 @@ struct BasicMessage final {
 extern template struct BasicMessage<detail::top_level_message>;
 using Message = BasicMessage<detail::top_level_message>;
 using MessagePtr = std::unique_ptr<Message>;
+
+using top_level_channel_message = wire::sub_message<
+  ChannelRequestMsg,
+  ChannelOpenConfirmationMsg,
+  ChannelOpenFailureMsg,
+  ChannelWindowAdjustMsg,
+  ChannelDataMsg,
+  ChannelExtendedDataMsg,
+  ChannelEOFMsg,
+  ChannelCloseMsg,
+  ChannelSuccessMsg,
+  ChannelFailureMsg>;
+using ChannelMessage = wire::BasicMessage<top_level_channel_message>;
 
 } // namespace wire
