@@ -797,7 +797,7 @@ public:
     serve_channel_callbacks_[stream_index]->onReceiveMessage(std::move(channelMsg));
   }
 
-private:
+protected:
   uint32_t last_downstream_id_ = 0;
 };
 // NOLINTEND(readability-identifier-naming)
@@ -882,6 +882,18 @@ TEST_F(HijackedModeTest, HijackedMode_WrongFirstUpstreamMessage) {
   SendChannelMsgToDownstream(*channel1, wire::ChannelDataMsg{
                                           .recipient_channel = *channel1,
                                           .data = "invalid"_bytes,
+                                        });
+}
+
+TEST_F(HijackedModeTest, HijackedMode_WrongFirstUpstreamMessage_ChannelClose) {
+  ASSERT_OK(SetupHijackedMode());
+  auto channel1 = StartChannel();
+  ASSERT_OK(channel1.status());
+
+  // Since this is an internal error, it will terminate the connection
+  EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("expected ChannelOpenConfirmation or ChannelOpenFailure, got ChannelClose (97)"));
+  SendChannelMsgToDownstream(*channel1, wire::ChannelCloseMsg{
+                                          .recipient_channel = *channel1,
                                         });
 }
 
@@ -1106,6 +1118,78 @@ TEST_F(HijackedModeTest, HijackedMode_InterruptConfig) {
   ASSERT_OK(ReadMsg(serverDisconnect));
   EXPECT_THAT(*serverDisconnect.description, HasSubstr("server shutting down"));
   EXPECT_EQ(SSH2_DISCONNECT_SERVICE_NOT_AVAILABLE, *serverDisconnect.reason_code);
+}
+
+TEST_F(HijackedModeTest, ServerClosesChannel) {
+  ASSERT_OK(SetupHijackedMode());
+  auto channel1 = StartChannel();
+  ASSERT_OK(channel1.status());
+
+  SendChannelOpenConfirmation(*channel1);
+  wire::ChannelOpenConfirmationMsg confirm;
+  ASSERT_OK(ReadMsg(confirm));
+
+  // Server-initiated channel close
+  SendChannelMsgToDownstream(*channel1, wire::ChannelCloseMsg{});
+  wire::ChannelCloseMsg close;
+  ASSERT_OK(ReadMsg(close));
+  ASSERT_EQ(last_downstream_id_, *close.recipient_channel);
+
+  // Reply
+  ExpectSendOnServeChannelStream(wire::ChannelCloseMsg{
+    .recipient_channel = *channel1,
+  });
+  ASSERT_OK(WriteMsg(wire::ChannelCloseMsg{
+    .recipient_channel = *channel1,
+  }));
+}
+
+TEST_F(HijackedModeTest, ServerClosesChannelAndDisconnectsEarly) {
+  ASSERT_OK(SetupHijackedMode());
+  auto channel1 = StartChannel();
+  ASSERT_OK(channel1.status());
+
+  SendChannelOpenConfirmation(*channel1);
+  wire::ChannelOpenConfirmationMsg confirm;
+  ASSERT_OK(ReadMsg(confirm));
+
+  // Server-initiated channel close
+  SendChannelMsgToDownstream(*channel1, wire::ChannelCloseMsg{});
+  wire::ChannelCloseMsg close;
+  ASSERT_OK(ReadMsg(close));
+  ASSERT_EQ(last_downstream_id_, *close.recipient_channel);
+
+  // Before the client can respond, the server disconnects early (it shouldn't do this, but there is
+  // nothing stopping it)
+  serve_channel_callbacks_[0]->onRemoteClose(Envoy::Grpc::Status::Canceled, "test error");
+
+  // The channel should remain alive until the client responds, but the grpc client is gone so
+  // there's nothing to forward. The channel should then be destroyed as normal
+  ASSERT_OK(WriteMsg(wire::ChannelCloseMsg{
+    .recipient_channel = *channel1,
+  }));
+}
+
+TEST_F(HijackedModeTest, ClientClosesChannel) {
+  ASSERT_OK(SetupHijackedMode());
+  auto channel1 = StartChannel();
+  ASSERT_OK(channel1.status());
+
+  SendChannelOpenConfirmation(*channel1);
+  wire::ChannelOpenConfirmationMsg confirm;
+  ASSERT_OK(ReadMsg(confirm));
+
+  // Client-initiated channel close
+  ExpectSendOnServeChannelStream(wire::ChannelCloseMsg{
+                                   .recipient_channel = *channel1,
+                                 },
+                                 true); // <- end_stream
+  ASSERT_OK(WriteMsg(wire::ChannelCloseMsg{
+    .recipient_channel = *channel1,
+  }));
+  wire::ChannelCloseMsg close;
+  ASSERT_OK(ReadMsg(close));
+  ASSERT_EQ(last_downstream_id_, *close.recipient_channel);
 }
 
 TEST_F(HijackedModeTest, HijackedMode_StreamDisconnectBeforeChannelOpen) {
@@ -1473,6 +1557,7 @@ TEST_F(HandoffTest, HandoffMode) {
   EXPECT_CALL(mock_connection_, readDisable(true));
   ExpectDecodingSuccess();
   ReceiveOnServeChannelStream(BuildHandOffChannelMessage());
+  serve_channel_callbacks_[0]->onRemoteClose(Envoy::Grpc::Status::Canceled, "handoff");
 
   // any messages sent by the downstream after handoff should be forwarded
   EXPECT_CALL(server_codec_callbacks_,
@@ -1538,6 +1623,7 @@ TEST_F(HandoffTest, HandoffMode_StartDirectTcpipHandoffBeforeChannelOpenConfirma
   ExpectUpstreamConnectEvent();
   ExpectDecodingSuccess(""); // empty host for direct-tcpip
   ReceiveOnServeChannelStream(ctrl);
+  serve_channel_callbacks_[0]->onRemoteClose(Envoy::Grpc::Status::Canceled, "handoff");
 }
 
 TEST_F(HandoffTest, HandoffMode_StartDirectTcpipHandoffAfterChannelOpenConfirmation) {
@@ -1568,6 +1654,7 @@ TEST_F(HandoffTest, HandoffMode_UpstreamConnectionFails) {
     }));
 
   ReceiveOnServeChannelStream(BuildHandOffChannelMessage());
+  serve_channel_callbacks_[0]->onRemoteClose(Envoy::Grpc::Status::Canceled, "handoff");
 }
 
 TEST_F(HandoffTest, HandoffMode_HandoffMsgMissingDownstreamChannelInfo) {
@@ -1599,58 +1686,6 @@ TEST_F(ServerTransportTest, SuccessfulUserAuth_MirrorMode) {
   EXPECT_NO_THROW(transport_.initUpstream(state));
 #endif
 }
-
-// TEST_F(ServerTransportTest, HijackedMode_StreamClosedBeforeChannelOpen) {
-//   ASSERT_OK(ReadExtInfo());
-
-//   auto clientKey = *openssh::SSHKey::generate(KEY_ED25519, 256);
-
-//   ASSERT_OK(RequestUserAuthService());
-//   auto [authReq, clientMsg] = BuildUserAuthMessages(*clientKey);
-
-//   ExpectHandlePomeriumGrpcAuthRequestHijack(clientMsg);
-
-//   ASSERT_OK(WriteMsg(std::move(authReq)));
-//   wire::UserAuthSuccessMsg success;
-//   ASSERT_OK(ReadMsg(success));
-
-//   ChannelMessage metadataReq;
-//   (*metadataReq.mutable_metadata()->mutable_filter_metadata())["foo"] = Protobuf::Struct{};
-//   pomerium::extensions::ssh::FilterMetadata sshMetadata;
-//   sshMetadata.set_channel_id(100);
-//   (*metadataReq.mutable_metadata()->mutable_typed_filter_metadata())["com.pomerium.ssh"].PackFrom(sshMetadata);
-
-//   // open a new channel to start the hijacked connection
-//   wire::ChannelOpenMsg open;
-//   open.request = wire::SessionChannelOpenMsg{};
-//   open.sender_channel = 1;
-//   open.initial_window_size = wire::ChannelWindowSize;
-//   open.max_packet_size = wire::ChannelMaxPacketSize;
-//   {
-//     IN_SEQUENCE;
-//     ExpectSendOnServeChannelStream(metadataReq);
-//     ExpectSendOnServeChannelStream(open);
-//   }
-//   ASSERT_OK(WriteMsg(std::move(open)));
-
-//   // If the stream is closed unexpectedly, it should close all channels then disconnect
-//   // EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("test error"));
-//   serve_channel_callbacks_[0]->onRemoteClose(Envoy::Grpc::Status::Internal, "test error");
-//   // // receive the channel close
-//   // wire::ChannelCloseMsg close;
-//   // ASSERT_OK(ReadMsg(close));
-//   // EXPECT_EQ(1u, *close.recipient_channel);
-//   // // respond
-//   // ASSERT_OK(WriteMsg(wire::ChannelCloseMsg{
-//   //   .recipient_channel = 100,
-//   // }));
-
-//   // // then, once all channels are fully closed, we should receive a disconnect
-//   // wire::DisconnectMsg serverDisconnect;
-//   // ASSERT_OK(ReadMsg(serverDisconnect));
-//   // EXPECT_EQ(statusToString(absl::InternalError("test error")), serverDisconnect.description);
-//   // EXPECT_EQ(openssh::statusCodeToDisconnectCode(absl::StatusCode::kInternal), serverDisconnect.reason_code);
-// }
 
 TEST_F(ServerTransportTest, PomeriumDisconnectsDuringAuth) {
   ASSERT_OK(ReadExtInfo());

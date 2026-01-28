@@ -72,7 +72,7 @@ void ChannelIDManager::releaseChannelID(uint32_t internal_id, Peer local_peer) {
       releaseEligible(internalChannel.peer_states[Peer::Upstream])) {
     internal_channels_.erase(internal_id);
     id_alloc_.release(internal_id);
-    ENVOY_LOG(debug, "released internal channel ID {}", internal_id);
+    ENVOY_LOG(debug, "freed internal channel ID {}", internal_id);
     if (draining_ && internal_channels_.empty()) {
       ENVOY_LOG(debug, "channel id manager: drain complete");
       drain_cb_->runCallbacks();
@@ -131,6 +131,15 @@ absl::StatusOr<bool> ChannelIDManager::processOutgoingChannelMsgImpl(wire::field
   case ChannelIDState::Unbound:
     [[fallthrough]];
   case ChannelIDState::Pending:
+    // There is one scenario where we need to drop messages to a Pending dest peer. If the source
+    // peer is in the Preempted state and attempts to forward a ChannelClose message, it is
+    // processing the response to a ChannelClose sent via preempt, and immediately after sending
+    // this ChannelClose, it will transition to the Bereft state. Then, if the dest peer sends
+    // a ChannelOpenConfirmation later, this will trigger it to create a new ForceCloseChannel.
+    if (msg_type == wire::SshMessageType::ChannelClose &&
+        info.peer_states[dest == Downstream ? Upstream : Downstream] == ChannelIDState::Preempted) {
+      return false;
+    }
     return absl::InvalidArgumentError(
       fmt::format("error processing outgoing message of type {}: internal channel {} is not known to {} (state: {})",
                   msg_type, internalId, dest, info.peer_states[dest]));
@@ -155,7 +164,11 @@ absl::StatusOr<bool> ChannelIDManager::processOutgoingChannelMsgImpl(wire::field
 [[nodiscard]]
 Envoy::Common::CallbackHandlePtr ChannelIDManager::startDrain(Envoy::Event::Dispatcher& dispatcher, std::function<void()> complete_cb) {
   if (draining_) {
-    return nullptr;
+    if (internal_channels_.empty()) {
+      dispatcher.post(complete_cb);
+      return nullptr;
+    }
+    return drain_cb_->add(dispatcher, std::move(complete_cb));
   }
   draining_ = true;
   auto handle = drain_cb_->add(dispatcher, std::move(complete_cb));

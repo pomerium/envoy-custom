@@ -215,31 +215,23 @@ void ConnectionService::onServerDraining(std::chrono::milliseconds delay) {
 }
 
 void ConnectionService::shutdown(absl::Status err) {
-  if (drain_callback_ != nullptr) {
-    return;
-  }
   auto& channelIdMgr = transport_.channelIdManager();
+  // NB: we do not necessarily assume that this is the only place startDrain() would ever be called.
+  // It could be invoked from somewhere else, and the drain process may already be starting. It
+  // could also be already complete. In either of those cases, startDrain() guarantees that the
+  // callback will be invoked, either once the drain is complete or in the next event loop cycle if
+  // it is already complete. Note that if the drain is already complete, it implies that
+  // channel_callbacks_ must be empty.
   drain_callback_ = channelIdMgr.startDrain(*transport_.connectionDispatcher(), [this, err] {
     transport_.terminate(err);
   });
 
   for (auto& cb : channel_callbacks_) {
     auto channelId = cb->channelId();
-    if (!channels_.contains(channelId)) {
-      // Channel already received a close message and is awaiting a reply. In this case, do
-      // nothing and wait for the channel to be closed on its own.
-      continue;
-    }
     if (!channelIdMgr.isPreemptable(channelId, local_peer_)) {
-      ENVOY_LOG(debug, "ssh: stream {}: destroying channel {} which is not eligible for preemption",
+      ENVOY_LOG(debug, "ssh: stream {}: channel {} is not eligible for preemption, ignoring",
                 transport_.streamId(), channelId);
-      // Destroy the channel to release the channel id that would otherwise be stuck unable
-      // to become opened. If the channel id isn't freed, it will hold up the drain callback.
-      // TODO: should we have more sophisticated logic here, like automatically respond with a
-      // ChannelOpenFailure message? It doesn't make a difference in this case, since we are about
-      // to shut down anyway.
-      channels_.erase(channelId);
-      return;
+      continue;
     }
     preempt(*cb, err);
   }
@@ -329,10 +321,10 @@ absl::Status ConnectionService::ChannelCallbacksImpl::sendMessageRemote(wire::Me
         return sendOk.status();
       }
       if (!*sendOk) {
-        ENVOY_LOG(debug, "message for remote channel {} dropped: {}", *msg.recipient_channel, msg.msg_type());
+        ENVOY_LOG(debug, "message for remote channel {} dropped: {}", channel_id_, msg.msg_type());
         return absl::OkStatus();
       }
-      ENVOY_LOG(debug, "sending messsage to remote channel {}: {}", *msg.recipient_channel, msg.msg_type());
+      ENVOY_LOG(debug, "sending messsage to remote channel {}: {}", channel_id_, msg.msg_type());
       parent_.transport_.forward(std::move(msg));
       return absl::OkStatus();
     },
@@ -418,11 +410,12 @@ public:
     }
 
     if (open_complete_) {
-      if (!open_success_) {
-        ENVOY_LOG(debug, "ssh: channel {}: connection to management server closed (channel open failure)",
-                  callbacks_->channelId());
-        return;
-      }
+      // It shouldn't be possible to get here if open_complete_ is true and open_success_ is false
+      // (which indicates channel open failure), since after handling the ChannelOpenFailure message
+      // this Channel will be deleted, which resets the grpc stream and stops this callback from
+      // being invoked.
+      ASSERT(!open_success_);
+
       // If the channel was previously open, send a ChannelClose message to the downstream.
       // If one was already sent, do nothing and wait for the response to come in normally.
       if (!sent_channel_close_) {

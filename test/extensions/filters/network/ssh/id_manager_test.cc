@@ -61,6 +61,32 @@ TEST(ChannelIDManagerTest, BindChannelID) {
                                    }));
 
   EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Downstream));
+  EXPECT_EQ(ChannelIDState::Pending, *mgr.peerState(*id, Peer::Upstream));
+
+  ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
+                                     .channel_id = 2,
+                                     .local_peer = Peer::Upstream,
+                                   }));
+
+  EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Downstream));
+  EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Upstream));
+}
+
+TEST(ChannelIDManagerTest, BindChannelID_NoExpectRemote) {
+  ChannelIDManager mgr(10);
+  auto id = mgr.allocateNewChannel(Peer::Downstream);
+  ASSERT_OK(id);
+
+  EXPECT_EQ(ChannelIDState::Unbound, *mgr.peerState(*id, Peer::Downstream));
+  EXPECT_EQ(ChannelIDState::Unbound, *mgr.peerState(*id, Peer::Upstream));
+
+  ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
+                                     .channel_id = 1,
+                                     .local_peer = Peer::Downstream,
+                                   },
+                              false));
+
+  EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Downstream));
   EXPECT_EQ(ChannelIDState::Unbound, *mgr.peerState(*id, Peer::Upstream));
 
   ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
@@ -240,6 +266,23 @@ TEST(ChannelIDManagerTest, ProcessOutgoingChannelMsg_ChannelIDReleased) {
   }
 }
 
+TEST(ChannelIDManagerTest, ProcessOutgoingChannelMsg_DropChannelClose) {
+  ChannelIDManager mgr(10);
+  auto id = mgr.allocateNewChannel(Peer::Downstream);
+  ASSERT_OK(id);
+  ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
+                                     .channel_id = 1,
+                                     .local_peer = Peer::Downstream,
+                                   }));
+  mgr.preempt(*id, Peer::Downstream);
+  wire::ChannelCloseMsg close{
+    .recipient_channel = *id,
+  };
+  auto send = mgr.processOutgoingChannelMsg(close, Peer::Upstream);
+  ASSERT_OK(send);
+  ASSERT_FALSE(*send);
+}
+
 TEST(ChannelIDManagerTest, Drain) {
   ChannelIDManager mgr(10);
   auto id = mgr.allocateNewChannel(Peer::Downstream);
@@ -289,6 +332,36 @@ TEST(ChannelIDManagerTest, Drain_AlreadyDraining) {
   ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
                                      .channel_id = 1,
                                      .local_peer = Peer::Downstream,
+                                   },
+                              false));
+  bool called1{};
+  bool called2{};
+  auto cbHandle1 = mgr.startDrain(dispatcher, [&] {
+    called1 = true;
+  });
+  auto cbHandle2 = mgr.startDrain(dispatcher, [&] {
+    called2 = true;
+  });
+
+  ASSERT_FALSE(called1);
+  ASSERT_FALSE(called2);
+  mgr.releaseChannelID(*id, Peer::Downstream);
+  ASSERT_TRUE(called1);
+
+  CHECK_CALLED({
+    EXPECT_EQ(nullptr, mgr.startDrain(dispatcher, [&] {
+      CALLED;
+    }));
+  });
+}
+
+TEST(ChannelIDManagerTest, Drain_PendingState) {
+  ChannelIDManager mgr(10);
+  NiceMock<Envoy::Event::MockDispatcher> dispatcher;
+  auto id = mgr.allocateNewChannel(Peer::Downstream);
+  ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
+                                     .channel_id = 1,
+                                     .local_peer = Peer::Downstream,
                                    }));
   Envoy::Common::CallbackHandlePtr cbHandle;
   bool called{};
@@ -296,10 +369,9 @@ TEST(ChannelIDManagerTest, Drain_AlreadyDraining) {
     called = true;
   });
   ASSERT_FALSE(called);
-  ASSERT_EQ(nullptr, mgr.startDrain(dispatcher, [&] { FAIL(); }));
 
   mgr.releaseChannelID(*id, Peer::Downstream);
-  ASSERT_TRUE(called);
+  ASSERT_FALSE(called); // pending channels should keep the id alive
 }
 
 TEST(ChannelIDManagerTest, Preempt) {

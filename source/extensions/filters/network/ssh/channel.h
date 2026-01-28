@@ -65,6 +65,12 @@ private:
   virtual void cleanup() PURE;
 };
 
+class ChannelEventCallbacks {
+public:
+  virtual ~ChannelEventCallbacks() = default;
+  virtual void sendChannelEvent(const pomerium::extensions::ssh::ChannelEvent& ev) PURE;
+};
+
 // Channel handles the read path for a single peer (upstream or downstream) for messages on a
 // SSH channel. For channels known to both the upstream server and downstream client, two Channel
 // objects will exist: one managed by the upstream ConnectionService, and one by the downstream
@@ -76,15 +82,8 @@ private:
 // upstream.
 class Channel {
 public:
-  virtual ~Channel() {
-    if (callbacks_ != nullptr) {
-      callbacks_->cleanup();
-    }
-  };
-  virtual absl::Status setChannelCallbacks(ChannelCallbacks& callbacks) {
-    callbacks_ = &callbacks;
-    return absl::OkStatus();
-  }
+  virtual ~Channel();
+  virtual absl::Status setChannelCallbacks(ChannelCallbacks& callbacks);
 
   // Handles a channel message (see concept ChannelMsg) read from the local peer, to be sent to
   // the remote peer.
@@ -98,39 +97,14 @@ class PassthroughChannel : public Channel {
 public:
   PassthroughChannel() = default;
 
-  absl::Status readMessage(wire::ChannelMessage&& msg) override {
-    return callbacks_->sendMessageRemote(std::move(msg));
-  }
+  absl::Status readMessage(wire::ChannelMessage&& msg) override;
 };
 
-class ForceCloseChannel : public Channel {
+class ForceCloseChannel : public Channel, public Logger::Loggable<Logger::Id::filter> {
 public:
   ForceCloseChannel() = default;
 
-  absl::Status readMessage(wire::ChannelMessage&& msg) override {
-    return msg.visit(
-      [&](wire::ChannelOpenConfirmationMsg&) {
-        callbacks_->sendMessageLocal(wire::ChannelCloseMsg{
-          .recipient_channel = callbacks_->channelId(),
-        });
-        return absl::OkStatus();
-      },
-      [&](wire::ChannelOpenFailureMsg&) {
-        return absl::OkStatus();
-      },
-      [](wire::ChannelCloseMsg&) {
-        return absl::OkStatus();
-      },
-      [&](auto&) {
-        return absl::InvalidArgumentError(fmt::format("unexpected message received: {}", msg.msg_type()));
-      });
-  }
-};
-
-class ChannelEventCallbacks {
-public:
-  virtual ~ChannelEventCallbacks() = default;
-  virtual void sendChannelEvent(const pomerium::extensions::ssh::ChannelEvent& ev) PURE;
+  absl::Status readMessage(wire::ChannelMessage&& msg) override;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

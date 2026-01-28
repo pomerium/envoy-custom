@@ -114,7 +114,7 @@ protected:
   // Preempting a channel will send a ChannelClose message to the *local* peer, regardless
   // of which side created the channel. Therefore, the local peer's channel must be in a state
   // where it is able to accept a ChannelClose, otherwise this is a protocol error. Whether or not
-  // the channel is in such a state depends on which peer originally opened the channel:
+  // we can know the channel is in such a state depends on which peer originally opened the channel:
   //
   // If the local peer sent the channel open request:
   //   This Channel instance would have received and forwarded a ChannelOpen message. If the
@@ -143,7 +143,7 @@ protected:
   // Note: In the shutdown() case, all local channels are closed at the same time. This usually
   // results in the local client sending a DisconnectMsg after the last channel is closed. When
   // that happens, the upstream is reset immediately and the sequence above skips over steps
-  // 5-7, and step 8 happens when the filter chain is destroyed, while parent_.channel_callbacks_
+  // 7-9, and step 10 happens when the filter chain is destroyed, while parent_.channel_callbacks_
   // is being deleted.
   void preempt(ChannelCallbacks& ccb, absl::Status err);
 
