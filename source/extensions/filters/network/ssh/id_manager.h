@@ -179,6 +179,7 @@ public:
   size_t numActiveChannels() const { return internal_channels_.size(); }
   uint32_t nextInternalIdForTest() const { return id_alloc_.peekNext(); }
 
+  // Warning: complete_cb will not be destroyed unless the returned handle is destroyed.
   [[nodiscard]]
   Envoy::Common::CallbackHandlePtr startDrain(Envoy::Event::Dispatcher& dispatcher, std::function<void()> complete_cb);
 

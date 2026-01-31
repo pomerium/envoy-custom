@@ -1,6 +1,7 @@
 #pragma once
 
 #include "test/extensions/filters/network/ssh/ssh_connection_driver.h"
+#include "test/extensions/filters/network/ssh/ssh_upstream.h"
 #include "test/integration/http_integration.h"
 #include "gtest/gtest.h"
 
@@ -63,15 +64,18 @@ public:
   [[nodiscard]]
   testing::AssertionResult waitForHttpConnection(Envoy::Event::Dispatcher& client_dispatcher,
                                                  std::unique_ptr<FakeHttpConnectionShim>& connection,
-                                                 std::chrono::milliseconds timeout) override {
-    std::unique_ptr<FakeHttpConnection> real;
-    auto ret = fake_upstream_->waitForHttpConnection(client_dispatcher, real, timeout);
-    connection = std::make_unique<FakeHttpConnectionShimImpl>(std::move(real));
-    return ret;
-  }
+                                                 std::chrono::milliseconds timeout) override;
+
+  [[nodiscard]]
+  testing::AssertionResult configureSshUpstream(std::shared_ptr<SshFakeUpstreamHandlerOpts> opts,
+                                                Server::Configuration::ServerFactoryContext& ctx) override;
+
+  void cleanup() override;
 
 private:
   FakeUpstream* fake_upstream_{};
+  Envoy::Event::TimerPtr timer_;
+  std::unique_ptr<SshFakeUpstreamHandler> handler_;
 };
 
 class SshIntegrationTest : public SecretsProviderImpl,
@@ -88,6 +92,7 @@ protected:
   ~SshIntegrationTest();
 
   void initialize() override;
+  void cleanup();
 
   std::string localhost() const {
     return (version_ == Network::Address::IpVersion::v4)
@@ -99,6 +104,8 @@ protected:
 
   std::shared_ptr<SshConnectionDriver> makeSshConnectionDriver();
   IntegrationTcpClientPtr makeTcpConnectionWithServerName(uint32_t port, const std::string& server_name);
+
+  AssertionResult configureSshUpstream(SshFakeUpstreamHandlerOpts&& opts, size_t upstream_index = 0);
 
   FakeUpstreamShimImpl mgmt_upstream_;
   FakeUpstreamShimImpl http_upstream_1_;

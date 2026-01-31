@@ -214,6 +214,12 @@ void ConnectionService::onServerDraining(std::chrono::milliseconds delay) {
   shutdown(absl::UnavailableError("server shutting down"));
 }
 
+Envoy::Common::CallbackHandlePtr ConnectionService::onServerDraining(std::chrono::milliseconds delay, Envoy::Event::Dispatcher& dispatcher, std::function<void()> complete_cb) {
+  ENVOY_LOG(debug, "ssh: stream {}: handling graceful shutdown (delay: {})", transport_.streamId(), delay);
+  shutdown(absl::UnavailableError("server shutting down"));
+  return transport_.channelIdManager().startDrain(dispatcher, complete_cb);
+}
+
 void ConnectionService::shutdown(absl::Status err) {
   auto& channelIdMgr = transport_.channelIdManager();
   // NB: we do not necessarily assume that this is the only place startDrain() would ever be called.
@@ -265,7 +271,7 @@ void ConnectionService::ChannelCallbacksImpl::sendMessageLocal(wire::Message&& m
         // connection. Protects against misbehaving clients who might ignore channel close to
         // keep a connection alive longer than they are permitted to, e.g. if we send a channel
         // close as a way to gracefully signal that the host is being drained.
-        parent_.transport_.terminate(absl::DeadlineExceededError("timed out waiting for channel close"));
+        parent_.transport_.terminate(absl::DeadlineExceededError(fmt::format("timed out waiting for channel close response from {}", local_peer_)));
       });
       close_timer_->enableTimer(CloseResponseGracePeriod);
       return true;
