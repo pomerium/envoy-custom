@@ -1,7 +1,9 @@
 #include "source/extensions/filters/network/ssh/stream_tracker.h"
 #include "source/common/visit.h"
 #include "source/extensions/filters/network/ssh/channel.h"
-#include "absl/synchronization/notification.h"
+#include "absl/synchronization/blocking_counter.h"
+#include <atomic>
+#include <memory>
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -21,28 +23,68 @@ StreamTracker::StreamTracker(Server::Configuration::ServerFactoryContext& contex
       scope_(context.scope()),
       stat_names_(scope_.symbolTable()),
       stats_(stat_names_, scope_, stat_names_.ssh_) {
-  drain_cb_ = context.drainManager().addOnDrainCloseCb(Network::DrainDirection::InboundOnly, [this](std::chrono::milliseconds delay) {
-    ASSERT(main_thread_dispatcher_.isThreadSafe());
-    ENVOY_LOG(info, "ssh: starting graceful shutdown");
-    thread_local_stream_table_.runOnAllThreads(
-      [delay](Envoy::OptRef<ThreadLocalStreamTable> obj) {
-        for (auto& [stream_id, ctx] : obj->get()) {
-          basic_visit(
-            ctx,
-            [&](Envoy::Event::Dispatcher*) {},
-            [&](StreamContext& ctx) {
-              ctx.streamCallbacks().onServerDraining(delay);
-            });
-        }
-      },
-      [start = absl::Now()] {
-        ENVOY_LOG(info, "ssh: graceful shutdown completed after {}", absl::FormatDuration(absl::Now() - start));
+  shutdown_cb_ = context.lifecycleNotifier().registerCallback(
+    Envoy::Server::ServerLifecycleNotifier::Stage::ShutdownExit,
+    [this](Envoy::Event::PostCb shutdown_guard) {
+      ASSERT(main_thread_dispatcher_.isThreadSafe());
+      if (started_shutdown_) {
+        // FIXME: this is wrong; envoy server shutdown() can be called more than once for a single state.
+        // If it's called twice, then the second time the callbacks will be done immediately, invoking the same shutdown cb
+        return;
+      }
+      ENVOY_LOG(info, "ssh: starting graceful shutdown (server lifecycle)");
+      auto guard_ptr = std::make_shared<Envoy::Event::PostCb>(std::move(shutdown_guard));
+      startGracefulShutdown(std::chrono::milliseconds{0}, [guard_ptr, start = absl::Now()] {
+        ENVOY_LOG(info, "ssh: shutdown completed after {}", absl::FormatDuration(absl::Now() - start));
       });
-    return absl::OkStatus();
-  });
+    });
+  drain_mgr_cb_ = context.drainManager().addOnDrainCloseCb(
+    Network::DrainDirection::InboundOnly,
+    [this](std::chrono::milliseconds delay) {
+      ASSERT(main_thread_dispatcher_.isThreadSafe());
+      if (started_shutdown_) {
+        return absl::OkStatus();
+      }
+      ENVOY_LOG(info, "ssh: starting graceful shutdown (drain)");
+      startGracefulShutdown(delay, [start = absl::Now()] {
+        ENVOY_LOG(info, "ssh: shutdown completed after {}", absl::FormatDuration(absl::Now() - start));
+      });
+      return absl::OkStatus();
+    });
   thread_local_stream_table_.set([](Envoy::Event::Dispatcher&) {
     return std::make_shared<ThreadLocalStreamTable>();
   });
+}
+
+void StreamTracker::startGracefulShutdown(std::chrono::milliseconds delay, std::function<void()> complete_cb) {
+  ASSERT(main_thread_dispatcher_.isThreadSafe());
+  ASSERT(!started_shutdown_);
+  started_shutdown_ = true;
+
+  std::shared_ptr<void> wg = std::make_shared<Cleanup>([complete_cb] {
+    ENVOY_LOG(info, "ssh: all streams shutdown");
+    complete_cb();
+  });
+
+  thread_local_stream_table_.runOnAllThreads(
+    [this, delay, wg](Envoy::OptRef<ThreadLocalStreamTable> obj) {
+      for (auto& [stream_id, ctx] : obj->get()) {
+        basic_visit(
+          ctx,
+          [](Envoy::Event::Dispatcher*) {},
+          [this, delay, wg](StreamContext& ctx) {
+            absl::MutexLock lock(drain_cb_mu_);
+            auto id = ctx.streamId();
+            channel_id_mgr_drain_cbs_[id] = ctx.streamCallbacks().onServerDraining(delay, ctx.connection().dispatcher(), [this, wg, id] {
+              ENVOY_LOG(info, "ssh: stream {}: shutdown complete", id);
+              drain_cb_mu_.Lock();
+              auto deferredDelete = channel_id_mgr_drain_cbs_.extract(id);
+              drain_cb_mu_.Unlock();
+            });
+          });
+      }
+    },
+    [wg] {});
 }
 
 void StreamTracker::tryLock(stream_id_t key, absl::AnyInvocable<void(Envoy::OptRef<StreamContext>)> cb) {

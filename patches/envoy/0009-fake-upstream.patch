@@ -1,0 +1,56 @@
+diff --git a/test/integration/fake_upstream.h b/test/integration/fake_upstream.h
+index 42799230cc..e0b9b9e320 100644
+--- a/test/integration/fake_upstream.h
++++ b/test/integration/fake_upstream.h
+@@ -765,6 +765,10 @@ public:
+   ABSL_MUST_USE_RESULT
+   testing::AssertionResult assertPendingConnectionsEmpty();
+ 
++  bool hasNewConnections() ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
++    return !new_connections_.empty();
++  }
++
+   ABSL_MUST_USE_RESULT
+   testing::AssertionResult
+   waitForRawConnection(FakeRawConnectionPtr& connection,
+@@ -844,9 +848,13 @@ public:
+   const envoy::config::core::v3::Http3ProtocolOptions& http3Options() { return http3_options_; }
+ 
+   Event::DispatcherPtr& dispatcher() { return dispatcher_; }
+-  absl::Mutex& lock() { return lock_; }
++  absl::Mutex& lock() ABSL_LOCK_RETURNED(lock_) { return lock_; }
+ 
+   void runOnDispatcherThread(std::function<void()> cb);
++  AssertionResult
++  runOnDispatcherThreadAndWait(std::function<AssertionResult()> cb,
++                               std::chrono::milliseconds timeout = TestUtility::DefaultTimeout);
++  SharedConnectionWrapper& consumeConnection() ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
+ 
+ protected:
+   const FakeUpstreamConfig& config() const { return config_; }
+@@ -993,11 +1001,7 @@ private:
+   };
+ 
+   void threadRoutine();
+-  SharedConnectionWrapper& consumeConnection() ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
+   Network::FilterStatus onRecvDatagram(Network::UdpRecvData& data);
+-  AssertionResult
+-  runOnDispatcherThreadAndWait(std::function<AssertionResult()> cb,
+-                               std::chrono::milliseconds timeout = TestUtility::DefaultTimeout);
+ 
+   const envoy::config::core::v3::Http2ProtocolOptions http2_options_;
+   const envoy::config::core::v3::Http3ProtocolOptions http3_options_;
+diff --git a/test/integration/server.cc b/test/integration/server.cc
+index 3a75dba9d0..cc5239a4e2 100644
+--- a/test/integration/server.cc
++++ b/test/integration/server.cc
+@@ -282,6 +282,9 @@ void IntegrationTestServerImpl::createAndRunEnvoyServer(
+     server.run();
+   }
+   server_gone_.Notify();
++  server_ = nullptr;
++  admin_address_ = nullptr;
++  stat_store_ = nullptr;
+ }
+ 
+ IntegrationTestServerImpl::~IntegrationTestServerImpl() {

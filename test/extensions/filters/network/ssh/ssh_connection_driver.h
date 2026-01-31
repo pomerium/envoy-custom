@@ -6,6 +6,7 @@
 #include "source/extensions/filters/network/ssh/openssh.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
+#include "test/extensions/filters/network/ssh/ssh_integration_common.h"
 #include "test/extensions/filters/network/ssh/ssh_task.h"
 #include "absl/synchronization/notification.h"
 #include "gtest/gtest.h"
@@ -69,24 +70,17 @@ public:
 class FakeUpstreamShim {
 public:
   virtual ~FakeUpstreamShim() = default;
-  ABSL_MUST_USE_RESULT
-  virtual testing::AssertionResult waitForHttpConnection(
-    Envoy::Event::Dispatcher& client_dispatcher, std::unique_ptr<FakeHttpConnectionShim>& connection,
-    std::chrono::milliseconds timeout) PURE;
-};
 
-class SecretsProviderImpl : public SecretsProvider {
-public:
-  std::vector<openssh::SSHKeySharedPtr> hostKeys() const override {
-    return {host_key_};
-  };
+  [[nodiscard]]
+  virtual testing::AssertionResult waitForHttpConnection(Envoy::Event::Dispatcher& client_dispatcher,
+                                                         std::unique_ptr<FakeHttpConnectionShim>& connection,
+                                                         std::chrono::milliseconds timeout) PURE;
 
-  openssh::SSHKeySharedPtr userCaKey() const override {
-    return user_ca_key_;
-  };
+  [[nodiscard]]
+  virtual testing::AssertionResult configureSshUpstream(std::shared_ptr<SshFakeUpstreamHandlerOpts> opts,
+                                                        Server::Configuration::ServerFactoryContext& ctx) PURE;
 
-  openssh::SSHKeySharedPtr host_key_ = *openssh::SSHKey::generate(KEY_ED25519, 256);
-  openssh::SSHKeySharedPtr user_ca_key_ = *openssh::SSHKey::generate(KEY_ED25519, 256);
+  virtual void cleanup() PURE;
 };
 
 class SshConnectionDriver : public Envoy::Network::ReadFilter,
@@ -116,7 +110,7 @@ public:
   AssertionResult waitForDiagnostic(const std::string& message);
   void waitForManagementRequest(Protobuf::Message& req);
   void sendManagementResponse(const Protobuf::Message& resp);
-  AssertionResult waitForUserAuth(std::string username = "user", bool internal = true);
+  AssertionResult waitForUserAuth(std::string username = "user", std::string hostname = ""); // empty hostname = internal
   AssertionResult requestReversePortForward(const std::string& address, uint32_t port, uint32_t server_port);
   AssertionResult waitForStatsEvent(pomerium::extensions::ssh::ChannelStatsList* out);
   AssertionResult waitForStatsOnChannelClose(pomerium::extensions::ssh::ChannelStats* out);
@@ -135,6 +129,7 @@ public:
   }
 
   testing::AssertionResult wait(UntypedTaskCallbacksHandle& task);
+  bool allTasksComplete() const { return active_tasks_.empty(); }
 
   std::optional<stream_id_t> serverStreamId() {
     return server_stream_id_;

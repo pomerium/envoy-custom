@@ -1,5 +1,6 @@
 #pragma once
 
+#include "absl/functional/any_invocable.h"
 #pragma clang unsafe_buffer_usage begin
 #include "envoy/event/dispatcher.h"
 #include "envoy/server/factory_context.h"
@@ -17,6 +18,8 @@ public:
   virtual ~StreamCallbacks() = default;
   virtual absl::StatusOr<uint32_t> startChannel(std::unique_ptr<Channel> channel, std::optional<uint32_t> channel_id = std::nullopt) PURE;
   virtual void onServerDraining(std::chrono::milliseconds delay) PURE;
+  [[nodiscard]]
+  virtual Envoy::Common::CallbackHandlePtr onServerDraining(std::chrono::milliseconds delay, Envoy::Event::Dispatcher& dispatcher, std::function<void()> complete_cb) PURE;
 };
 
 class StreamContext {
@@ -92,6 +95,7 @@ private:
   };
 
   void onStreamEnd(stream_id_t stream_id);
+  void startGracefulShutdown(std::chrono::milliseconds delay, std::function<void()> complete_cb);
 
   ThreadLocal::TypedSlot<ThreadLocalStreamTable> thread_local_stream_table_;
   Envoy::Event::Dispatcher& main_thread_dispatcher_;
@@ -99,7 +103,12 @@ private:
   Stats::Scope& scope_;
   StreamTrackerStatNames stat_names_;
   StreamTrackerStats stats_;
-  Envoy::Common::CallbackHandlePtr drain_cb_;
+  Envoy::Server::ServerLifecycleNotifier::HandlePtr shutdown_cb_;
+  Envoy::Common::CallbackHandlePtr drain_mgr_cb_;
+
+  absl::Mutex drain_cb_mu_;
+  std::unordered_map<stream_id_t, Envoy::Common::CallbackHandlePtr> channel_id_mgr_drain_cbs_ ABSL_GUARDED_BY(drain_cb_mu_);
+  bool started_shutdown_{false};
 };
 using StreamTrackerPtr = std::unique_ptr<StreamTracker>;
 using StreamTrackerSharedPtr = std::shared_ptr<StreamTracker>;

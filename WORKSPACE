@@ -6,9 +6,9 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 # https://github.com/hedronvision/bazel-compile-commands-extractor
 http_archive(
     name = "hedron_compile_commands",
+    sha256 = "ba3feefdf57b6d4c749e3c4abfa86f3673e7db364cb13acfc3496dce6ea801a3",
     strip_prefix = "bazel-compile-commands-extractor-f5fbd4cee671d8d908f37c83abaf70fba5928fc7",
     url = "https://github.com/mikael-s-persson/bazel-compile-commands-extractor/archive/f5fbd4cee671d8d908f37c83abaf70fba5928fc7.tar.gz",
-    sha256 = "ba3feefdf57b6d4c749e3c4abfa86f3673e7db364cb13acfc3496dce6ea801a3",
 )
 
 load("@hedron_compile_commands//:workspace_setup.bzl", "hedron_compile_commands_setup")
@@ -55,6 +55,7 @@ http_archive(
         "//patches/envoy:0006-coverage-format.patch",
         "//patches/envoy:0007-user-space-io-handle.patch",
         "//patches/envoy:0008-cel-cpp-compatibility.patch",
+        "//patches/envoy:0009-fake-upstream.patch",
         "//patches/envoy:tmp-envoy-41815.patch",
         "//patches/envoy:tmp-transport-socket-options.patch",
     ],
