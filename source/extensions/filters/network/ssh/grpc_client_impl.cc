@@ -95,15 +95,17 @@ void ChannelStreamServiceClient::onRemoteClose(Grpc::Status::GrpcStatus status, 
 
 void ChannelStreamServiceClient::notifyOnStreamClosedOnce(absl::Status stat) {
   ASSERT(stream_ == nullptr);
-  if (callbacks_ != nullptr) {
-    if (!stat.ok()) {
-      ENVOY_LOG(warn, "grpc stream closed by remote with error: {}", statusToString(stat));
-    } else {
-      ENVOY_LOG(debug, "grpc stream closed by remote");
-    }
-    callbacks_->onStreamClosed(stat);
-    callbacks_ = nullptr;
+  if (callbacks_ == nullptr) {
+    return;
   }
+  if (!stat.ok()) {
+    ENVOY_LOG(warn, "grpc stream closed by remote with error: {}", statusToString(stat));
+  } else {
+    ENVOY_LOG(debug, "grpc stream closed by remote");
+  }
+  // Note: the implementation of onStreamClosed may indirectly delete 'this'
+  auto* cb = std::exchange(callbacks_, nullptr);
+  cb->onStreamClosed(stat);
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
