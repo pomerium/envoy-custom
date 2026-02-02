@@ -44,6 +44,7 @@ public:
   MOCK_METHOD(absl::StatusOr<uint32_t>, startChannel, (std::unique_ptr<Channel>, std::optional<uint32_t>));
   MOCK_METHOD(void, sendChannelEvent, (const pomerium::extensions::ssh::ChannelEvent&));
   MOCK_METHOD(void, onServerDraining, (std::chrono::milliseconds delay));
+  MOCK_METHOD(Envoy::Common::CallbackHandlePtr, onServerDraining, (std::chrono::milliseconds, Envoy::Event::Dispatcher&, std::function<void()>));
 };
 
 TEST_F(StreamTrackerTest, TryLock) {
