@@ -10,7 +10,6 @@
 #include "envoy/config/endpoint/v3/endpoint.pb.validate.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "gtest/gtest.h"
-#include <mutex>
 
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "test/extensions/filters/network/ssh/ssh_task.h"
@@ -19,133 +18,12 @@
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 namespace test {
 
-// Modified from Envoy::EdsHelper which uses a static filepath
-class EdsHelper {
-public:
-  EdsHelper(const std::string& cluster_name)
-      : cluster_name_(cluster_name),
-        eds_path_(TestEnvironment::writeStringToFileForTest(cluster_name_ + "_eds.pb_text", "")) {
-    // Note: the update_success stat is modified by the EDS backend, not by the cluster itself.
-    // It is incremented once on startup.
-    ++update_successes_;
-  }
-
-  void setEds(const envoy::config::endpoint::v3::ClusterLoadAssignment& cluster_load_assignment) {
-    // Write to file the DiscoveryResponse and trigger inotify watch.
-    envoy::service::discovery::v3::DiscoveryResponse eds_response;
-    eds_response.set_version_info(std::to_string(eds_version_++));
-    eds_response.set_type_url(Config::TestTypeUrl::get().ClusterLoadAssignment);
-    // Only one resource per file
-    eds_response.add_resources()->PackFrom(cluster_load_assignment);
-
-    // Past the initial write, need move semantics to trigger inotify move event that the
-    // FilesystemSubscriptionImpl is subscribed to.
-    std::string path = TestEnvironment::writeStringToFileForTest(
-      cluster_name_ + "_eds.update.pb_text", MessageUtil::toTextProto(eds_response));
-    TestEnvironment::renameFile(path, eds_path_);
-  }
-
-  void setEdsAndWait(const envoy::config::endpoint::v3::ClusterLoadAssignment& cluster_load_assignment,
-                     IntegrationTestServerStats& server_stats) {
-    auto counter_name = fmt::format("cluster.{}.update_success", cluster_name_);
-    // Make sure the last version has been accepted before setting a new one.
-    server_stats.waitForCounterGe(counter_name, update_successes_);
-    setEds(cluster_load_assignment);
-    // Make sure Envoy has consumed the update now that it is running.
-    ++update_successes_;
-    server_stats.waitForCounterGe(counter_name, update_successes_);
-    RELEASE_ASSERT(update_successes_ == server_stats.counter(counter_name)->value(), "");
-  }
-
-  const std::string& edsPath() const { return eds_path_; }
-
-private:
-  const std::string cluster_name_;
-  const std::string eds_path_;
-  uint32_t eds_version_{};
-  uint32_t update_successes_{};
-};
-
 class BaseReverseTunnelIntegrationTest : public testing::Test,
                                          public SshIntegrationTest {
 public:
   BaseReverseTunnelIntegrationTest(Network::Address::IpVersion version)
       : SshIntegrationTest({"unused"}, version) {
-
-    config_helper_.addConfigModifier([this](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
-      // note: update eds_helpers_ if this changes
-      configureUpstreamTunnelCluster(*bootstrap.mutable_static_resources()->mutable_clusters(1)); // http_cluster_1
-      configureUpstreamTunnelCluster(*bootstrap.mutable_static_resources()->mutable_clusters(2)); // http_cluster_2
-      configureUpstreamTunnelCluster(*bootstrap.mutable_static_resources()->mutable_clusters(3)); // tcp_cluster
-    });
   }
-
-  struct ClusterLoadOpts {
-    stream_id_t stream_id;
-    std::string requested_host;
-    uint32_t requested_port;
-    uint32_t server_port;
-    bool is_dynamic;
-  };
-
-  void setClusterLoad(const std::string& cluster_name, std::vector<ClusterLoadOpts> endpoint_opts) {
-    envoy::config::endpoint::v3::ClusterLoadAssignment load;
-    load.set_cluster_name(cluster_name);
-    for (auto opts : endpoint_opts) {
-      auto* endpoint = load.add_endpoints()->add_lb_endpoints();
-      auto* socketAddress = endpoint->mutable_endpoint()->mutable_address()->mutable_socket_address();
-      socketAddress->set_address(fmt::format("ssh:{}", opts.stream_id));
-      socketAddress->set_port_value(opts.server_port);
-
-      pomerium::extensions::ssh::EndpointMetadata endpointMetadata;
-      endpointMetadata.mutable_matched_permission()->set_requested_host(opts.requested_host);
-      endpointMetadata.mutable_matched_permission()->set_requested_port(opts.requested_port);
-      endpointMetadata.mutable_server_port()->set_value(opts.server_port);
-      endpointMetadata.mutable_server_port()->set_is_dynamic(opts.is_dynamic);
-      (*endpoint
-          ->mutable_metadata()
-          ->mutable_typed_filter_metadata())["com.pomerium.ssh.endpoint"]
-        .PackFrom(endpointMetadata);
-      endpoint->set_health_status(envoy::config::core::v3::HealthStatus::HEALTHY);
-    }
-    RELEASE_ASSERT(eds_helpers_.contains(cluster_name), "test bug: invalid cluster name");
-    eds_helpers_[cluster_name]->setEdsAndWait(load, *test_server_);
-  }
-
-  void configureUpstreamTunnelCluster(envoy::config::cluster::v3::Cluster& cluster) {
-    cluster.clear_upstream_bind_config();
-    cluster.clear_type();
-    if (!cluster.has_transport_socket()) {
-      envoy::extensions::transport_sockets::raw_buffer::v3::RawBuffer raw_buffer;
-      cluster.mutable_transport_socket()->set_name("envoy.transport_sockets.raw_buffer");
-      cluster.mutable_transport_socket()->mutable_typed_config()->PackFrom(raw_buffer);
-    }
-    envoy::extensions::transport_sockets::internal_upstream::v3::InternalUpstreamTransport internal_upstream;
-    internal_upstream.mutable_transport_socket()->CopyFrom(cluster.transport_socket());
-    cluster.mutable_transport_socket()->set_name("envoy.transport_sockets.internal_upstream");
-    cluster.mutable_transport_socket()->mutable_typed_config()->PackFrom(internal_upstream);
-
-    pomerium::extensions::ssh::ReverseTunnelCluster reverse_tunnel_cluster;
-    reverse_tunnel_cluster.set_name(cluster.name());
-    reverse_tunnel_cluster.mutable_eds_config()->set_resource_api_version(envoy::config::core::v3::ApiVersion::V3);
-    reverse_tunnel_cluster.mutable_eds_config()->mutable_path_config_source()->set_path(eds_helpers_[cluster.name()]->edsPath());
-
-    cluster.mutable_cluster_type()->set_name("envoy.clusters.ssh_reverse_tunnel");
-    cluster.mutable_cluster_type()->mutable_typed_config()->PackFrom(reverse_tunnel_cluster);
-  }
-
-  // NB: filesystem EDS subscription doesn't work like api-based subscription: it always reports
-  // all changed resources, and ignores the resource name filter (for some reason). So we need
-  // separate files for each cluster, otherwise they will both get the EDS updates when updating
-  // any of them, regardless of the load assignment's cluster_name.
-  EdsHelper http_cluster_eds_{"http_cluster_1"};
-  EdsHelper grpc_cluster_eds_{"http_cluster_2"};
-  EdsHelper tcp_cluster_eds_{"tcp_cluster"};
-  std::unordered_map<std::string, EdsHelper*> eds_helpers_{
-    {"http_cluster_1", &http_cluster_eds_},
-    {"http_cluster_2", &grpc_cluster_eds_},
-    {"tcp_cluster", &tcp_cluster_eds_},
-  };
 };
 
 class HttpReverseTunnelIntegrationTest : public BaseReverseTunnelIntegrationTest,
@@ -198,8 +76,8 @@ TEST_P(HttpReverseTunnelIntegrationTest, TestHttp) {
 }
 
 TEST_P(HttpReverseTunnelIntegrationTest, TestHttpHealthChecks) {
-  config_helper_.addConfigModifier([](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
-    auto* httpCluster = bootstrap.mutable_static_resources()->mutable_clusters(1);
+  config_helper_.addConfigModifier([this](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+    auto* httpCluster = bootstrap.mutable_static_resources()->mutable_clusters(httpUpstreamClusterIndex());
     auto* hc = httpCluster->add_health_checks();
     *hc->mutable_http_health_check()->mutable_host() = "example";
     *hc->mutable_http_health_check()->mutable_path() = "/health";
@@ -242,9 +120,9 @@ TEST_P(HttpReverseTunnelIntegrationTest, TestHttpHealthChecks) {
 TEST_P(HttpReverseTunnelIntegrationTest, TestMultiProtocolHealthChecks) {
   // test that health checks to the same logical host shared across 2 clusters (each with different
   // protocols) work correctly
-  config_helper_.addConfigModifier([](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+  config_helper_.addConfigModifier([this](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
     {
-      auto* httpCluster = bootstrap.mutable_static_resources()->mutable_clusters(1);
+      auto* httpCluster = bootstrap.mutable_static_resources()->mutable_clusters(httpUpstreamClusterIndex());
       auto* hc = httpCluster->add_health_checks();
       *hc->mutable_http_health_check()->mutable_host() = "example";
       *hc->mutable_http_health_check()->mutable_path() = "/health";
@@ -257,7 +135,7 @@ TEST_P(HttpReverseTunnelIntegrationTest, TestMultiProtocolHealthChecks) {
       hc->mutable_reuse_connection()->set_value(false);
     }
     {
-      auto* grpcCluster = bootstrap.mutable_static_resources()->mutable_clusters(2);
+      auto* grpcCluster = bootstrap.mutable_static_resources()->mutable_clusters(grpcUpstreamClusterIndex());
       auto* hc = grpcCluster->add_health_checks();
       hc->mutable_grpc_health_check();
       hc->mutable_timeout()->set_seconds(1);
@@ -314,8 +192,8 @@ TEST_P(HttpReverseTunnelIntegrationTest, TestMultiProtocolHealthChecks) {
 }
 
 TEST_P(HttpReverseTunnelIntegrationTest, TestGrpcHealthChecks) {
-  config_helper_.addConfigModifier([](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
-    auto* grpcCluster = bootstrap.mutable_static_resources()->mutable_clusters(2);
+  config_helper_.addConfigModifier([this](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+    auto* grpcCluster = bootstrap.mutable_static_resources()->mutable_clusters(grpcUpstreamClusterIndex());
     auto* hc = grpcCluster->add_health_checks();
     hc->mutable_grpc_health_check();
     hc->mutable_timeout()->set_seconds(1);
@@ -1266,8 +1144,8 @@ class StaticTcpHealthCheckTest : public StaticPortForwardTest {
   using StaticPortForwardTest::StaticPortForwardTest;
 
   void SetUp() override {
-    config_helper_.addConfigModifier([](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
-      auto* cluster = bootstrap.mutable_static_resources()->mutable_clusters(3);
+    config_helper_.addConfigModifier([this](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+      auto* cluster = bootstrap.mutable_static_resources()->mutable_clusters(tcpUpstreamClusterIndex());
       auto* hc = cluster->add_health_checks();
       hc->mutable_tcp_health_check();
       hc->mutable_timeout()->set_seconds(1);
@@ -1750,8 +1628,8 @@ TEST_P(EDSUpdatesIntegrationTest, InvalidLbEndpointName) {
 }
 
 TEST_P(EDSUpdatesIntegrationTest, InvalidClusterEDSConfig) {
-  config_helper_.addConfigModifier([](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
-    bootstrap.mutable_static_resources()->mutable_clusters(3)->clear_eds_cluster_config();
+  config_helper_.addConfigModifier([this](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+    bootstrap.mutable_static_resources()->mutable_clusters(tcpUpstreamClusterIndex())->clear_eds_cluster_config();
   });
   initialize();
 }

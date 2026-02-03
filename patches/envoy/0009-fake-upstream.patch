@@ -1,8 +1,30 @@
+diff --git a/test/integration/fake_upstream.cc b/test/integration/fake_upstream.cc
+index 559484e147..fc2d34f653 100644
+--- a/test/integration/fake_upstream.cc
++++ b/test/integration/fake_upstream.cc
+@@ -681,7 +681,8 @@ FakeUpstream::FakeUpstream(Network::DownstreamTransportSocketFactoryPtr&& transp
+       http3_options_(config.http3_options_), quic_options_(config.quic_options_),
+       socket_(Network::SocketSharedPtr(listen_socket.release())),
+       api_(Api::createApiForTest(stats_store_)), time_system_(config.time_system_),
+-      dispatcher_(api_->allocateDispatcher("fake_upstream")),
++      dispatcher_(api_->allocateDispatcher(config.dispatcher_name_ != "" ? config.dispatcher_name_
++                                                                         : "fake_upstream")),
+       handler_(new Server::ConnectionHandlerImpl(*dispatcher_, 0)), config_(config),
+       read_disable_on_new_connection_(true), enable_half_close_(config.enable_half_close_),
+       listener_(*this, http_type_ == Http::CodecType::HTTP3),
 diff --git a/test/integration/fake_upstream.h b/test/integration/fake_upstream.h
-index 42799230cc..e0b9b9e320 100644
+index 42799230cc..382c147ffe 100644
 --- a/test/integration/fake_upstream.h
 +++ b/test/integration/fake_upstream.h
-@@ -765,6 +765,10 @@ public:
+@@ -716,6 +716,7 @@ struct FakeUpstreamConfig {
+   uint32_t max_request_headers_count_ = Http::DEFAULT_MAX_HEADERS_COUNT;
+   envoy::config::core::v3::HttpProtocolOptions::HeadersWithUnderscoresAction
+       headers_with_underscores_action_ = envoy::config::core::v3::HttpProtocolOptions::ALLOW;
++  std::string dispatcher_name_;
+ };
+ 
+ /**
+@@ -765,6 +766,10 @@ public:
    ABSL_MUST_USE_RESULT
    testing::AssertionResult assertPendingConnectionsEmpty();
  
@@ -13,7 +35,7 @@ index 42799230cc..e0b9b9e320 100644
    ABSL_MUST_USE_RESULT
    testing::AssertionResult
    waitForRawConnection(FakeRawConnectionPtr& connection,
-@@ -844,9 +848,13 @@ public:
+@@ -844,9 +849,13 @@ public:
    const envoy::config::core::v3::Http3ProtocolOptions& http3Options() { return http3_options_; }
  
    Event::DispatcherPtr& dispatcher() { return dispatcher_; }
@@ -28,7 +50,7 @@ index 42799230cc..e0b9b9e320 100644
  
  protected:
    const FakeUpstreamConfig& config() const { return config_; }
-@@ -993,11 +1001,7 @@ private:
+@@ -993,11 +1002,7 @@ private:
    };
  
    void threadRoutine();
