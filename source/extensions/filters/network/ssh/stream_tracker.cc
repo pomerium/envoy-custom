@@ -2,8 +2,7 @@
 #include "source/common/visit.h"
 #include "source/extensions/filters/network/ssh/channel.h"
 #include "absl/synchronization/blocking_counter.h"
-#include <atomic>
-#include <memory>
+#include "source/common/event/deferred_task.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -56,6 +55,17 @@ StreamTracker::StreamTracker(Server::Configuration::ServerFactoryContext& contex
   });
 }
 
+namespace {
+class DeferredDeleteHandle : public Envoy::Event::DeferredDeletable {
+public:
+  DeferredDeleteHandle(Envoy::Common::CallbackHandlePtr&& handle)
+      : handle_(std::move(handle)) {}
+
+private:
+  Envoy::Common::CallbackHandlePtr handle_;
+};
+} // namespace
+
 void StreamTracker::startGracefulShutdown(std::chrono::milliseconds delay, std::function<void()> complete_cb) {
   ASSERT(main_thread_dispatcher_.isThreadSafe());
   ASSERT(!started_shutdown_);
@@ -73,14 +83,27 @@ void StreamTracker::startGracefulShutdown(std::chrono::milliseconds delay, std::
           ctx,
           [](Envoy::Event::Dispatcher*) {},
           [this, delay, wg](StreamContext& ctx) {
-            absl::MutexLock lock(drain_cb_mu_);
             auto id = ctx.streamId();
-            channel_id_mgr_drain_cbs_[id] = ctx.streamCallbacks().onServerDraining(delay, ctx.connection().dispatcher(), [this, wg, id] {
-              ENVOY_LOG(info, "ssh: stream {}: shutdown complete", id);
-              drain_cb_mu_.Lock();
-              auto deferredDelete = channel_id_mgr_drain_cbs_.extract(id);
-              drain_cb_mu_.Unlock();
-            });
+            auto& dispatcher = ctx.connection().dispatcher();
+
+            auto handle = ctx.streamCallbacks().onServerDraining(
+              delay, dispatcher,
+              [this, wg, id, dispatcher = &dispatcher] {
+                ENVOY_LOG(info, "ssh: stream {}: shutdown complete", id);
+                drain_cb_mu_.Lock();
+                auto deferredDelete = channel_id_mgr_drain_cbs_.extract(id);
+                drain_cb_mu_.Unlock();
+                // It is not safe to delete the callback handle from within the callback, as it can
+                // cause an internal deadlock in the ThreadSafeCallbackManager. Normally we can just
+                // ignore these handles, but they need to be explicitly deleted because the closure
+                // objects hold references to wg that must be released for complete_cb to run.
+                dispatcher->deferredDelete(std::make_unique<DeferredDeleteHandle>(std::move(deferredDelete.mapped())));
+              });
+
+            // Note: order is important here when acquiring this lock.
+            drain_cb_mu_.Lock();
+            channel_id_mgr_drain_cbs_[id] = std::move(handle);
+            drain_cb_mu_.Unlock();
           });
       }
     },
