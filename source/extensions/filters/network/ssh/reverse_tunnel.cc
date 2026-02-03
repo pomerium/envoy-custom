@@ -1240,7 +1240,7 @@ public:
                  metadata,
                  nullptr,
                  1, // weight
-                 envoy::config::core::v3::Locality::default_instance(),
+                 std::make_shared<const envoy::config::core::v3::Locality>(),
                  envoy::config::endpoint::v3::Endpoint::HealthCheckConfig::default_instance(),
                  0, // priority class (only 0 is used)
                  envoy::config::core::v3::HEALTHY) {
