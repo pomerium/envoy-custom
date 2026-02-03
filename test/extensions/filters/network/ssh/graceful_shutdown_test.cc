@@ -3,7 +3,6 @@
 #include "test/extensions/filters/network/ssh/ssh_integration_test.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-
 #include "test/extensions/filters/network/ssh/ssh_task.h"
 #include "test/test_common/test_common.h"
 #include "test/extensions/filters/network/ssh/test_mocks.h"
@@ -101,10 +100,30 @@ TEST_P(GracefulShutdownIntegrationTest, ServerShutdown) {
   ASSERT_TRUE(driver_->wait(th));
 }
 
+class WaitForChannelCloseAndDoNotReply : public Task<Tasks::Channel, Tasks::Channel> {
+public:
+  void start(Tasks::Channel channel) override {
+    channel_ = channel;
+    setChannelFilter(channel);
+    callbacks_->setTimeout(default_timeout_, "WaitForChannelCloseAndDoNotReply");
+  }
+  MiddlewareResult onMessageReceived(wire::Message& msg) override {
+    return msg.visit(
+      [&](const wire::ChannelCloseMsg&) {
+        taskSuccess(channel_);
+        return Break;
+      },
+      DEFAULT_CONTINUE);
+  }
+  Tasks::Channel channel_{};
+};
+
 TEST_P(GracefulShutdownIntegrationTest, ServerShutdown_CloseTimeout) {
-  auto th = driver_->createTask<Tasks::WaitForDisconnectWithError>("timed out waiting for channel close response from Downstream")
-              .start();
-  EXPECT_CALL(channel_recv_, Call(MSG(wire::ChannelCloseMsg, _)));
+  auto th = driver_->createTask<WaitForChannelCloseAndDoNotReply>()
+              .then(driver_->createTask<Tasks::WaitForDisconnectWithError>("timed out waiting for channel close response from Downstream"))
+              .start(channel_);
+  EXPECT_CALL(channel_recv_, Call(MSG(wire::ChannelCloseMsg, _)))
+    .Times(testing::AtMost(1)); // 0 or 1 times, timing-dependent. Not relevant for this test
   test_server_->server().dispatcher().post([this] {
     test_server_->server().shutdown();
   });
