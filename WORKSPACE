@@ -27,7 +27,7 @@ load("@hedron_compile_commands//:workspace_setup_transitive_transitive_transitiv
 
 hedron_compile_commands_setup_transitive_transitive_transitive()
 
-envoy_version = "bad8280de85c25b147a90c1d9b8a8c67a13e7134"
+envoy_version = "6d9bb7d9a85d616b220d1f8fe67b61f82bbdb8d3"
 
 openssh_version = "V_10_2_P1"
 
@@ -58,7 +58,7 @@ http_archive(
         "//patches/envoy:tmp-envoy-41815.patch",
         "//patches/envoy:tmp-transport-socket-options.patch",
     ],
-    sha256 = "acaf4d3be97d4758539ff9f87c5344eab801337d246d5995f10c3af6f7a6c588",
+    sha256 = "bb111b2037e35d8732f12f003ccf82e0d09dfc8a8b7810e849eb081f36d50ddc",
     strip_prefix = "envoy-" + envoy_version,
     url = "https://github.com/envoyproxy/envoy/archive/" + envoy_version + ".zip",
 )
