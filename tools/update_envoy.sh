@@ -25,6 +25,9 @@ sed "s/^envoy_version = .*/envoy_version = \"$_commit\"/" "$_dir/WORKSPACE" |
    sed "/name = \"envoy\"/,/sha256 = / { s/sha256 = .*/sha256 = \"$_hash\",/; }" > WORKSPACE.tmp
 mv WORKSPACE.tmp "$_dir/WORKSPACE"
 
+# Update .bazelversion.
+curl -fsSL https://raw.githubusercontent.com/envoyproxy/envoy/$_commit/.bazelversion > "$_dir/.bazelversion"
+
 # Update envoy .bazelrc file.
 curl -fsSL https://raw.githubusercontent.com/envoyproxy/envoy/$_commit/.bazelrc > "$_dir/envoy.bazelrc"
 
