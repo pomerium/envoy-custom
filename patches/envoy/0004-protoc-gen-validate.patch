@@ -1,0 +1,13 @@
+diff --git a/api/bazel/repositories.bzl b/api/bazel/repositories.bzl
+index 95951c2141..7923f4e218 100644
+--- a/api/bazel/repositories.bzl
++++ b/api/bazel/repositories.bzl
+@@ -37,6 +37,8 @@ def api_dependencies(bzlmod = False):
+     )
+     external_http_archive(
+         name = "com_envoyproxy_protoc_gen_validate",
++        patch_args = ["-p1"],
++        patches = ["//patches/protoc-gen-validate:utf8-len.patch"],
+     )
+     external_http_archive(
+         name = "com_google_googleapis",

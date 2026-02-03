@@ -1,0 +1,13 @@
+diff --git a/validate/validate.h b/validate/validate.h
+index d6cf6c9..a017406 100644
+--- a/validate/validate.h
++++ b/validate/validate.h
+@@ -168,7 +168,7 @@ inline size_t Utf8Len(const string& narrow_string) {
+   size_t unicode_len = 0;
+   int char_len = 1;
+   while (byte_len > 0 && char_len > 0) {
+-    char_len = UTF8FirstLetterNumBytes(str_char, byte_len);
++    char_len = UTF8FirstLetterNumBytes(str_char, static_cast<int>(byte_len));
+     str_char += char_len;
+     byte_len -= char_len;
+     ++unicode_len;
