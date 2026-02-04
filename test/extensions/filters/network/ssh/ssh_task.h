@@ -431,6 +431,48 @@ public:
   const uint32_t port_connected_;
 };
 
+class OpenSessionChannel : public Task<void, Channel> {
+public:
+  OpenSessionChannel(uint32_t local_channel_id)
+      : local_channel_id_(local_channel_id) {}
+  void start() override {
+    setChannelFilter(Tasks::Channel{
+      .local_id = local_channel_id_,
+    });
+    callbacks_->setTimeout(default_timeout_, "OpenSessionChannel");
+    callbacks_->sendMessage(wire::ChannelOpenMsg{
+      .sender_channel = local_channel_id_,
+      .initial_window_size = wire::ChannelWindowSize,
+      .max_packet_size = wire::ChannelMaxPacketSize,
+      .request = wire::SessionChannelOpenMsg{},
+    });
+  }
+  MiddlewareResult onMessageReceived(wire::Message& msg) override {
+    return msg.visit(
+      [&](const wire::ChannelOpenConfirmationMsg& msg) {
+        taskSuccess(Channel{
+          .local_id = local_channel_id_,
+          .remote_id = msg.sender_channel,
+          .initial_window_size = msg.initial_window_size,
+          .max_packet_size = msg.max_packet_size,
+          .upstream_initial_window_size = wire::ChannelWindowSize,
+          .upstream_max_packet_size = wire::ChannelMaxPacketSize,
+        });
+        return Break;
+      },
+      [&](const wire::ChannelOpenFailureMsg& msg) {
+        taskFailure(absl::InternalError(fmt::format("channel open failed: {}", msg.description)));
+        return Break;
+      },
+      [&](const auto&) {
+        return Continue;
+      });
+  }
+
+public:
+  uint32_t local_channel_id_;
+};
+
 class WaitForChannelData : public Task<Channel, Channel> {
 public:
   explicit WaitForChannelData(const std::string& expected_data)

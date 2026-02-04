@@ -274,34 +274,7 @@ public:
       : info_(info),
         handoff_callbacks_(callbacks) {}
 
-  absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&&) override {
-    if (info_.pty_info == nullptr) {
-      return absl::InvalidArgumentError("session is not interactive");
-    }
-
-    ENVOY_LOG(debug, "handoff started");
-    // 2: PTY open request
-    wire::ChannelRequestMsg channelReq{
-      .recipient_channel = callbacks_->channelId(),
-      .want_reply = true,
-      .request = wire::PtyReqChannelRequestMsg{
-        .term_env = info_.pty_info->term_env(),
-        .width_columns = info_.pty_info->width_columns(),
-        .height_rows = info_.pty_info->height_rows(),
-        .width_px = info_.pty_info->width_px(),
-        .height_px = info_.pty_info->height_px(),
-        .modes = info_.pty_info->modes(),
-      },
-    };
-    callbacks_->sendMessageLocal(std::move(channelReq));
-    return absl::OkStatus();
-  }
-  absl::Status onChannelOpenFailed(wire::ChannelOpenFailureMsg&& msg) override {
-    // this should end the connection
-    return absl::UnavailableError(*msg.description);
-  }
-
-  absl::Status readMessage(wire::Message&& msg) override {
+  absl::Status readMessage(wire::ChannelMessage&& msg) override {
     if (handoff_complete_) {
       return callbacks_->sendMessageRemote(std::move(msg));
     }
@@ -324,12 +297,42 @@ public:
       [&](const wire::ChannelFailureMsg&) {
         return absl::InternalError("failed to open upstream tty");
       },
+      [&](const wire::ChannelOpenConfirmationMsg& msg) {
+        return onChannelOpened(msg);
+      },
+      [&](const wire::ChannelOpenFailureMsg& msg) {
+        // this should end the connection
+        return absl::UnavailableError(*msg.description);
+      },
       [](const auto& msg) {
         return absl::InternalError(fmt::format("invalid message received during handoff: {}", msg.msg_type()));
       });
   }
 
 private:
+  absl::Status onChannelOpened(const wire::ChannelOpenConfirmationMsg&) {
+    if (info_.pty_info == nullptr) {
+      return absl::InvalidArgumentError("session is not interactive");
+    }
+
+    ENVOY_LOG(debug, "handoff started");
+    // 2: PTY open request
+    wire::ChannelRequestMsg channelReq{
+      .recipient_channel = callbacks_->channelId(),
+      .want_reply = true,
+      .request = wire::PtyReqChannelRequestMsg{
+        .term_env = info_.pty_info->term_env(),
+        .width_columns = info_.pty_info->width_columns(),
+        .height_rows = info_.pty_info->height_rows(),
+        .width_px = info_.pty_info->width_px(),
+        .height_px = info_.pty_info->height_px(),
+        .modes = info_.pty_info->modes(),
+      },
+    };
+    callbacks_->sendMessageLocal(std::move(channelReq));
+    return absl::OkStatus();
+  }
+
   bool handoff_complete_{false};
   const HandoffInfo& info_;
   HandoffChannelCallbacks& handoff_callbacks_;

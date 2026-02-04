@@ -127,6 +127,14 @@ WhenResolvedAs(const testing::Matcher<T>& inner_matcher) {
 #define EXPECT_STATIC_ASSERT(...) \
   EXPECT_STATIC_ASSERT_IMPL_((__VA_ARGS__))
 
+#ifndef EXPECT_NOT_OK
+#define EXPECT_NOT_OK(v) EXPECT_THAT((v), ::testing::Not(::Envoy::StatusHelpers::IsOk()))
+#endif // EXPECT_OK
+
+#ifndef ASSERT_NOT_OK
+#define ASSERT_NOT_OK(v) ASSERT_THAT((v), ::testing::Not(::Envoy::StatusHelpers::IsOk()))
+#endif // ASSERT_OK
+
 static absl::BitGen rng;
 
 inline bytes randomBytes(size_t size) {

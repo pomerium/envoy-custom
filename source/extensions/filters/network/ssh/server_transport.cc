@@ -100,6 +100,7 @@ void SshServerTransport::onConnected() {
 
   ASSERT(conn.state() == Network::Connection::State::Open);
   connection_dispatcher_ = conn.dispatcher();
+
   auto maxConcurrentChannels = config_->max_concurrent_channels();
   if (maxConcurrentChannels == 0) {
     maxConcurrentChannels = DefaultMaxConcurrentChannels;
@@ -112,7 +113,8 @@ void SshServerTransport::onConnected() {
       // PermissionDenied errors should be auth related, and don't need this extra context.
       message = fmt::format("management server error: {}", message);
     }
-    terminate({static_cast<absl::StatusCode>(status), message});
+    absl::Status err{static_cast<absl::StatusCode>(status), message};
+    connection_service_->shutdown(err);
   });
   stream_id_ = api_.randomGenerator().random();
 
@@ -329,9 +331,11 @@ void SshServerTransport::initHandoff(pomerium::extensions::ssh::SSHChannelContro
     newState->handoff_info.handoff_in_progress = true;
     newState->channel_mode = ChannelMode::Handoff;
     newState->allow_response.reset(handoff_msg->release_upstream_auth());
-    if (handoff_msg->has_downstream_channel_info()) {
-      newState->handoff_info.channel_info.reset(handoff_msg->release_downstream_channel_info());
+    if (!handoff_msg->has_downstream_channel_info()) {
+      terminate(absl::InternalError("received invalid handoff message: missing downstream channel info"));
+      break;
     }
+    newState->handoff_info.channel_info.reset(handoff_msg->release_downstream_channel_info());
     if (handoff_msg->has_downstream_pty_info()) {
       newState->handoff_info.pty_info.reset(handoff_msg->release_downstream_pty_info());
     }
@@ -344,14 +348,10 @@ void SshServerTransport::initHandoff(pomerium::extensions::ssh::SSHChannelContro
     terminate(absl::UnavailableError("session mirroring feature not available"));
     break;
   default:
-    terminate(absl::InternalError(fmt::format("received invalid channel message: unexpected target: {}",
+    terminate(absl::InternalError(fmt::format("received invalid handoff message: unexpected target: {}",
                                               static_cast<int>(handoff_msg->upstream_auth().target_case()))));
     break;
   }
-}
-
-void SshServerTransport::hijackedChannelFailed(absl::Status err) {
-  terminate(err);
 }
 
 pomerium::extensions::ssh::InternalCLIModeHint SshServerTransport::modeHint() const {
@@ -488,6 +488,18 @@ void SshServerTransport::sendMgmtClientMessage(const ClientMessage& msg) {
 }
 
 void SshServerTransport::terminate(absl::Status status) {
+  if (been_terminated_) {
+    return;
+  }
+  been_terminated_ = true;
+
+  if (mgmt_client_ != nullptr) {
+    mgmt_client_->setOnRemoteCloseCallback(nullptr);
+    if (auto& stream = mgmt_client_->stream(); stream != nullptr) {
+      stream.resetStream();
+    }
+  }
+
   wire::DisconnectMsg msg;
   msg.reason_code = openssh::statusCodeToDisconnectCode(status.code());
   msg.description = statusToString(status);

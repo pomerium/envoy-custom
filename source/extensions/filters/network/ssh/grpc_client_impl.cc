@@ -73,17 +73,19 @@ void ChannelStreamServiceClient::start(ChannelStreamCallbacks* callbacks, envoy:
   }
 }
 
-void ChannelStreamServiceClient::sendMessage(const ChannelMessage& message) {
+void ChannelStreamServiceClient::sendMessage(const ChannelMessage& message, bool end_stream) {
   ASSERT(stream_ != nullptr);
-  stream_->sendMessage(message, false);
+  stream_->sendMessage(message, end_stream);
 }
 
 void ChannelStreamServiceClient::onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) {
   auto stat = callbacks_->onReceiveMessage(std::move(message));
   if (!stat.ok()) {
     ENVOY_LOG(error, "error returned by grpc client callback; closing stream: {}", statusToString(stat));
-    stream_.resetStream();
-    stream_ = nullptr;
+    if (stream_ != nullptr) {
+      stream_.resetStream();
+      stream_ = nullptr;
+    }
     notifyOnStreamClosedOnce(stat);
   }
 }
@@ -95,15 +97,17 @@ void ChannelStreamServiceClient::onRemoteClose(Grpc::Status::GrpcStatus status, 
 
 void ChannelStreamServiceClient::notifyOnStreamClosedOnce(absl::Status stat) {
   ASSERT(stream_ == nullptr);
-  if (callbacks_ != nullptr) {
-    if (!stat.ok()) {
-      ENVOY_LOG(warn, "grpc stream closed by remote with error: {}", statusToString(stat));
-    } else {
-      ENVOY_LOG(debug, "grpc stream closed by remote");
-    }
-    callbacks_->onStreamClosed(stat);
-    callbacks_ = nullptr;
+  if (callbacks_ == nullptr) {
+    return;
   }
+  if (!stat.ok()) {
+    ENVOY_LOG(warn, "grpc stream closed by remote with error: {}", statusToString(stat));
+  } else {
+    ENVOY_LOG(debug, "grpc stream closed by remote");
+  }
+  // Note: the implementation of onStreamClosed may indirectly delete 'this'
+  auto* cb = std::exchange(callbacks_, nullptr);
+  cb->onStreamClosed(stat);
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

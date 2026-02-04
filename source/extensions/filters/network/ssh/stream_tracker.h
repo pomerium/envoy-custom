@@ -1,7 +1,6 @@
 #pragma once
 
-#include "source/extensions/filters/network/ssh/channel.h"
-
+#include "absl/functional/any_invocable.h"
 #pragma clang unsafe_buffer_usage begin
 #include "envoy/event/dispatcher.h"
 #include "envoy/server/factory_context.h"
@@ -9,18 +8,17 @@
 #include "api/extensions/filters/network/ssh/ssh.pb.validate.h"
 #pragma clang unsafe_buffer_usage end
 
+#include "source/extensions/filters/network/ssh/channel.h"
 #include "source/extensions/filters/network/ssh/common.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
-
-using Envoy::Event::Dispatcher;
-using Envoy::Event::FileReadyType;
-using Envoy::Event::PlatformDefaultTriggerType;
 
 class StreamCallbacks {
 public:
   virtual ~StreamCallbacks() = default;
   virtual absl::StatusOr<uint32_t> startChannel(std::unique_ptr<Channel> channel, std::optional<uint32_t> channel_id = std::nullopt) PURE;
+  [[nodiscard]]
+  virtual Envoy::Common::CallbackHandlePtr onServerDraining(std::chrono::milliseconds delay, Envoy::Event::Dispatcher& dispatcher, std::function<void()> complete_cb) PURE;
 };
 
 class StreamContext {
@@ -96,13 +94,22 @@ private:
   };
 
   void onStreamEnd(stream_id_t stream_id);
+  void startGracefulShutdown(std::chrono::milliseconds delay, std::function<void()> complete_cb);
 
   ThreadLocal::TypedSlot<ThreadLocalStreamTable> thread_local_stream_table_;
-  Dispatcher& main_thread_dispatcher_;
+  Envoy::Event::Dispatcher& main_thread_dispatcher_;
 
   Stats::Scope& scope_;
   StreamTrackerStatNames stat_names_;
   StreamTrackerStats stats_;
+  Envoy::Server::ServerLifecycleNotifier::HandlePtr shutdown_cb_;
+  Envoy::Common::CallbackHandlePtr drain_mgr_cb_;
+
+  absl::Mutex drain_cb_mu_;
+  std::unordered_map<stream_id_t, Envoy::Common::CallbackHandlePtr> channel_id_mgr_drain_cbs_ ABSL_GUARDED_BY(drain_cb_mu_);
+  std::vector<Envoy::Event::PostCb> inflight_shutdown_guards_;
+  bool shutdown_started_{false};
+  bool shutdown_completed_{false};
 };
 using StreamTrackerPtr = std::unique_ptr<StreamTracker>;
 using StreamTrackerSharedPtr = std::shared_ptr<StreamTracker>;

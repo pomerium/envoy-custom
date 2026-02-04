@@ -6,6 +6,11 @@
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/common.h"
 
+#pragma clang unsafe_buffer_usage begin
+#include "envoy/event/dispatcher.h"
+#include "source/common/common/callback_impl.h"
+#pragma clang unsafe_buffer_usage end
+
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 constexpr uint32_t DefaultMaxConcurrentChannels = 32768;
@@ -16,9 +21,34 @@ enum Peer {
 };
 
 enum class ChannelIDState {
+  // Default state. A channel is Unbound until a ChannelOpen request is received from the peer.
   Unbound = 0,
-  Bound = 1,
-  Released = 2,
+  // A channel is marked Pending when it is expected to become Bound because the opposite peer's
+  // channel was bound. Pending is equivalent to Unbound except that it will prevent the channel
+  // from being freed.
+  Pending = 1,
+  // A channel is Bound when the peer knows about this channel ID. A Bound channel may be in the
+  // process of awaiting a ChannelOpenConfirmation or ChannelOpenFailure, depending on which side
+  // initiated the channel open. If a peer is awaiting its opposite peer to bind the same internal
+  // channel, the opposite peer is moved to the Pending state.
+  Bound = 2,
+  // A channel is Released when awaiting a close handshake between peers. A channel in this state is
+  // still active until released by all bound peers.
+  Released = 3,
+  // A channel becomes Preempted when a ChannelClose is sent from one side of the transport to
+  // its local peer. It exists in this state until a corresponding ChannelClose is received,
+  // at which point it transitions to Bereft.
+  // Transitioning from Bound to Preempted does not release the channel. A preempted channel must
+  // still be released later for the ID to become freed.
+  // Messages may only be sent to the peer for channels in this state until the next ChannelClose,
+  // then any subsequent messages must be blocked.
+  Preempted = 4,
+  // A Bereft channel is one for which there is no longer a corresponding active channel known to
+  // the peer. This state can be reached in two ways:
+  // 1. A channel open request is initiated internally and rejected by the local peer.
+  // 2. A channel is first preempted, then a ChannelClose is received by the local peer.
+  // Messages must not be sent to the peer for channels in this state.
+  Bereft = 5,
 };
 
 struct PeerLocalID {
@@ -30,6 +60,7 @@ struct InternalChannelInfo {
   std::array<uint32_t, 2> peer_ids;
   std::array<ChannelIDState, 2> peer_states;
 
+  bool preempted_closed{};
   Peer owner{};
 };
 
@@ -105,30 +136,68 @@ public:
 
   absl::StatusOr<uint32_t> allocateNewChannel(Peer owner);
 
-  absl::Status bindChannelID(uint32_t internal_id, PeerLocalID peer_local_id);
+  absl::Status bindChannelID(uint32_t internal_id, PeerLocalID peer_local_id, bool expect_remote = true);
   void releaseChannelID(uint32_t internal_id, Peer local_peer);
 
-  std::optional<Peer> owner(uint32_t internal_id) {
-    if (!internal_channels_.contains(internal_id)) {
-      return std::nullopt;
-    }
-    return internal_channels_[internal_id].owner;
-  }
+  std::optional<Peer> owner(uint32_t internal_id);
+
+  // Returns true if it is valid to call preempt() for a given channel ID and local peer, otherwise
+  // false. A channel is eligible for preemption by a given peer if it is in the Bound state for
+  // that peer, and it is in either the Bound or Unbound states for the opposite peer.
+  bool isPreemptable(uint32_t internal_id, Peer local_peer);
+
+  // Changes the peer state for a Bound channel to Preempted, which has the following effects:
+  //
+  // 1. Messages are allowed to be sent only until the next ChannelClose message, after which
+  //    messages are blocked.
+  //
+  //    It is normally not necessary to check this condition and block messages explicitly; the
+  //    protocol always disallows any channel messages to be sent after ChannelClose, so it's not
+  //    something that should happen under normal conditions. However, in the case where the channel
+  //    is preempted, the remote peer is not privy to the fact that we are breaking the rules (nor
+  //    should it be). It may attempt to send its own ChannelClose for any reason, which is fine as
+  //    long as it observes the same effects from doing so as it would normally.
+  //
+  // 2. When the channel is eventually released, its peer state transitions to Bereft, instead of
+  //    Released.
+  //
+  //    This has implications for passthrough channels with two bound peers: if one peer preempts a
+  //    channel, then receives a ChannelClose response, it will forward that message to the remote
+  //    peer, which will respond with its own ChannelClose. This response from the remote peer must
+  //    then be dropped, because the channel has already been fully closed on the local side (the
+  //    remote peer is not aware of this). When the remote peer releases the ID, the channel is
+  //    freed as usual. Bereft channels are considered the same as Released for purposes of
+  //    determining whether to free an internal channel. Preempted channels are, however, not
+  //    considered released and will hold the internal channel alive.
+  void preempt(uint32_t internal_id, Peer local_peer);
 
   template <wire::ChannelMsg M>
-  absl::Status processOutgoingChannelMsg(M& msg, Peer dest) {
+  absl::StatusOr<bool> processOutgoingChannelMsg(M& msg, Peer dest) {
     return processOutgoingChannelMsgImpl(msg.recipient_channel, msg.msg_type(), dest);
   }
 
   size_t numActiveChannels() const { return internal_channels_.size(); }
   uint32_t nextInternalIdForTest() const { return id_alloc_.peekNext(); }
 
+  // Warning: complete_cb will not be destroyed unless the returned handle is destroyed.
+  [[nodiscard]]
+  Envoy::Common::CallbackHandlePtr startDrain(Envoy::Event::Dispatcher& dispatcher, std::function<void()> complete_cb);
+
+  std::optional<ChannelIDState> peerState(uint32_t internal_id, Peer peer);
+
 private:
-  absl::Status processOutgoingChannelMsgImpl(wire::field<uint32_t>& recipient_channel,
-                                             wire::SshMessageType msg_type,
-                                             Peer dest);
+  absl::StatusOr<bool> processOutgoingChannelMsgImpl(wire::field<uint32_t>& recipient_channel,
+                                                     wire::SshMessageType msg_type,
+                                                     Peer dest);
+#ifdef NDEBUG
   absl::flat_hash_map<uint32_t, InternalChannelInfo> internal_channels_;
+#else
+  std::unordered_map<uint32_t, InternalChannelInfo> internal_channels_;
+#endif
   IDAllocator<uint32_t> id_alloc_;
+  bool draining_{false};
+  std::shared_ptr<Envoy::Common::ThreadSafeCallbackManager> drain_cb_ =
+    Common::ThreadSafeCallbackManager::create();
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

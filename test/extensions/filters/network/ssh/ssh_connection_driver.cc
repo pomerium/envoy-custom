@@ -176,7 +176,7 @@ void SshConnectionDriver::sendManagementResponse(const Protobuf::Message& resp) 
   mgmt_stream_->sendGrpcMessage(resp);
 }
 
-AssertionResult SshConnectionDriver::waitForUserAuth(std::string username, bool internal) {
+AssertionResult SshConnectionDriver::waitForUserAuth(std::string username, std::string hostname) {
   if (auto res = wait(createTask<Tasks::RequestUserAuthService>().start()); !res) {
     return res;
   }
@@ -214,12 +214,12 @@ AssertionResult SshConnectionDriver::waitForUserAuth(std::string username, bool 
   ClientMessage clientMsg;
   waitForManagementRequest(clientMsg);
   EXPECT_EQ("publickey", clientMsg.auth_request().auth_method());
-  pomerium::extensions::ssh::FilterMetadata filterMetadata;
-  filterMetadata.set_stream_id(streamId());
-  // Only the stream id is set here, not channel id.
-  // TODO: maybe refactor this api to be less confusing
 
-  if (internal) {
+  if (hostname == "") {
+    pomerium::extensions::ssh::FilterMetadata filterMetadata;
+    filterMetadata.set_stream_id(streamId());
+    // Only the stream id is set here, not channel id.
+    // TODO: maybe refactor this api to be less confusing
     ServerMessage serverMsg;
     (*serverMsg.mutable_auth_response()
         ->mutable_allow()
@@ -229,7 +229,26 @@ AssertionResult SshConnectionDriver::waitForUserAuth(std::string username, bool 
       .PackFrom(filterMetadata);
     sendManagementResponse(serverMsg);
   } else {
-    PANIC("unimplemented");
+    ServerMessage serverMsg;
+    auto* allow = serverMsg.mutable_auth_response()->mutable_allow();
+    allow->set_username(username);
+    allow->mutable_upstream()->set_hostname(hostname);
+    auto* publicKeyMethod = allow->mutable_upstream()->add_allowed_methods();
+    publicKeyMethod->set_method("publickey");
+    pomerium::extensions::ssh::PublicKeyAllowResponse publicKeyMethodData;
+    pomerium::extensions::ssh::Permissions permissions;
+    permissions.set_permit_port_forwarding(true);
+    permissions.set_permit_agent_forwarding(true);
+    permissions.set_permit_x11_forwarding(true);
+    permissions.set_permit_pty(true);
+    permissions.set_permit_user_rc(true);
+    *permissions.mutable_valid_start_time() = google::protobuf::util::TimeUtil::NanosecondsToTimestamp(
+      absl::ToUnixNanos(absl::Now()));
+    *permissions.mutable_valid_end_time() = google::protobuf::util::TimeUtil::NanosecondsToTimestamp(
+      absl::ToUnixNanos(absl::Now() + absl::Hours(1)));
+    *publicKeyMethodData.mutable_permissions() = std::move(permissions);
+    publicKeyMethod->mutable_method_data()->PackFrom(publicKeyMethodData);
+    sendManagementResponse(serverMsg);
   }
 
   return wait(th);
