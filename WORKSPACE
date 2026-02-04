@@ -54,6 +54,7 @@ http_archive(
         "//patches/envoy:0005-suppress-duplicate-wip-warnings.patch",
         "//patches/envoy:0006-coverage-format.patch",
         "//patches/envoy:0007-user-space-io-handle.patch",
+        "//patches/envoy:llvm-toolchain.patch",
         "//patches/envoy:tmp-transport-socket-options.patch",
     ],
     sha256 = "bb111b2037e35d8732f12f003ccf82e0d09dfc8a8b7810e849eb081f36d50ddc",
@@ -93,9 +94,9 @@ load("@envoy//bazel:repo.bzl", "envoy_repo")
 
 envoy_repo()
 
-load("//bazel:toolchains.bzl", "pomerium_envoy_toolchains")
+load("@envoy//bazel:toolchains.bzl", "envoy_toolchains")
 
-pomerium_envoy_toolchains()
+envoy_toolchains()
 
 load("@llvm_toolchain//:toolchains.bzl", "llvm_register_toolchains")
 
