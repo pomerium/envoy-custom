@@ -305,6 +305,39 @@ TEST_F(ChannelStreamServiceClientTest, OnReceiveMessage_HandlerReturnsError) {
   client.onReceiveMessage(std::make_unique<ChannelMessage>(msg1));
 }
 
+TEST_F(ChannelStreamServiceClientTest, OnReceiveMessage_HandlerClosesStream) {
+  Envoy::OptRef<Grpc::RawAsyncStreamCallbacks> callbacks_ref{};
+  IN_SEQUENCE;
+  EXPECT_CALL(*client_, startRaw("pomerium.extensions.ssh.StreamManagement", "ServeChannel", _, _))
+    .WillOnce(
+      Invoke([&](std::string_view, std::string_view, Grpc::RawAsyncStreamCallbacks& callbacks,
+                 const Http::AsyncClient::StreamOptions&) {
+        callbacks_ref = makeOptRef(callbacks);
+        return &stream_;
+      }));
+
+  ChannelMessage expectedMetadataMsg;
+  expectedMetadataMsg.mutable_metadata(); // empty metadata
+  EXPECT_CALL(stream_, sendMessageRaw_(ProtoBufferStrictEq(expectedMetadataMsg), false));
+
+  ChannelMessage msg1;
+  *msg1.mutable_channel_control()->mutable_protocol() = "ssh";
+  EXPECT_CALL(callbacks_, onReceiveMessage(testing::Pointee(ProtoEq(msg1))))
+    .WillOnce([&](Grpc::ResponsePtr<ChannelMessage>&&) {
+      callbacks_ref->onRemoteClose(Grpc::Status::InvalidArgument, "remote closed");
+      return absl::InvalidArgumentError("test error"); // should be ignored
+    });
+  EXPECT_CALL(callbacks_, onStreamClosed(absl::InvalidArgumentError("remote closed")));
+  // No call to callbacks_.resetStream() expected here, since we called onRemoteClose(), which
+  // implies the stream is already reset
+
+  ChannelStreamServiceClient client(client_);
+
+  client.start(&callbacks_, {});
+
+  client.onReceiveMessage(std::make_unique<ChannelMessage>(msg1));
+}
+
 TEST_F(ChannelStreamServiceClientTest, ErrorStartingStream) {
   IN_SEQUENCE;
   EXPECT_CALL(*client_, startRaw("pomerium.extensions.ssh.StreamManagement", "ServeChannel", _, _))

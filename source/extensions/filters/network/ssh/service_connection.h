@@ -38,7 +38,6 @@ public:
   // have not done so already (i.e. if the ChannelClose was received as an expected response to
   // one sent previously).
   absl::StatusOr<uint32_t> startChannel(std::unique_ptr<Channel> channel, std::optional<uint32_t> channel_id = std::nullopt) final;
-  void onServerDraining(std::chrono::milliseconds delay) final;
   Envoy::Common::CallbackHandlePtr onServerDraining(std::chrono::milliseconds delay, Envoy::Event::Dispatcher& dispatcher, std::function<void()> complete_cb) final;
 
   absl::Status handleMessage(wire::Message&& ssh_msg) override;

@@ -82,8 +82,10 @@ void ChannelStreamServiceClient::onReceiveMessage(Grpc::ResponsePtr<ChannelMessa
   auto stat = callbacks_->onReceiveMessage(std::move(message));
   if (!stat.ok()) {
     ENVOY_LOG(error, "error returned by grpc client callback; closing stream: {}", statusToString(stat));
-    stream_.resetStream();
-    stream_ = nullptr;
+    if (stream_ != nullptr) {
+      stream_.resetStream();
+      stream_ = nullptr;
+    }
     notifyOnStreamClosedOnce(stat);
   }
 }
