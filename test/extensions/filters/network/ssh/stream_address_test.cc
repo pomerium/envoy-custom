@@ -56,6 +56,7 @@ TEST(SshStreamAddressTest, TestAddress) {
   EXPECT_EQ(0, address.sockAddrLen());
   EXPECT_EQ(Network::Address::Type::EnvoyInternal, address.type());
   EXPECT_EQ(std::nullopt, address.networkNamespace());
+  EXPECT_EQ(nullptr, address.withNetworkNamespace("namepsace"));
   EXPECT_THROW_WITH_MESSAGE(address.socketInterface(),
                             Envoy::EnvoyException,
                             "unexpected call to socketInterface()");
