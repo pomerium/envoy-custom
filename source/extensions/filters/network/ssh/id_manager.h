@@ -144,7 +144,6 @@ public:
   // Returns true if it is valid to call preempt() for a given channel ID and local peer, otherwise
   // false. A channel is eligible for preemption by a given peer if it is in the Bound state for
   // that peer, and it is in either the Bound or Unbound states for the opposite peer.
-  // If both peers are in the Bound state, then
   bool isPreemptable(uint32_t internal_id, Peer local_peer);
 
   // Changes the peer state for a Bound channel to Preempted, which has the following effects:
