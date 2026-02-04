@@ -17,7 +17,6 @@ class StreamCallbacks {
 public:
   virtual ~StreamCallbacks() = default;
   virtual absl::StatusOr<uint32_t> startChannel(std::unique_ptr<Channel> channel, std::optional<uint32_t> channel_id = std::nullopt) PURE;
-  virtual void onServerDraining(std::chrono::milliseconds delay) PURE;
   [[nodiscard]]
   virtual Envoy::Common::CallbackHandlePtr onServerDraining(std::chrono::milliseconds delay, Envoy::Event::Dispatcher& dispatcher, std::function<void()> complete_cb) PURE;
 };
@@ -108,7 +107,9 @@ private:
 
   absl::Mutex drain_cb_mu_;
   std::unordered_map<stream_id_t, Envoy::Common::CallbackHandlePtr> channel_id_mgr_drain_cbs_ ABSL_GUARDED_BY(drain_cb_mu_);
-  bool started_shutdown_{false};
+  std::vector<Envoy::Event::PostCb> inflight_shutdown_guards_;
+  bool shutdown_started_{false};
+  bool shutdown_completed_{false};
 };
 using StreamTrackerPtr = std::unique_ptr<StreamTracker>;
 using StreamTrackerSharedPtr = std::shared_ptr<StreamTracker>;

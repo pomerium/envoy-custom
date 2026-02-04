@@ -26,26 +26,32 @@ StreamTracker::StreamTracker(Server::Configuration::ServerFactoryContext& contex
     Envoy::Server::ServerLifecycleNotifier::Stage::ShutdownExit,
     [this](Envoy::Event::PostCb shutdown_guard) {
       ASSERT(main_thread_dispatcher_.isThreadSafe());
-      if (started_shutdown_) {
-        // FIXME: this is wrong; envoy server shutdown() can be called more than once for a single state.
-        // If it's called twice, then the second time the callbacks will be done immediately, invoking the same shutdown cb
+      if (shutdown_completed_) {
+        return;
+      }
+      inflight_shutdown_guards_.push_back(std::move(shutdown_guard));
+      if (shutdown_started_) {
+        // If shutdown is in-progress but not completed, we just need to keep shutdown_guard alive
+        // until the in-flight shutdown is complete, otherwise it will exit early.
         return;
       }
       ENVOY_LOG(info, "ssh: starting graceful shutdown (server lifecycle)");
-      auto guard_ptr = std::make_shared<Envoy::Event::PostCb>(std::move(shutdown_guard));
-      startGracefulShutdown(std::chrono::milliseconds{0}, [guard_ptr, start = absl::Now()] {
+      startGracefulShutdown(std::chrono::milliseconds{0}, [this, start = absl::Now()] {
+        ASSERT(main_thread_dispatcher_.isThreadSafe());
         ENVOY_LOG(info, "ssh: shutdown completed after {}", absl::FormatDuration(absl::Now() - start));
+        inflight_shutdown_guards_.clear();
       });
     });
   drain_mgr_cb_ = context.drainManager().addOnDrainCloseCb(
     Network::DrainDirection::InboundOnly,
     [this](std::chrono::milliseconds delay) {
       ASSERT(main_thread_dispatcher_.isThreadSafe());
-      if (started_shutdown_) {
+      if (shutdown_started_) {
         return absl::OkStatus();
       }
       ENVOY_LOG(info, "ssh: starting graceful shutdown (drain)");
-      startGracefulShutdown(delay, [start = absl::Now()] {
+      startGracefulShutdown(delay, [this, start = absl::Now()] {
+        ASSERT(main_thread_dispatcher_.isThreadSafe());
         ENVOY_LOG(info, "ssh: shutdown completed after {}", absl::FormatDuration(absl::Now() - start));
       });
       return absl::OkStatus();
@@ -68,11 +74,12 @@ private:
 
 void StreamTracker::startGracefulShutdown(std::chrono::milliseconds delay, std::function<void()> complete_cb) {
   ASSERT(main_thread_dispatcher_.isThreadSafe());
-  ASSERT(!started_shutdown_);
-  started_shutdown_ = true;
+  ASSERT(!shutdown_started_);
+  shutdown_started_ = true;
 
-  std::shared_ptr<void> wg = std::make_shared<Cleanup>([complete_cb] {
+  std::shared_ptr<void> wg = std::make_shared<Cleanup>([this, complete_cb] {
     ENVOY_LOG(info, "ssh: all streams shutdown");
+    shutdown_completed_ = true;
     complete_cb();
   });
 

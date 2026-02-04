@@ -209,11 +209,6 @@ absl::Status ConnectionService::maybeStartPassthroughChannel(uint32_t internal_i
   return startChannel(std::move(passthrough), internal_id).status();
 }
 
-void ConnectionService::onServerDraining(std::chrono::milliseconds delay) {
-  ENVOY_LOG(debug, "ssh: stream {}: handling graceful shutdown (delay: {})", transport_.streamId(), delay);
-  shutdown(absl::UnavailableError("server shutting down"));
-}
-
 Envoy::Common::CallbackHandlePtr ConnectionService::onServerDraining(std::chrono::milliseconds delay, Envoy::Event::Dispatcher& dispatcher, std::function<void()> complete_cb) {
   ENVOY_LOG(debug, "ssh: stream {}: handling graceful shutdown (delay: {})", transport_.streamId(), delay);
   shutdown(absl::UnavailableError("server shutting down"));
@@ -420,7 +415,7 @@ public:
       // (which indicates channel open failure), since after handling the ChannelOpenFailure message
       // this Channel will be deleted, which resets the grpc stream and stops this callback from
       // being invoked.
-      ASSERT(!open_success_);
+      ASSERT(open_success_);
 
       // If the channel was previously open, send a ChannelClose message to the downstream.
       // If one was already sent, do nothing and wait for the response to come in normally.
