@@ -1,16 +1,5 @@
 --- a/envoy.bazelrc
 +++ b/envoy.bazelrc
-@@ -231,8 +231,8 @@ test:sanitizer --build_tests_only
- build:asan --config=asan-common
- build:asan --linkopt --rtlib=compiler-rt
- build:asan --linkopt --unwindlib=libgcc
--build:asan --linkopt=-l:libclang_rt.ubsan_standalone.a
--build:asan --linkopt=-l:libclang_rt.ubsan_standalone_cxx.a
-+build:asan --linkopt=-l:libclang_rt.ubsan_standalone-x86_64.a
-+build:asan --linkopt=-l:libclang_rt.ubsan_standalone_cxx-x86_64.a
- build:asan --action_env=ENVOY_UBSAN_VPTR=1
- build:asan --copt=-fsanitize=vptr,function
- build:asan --linkopt=-fsanitize=vptr,function
 @@ -257,7 +257,7 @@ build:asan-common --test_env=ASAN_OPTIONS=handle_abort=1:allow_addr2line=true:ch
  build:asan-common --test_env=UBSAN_OPTIONS=halt_on_error=true:print_stacktrace=1
  build:asan-common --test_env=ASAN_SYMBOLIZER_PATH

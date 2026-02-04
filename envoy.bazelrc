@@ -231,8 +231,8 @@ test:sanitizer --build_tests_only
 build:asan --config=asan-common
 build:asan --linkopt --rtlib=compiler-rt
 build:asan --linkopt --unwindlib=libgcc
-build:asan --linkopt=-l:libclang_rt.ubsan_standalone-x86_64.a
-build:asan --linkopt=-l:libclang_rt.ubsan_standalone_cxx-x86_64.a
+build:asan --linkopt=-l:libclang_rt.ubsan_standalone.a
+build:asan --linkopt=-l:libclang_rt.ubsan_standalone_cxx.a
 build:asan --action_env=ENVOY_UBSAN_VPTR=1
 build:asan --copt=-fsanitize=vptr,function
 build:asan --linkopt=-fsanitize=vptr,function
