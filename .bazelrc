@@ -29,6 +29,7 @@ build:ci --spawn_strategy=remote
 common:ci --show_progress
 common:ci --show_loading_progress
 
+common:buildbuddy --config=remote
 common:buildbuddy --bes_results_url=https://app.buildbuddy.io/invocation/
 common:buildbuddy --bes_backend=grpcs://remote.buildbuddy.io
 common:buildbuddy --local_resources=cpu=HOST_CPUS-1
