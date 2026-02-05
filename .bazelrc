@@ -17,14 +17,23 @@
 # Keep envoy.bazelrc up-to-date by run:
 # curl -sSL https://raw.githubusercontent.com/envoyproxy/envoy/master/.bazelrc > envoy.bazelrc
 import %workspace%/envoy.bazelrc
-build --workspace_status_command=bazel/bazel_get_workspace_status
-build:remote --remote_timeout=7200
-build --remote_download_all
-build:coverage --remote_download_all
-build --enable_platform_specific_config
-build:linux --config=clang
-build --cxxopt=-std=c++23 --host_cxxopt=-std=c++23
+build --workspace_status_command=bazel/get_workspace_status
 # The io_bazel_rules_go stdlib target passes a --no-gc-sections linker argument.
 build:linux --copt="-Wno-error=unused-command-line-argument"
 # The quiche library is partially annotated for nullability.
 build --copt="-Wno-nullability-completeness"
+
+build:ci --build_metadata=ROLE=CI
+build:ci --build_metadata=VISIBILITY=PUBLIC
+
+common:buildbuddy --bes_results_url=https://app.buildbuddy.io/invocation/
+common:buildbuddy --bes_backend=grpcs://remote.buildbuddy.io
+common:buildbuddy --jobs=256
+common:buildbuddy --remote_cache=grpcs://remote.buildbuddy.io
+common:buildbuddy --remote_executor=grpcs://remote.buildbuddy.io
+common:buildbuddy --nolegacy_important_outputs
+common:buildbuddy --noslim_profile
+common:buildbuddy --remote_cache_compression
+common:buildbuddy --experimental_remote_cache_compression_threshold=100
+common:buildbuddy --experimental_profile_include_target_label
+common:buildbuddy --experimental_profile_include_primary_output
