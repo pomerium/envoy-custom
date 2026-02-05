@@ -3,12 +3,12 @@ load("@envoy_toolshed//repository:utils.bzl", "arch_alias")
 load("@toolchains_llvm//toolchain:rules.bzl", "llvm_toolchain")
 
 def pomerium_envoy_toolchains():
-    native.register_toolchains("@envoy//bazel/rbe/toolchains/configs/linux/gcc/config:cc-toolchain")
     arch_alias(
         name = "clang_platform",
         aliases = {
-            "amd64": "@envoy//bazel/platforms/rbe:linux_x64",
-            "aarch64": "@envoy//bazel/platforms/rbe:linux_arm64",
+            # Note: explicit repo name required here
+            "amd64": "@pomerium_envoy//bazel/platforms/rbe:linux_x64",
+            "aarch64": "@pomerium_envoy//bazel/platforms/rbe:linux_arm64",
         },
     )
     llvm_toolchain(

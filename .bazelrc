@@ -22,6 +22,7 @@ build:linux --copt="-Wno-error=unused-command-line-argument"
 # The quiche library is partially annotated for nullability.
 build --copt="-Wno-nullability-completeness"
 build --cxxopt=-std=c++23 --host_cxxopt=-std=c++23
+build --config=clang
 
 build:ci --build_metadata=ROLE=CI
 build:ci --build_metadata=VISIBILITY=PUBLIC
