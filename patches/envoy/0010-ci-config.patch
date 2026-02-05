@@ -1,0 +1,24 @@
+diff --git a/.github/config.yml b/.github/config.yml
+index 0339022b51..8663e96f75 100644
+--- a/.github/config.yml
++++ b/.github/config.yml
+@@ -1,8 +1,8 @@
+ agent-ubuntu: ubuntu-24.04
+ build-image:
+   # Authoritative configuration for build image/s
+-  repo: docker.io/envoyproxy/envoy-build
+-  repo-gcr: gcr.io/envoy-ci/envoy-build
++  repo: docker.io/joekralicky/envoy-build
++  repo-gcr: docker.io/joekralicky/envoy-build
+   # default ci caching (ci)
+   sha: 20656853fae51927cda557e7af80ccff175f5de6f84bd0f092cd8672b2a6e0fe
+   sha-ci: 20656853fae51927cda557e7af80ccff175f5de6f84bd0f092cd8672b2a6e0fe
+@@ -10,7 +10,7 @@ build-image:
+   sha-docker: 85b6c3e76f093d9c9d10a968b5615cc8d82f38d7aef311100d542e4d640f5a74
+   sha-gcc: 439e870260c1599646d05b8b5d3bf1b6dd585c2e3cdac78dcb9f4081564c27fd
+   sha-mobile: bd1338a8951376211e4f4f6ff3171675670c4c582b0966f1d247abd3ba6a8a67
+-  sha-worker: 25a68eff24b7414a346977d545687b87851d1c5746c466798050fa12fc5d0686
++  sha-worker: 6f566ff5582e08f540034c10d2866bf83acde371ab8af9c87db218344a70da79
+   # TODO: remove this dupe (currently used by ci request handler)
+   mobile-sha: bd1338a8951376211e4f4f6ff3171675670c4c582b0966f1d247abd3ba6a8a67
+   tag: 86873047235e9b8232df989a5999b9bebf9db69c
