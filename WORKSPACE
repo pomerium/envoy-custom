@@ -6,9 +6,9 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 # https://github.com/hedronvision/bazel-compile-commands-extractor
 http_archive(
     name = "hedron_compile_commands",
+    sha256 = "ba3feefdf57b6d4c749e3c4abfa86f3673e7db364cb13acfc3496dce6ea801a3",
     strip_prefix = "bazel-compile-commands-extractor-f5fbd4cee671d8d908f37c83abaf70fba5928fc7",
     url = "https://github.com/mikael-s-persson/bazel-compile-commands-extractor/archive/f5fbd4cee671d8d908f37c83abaf70fba5928fc7.tar.gz",
-    sha256 = "ba3feefdf57b6d4c749e3c4abfa86f3673e7db364cb13acfc3496dce6ea801a3",
 )
 
 load("@hedron_compile_commands//:workspace_setup.bzl", "hedron_compile_commands_setup")
@@ -27,7 +27,7 @@ load("@hedron_compile_commands//:workspace_setup_transitive_transitive_transitiv
 
 hedron_compile_commands_setup_transitive_transitive_transitive()
 
-envoy_version = "bad8280de85c25b147a90c1d9b8a8c67a13e7134"
+envoy_version = "6d9bb7d9a85d616b220d1f8fe67b61f82bbdb8d3"
 
 openssh_version = "V_10_2_P1"
 
@@ -50,15 +50,13 @@ http_archive(
         "//patches/envoy:0001-revert-deps-drop-BoringSSL-linkstatic-patch-38621.patch",
         "//patches/envoy:0002-bump-dependencies.patch",
         "//patches/envoy:0003-envoy-copts.patch",
-        "//patches/envoy:0004-pgv.patch",
+        "//patches/envoy:0004-protoc-gen-validate.patch",
         "//patches/envoy:0005-suppress-duplicate-wip-warnings.patch",
         "//patches/envoy:0006-coverage-format.patch",
         "//patches/envoy:0007-user-space-io-handle.patch",
-        "//patches/envoy:0008-cel-cpp-compatibility.patch",
-        "//patches/envoy:tmp-envoy-41815.patch",
         "//patches/envoy:tmp-transport-socket-options.patch",
     ],
-    sha256 = "acaf4d3be97d4758539ff9f87c5344eab801337d246d5995f10c3af6f7a6c588",
+    sha256 = "bb111b2037e35d8732f12f003ccf82e0d09dfc8a8b7810e849eb081f36d50ddc",
     strip_prefix = "envoy-" + envoy_version,
     url = "https://github.com/envoyproxy/envoy/archive/" + envoy_version + ".zip",
 )
@@ -71,13 +69,13 @@ load("@envoy//bazel:api_repositories.bzl", "envoy_api_dependencies")
 
 envoy_api_dependencies()
 
-load("@envoy//bazel:repo.bzl", "envoy_repo")
-
-envoy_repo()
-
 load("@envoy//bazel:repositories.bzl", "envoy_dependencies")
 
 envoy_dependencies()
+
+load("@envoy//bazel:bazel_deps.bzl", "envoy_bazel_dependencies")
+
+envoy_bazel_dependencies()
 
 load("@envoy//bazel:repositories_extra.bzl", "envoy_dependencies_extra")
 
@@ -90,6 +88,18 @@ envoy_python_dependencies()
 load("@envoy//bazel:dependency_imports.bzl", "envoy_dependency_imports")
 
 envoy_dependency_imports()
+
+load("@envoy//bazel:repo.bzl", "envoy_repo")
+
+envoy_repo()
+
+load("//bazel:toolchains.bzl", "pomerium_envoy_toolchains")
+
+pomerium_envoy_toolchains()
+
+load("@llvm_toolchain//:toolchains.bzl", "llvm_register_toolchains")
+
+llvm_register_toolchains()
 
 load("@envoy_api//bazel:envoy_http_archive.bzl", "envoy_http_archive")
 

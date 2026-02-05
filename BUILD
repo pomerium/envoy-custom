@@ -49,6 +49,7 @@ configure_make(
         "openssh",
     ],
     lib_source = "@openssh_portable//:all",
+    linkopts = ["-pthread"],
     out_static_libs = [
         "libssh.a",
         "libopenbsd-compat.a",

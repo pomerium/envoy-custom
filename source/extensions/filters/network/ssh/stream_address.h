@@ -48,6 +48,7 @@ public:
     throw EnvoyException("unexpected call to socketInterface()");
   }
   std::optional<std::string> networkNamespace() const override { return std::nullopt; }
+  InstanceConstSharedPtr withNetworkNamespace(absl::string_view) const override { return nullptr; };
 
   class FakeEnvoyInternalAddress : public EnvoyInternalAddress {
   public:

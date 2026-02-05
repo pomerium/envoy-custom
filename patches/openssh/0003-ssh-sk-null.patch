@@ -12,11 +12,11 @@ index ba17a79f0..23ded1540 100644
 
  P11OBJS= ssh-pkcs11-client.o
 
-diff --git a/ssh-sk-null.cc b/ssh-sk-null.cc
+diff --git a/ssh-sk-null.c b/ssh-sk-null.c
 new file mode 100644
 index 000000000..948c3d933
 --- /dev/null
-+++ b/ssh-sk-null.cc
++++ b/ssh-sk-null.c
 @@ -0,0 +1,52 @@
 +/* $OpenBSD$ */
 +/*
@@ -35,7 +35,7 @@ index 000000000..948c3d933
 + * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 + */
 +
-+extern "C" {
++
 +
 +#include "includes.h"
 +
@@ -69,4 +69,4 @@ index 000000000..948c3d933
 +	return SSH_ERR_FEATURE_UNSUPPORTED;
 +}
 +
-+};
++
