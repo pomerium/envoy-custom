@@ -22,9 +22,12 @@ build --workspace_status_command=bazel/get_workspace_status
 build:linux --copt="-Wno-error=unused-command-line-argument"
 # The quiche library is partially annotated for nullability.
 build --copt="-Wno-nullability-completeness"
+build --cxxopt=-std=c++23 --host_cxxopt=-std=c++23
 
 build:ci --build_metadata=ROLE=CI
 build:ci --build_metadata=VISIBILITY=PUBLIC
+common:ci --show_progress
+common:ci --show_loading_progress
 
 common:buildbuddy --bes_results_url=https://app.buildbuddy.io/invocation/
 common:buildbuddy --bes_backend=grpcs://remote.buildbuddy.io
