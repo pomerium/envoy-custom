@@ -44,7 +44,7 @@ jobs:
             --config=buildbuddy \
             --remote_header=x-buildbuddy-api-key=${{ secrets.BUILDBUDDY_ORG_API_KEY }} \
             -c opt \
-            //:envoy-stripped
+            //:envoy.stripped
 
   # test-coverage:
   #   if: ${{ github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready') }}
