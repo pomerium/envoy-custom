@@ -26,7 +26,6 @@ build --config=clang
 
 build:ci --build_metadata=ROLE=CI
 build:ci --build_metadata=VISIBILITY=PUBLIC
-build:ci --spawn_strategy=remote
 common:ci --show_progress
 common:ci --show_loading_progress
 

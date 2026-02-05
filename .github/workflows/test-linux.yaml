@@ -46,6 +46,14 @@ jobs:
             -c opt \
             //:envoy.stripped
 
+      - name: test
+        run: |
+          bazel coverage \
+            --config=ci \
+            --config=buildbuddy \
+            --remote_header=x-buildbuddy-api-key=${{ secrets.BUILDBUDDY_ORG_API_KEY }} \
+            //test/...
+
   # test-coverage:
   #   if: ${{ github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready') }}
   #   strategy:
