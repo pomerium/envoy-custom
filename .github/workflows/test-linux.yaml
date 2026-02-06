@@ -14,9 +14,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: ["x64", "aarch64"]
+        arch: ["x64", "arm64"]
     runs-on:
-      - ubuntu-latest
+      - ubuntu-latest-4-cores${{ matrix.arch == 'arm64' && '-arm64' || '' }}
 
     steps:
       - name: checkout
@@ -98,6 +98,7 @@ jobs:
             --config=ci \
             --config=buildbuddy \
             --config=asan \
+            -c dbg \
             --remote_header=x-buildbuddy-api-key=${{ secrets.BUILDBUDDY_ORG_API_KEY }} \
             //test/...
 
@@ -122,6 +123,7 @@ jobs:
             --config=ci \
             --config=buildbuddy \
             --config=tsan \
+            -c dbg \
             --remote_header=x-buildbuddy-api-key=${{ secrets.BUILDBUDDY_ORG_API_KEY }} \
             //test/...
 
@@ -146,6 +148,7 @@ jobs:
             --config=ci \
             --config=buildbuddy \
             --config=msan \
+            -c dbg \
             --remote_header=x-buildbuddy-api-key=${{ secrets.BUILDBUDDY_ORG_API_KEY }} \
             //test/...
 
