@@ -1,0 +1,12 @@
+diff --git a/bazel/envoy_test.bzl b/bazel/envoy_test.bzl
+index 96bddca75a..c61d70300d 100644
+--- a/bazel/envoy_test.bzl
++++ b/bazel/envoy_test.bzl
+@@ -210,6 +210,7 @@ def envoy_cc_test(
+         env = env | select({
+             "%s//bazel:local_asan_build" % repository: {"ASAN_SYMBOLIZER_PATH": "%s/bin/llvm-symbolizer" % LLVM_PATH},
+             "%s//bazel:asan_build" % repository: {"ASAN_SYMBOLIZER_PATH": "$(location @llvm_toolchain_llvm//:symbolizer)"},
++            "%s//bazel:msan_build" % repository: {"MSAN_SYMBOLIZER_PATH": "$(location @llvm_toolchain_llvm//:symbolizer)"},
+             "//conditions:default": {},
+         }),
+         exec_properties = exec_properties,
