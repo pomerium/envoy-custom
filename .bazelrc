@@ -29,8 +29,6 @@ build:ci --build_metadata=VISIBILITY=PUBLIC
 common:ci --show_progress
 common:ci --show_loading_progress
 
-build:coverage --strategy=CoverageReport=remote,sandboxed,local
-
 common:buildbuddy --config=remote
 common:buildbuddy --bes_results_url=https://app.buildbuddy.io/invocation/
 common:buildbuddy --bes_backend=grpcs://remote.buildbuddy.io
