@@ -36,12 +36,14 @@ jobs:
         with:
           bazelisk-version: 1.25.0
           bazelisk-cache: true
-          disk-cache: bazel-linux-${{ matrix.arch }}
           repository-cache: true
 
       - name: test
         run: |
-          bazel coverage --test_output=errors //test/...
+          bazel coverage --test_output=errors \
+            --remote_cache=https://storage.googleapis.com/pomerium-sandbox-test-bazel-cache \
+            --google_credentials <(echo '${{ secrets.TEST_BAZEL_CACHE_CREDENTIALS }}') \
+            //test/...
           tar xf bazel-out/_coverage/_coverage_report.dat ./lcov
 
       - name: upload to coveralls
@@ -76,8 +78,11 @@ jobs:
         with:
           bazelisk-version: 1.25.0
           bazelisk-cache: true
-          disk-cache: bazel-linux-${{ matrix.arch }}-asan
           repository-cache: true
 
       - name: test
-        run: bazel test -c dbg --config=asan --test_output=errors //test/...
+        run: |
+          bazel test -c dbg --config=asan --test_output=errors \
+            --remote_cache=https://storage.googleapis.com/pomerium-sandbox-test-bazel-cache \
+            --google_credentials <(echo '${{ secrets.TEST_BAZEL_CACHE_CREDENTIALS }}') \
+            //test/...
