@@ -92,6 +92,7 @@ jobs:
           bazelisk-version: 1.25.0
           bazelisk-cache: true
           repository-cache: true
+          external-cache: true
 
       - name: test (asan)
         run: |
@@ -117,6 +118,7 @@ jobs:
           bazelisk-version: 1.25.0
           bazelisk-cache: true
           repository-cache: true
+          external-cache: true
 
       - name: test (tsan)
         run: |
@@ -142,6 +144,7 @@ jobs:
           bazelisk-version: 1.25.0
           bazelisk-cache: true
           repository-cache: true
+          external-cache: true
 
       - name: test (msan)
         run: |
