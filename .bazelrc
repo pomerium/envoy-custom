@@ -24,10 +24,6 @@ build --copt="-Wno-nullability-completeness"
 build --cxxopt=-std=c++23 --host_cxxopt=-std=c++23
 build --config=clang
 
-common:clang --host_platform=@clang_platform
-common:clang --platforms=@clang_platform
-common:clang --extra_execution_platforms=@clang_platform
-
 build:ci --build_metadata=ROLE=CI
 build:ci --build_metadata=VISIBILITY=PUBLIC
 common:ci --show_progress
