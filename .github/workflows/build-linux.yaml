@@ -41,4 +41,5 @@ jobs:
             --host_platform=@pomerium_envoy//bazel/platforms/rbe:linux_${{ matrix.arch }} \
             --platforms=@pomerium_envoy//bazel/platforms/rbe:linux_${{ matrix.arch }} \
             --extra_execution_platforms=@pomerium_envoy//bazel/platforms/rbe:linux_${{ matrix.arch }} \
+            --config=debug \
             //:envoy.stripped
