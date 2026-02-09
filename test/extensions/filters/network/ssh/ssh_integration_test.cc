@@ -1,6 +1,9 @@
 #include "test/extensions/filters/network/ssh/ssh_integration_test.h"
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
-#include <google/protobuf/wrappers.pb.h>
+#include "envoy/extensions/transport_sockets/raw_buffer/v3/raw_buffer.pb.h"
+#include "envoy/extensions/transport_sockets/internal_upstream/v3/internal_upstream.pb.h"
+#include "test/extensions/filters/network/ssh/ssh_upstream.h"
+#include "gtest/gtest.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 namespace test {
@@ -8,11 +11,19 @@ namespace test {
 SshIntegrationTest::SshIntegrationTest(std::vector<std::string> ssh_routes, Network::Address::IpVersion version)
     : HttpIntegrationTest(Http::CodecType::HTTP1, version, defaultConfig(ssh_routes)) {
   fake_upstreams_count_ = 0; // add our upstreams manually
-  config_helper_.addConfigModifier([localhost = localhost(), ssh_routes](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+  config_helper_.addConfigModifier([this, localhost = localhost(), ssh_routes](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
     RELEASE_ASSERT(bootstrap.mutable_static_resources()->clusters_size() == 0, "");
     auto fakeMgmtCluster = ConfigHelper::buildStaticCluster("fake_mgmt", 0, localhost);
     ConfigHelper::setHttp2(fakeMgmtCluster);
     bootstrap.mutable_static_resources()->add_clusters()->CopyFrom(fakeMgmtCluster);
+
+    // Upstream bug: BaseIntegrationTest::createEnvoy() does not assign ports in the correct order
+    // unless all fake upstreams which use dynamic ports are ordered before fake upstreams that use
+    // custom clusters
+    for (const auto& route : ssh_routes) {
+      auto c = ConfigHelper::buildStaticCluster("ssh_upstream_" + route, 0, localhost);
+      bootstrap.mutable_static_resources()->add_clusters()->CopyFrom(c);
+    }
 
     ConfigHelper::HttpProtocolOptions http1_protocol_options;
     http1_protocol_options.mutable_explicit_http_config()->clear_http2_protocol_options();
@@ -21,31 +32,41 @@ SshIntegrationTest::SshIntegrationTest(std::vector<std::string> ssh_routes, Netw
 
     auto httpCluster1 = ConfigHelper::buildStaticCluster("http_cluster_1", 443, localhost);
     ConfigHelper::setProtocolOptions(httpCluster1, http1_protocol_options);
+    configureUpstreamTunnelCluster(httpCluster1);
     bootstrap.mutable_static_resources()->add_clusters()->CopyFrom(httpCluster1);
 
     auto httpCluster2 = ConfigHelper::buildStaticCluster("http_cluster_2", 443, localhost);
     ConfigHelper::setHttp2(httpCluster2);
+    configureUpstreamTunnelCluster(httpCluster2);
     bootstrap.mutable_static_resources()->add_clusters()->CopyFrom(httpCluster2);
 
     auto tcpCluster = ConfigHelper::buildStaticCluster("tcp_cluster", 443, localhost);
     tcpCluster.clear_typed_extension_protocol_options();
+    configureUpstreamTunnelCluster(tcpCluster);
     bootstrap.mutable_static_resources()->add_clusters()->CopyFrom(tcpCluster);
-
-    for (const auto& route : ssh_routes) {
-      auto c = ConfigHelper::buildStaticCluster("ssh_upstream_" + route, 0, localhost);
-      bootstrap.mutable_static_resources()->add_clusters()->CopyFrom(c);
-    }
   });
-  mgmt_upstream_ = FakeUpstreamShimImpl{&addFakeUpstream(Http::CodecType::HTTP2)};
-  http_upstream_1_ = FakeUpstreamShimImpl{&addFakeUpstream(Http::CodecType::HTTP1)};
-  http_upstream_2_ = FakeUpstreamShimImpl{&addFakeUpstream(Http::CodecType::HTTP1)};
-  tcp_upstream_ = FakeUpstreamShimImpl{&addFakeUpstream(Http::CodecType::HTTP1)}; // codec type is unused here
+  mgmt_upstream_ = FakeUpstreamShimImpl{&addFakeUpstream(Http::CodecType::HTTP2, "mgmt_upstream")};
   for (size_t i = 0; i < ssh_routes.size(); i++) {
-    ssh_upstreams_.emplace_back(&addFakeUpstream(Http::CodecType::HTTP1)); // codec type is unused here
+    ssh_upstreams_.emplace_back(&addFakeUpstream(Http::CodecType::HTTP1, "ssh_upstream_" + ssh_routes[i])); // codec type is unused here
   }
+  http_upstream_1_ = FakeUpstreamShimImpl{&addFakeUpstream(Http::CodecType::HTTP1, "http_upstream_1")};
+  http_upstream_2_ = FakeUpstreamShimImpl{&addFakeUpstream(Http::CodecType::HTTP1, "http_upstream_2")};
+  tcp_upstream_ = FakeUpstreamShimImpl{&addFakeUpstream(Http::CodecType::HTTP1, "tcp_upstream")}; // codec type is unused here
 }
 
-SshIntegrationTest::~SshIntegrationTest() {};
+SshIntegrationTest::~SshIntegrationTest() = default;
+
+void SshIntegrationTest::cleanup() {
+  for (auto& upstream : ssh_upstreams_) {
+    upstream.cleanup();
+  }
+};
+
+void FakeUpstreamShimImpl::cleanup() {
+  if (handler_ != nullptr) {
+    SshFakeUpstreamHandler::cleanup(std::move(handler_));
+  }
+}
 
 void SshIntegrationTest::initialize() {
   HttpIntegrationTest::initialize();
@@ -58,6 +79,101 @@ std::shared_ptr<SshConnectionDriver> SshIntegrationTest::makeSshConnectionDriver
     std::make_shared<pomerium::extensions::ssh::CodecConfig>(),
     mgmt_upstream_);
 }
+
+AssertionResult SshIntegrationTest::configureSshUpstream(SshFakeUpstreamHandlerOpts&& opts, size_t upstream_index) {
+  ASSERT(upstream_index < ssh_upstreams_.size());
+  return ssh_upstreams_[upstream_index].configureSshUpstream(
+    std::make_shared<SshFakeUpstreamHandlerOpts>(std::move(opts)), server_factory_context_);
+}
+
+void SshIntegrationTest::configureUpstreamTunnelCluster(envoy::config::cluster::v3::Cluster& cluster) {
+  cluster.clear_upstream_bind_config();
+  cluster.clear_type();
+  if (!cluster.has_transport_socket()) {
+    envoy::extensions::transport_sockets::raw_buffer::v3::RawBuffer raw_buffer;
+    cluster.mutable_transport_socket()->set_name("envoy.transport_sockets.raw_buffer");
+    cluster.mutable_transport_socket()->mutable_typed_config()->PackFrom(raw_buffer);
+  }
+  envoy::extensions::transport_sockets::internal_upstream::v3::InternalUpstreamTransport internal_upstream;
+  internal_upstream.mutable_transport_socket()->CopyFrom(cluster.transport_socket());
+  cluster.mutable_transport_socket()->set_name("envoy.transport_sockets.internal_upstream");
+  cluster.mutable_transport_socket()->mutable_typed_config()->PackFrom(internal_upstream);
+
+  pomerium::extensions::ssh::ReverseTunnelCluster reverse_tunnel_cluster;
+  reverse_tunnel_cluster.set_name(cluster.name());
+  reverse_tunnel_cluster.mutable_eds_config()->set_resource_api_version(envoy::config::core::v3::ApiVersion::V3);
+  reverse_tunnel_cluster.mutable_eds_config()->mutable_path_config_source()->set_path(eds_helpers_[cluster.name()]->edsPath());
+
+  cluster.mutable_cluster_type()->set_name("envoy.clusters.ssh_reverse_tunnel");
+  cluster.mutable_cluster_type()->mutable_typed_config()->PackFrom(reverse_tunnel_cluster);
+}
+
+void SshIntegrationTest::setClusterLoad(const std::string& cluster_name, std::vector<ClusterLoadOpts> endpoint_opts) {
+  envoy::config::endpoint::v3::ClusterLoadAssignment load;
+  load.set_cluster_name(cluster_name);
+  for (auto opts : endpoint_opts) {
+    auto* endpoint = load.add_endpoints()->add_lb_endpoints();
+    auto* socketAddress = endpoint->mutable_endpoint()->mutable_address()->mutable_socket_address();
+    socketAddress->set_address(fmt::format("ssh:{}", opts.stream_id));
+    socketAddress->set_port_value(opts.server_port);
+
+    pomerium::extensions::ssh::EndpointMetadata endpointMetadata;
+    endpointMetadata.mutable_matched_permission()->set_requested_host(opts.requested_host);
+    endpointMetadata.mutable_matched_permission()->set_requested_port(opts.requested_port);
+    endpointMetadata.mutable_server_port()->set_value(opts.server_port);
+    endpointMetadata.mutable_server_port()->set_is_dynamic(opts.is_dynamic);
+    (*endpoint
+        ->mutable_metadata()
+        ->mutable_typed_filter_metadata())["com.pomerium.ssh.endpoint"]
+      .PackFrom(endpointMetadata);
+    endpoint->set_health_status(envoy::config::core::v3::HealthStatus::HEALTHY);
+  }
+  RELEASE_ASSERT(eds_helpers_.contains(cluster_name), "test bug: invalid cluster name");
+  eds_helpers_[cluster_name]->setEdsAndWait(load, *test_server_);
+}
+
+AssertionResult FakeUpstreamShimImpl::waitForHttpConnection(Envoy::Event::Dispatcher& client_dispatcher,
+                                                            std::unique_ptr<FakeHttpConnectionShim>& connection,
+                                                            std::chrono::milliseconds timeout) {
+  std::unique_ptr<FakeHttpConnection> real;
+  auto ret = fake_upstream_->waitForHttpConnection(client_dispatcher, real, timeout);
+  connection = std::make_unique<FakeHttpConnectionShimImpl>(std::move(real));
+  return ret;
+}
+
+AssertionResult FakeUpstreamShimImpl::configureSshUpstream(std::shared_ptr<SshFakeUpstreamHandlerOpts> opts,
+                                                           Server::Configuration::ServerFactoryContext& server_factory_context) {
+  // FakeUpstream isn't really built to do what we need here, which is to have it pre-configured
+  // with callbacks that all run on its own thread. We don't want to drive it from the test thread,
+  // because we are already driving the downstream connection from the test thread. The tests need
+  // to be able to block and wait for the downstream to complete user auth, but part of that
+  // sequence involves connecting to the upstream, which would otherwise need to be a separate
+  // blocking operation on the test thread.
+  return fake_upstream_->runOnDispatcherThreadAndWait([this, opts, ctx = &server_factory_context] {
+    ASSERT(timer_ == nullptr);
+    // XXX: this only handles one connection. If we need to support multiple upstream connections at
+    // the same time, this will need to be adjusted.
+    ASSERT(handler_ == nullptr);
+    handler_ = std::make_unique<SshFakeUpstreamHandler>(
+      *ctx,
+      std::make_shared<pomerium::extensions::ssh::CodecConfig>(),
+      opts);
+    timer_ = fake_upstream_->dispatcher()->createTimer([this] {
+      absl::ReleasableMutexLock lock(fake_upstream_->lock());
+      if (!fake_upstream_->hasNewConnections()) {
+        timer_->enableTimer(std::chrono::milliseconds(10));
+        return;
+      }
+      timer_ = nullptr;
+      auto& sc = fake_upstream_->consumeConnection();
+      lock.Release();
+      handler_->onNewConnection(sc.connection());
+    });
+    timer_->enableTimer(std::chrono::milliseconds(10));
+    return testing::AssertionSuccess();
+  });
+}
+
 std::string SshIntegrationTest::defaultConfig(const std::vector<std::string>& routes) {
   // TODO: we should relax this restriction
   RELEASE_ASSERT(!routes.empty(), "must set at least one route for the ssh listener to activate");

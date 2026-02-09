@@ -99,9 +99,8 @@ public:
   virtual ~MockChannel();
   MOCK_METHOD(void, Die, ());                                          // NOLINT
   MOCK_METHOD(absl::Status, setChannelCallbacks, (ChannelCallbacks&)); // has a default implementation
-  MOCK_METHOD(absl::Status, readMessage, (wire::Message&&));
-  MOCK_METHOD(absl::Status, onChannelOpened, (wire::ChannelOpenConfirmationMsg&&));
-  MOCK_METHOD(absl::Status, onChannelOpenFailed, (wire::ChannelOpenFailureMsg&&));
+  MOCK_METHOD(absl::Status, readMessage, (wire::ChannelMessage&&));
+  MOCK_METHOD(void, terminate, (absl::Status));
 };
 
 class MockChannelStatsProvider : public ChannelStatsProvider {
@@ -181,20 +180,20 @@ public:
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
 
 namespace wire {
-template <typename T>
-constexpr bool holds_alternative(const Message& msg) {
-  return msg.message.holds_alternative<T>();
+template <typename T, typename... Opts>
+constexpr bool holds_alternative(const BasicMessage<Opts...>& msg) {
+  return msg.message.template holds_alternative<T>();
 }
-template <typename T>
-constexpr bool holds_alternative(Message&& msg) {
-  return std::move(msg).message.holds_alternative<T>();
+template <typename T, typename... Opts>
+constexpr bool holds_alternative(BasicMessage<Opts...>&& msg) {
+  return std::move(msg).message.template holds_alternative<T>();
 }
-template <typename T>
-constexpr decltype(auto) get(const Message& msg) {
+template <typename T, typename... Opts>
+constexpr decltype(auto) get(const BasicMessage<Opts...>& msg) {
   return msg.message.template get<T>();
 }
-template <typename T>
-constexpr decltype(auto) get(Message&& msg) {
+template <typename T, typename... Opts>
+constexpr decltype(auto) get(BasicMessage<Opts...>&& msg) {
   return std::move(msg).message.template get<T>();
 }
 

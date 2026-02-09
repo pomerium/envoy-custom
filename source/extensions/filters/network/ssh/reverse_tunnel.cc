@@ -10,6 +10,7 @@
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 
 #pragma clang unsafe_buffer_usage begin
+#include "envoy/event/file_event.h"
 #include "envoy/config/endpoint/v3/endpoint.pb.h"
 #include "envoy/config/endpoint/v3/endpoint.pb.validate.h"
 #include "source/common/network/connection_impl.h"
@@ -24,6 +25,7 @@
 #pragma clang diagnostic pop
 #pragma clang unsafe_buffer_usage end
 
+using Envoy::Event::FileReadyType;
 using Envoy::Extensions::IoSocket::UserSpace::IoHandleFactory;
 
 namespace Envoy::Network {
@@ -57,7 +59,7 @@ public:
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-static constexpr auto EventTypeMask = Event::FileReadyType::Closed | Event::FileReadyType::Read | Event::FileReadyType::Write;
+static constexpr auto EventTypeMask = FileReadyType::Closed | FileReadyType::Read | FileReadyType::Write;
 
 using top_level_queue_message = wire::sub_message<
   wire::ChannelWindowAdjustMsg,
@@ -67,16 +69,16 @@ using top_level_queue_message = wire::sub_message<
 using QueueMessage = wire::BasicMessage<top_level_queue_message>;
 using MessageQueue = moodycamel::ReaderWriterQueue<std::unique_ptr<QueueMessage>>;
 
-class RemoteStreamHandlerCallbacks : public Event::DispatcherThreadDeletable {
+class RemoteStreamHandlerCallbacks : public Envoy::Event::DispatcherThreadDeletable {
 public:
   virtual ~RemoteStreamHandlerCallbacks() = default;
   virtual void scheduleQueueCallback() PURE;
   virtual void scheduleErrorCallback(absl::Status error, bool send_eof) PURE;
-  virtual Event::Dispatcher& localDispatcher() PURE;
+  virtual Envoy::Event::Dispatcher& localDispatcher() PURE;
 };
 
 class RemoteStreamHandler : public Logger::Loggable<Logger::Id::filter>,
-                            public Event::DeferredDeletable,
+                            public Envoy::Event::DeferredDeletable,
                             public Network::ConnectionCallbacks,
                             public Socks5ChannelCallbacks {
 public:
@@ -141,7 +143,7 @@ public:
       if (isDynamic) {
         ENVOY_LOG(debug, "channel {}: starting socks5 handshake", peer_state_.id);
         startSocks5Handshake();
-        initializeFileEvents<Event::FileReadyType::Closed>();
+        initializeFileEvents<FileReadyType::Closed>();
       } else {
         // NB: we can only guess that the upstream is not expecting a SOCKS handshake, but that
         // guess could be wrong. If it is, and data from the downstream is forwarded as-is directly
@@ -157,7 +159,7 @@ public:
         // just send a warning log to the user though, informing them how to correct their ssh
         // command.
         pending_read_inspect_ = true;
-        initializeFileEvents<Event::FileReadyType::Closed | Event::FileReadyType::Read | Event::FileReadyType::Write>();
+        initializeFileEvents<FileReadyType::Closed | FileReadyType::Read | FileReadyType::Write>();
       }
       // If there were any messages queued while waiting for initialized_, process them now.
       remote_queue_callback_->scheduleCallbackCurrentIteration();
@@ -255,7 +257,7 @@ private:
     // Note that if the file event callback is scheduled to run in this event loop cycle, this will
     // adjust the event mask accordingly and delay the callback to the next iteration.
     if (!socket_closed_) { // If the socket is closed, no events can fire
-      disableFileEvents<Event::FileReadyType::Read>();
+      disableFileEvents<FileReadyType::Read>();
     }
 
     // This will trigger a channel close, after which no further channel data messages can be sent.
@@ -306,13 +308,13 @@ private:
     ASSERT(initialized_);
     ASSERT(remote_dispatcher_.isThreadSafe());
     ENVOY_LOG(trace, "channel {}: file events: {}", peer_state_.id, events);
-    if ((events & Envoy::Event::FileReadyType::Read) != 0) {
+    if ((events & FileReadyType::Read) != 0) {
       readReady();
     }
 
     // Note: "Closed" means closed for reading. If we also received a read event just now, this
     // signals EOF. The underlying connection may or may not be closed after this.
-    if ((events & Envoy::Event::FileReadyType::Closed) != 0) {
+    if ((events & FileReadyType::Closed) != 0) {
       // If we get a close event, then the io handle has received EOF from the downstream.
       // However, there may still pending data in the io handle's read buffer which needs to be
       // sent before the EOF.
@@ -335,7 +337,7 @@ private:
       }
     }
 
-    if ((events & Envoy::Event::FileReadyType::Write) != 0) {
+    if ((events & FileReadyType::Write) != 0) {
       if (!io_handle_->isPeerWritable()) {
         return;
       }
@@ -420,11 +422,11 @@ private:
           }
           ENVOY_LOG(debug, "channel {}: flow control: remote window adjusted by {} bytes", peer_state_.id, *msg.bytes_to_add);
           // If we had disabled read events due to running out of remote window space, re-enable
-          if ((enabled_file_events_ & Event::FileReadyType::Read) == 0) {
+          if ((enabled_file_events_ & FileReadyType::Read) == 0) {
             ENVOY_LOG(debug, "channel {}: upstream window restored, enabling read events", peer_state_.id);
             reverse_tunnel_stats_.downstream_flow_control_remote_window_restored_total_.inc();
             // This will schedule the read event callback
-            enableFileEvents<Event::FileReadyType::Read>();
+            enableFileEvents<FileReadyType::Read>();
           }
           return;
         },
@@ -528,7 +530,7 @@ private:
       // If we are completely out of upstream window space, disable read events until we receive
       // a window update.
       ENVOY_LOG(debug, "channel {}: upstream window exhausted, disabling read events", peer_state_.id);
-      disableFileEvents<Event::FileReadyType::Read>();
+      disableFileEvents<FileReadyType::Read>();
       reverse_tunnel_stats_.downstream_flow_control_remote_window_exhausted_total_.inc();
     }
   }
@@ -626,7 +628,7 @@ private:
               peer_state_.id, result.value()->asString());
     if (io_handle_->isOpen()) {
       // We had only enabled close events before, enable read and write events now
-      enableFileEvents<Event::FileReadyType::Read | Event::FileReadyType::Write>();
+      enableFileEvents<FileReadyType::Read | FileReadyType::Write>();
     }
     if (window_buffer_.length() == 0) {
       return absl::OkStatus();
@@ -646,7 +648,7 @@ private:
         // errors returned from this callback are fatal
         return absl::OkStatus();
       },
-      Event::PlatformDefaultTriggerType,
+      Envoy::Event::PlatformDefaultTriggerType,
       enabled_file_events_);
   }
 
@@ -686,7 +688,7 @@ private:
   PeerState peer_state_{};
 
   Envoy::Event::Dispatcher& remote_dispatcher_;
-  Event::SchedulableCallbackPtr remote_queue_callback_;
+  Envoy::Event::SchedulableCallbackPtr remote_queue_callback_;
   std::unique_ptr<Socks5ClientHandshaker> socks5_handshaker_;
   ReverseTunnelStats& reverse_tunnel_stats_;
   std::unique_ptr<pomerium::extensions::ssh::EndpointMetadata> metadata_;
@@ -817,7 +819,7 @@ public:
     }
 
     // RemoteStreamHandlerCallbacks
-    Event::Dispatcher& localDispatcher() override {
+    Envoy::Event::Dispatcher& localDispatcher() override {
       return local_dispatcher_;
     }
 
@@ -834,51 +836,13 @@ public:
     bool send_eof_{false};
     InternalDownstreamChannel* parent_;
     Envoy::Event::Dispatcher& local_dispatcher_;
-    Event::SchedulableCallbackPtr local_queue_callback_;
-    Event::SchedulableCallbackPtr error_callback_;
+    Envoy::Event::SchedulableCallbackPtr local_queue_callback_;
+    Envoy::Event::SchedulableCallbackPtr error_callback_;
     absl::Status error_;
   };
 
   // Local thread
-  absl::Status onChannelOpened(wire::ChannelOpenConfirmationMsg&& confirm) override {
-    if (host_draining_) {
-      // See comment in onHostDraining() for details
-      maybeSendChannelClose(absl::UnavailableError("host is draining"), false);
-      return absl::OkStatus();
-    }
-    auto callbacksImpl = std::make_unique<RemoteStreamHandlerCallbacksImpl>(*this);
-    remote_callbacks_ = *callbacksImpl;
-    remote_->initialize(std::move(callbacksImpl), confirm, &local_queue_);
-    remote_initialized_ = true;
-
-    start_time_ = local_dispatcher_.timeSource().systemTime();
-    pomerium::extensions::ssh::ChannelEvent ev;
-    auto* opened = ev.mutable_internal_channel_opened();
-    opened->set_channel_id(channel_id_);
-    opened->set_hostname(server_name_);
-    opened->set_path(path_);
-    if (downstream_address_ != nullptr) {
-      opened->set_peer_address(downstream_address_->asStringView());
-    } else {
-      opened->set_peer_address("envoy_health_check");
-    }
-    event_callbacks_.sendChannelEvent(ev);
-    return absl::OkStatus();
-  }
-
-  // Local thread
-  absl::Status onChannelOpenFailed(wire::ChannelOpenFailureMsg&&) override {
-    // If the channel open fails, the following will occur in order:
-    // 1. This object is destroyed (automatically by the connection service)
-    // 2. The remote stream handler is detached
-    // 3. The remote stream handler runs its detach routine in the remote thread. It sees that
-    //    it has not been initialized, and that the io handle is still open. It will close the
-    //    io handle and submit itself for deletion.
-    return absl::OkStatus();
-  }
-
-  // Local thread
-  absl::Status readMessage(wire::Message&& msg) override {
+  absl::Status readMessage(wire::ChannelMessage&& msg) override {
     return msg.visit(
       [&](const wire::ChannelDataMsg& msg) {
         tx_bytes_total_ += msg.data->size();
@@ -900,6 +864,19 @@ public:
         remote_->enqueueMessage(std::make_unique<QueueMessage>(std::move(msg)));
         return absl::OkStatus();
       },
+      [&](const wire::ChannelOpenConfirmationMsg& msg) {
+        onChannelOpened(msg);
+        return absl::OkStatus();
+      },
+      [&](const wire::ChannelOpenFailureMsg&) {
+        // If the channel open fails, the following will occur in order:
+        // 1. This object is destroyed (automatically by the connection service)
+        // 2. The remote stream handler is detached
+        // 3. The remote stream handler runs its detach routine in the remote thread. It sees that
+        //    it has not been initialized, and that the io handle is still open. It will close the
+        //    io handle and submit itself for deletion.
+        return absl::OkStatus();
+      },
       [&](const auto&) {
         return absl::InvalidArgumentError(
           fmt::format("received unexpected message on forwarded-tcpip channel: {}",
@@ -908,6 +885,32 @@ public:
   }
 
 private:
+  // Local thread
+  void onChannelOpened(const wire::ChannelOpenConfirmationMsg& confirm) {
+    if (host_draining_) {
+      // See comment in onHostDraining() for details
+      maybeSendChannelClose(absl::UnavailableError("host is draining"), false);
+      return;
+    }
+    auto callbacksImpl = std::make_unique<RemoteStreamHandlerCallbacksImpl>(*this);
+    remote_callbacks_ = *callbacksImpl;
+    remote_->initialize(std::move(callbacksImpl), confirm, &local_queue_);
+    remote_initialized_ = true;
+
+    start_time_ = local_dispatcher_.timeSource().systemTime();
+    pomerium::extensions::ssh::ChannelEvent ev;
+    auto* opened = ev.mutable_internal_channel_opened();
+    opened->set_channel_id(channel_id_);
+    opened->set_hostname(server_name_);
+    opened->set_path(path_);
+    if (downstream_address_ != nullptr) {
+      opened->set_peer_address(downstream_address_->asStringView());
+    } else {
+      opened->set_peer_address("envoy_health_check");
+    }
+    event_callbacks_.sendChannelEvent(ev);
+  }
+
   void onLocalQueueReadyRead() {
     std::unique_ptr<QueueMessage> msg;
     while (local_queue_->try_dequeue(msg)) {

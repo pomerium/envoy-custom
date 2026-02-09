@@ -1,6 +1,8 @@
 #include "source/extensions/filters/network/ssh/stream_tracker.h"
 #include "source/common/visit.h"
 #include "source/extensions/filters/network/ssh/channel.h"
+#include "absl/synchronization/blocking_counter.h"
+#include "source/common/event/deferred_task.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -20,9 +22,99 @@ StreamTracker::StreamTracker(Server::Configuration::ServerFactoryContext& contex
       scope_(context.scope()),
       stat_names_(scope_.symbolTable()),
       stats_(stat_names_, scope_, stat_names_.ssh_) {
-  thread_local_stream_table_.set([](Event::Dispatcher&) {
+  shutdown_cb_ = context.lifecycleNotifier().registerCallback(
+    Envoy::Server::ServerLifecycleNotifier::Stage::ShutdownExit,
+    [this](Envoy::Event::PostCb shutdown_guard) {
+      ASSERT(main_thread_dispatcher_.isThreadSafe());
+      if (shutdown_completed_) {
+        return;
+      }
+      inflight_shutdown_guards_.push_back(std::move(shutdown_guard));
+      if (shutdown_started_) {
+        // If shutdown is in-progress but not completed, we just need to keep shutdown_guard alive
+        // until the in-flight shutdown is complete, otherwise it will exit early.
+        return;
+      }
+      ENVOY_LOG(info, "ssh: starting graceful shutdown (server lifecycle)");
+      startGracefulShutdown(std::chrono::milliseconds{0}, [this, start = absl::Now()] {
+        ASSERT(main_thread_dispatcher_.isThreadSafe());
+        ENVOY_LOG(info, "ssh: shutdown completed after {}", absl::FormatDuration(absl::Now() - start));
+        inflight_shutdown_guards_.clear();
+      });
+    });
+  drain_mgr_cb_ = context.drainManager().addOnDrainCloseCb(
+    Network::DrainDirection::InboundOnly,
+    [this](std::chrono::milliseconds delay) {
+      ASSERT(main_thread_dispatcher_.isThreadSafe());
+      if (shutdown_started_) {
+        return absl::OkStatus();
+      }
+      ENVOY_LOG(info, "ssh: starting graceful shutdown (drain)");
+      startGracefulShutdown(delay, [this, start = absl::Now()] {
+        ASSERT(main_thread_dispatcher_.isThreadSafe());
+        ENVOY_LOG(info, "ssh: shutdown completed after {}", absl::FormatDuration(absl::Now() - start));
+      });
+      return absl::OkStatus();
+    });
+  thread_local_stream_table_.set([](Envoy::Event::Dispatcher&) {
     return std::make_shared<ThreadLocalStreamTable>();
   });
+}
+
+namespace {
+class DeferredDeleteHandle : public Envoy::Event::DeferredDeletable {
+public:
+  DeferredDeleteHandle(Envoy::Common::CallbackHandlePtr&& handle)
+      : handle_(std::move(handle)) {}
+
+private:
+  Envoy::Common::CallbackHandlePtr handle_;
+};
+} // namespace
+
+void StreamTracker::startGracefulShutdown(std::chrono::milliseconds delay, std::function<void()> complete_cb) {
+  ASSERT(main_thread_dispatcher_.isThreadSafe());
+  ASSERT(!shutdown_started_);
+  shutdown_started_ = true;
+
+  std::shared_ptr<void> wg = std::make_shared<Cleanup>([this, complete_cb] {
+    ENVOY_LOG(info, "ssh: all streams shutdown");
+    shutdown_completed_ = true;
+    main_thread_dispatcher_.post(std::move(complete_cb));
+  });
+
+  thread_local_stream_table_.runOnAllThreads(
+    [this, delay, wg](Envoy::OptRef<ThreadLocalStreamTable> obj) {
+      for (auto& [stream_id, ctx] : obj->get()) {
+        basic_visit(
+          ctx,
+          [](Envoy::Event::Dispatcher*) {},
+          [this, delay, wg](StreamContext& ctx) {
+            auto id = ctx.streamId();
+            auto& dispatcher = ctx.connection().dispatcher();
+
+            auto handle = ctx.streamCallbacks().onServerDraining(
+              delay, dispatcher,
+              [this, wg, id, dispatcher = &dispatcher] {
+                ENVOY_LOG(info, "ssh: stream {}: shutdown complete", id);
+                drain_cb_mu_.Lock();
+                auto deferredDelete = channel_id_mgr_drain_cbs_.extract(id);
+                drain_cb_mu_.Unlock();
+                // It is not safe to delete the callback handle from within the callback, as it can
+                // cause an internal deadlock in the ThreadSafeCallbackManager. Normally we can just
+                // ignore these handles, but they need to be explicitly deleted because the closure
+                // objects hold references to wg that must be released for complete_cb to run.
+                dispatcher->deferredDelete(std::make_unique<DeferredDeleteHandle>(std::move(deferredDelete.mapped())));
+              });
+
+            // Note: order is important here when acquiring this lock.
+            drain_cb_mu_.Lock();
+            channel_id_mgr_drain_cbs_[id] = std::move(handle);
+            drain_cb_mu_.Unlock();
+          });
+      }
+    },
+    [wg] {});
 }
 
 void StreamTracker::tryLock(stream_id_t key, absl::AnyInvocable<void(Envoy::OptRef<StreamContext>)> cb) {
@@ -31,7 +123,7 @@ void StreamTracker::tryLock(stream_id_t key, absl::AnyInvocable<void(Envoy::OptR
   if (auto&& it = table.find(key); it != table.end()) {
     basic_visit(
       it->second,
-      [&](Event::Dispatcher* d) {
+      [&](Envoy::Event::Dispatcher* d) {
         d->post([this, key, cb = std::move(cb)] mutable {
           tryLock(key, std::move(cb));
         });

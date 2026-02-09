@@ -35,6 +35,7 @@ namespace Network {
 
 class HostDrainManager : NonCopyable {
 public:
+  [[nodiscard]]
   Common::CallbackHandlePtr addHostDrainCallback(Event::Dispatcher& dispatcher, std::function<void()> cb) {
     return callbacks_->add(dispatcher, std::move(cb));
   }

@@ -265,7 +265,7 @@ public:
         .data = wire::flushTo<bytes>(packet),
       };
       // this channel ID should have a bound upstream ID with the same internal ID
-      RETURN_IF_NOT_OK(channel_id_manager_->processOutgoingChannelMsg(data, Peer::Upstream));
+      RETURN_IF_NOT_OK(channel_id_manager_->processOutgoingChannelMsg(data, Peer::Upstream).status());
       EXPECT_EQ(data.recipient_channel, internal_channel_id); // no change
       SSHRequestCommonFrame frame(wire::Message{data});
       GenericProxy::MockEncodingContext ctx;
@@ -289,7 +289,7 @@ public:
         .recipient_channel = internal_channel_id,
         .data = wire::flushTo<bytes>(packet),
       };
-      RETURN_IF_NOT_OK(channel_id_manager_->processOutgoingChannelMsg(expected, Peer::Downstream));
+      RETURN_IF_NOT_OK(channel_id_manager_->processOutgoingChannelMsg(expected, Peer::Downstream).status());
       EXPECT_CALL(client_codec_callbacks_, onDecodingSuccess(FrameContainingMsg(wire::Message{expected})));
       Buffer::OwnedImpl buf;
       RETURN_IF_NOT_OK(wire::encodePacket(buf, send,

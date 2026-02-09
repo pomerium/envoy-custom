@@ -2,6 +2,7 @@
 
 #include "source/common/optref.h"
 #include <source_location>
+#include <type_traits>
 
 // Supplemental type traits
 
@@ -186,6 +187,21 @@ constexpr bool all_types_equal = all_types_equal_to<Rest...>;
 // contains_type returns true if type T appears in the type list Ts, otherwise false.
 template <typename T, typename... Ts>
 constexpr bool contains_type = index_of_type<T, Ts...>::found;
+
+template <typename T, typename U>
+struct strict_subset : std::false_type {};
+
+template <typename... Ts, typename... Us>
+  requires (sizeof...(Us) > 0 &&
+            sizeof...(Us) < sizeof...(Ts) &&
+            (contains_type<Us, Ts...> && ...))
+struct strict_subset<std::tuple<Ts...>, std::tuple<Us...>>
+    : std::true_type {};
+
+// strict_subset_v is true if T and U are tuples, and the types in U are a strict subset of the
+// types in T, otherwise false. The tuples should not contain duplicate types.
+template <typename T, typename U>
+constexpr bool strict_subset_v = strict_subset<T, U>::value;
 
 // is_vector<T> is true if T is a vector of any type, otherwise false.
 template <typename T>

@@ -286,4 +286,20 @@ TEST(TypeTraitsTest, TypeName) {
   EXPECT_STATIC_ASSERT(type_name<const volatile int>() == "const volatile int");
 }
 
+TEST(TypeTraitsTest, StrictSubset) {
+  EXPECT_STATIC_ASSERT(strict_subset_v<std::tuple<int, bool, void>, std::tuple<int, bool>>)
+  EXPECT_STATIC_ASSERT(strict_subset_v<std::tuple<int, bool, void>, std::tuple<bool, void>>)
+  EXPECT_STATIC_ASSERT(strict_subset_v<std::tuple<int, bool, void>, std::tuple<int, void>>)
+  EXPECT_STATIC_ASSERT(strict_subset_v<std::tuple<int, bool, void>, std::tuple<int>>)
+  EXPECT_STATIC_ASSERT(strict_subset_v<std::tuple<int, bool, void>, std::tuple<bool>>)
+  EXPECT_STATIC_ASSERT(strict_subset_v<std::tuple<int, bool, void>, std::tuple<void>>)
+
+  EXPECT_STATIC_ASSERT(!strict_subset_v<std::tuple<int, bool, void>, std::tuple<>>)
+  EXPECT_STATIC_ASSERT(!strict_subset_v<std::tuple<int, bool, void>, std::tuple<int, bool, void>>)
+  EXPECT_STATIC_ASSERT(!strict_subset_v<std::tuple<int, bool, void>, std::tuple<int, bool, void, char>>)
+  EXPECT_STATIC_ASSERT(!strict_subset_v<std::tuple<int, bool, void>, std::tuple<int, bool, char>>)
+  EXPECT_STATIC_ASSERT(!strict_subset_v<std::tuple<int, bool, void>, std::tuple<int, char>>)
+  EXPECT_STATIC_ASSERT(!strict_subset_v<std::tuple<int, bool, void>, std::tuple<char>>)
+}
+
 } // namespace test

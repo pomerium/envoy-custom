@@ -74,7 +74,7 @@ public:
   ~ChannelStreamServiceClient();
   void start(ChannelStreamCallbacks* callbacks, envoy::config::core::v3::Metadata metadata);
   void onReceiveMessage(Grpc::ResponsePtr<ChannelMessage>&& message) override;
-  void sendMessage(const ChannelMessage& message);
+  void sendMessage(const ChannelMessage& message, bool end_stream = false);
 
 private:
   void onCreateInitialMetadata(Http::RequestHeaderMap&) override {}
