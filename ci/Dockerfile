@@ -1,4 +1,4 @@
-FROM debian AS base
+FROM debian:trixie AS base
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN --mount=type=tmpfs,target=/var/cache/apt \
