@@ -24,6 +24,10 @@ build --copt="-Wno-nullability-completeness"
 build --cxxopt=-std=c++23 --host_cxxopt=-std=c++23
 build --config=clang
 
+common:clang --host_platform=@clang_platform
+common:clang --platforms=@clang_platform
+common:clang --extra_execution_platforms=@clang_platform
+
 build:ci --build_metadata=ROLE=CI
 build:ci --build_metadata=VISIBILITY=PUBLIC
 common:ci --show_progress
@@ -43,5 +47,3 @@ common:buildbuddy --remote_cache_compression
 common:buildbuddy --experimental_remote_cache_compression_threshold=100
 common:buildbuddy --experimental_profile_include_target_label
 common:buildbuddy --experimental_profile_include_primary_output
-common:buildbuddy --platforms=@clang_platform
-common:buildbuddy --extra_execution_platforms=@clang_platform
