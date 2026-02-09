@@ -10,7 +10,7 @@ container_image = {
 platform(
     name = "linux_x64",
     exec_properties = {
-        "container-image": "docker://" + container_image[name],
+        "container-image": "docker://" + container_image["linux_x64"],
     },
     parents = ["@envoy//bazel/platforms/rbe:linux_x64"],
 )
@@ -18,7 +18,7 @@ platform(
 platform(
     name = "linux_arm64",
     exec_properties = {
-        "container-image": "docker://" + container_image[name],
+        "container-image": "docker://" + container_image["linux_arm64"],
     },
     parents = ["@envoy//bazel/platforms/rbe:linux_arm64"],
 )
