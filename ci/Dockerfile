@@ -1,6 +1,6 @@
 FROM debian:trixie AS base
+ARG TARGETARCH
 ENV DEBIAN_FRONTEND=noninteractive
-
 RUN --mount=type=tmpfs,target=/var/cache/apt \
     --mount=type=tmpfs,target=/var/lib/apt/lists \
     apt-get update \
@@ -13,8 +13,9 @@ RUN --mount=type=tmpfs,target=/var/cache/apt \
 			make \
 			autoconf \
 			automake \
-			libxml2 \
- && curl -Lo /usr/local/bin/bazelisk https://github.com/bazelbuild/bazelisk/releases/download/v1.28.1/bazelisk-linux-amd64 \
+			libxml2
+
+RUN curl -Lo /usr/local/bin/bazelisk https://github.com/bazelbuild/bazelisk/releases/download/v1.28.1/bazelisk-linux-${TARGETARCH} \
  && chmod +x /usr/local/bin/bazelisk \
  && groupadd -g 1000 build \
  && useradd -m -u 1000 -g 1000 -s /bin/bash build
