@@ -9,7 +9,7 @@ actions:
           - "*"
     steps:
       - run: |
-          bazel build \
+          BAZEL_LLVM_PATH=/toolchain bazel build \
             --config=ci \
             --config=buildbuddy \
             -c opt \
