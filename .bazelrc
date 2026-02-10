@@ -28,8 +28,9 @@ build:ci --build_metadata=ROLE=CI
 build:ci --build_metadata=VISIBILITY=PUBLIC
 common:ci --show_progress
 common:ci --show_loading_progress
+common:ci --remote_download_minimal
 
-common:buildbuddy --config=remote
+common:buildbuddy --config=ci
 common:buildbuddy --bes_results_url=https://app.buildbuddy.io/invocation/
 common:buildbuddy --bes_backend=grpcs://remote.buildbuddy.io
 common:buildbuddy --local_resources=cpu=HOST_CPUS-1
