@@ -37,7 +37,7 @@ common:buildbuddy --bes_results_url=https://app.buildbuddy.io/invocation/
 common:buildbuddy --bes_backend=grpcs://remote.buildbuddy.io
 common:buildbuddy --local_resources=cpu=HOST_CPUS-1
 common:buildbuddy --loading_phase_threads=HOST_CPUS-1
-common:buildbuddy --jobs=2
+common:buildbuddy --jobs=10
 common:buildbuddy --remote_cache=grpcs://remote.buildbuddy.io
 common:buildbuddy --remote_executor=grpcs://remote.buildbuddy.io
 common:buildbuddy --nolegacy_important_outputs
