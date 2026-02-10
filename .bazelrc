@@ -18,8 +18,6 @@
 # curl -sSL https://raw.githubusercontent.com/envoyproxy/envoy/master/.bazelrc > envoy.bazelrc
 import %workspace%/envoy.bazelrc
 
-startup --digest_function=blake3
-
 # The io_bazel_rules_go stdlib target passes a --no-gc-sections linker argument.
 build:linux --copt="-Wno-error=unused-command-line-argument"
 # The quiche library is partially annotated for nullability.
@@ -46,4 +44,4 @@ common:buildbuddy --remote_cache_compression
 common:buildbuddy --experimental_remote_cache_compression_threshold=100
 common:buildbuddy --experimental_profile_include_target_label
 common:buildbuddy --experimental_profile_include_primary_output
-common:buildbuddy --experimental_workspace_rules_log_file=/tmp/bazel_workspace_rules.log
+# common:buildbuddy --experimental_workspace_rules_log_file=/tmp/bazel_workspace_rules.log
