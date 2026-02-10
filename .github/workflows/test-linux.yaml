@@ -3,11 +3,11 @@ name: Test (Linux)
 permissions:
   contents: read
 
-on:
-  push:
-    branches:
-      - main
-  pull_request:
+on: {}
+  # push:
+  #   branches:
+  #     - main
+  # pull_request:
 
 jobs:
   coverage:

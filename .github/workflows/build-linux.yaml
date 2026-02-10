@@ -3,11 +3,12 @@ name: Build (Linux)
 permissions:
   contents: read
 
-on:
-  push:
-    branches:
-      - main
-  pull_request: # temporary
+on: {}
+# on:
+#   push:
+#     branches:
+#       - main
+#   pull_request: # temporary
 
 jobs:
   build:

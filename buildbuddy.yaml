@@ -1,0 +1,16 @@
+actions:
+  - name: "Build"
+    triggers:
+      push:
+        branches:
+          - "main"
+      pull_request:
+        branches:
+          - "*"
+    steps:
+      - run: |
+          bazel build \
+            --config=ci \
+            --config=buildbuddy \
+            -c opt \
+            //:envoy.stripped
