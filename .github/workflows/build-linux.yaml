@@ -14,8 +14,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: ["x64", "arm64"]
-        # arch: ["x64"]
+        # arch: ["x64", "arm64"]
+        arch: ["x64"]
     runs-on:
       - ubuntu-latest-4-cores-${{ matrix.arch }}
 
