@@ -65,7 +65,6 @@ class SshFakeUpstreamHandler : public SecretsProviderImpl,
                                public Envoy::Event::DispatcherThreadDeletable,
                                public TransportBase<SshFakeUpstreamHandlerCodec> {
 public:
-  static void cleanup(std::unique_ptr<SshFakeUpstreamHandler> self);
   SshFakeUpstreamHandler(Server::Configuration::ServerFactoryContext& context,
                          std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
                          std::shared_ptr<SshFakeUpstreamHandlerOpts> opts);

@@ -276,10 +276,13 @@ envoy_cc_test(
 
 envoy_cc_test(
     name = "kex_test",
-    size = "large",
+    size = "enormous",
     srcs = [
         "kex_test.cc",
     ],
+    # copts = ["-fsanitize-ignorelist=$(location @@//bazel:msan_ignorelist.txt)"],
+    # data = ["@@//bazel:msan_ignorelist.txt"],
+    # linkopts = ["-fsanitize-ignorelist=$(location @@//bazel:msan_ignorelist.txt)"],
     repository = "@envoy",
     deps = [
         ":test_mocks",

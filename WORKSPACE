@@ -55,6 +55,8 @@ http_archive(
         "//patches/envoy:0006-coverage-format.patch",
         "//patches/envoy:0007-user-space-io-handle.patch",
         "//patches/envoy:0008-fake-upstream.patch",
+        "//patches/envoy:0009-fix-integration-test-server-exit.patch",
+        "//patches/envoy:0010-fix-mock-connection-race.patch",
         "//patches/envoy:0011-symbolizer-env.patch",
         "//patches/envoy:0012-foreign-cc-toolchains.patch",
         "//patches/envoy:0013-no-stdlib-deps.patch",

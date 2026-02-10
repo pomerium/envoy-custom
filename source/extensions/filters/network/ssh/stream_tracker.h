@@ -111,6 +111,7 @@ private:
   bool shutdown_started_{false};
   bool shutdown_completed_{false};
 };
+
 using StreamTrackerPtr = std::unique_ptr<StreamTracker>;
 using StreamTrackerSharedPtr = std::shared_ptr<StreamTracker>;
 
