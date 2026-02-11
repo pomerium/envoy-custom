@@ -29,7 +29,7 @@ actions:
             --config=ci \
             --config=buildbuddy \
             --nocache_test_results \
-            //:envoy.stripped
+            //test/...
 
   - name: "Test (asan)"
     triggers:
