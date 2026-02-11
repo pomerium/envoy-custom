@@ -44,4 +44,7 @@ common:buildbuddy --remote_cache_compression
 common:buildbuddy --experimental_remote_cache_compression_threshold=100
 common:buildbuddy --experimental_profile_include_target_label
 common:buildbuddy --experimental_profile_include_primary_output
+common:buildbuddy --@toolchains_llvm//toolchain/config:compiler-rt=true
+common:buildbuddy --@toolchains_llvm//toolchain/config:libunwind=true
+
 # common:buildbuddy --experimental_workspace_rules_log_file=/tmp/bazel_workspace_rules.log
