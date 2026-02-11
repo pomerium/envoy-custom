@@ -10,14 +10,7 @@ RUN --mount=type=tmpfs,target=/var/cache/apt \
 			patch \
 			git \
 			curl \
-			make \
-			cmake \
-			ninja-build \
-			meson \
-			pkg-config \
-			m4 \
 			autoconf \
-			automake \
 			libxml2
 
 RUN curl -Lo /usr/local/bin/bazelisk https://github.com/bazelbuild/bazelisk/releases/download/v1.28.1/bazelisk-linux-${TARGETARCH} \
