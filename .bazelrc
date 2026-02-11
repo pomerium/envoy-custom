@@ -24,6 +24,18 @@ build:linux --copt="-Wno-error=unused-command-line-argument"
 build --copt="-Wno-nullability-completeness"
 build --cxxopt=-std=c++23 --host_cxxopt=-std=c++23
 build --config=clang
+
+# The following options are required for building using hermetic llvm without gcc:
+
+# Force all cc targets built with the llvm toolchain to use compiler-rt and libunwind. This removes
+# the dependency on libgcc.
+common:clang-common --@toolchains_llvm//toolchain/config:compiler-rt=true
+common:clang-common --@toolchains_llvm//toolchain/config:libunwind=true
+# Same as above, but applies to foreign_cc targets using autotools/cmake, which may not inherit the
+# link flags applied by the toolchain.
+common:libc++ --action_env=LDFLAGS="-stdlib=libc++ -fuse-ld=lld -rtlib=compiler-rt -l:libunwind.a -lpthread -ldl"
+# Disable cgo. If cgo is enabled, some of the cc toolchain flags will propagate to the go toolchain,
+# which causes fPIC mismatch errors.
 build --@io_bazel_rules_go//go/config:pure=True
 
 common:ci --build_metadata=ROLE=CI
