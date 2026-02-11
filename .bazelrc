@@ -24,7 +24,6 @@ build:linux --copt="-Wno-error=unused-command-line-argument"
 build --copt="-Wno-nullability-completeness"
 build --cxxopt=-std=c++23 --host_cxxopt=-std=c++23
 build --config=clang
-build --action_env=CACHE_BUST=1
 
 common:ci --build_metadata=ROLE=CI
 common:ci --build_metadata=VISIBILITY=PUBLIC
@@ -45,8 +44,11 @@ common:buildbuddy --remote_cache_compression
 common:buildbuddy --experimental_remote_cache_compression_threshold=100
 common:buildbuddy --experimental_profile_include_target_label
 common:buildbuddy --experimental_profile_include_primary_output
-# Required to prevent foreign_cc builds from trying to link against libgcc instead of compiler-rt
+
+# gcc is not installed in our build image. everything should link against compiler-rt and libunwind
+# instead of libgcc.
 common:buildbuddy --@toolchains_llvm//toolchain/config:compiler-rt=true
 common:buildbuddy --@toolchains_llvm//toolchain/config:libunwind=true
-
+build:buildbuddy --linkopt --rtlib=compiler-rt
+build:buildbuddy --linkopt --unwindlib=libunwind
 # common:buildbuddy --experimental_workspace_rules_log_file=/tmp/bazel_workspace_rules.log
