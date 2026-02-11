@@ -19,16 +19,5 @@ def pomerium_envoy_toolchains():
             "linux-x86_64": "@sysroot_linux_amd64//:sysroot",
             "linux-aarch64": "@sysroot_linux_arm64//:sysroot",
         },
-        extra_compile_flags = {
-            "": ["-fPIC"],
-        },
-        extra_link_flags = {
-            "": [
-                "-rtlib=compiler-rt",
-                "-l:libunwind.a",
-                "-lpthread",
-                "-ldl",
-            ],
-        },
         toolchain_roots = {"": LLVM_PATH} if LLVM_PATH else {},
     )
