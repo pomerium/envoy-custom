@@ -47,6 +47,6 @@ common:buildbuddy --experimental_profile_include_primary_output
 
 # gcc is not installed in our build image. everything should link against compiler-rt and libunwind
 # instead of libgcc.
-common:buildbuddy --@toolchains_llvm//toolchain/config:compiler-rt=true
-common:buildbuddy --@toolchains_llvm//toolchain/config:libunwind=true
+# common:buildbuddy --@toolchains_llvm//toolchain/config:compiler-rt=true
+# common:buildbuddy --@toolchains_llvm//toolchain/config:libunwind=true
 # common:buildbuddy --experimental_workspace_rules_log_file=/tmp/bazel_workspace_rules.log
