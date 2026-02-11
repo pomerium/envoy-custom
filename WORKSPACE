@@ -98,10 +98,7 @@ envoy_repo()
 
 load("@rules_foreign_cc//foreign_cc:repositories.bzl", "rules_foreign_cc_dependencies")
 
-rules_foreign_cc_dependencies(
-    register_built_pkgconfig_toolchain = False,
-    register_built_tools = False,
-)
+rules_foreign_cc_dependencies()
 
 load("//bazel:toolchains.bzl", "pomerium_envoy_toolchains")
 
