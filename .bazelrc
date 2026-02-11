@@ -24,7 +24,6 @@ build:linux --copt="-Wno-error=unused-command-line-argument"
 build --copt="-Wno-nullability-completeness"
 build --cxxopt=-std=c++23 --host_cxxopt=-std=c++23
 build --config=clang
-build --action_env=CACHE_BUST=2
 
 common:ci --build_metadata=ROLE=CI
 common:ci --build_metadata=VISIBILITY=PUBLIC
@@ -50,6 +49,4 @@ common:buildbuddy --experimental_profile_include_primary_output
 # instead of libgcc.
 common:buildbuddy --@toolchains_llvm//toolchain/config:compiler-rt=true
 common:buildbuddy --@toolchains_llvm//toolchain/config:libunwind=true
-build:buildbuddy --linkopt --rtlib=compiler-rt
-build:buildbuddy --linkopt --unwindlib=libunwind
 # common:buildbuddy --experimental_workspace_rules_log_file=/tmp/bazel_workspace_rules.log
