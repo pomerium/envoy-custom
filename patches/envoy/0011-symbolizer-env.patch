@@ -1,25 +1,32 @@
 diff --git a/bazel/envoy_test.bzl b/bazel/envoy_test.bzl
-index 96bddca75a..3eba1593bc 100644
+index 96bddca75a..e37431a103 100644
 --- a/bazel/envoy_test.bzl
 +++ b/bazel/envoy_test.bzl
-@@ -185,8 +185,9 @@ def envoy_cc_test(
+@@ -185,8 +185,10 @@ def envoy_cc_test(
          name = name,
          srcs = srcs,
          data = data + select({
 -            "%s//bazel:local_asan_build" % repository: [],
 -            "%s//bazel:asan_build" % repository: ["@llvm_toolchain_llvm//:symbolizer"],
++            "@envoy_repo//:use_local_llvm": [],
 +            "%s//bazel:asan_build" % repository: ["@llvm_toolchain//:llvm-symbolizer"],
 +            "%s//bazel:msan_build" % repository: ["@llvm_toolchain//:llvm-symbolizer"],
 +            "%s//bazel:tsan_build" % repository: ["@llvm_toolchain//:llvm-symbolizer"],
              "//conditions:default": [],
          }),
          copts = envoy_copts(repository, test = True) + copts + envoy_pch_copts(repository, "//test:test_pch"),
-@@ -208,8 +209,12 @@ def envoy_cc_test(
+@@ -208,8 +210,18 @@ def envoy_cc_test(
          size = size,
          flaky = flaky,
          env = env | select({
 -            "%s//bazel:local_asan_build" % repository: {"ASAN_SYMBOLIZER_PATH": "%s/bin/llvm-symbolizer" % LLVM_PATH},
 -            "%s//bazel:asan_build" % repository: {"ASAN_SYMBOLIZER_PATH": "$(location @llvm_toolchain_llvm//:symbolizer)"},
++            "@envoy_repo//:use_local_llvm": {
++                "ASAN_SYMBOLIZER_PATH": "%s/bin/llvm-symbolizer" % LLVM_PATH,
++                "MSAN_SYMBOLIZER_PATH": "%s/bin/llvm-symbolizer" % LLVM_PATH,
++                "TSAN_SYMBOLIZER_PATH": "%s/bin/llvm-symbolizer" % LLVM_PATH,
++                "UBSAN_SYMBOLIZER_PATH": "%s/bin/llvm-symbolizer" % LLVM_PATH,
++            },
 +            "%s//bazel:asan_build" % repository: {
 +                "ASAN_SYMBOLIZER_PATH": "$(location @llvm_toolchain//:llvm-symbolizer)",
 +                "UBSAN_SYMBOLIZER_PATH": "$(location @llvm_toolchain//:llvm-symbolizer)",

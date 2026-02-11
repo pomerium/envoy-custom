@@ -30,7 +30,6 @@ common:ci --build_metadata=VISIBILITY=PUBLIC
 common:ci --show_progress
 common:ci --show_loading_progress
 common:ci --remote_download_minimal
-common:ci --experimental_remote_merkle_tree_cache
 
 common:buildbuddy --bes_results_url=https://app.buildbuddy.io/invocation/
 common:buildbuddy --bes_backend=grpcs://remote.buildbuddy.io
