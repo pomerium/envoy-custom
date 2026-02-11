@@ -24,6 +24,7 @@ build:linux --copt="-Wno-error=unused-command-line-argument"
 build --copt="-Wno-nullability-completeness"
 build --cxxopt=-std=c++23 --host_cxxopt=-std=c++23
 build --config=clang
+build --@io_bazel_rules_go//go/config:pure=True
 
 common:ci --build_metadata=ROLE=CI
 common:ci --build_metadata=VISIBILITY=PUBLIC
@@ -44,6 +45,7 @@ common:buildbuddy --remote_cache_compression
 common:buildbuddy --experimental_remote_cache_compression_threshold=100
 common:buildbuddy --experimental_profile_include_target_label
 common:buildbuddy --experimental_profile_include_primary_output
+
 
 # gcc is not installed in our build image. everything should link against compiler-rt and libunwind
 # instead of libgcc.
