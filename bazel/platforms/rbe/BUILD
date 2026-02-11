@@ -2,7 +2,7 @@ licenses(["notice"])  # Apache 2
 
 package(default_visibility = ["//visibility:public"])
 
-container_image = "docker.io/joekralicky/envoy-build@sha256:1e4a8a4977649ea56016de3ee5260e38fa4104c88f1869a61d81b49ed5592664"
+container_image = "docker.io/joekralicky/envoy-build@sha256:469389c45ee2d870b5bd7cbbf00508f73df72298840345aa2a953b02f16fcd0c"
 
 platform(
     name = "linux_x64",
