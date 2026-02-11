@@ -55,5 +55,3 @@ RUN mkdir -p /toolchain/lib64/clang/$(/toolchain/bin/clang -dumpversion | cut -d
 FROM base
 COPY --from=toolchain-setup /toolchain /toolchain
 ENV BAZEL_LLVM_PATH=/toolchain
-
-USER 1000:1000

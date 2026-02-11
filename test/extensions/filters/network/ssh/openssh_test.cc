@@ -1,6 +1,7 @@
 #include "source/common/span.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
 #include "gtest/gtest.h"
+#include <unistd.h>
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/wire/packet.h"
@@ -853,7 +854,16 @@ TEST(OpensshTest, LoadHostKeys_InvalidMode_Unreadable) {
     *src.mutable_filename() = filename;
     sources.push_back(std::move(src));
   }
+  if (getuid() == 0) {
+    // For CI
+    ASSERT_EQ(0, seteuid(1000));
+    ASSERT_EQ(0, setegid(1000));
+  }
   auto stat = loadHostKeys(sources);
+  if (getuid() == 0) {
+    ASSERT_EQ(0, seteuid(0));
+    ASSERT_EQ(0, setegid(0));
+  }
   ASSERT_EQ(absl::PermissionDeniedError(fmt::format("error loading ssh host key [2/4] from file {}: Permission denied",
                                                     sources.at(1).filename())),
             stat.status());
