@@ -230,13 +230,13 @@ test:sanitizer --build_tests_only
 # ASAN config with clang runtime
 build:asan --config=asan-common
 build:asan --linkopt --rtlib=compiler-rt
-build:asan --linkopt --unwindlib=libgcc
+# build:asan --linkopt --unwindlib=libgcc
 build:asan --linkopt=-l:libclang_rt.ubsan_standalone.a
 build:asan --linkopt=-l:libclang_rt.ubsan_standalone_cxx.a
 build:asan --action_env=ENVOY_UBSAN_VPTR=1
 build:asan --copt=-fsanitize=vptr,function
 build:asan --linkopt=-fsanitize=vptr,function
-build:asan --linkopt='-L/opt/llvm/lib/clang/18/lib/x86_64-unknown-linux-gnu'
+# build:asan --linkopt='-L/opt/llvm/lib/clang/18/lib/x86_64-unknown-linux-gnu'
 
 # Basic ASAN/UBSAN that works for gcc or llvm
 build:asan-common --config=sanitizer

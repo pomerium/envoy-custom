@@ -14,3 +14,70 @@ actions:
             --config=buildbuddy \
             -c opt \
             //:envoy.stripped
+
+  - name: "Test (coverage)"
+    triggers:
+      push:
+        branches:
+          - "main"
+      pull_request:
+        branches:
+          - "*"
+    steps:
+      - run: |
+          BAZEL_LLVM_PATH=/toolchain bazel coverage \
+            --config=ci \
+            --config=buildbuddy \
+            --nocache_test_results \
+            //:envoy.stripped
+
+  - name: "Test (asan)"
+    triggers:
+      push:
+        branches:
+          - "main"
+      pull_request:
+        branches:
+          - "*"
+    steps:
+      - run: |
+          BAZEL_LLVM_PATH=/toolchain bazel test \
+            --config=ci \
+            --config=buildbuddy \
+            --config=asan \
+            -c dbg \
+            //test/...
+
+  - name: "Test (msan)"
+    triggers:
+      push:
+        branches:
+          - "main"
+      pull_request:
+        branches:
+          - "*"
+    steps:
+      - run: |
+          BAZEL_LLVM_PATH=/toolchain bazel test \
+            --config=ci \
+            --config=buildbuddy \
+            --config=msan \
+            -c dbg \
+            //test/...
+
+  - name: "Test (tsan)"
+    triggers:
+      push:
+        branches:
+          - "main"
+      pull_request:
+        branches:
+          - "*"
+    steps:
+      - run: |
+          BAZEL_LLVM_PATH=/toolchain bazel test \
+            --config=ci \
+            --config=buildbuddy \
+            --config=tsan \
+            -c dbg \
+            //test/...
