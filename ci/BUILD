@@ -29,7 +29,5 @@ filegroup(
         "@llvm_toolchain_llvm//:bin/llvm-readobj",
         "@llvm_toolchain_llvm//:bin/llvm-strip",
         "@llvm_toolchain_llvm//:bin/llvm-symbolizer",
-    ] + [
-        "@//bazel:msan_ignorelist.txt",
     ],
 )

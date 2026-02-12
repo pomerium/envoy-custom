@@ -46,7 +46,8 @@ RUN mkdir -p /tmp/toolchain \
  && ln -s $(bazelisk info output_base)/external external \
  && /usr/local/bin/bazelisk cquery --output=files //ci:llvm_toolchain_targets 2>/dev/null | rsync -a --files-from=- /workspace /tmp/toolchain \
  && mv /tmp/toolchain/external/llvm_toolchain_llvm /toolchain \
- && mv /tmp/toolchain/bazel /toolchain/bazel \
+ && mkdir /toolchain/lib/clang/$(/toolchain/bin/clang -dumpversion | cut -d'.' -f1)/share \
+ && mv /workspace/bazel/msan_ignorelist.txt /toolchain/lib/clang/$(/toolchain/bin/clang -dumpversion | cut -d'.' -f1)/share/ \
  && rm -rf /tmp/toolchain
 
 # work around a bug(?) in toolchains_llvm that adds these lib64 directories to modulemap files,

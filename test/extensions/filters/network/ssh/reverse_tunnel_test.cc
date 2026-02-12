@@ -492,8 +492,12 @@ TEST_P(StaticPortForwardTest, UpstreamFlowControl_ClientReadDisabledUntilChannel
       .then(driver->createTask<Tasks::SendChannelCloseAndWait>())
       .start(channel)));
 
-  EXPECT_EQ(1, test_server_->counter(stat_window_adjustment_paused)->value());
-  EXPECT_EQ(0, test_server_->counter(stat_window_adjustment_resumed)->value());
+  // 'paused' should be >0, and resumed should be 'paused-1'. Depending on timing, these will likely
+  // be 1/0 or 2/1
+  auto paused = test_server_->counter(stat_window_adjustment_paused)->value();
+  auto resumed = test_server_->counter(stat_window_adjustment_resumed)->value();
+  EXPECT_GT(paused, 0);
+  EXPECT_EQ(paused - 1, resumed);
 
   // The TCP proxy will set detectEarlyCloseWhenReadDisabled(false) on server connections to make
   // sure all data is proxied before close. At this point, that server connection will be
