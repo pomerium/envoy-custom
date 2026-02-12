@@ -21,5 +21,5 @@ def pomerium_envoy_toolchains():
             "linux-aarch64": "@sysroot_linux_arm64//:sysroot",
         },
         toolchain_roots = {"": LLVM_PATH} if LLVM_PATH else {},
-        extra_compiler_files = "@llvm_toolchain_llvm//:lib/clang/19/share/msan_ignorelist.txt",
+        extra_compiler_files = "%s/lib/clang/19/share/msan_ignorelist.txt" if LLVM_PATH else "@llvm_toolchain_llvm//:lib/clang/19/share/msan_ignorelist.txt",
     )
