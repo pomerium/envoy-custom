@@ -9,7 +9,8 @@ build --config=clang
 
 build:asan-common --test_env=UBSAN_SYMBOLIZER_PATH
 build:tsan --test_env=TSAN_SYMBOLIZER_PATH
-build:msan --copt="-fsanitize-ignorelist=bazel/msan_ignorelist.txt"
+# build:msan --cxxopt="-fsanitize-ignorelist=bazel/msan_ignorelist.txt"
+
 # The following options are required to build using hermetic llvm without gcc:
 
 # Force all cc targets built with the llvm toolchain to use compiler-rt and libunwind. This removes
