@@ -9,7 +9,7 @@ build --config=clang
 
 build:asan-common --test_env=UBSAN_SYMBOLIZER_PATH
 build:tsan --test_env=TSAN_SYMBOLIZER_PATH
-
+build:msan --copt="-fsanitize-ignorelist=bazel/msan_ignorelist.txt"
 # The following options are required to build using hermetic llvm without gcc:
 
 # Force all cc targets built with the llvm toolchain to use compiler-rt and libunwind. This removes
@@ -46,6 +46,7 @@ common:buildbuddy --experimental_remote_cache_compression_threshold=100
 common:buildbuddy --experimental_profile_include_target_label
 common:buildbuddy --experimental_profile_include_primary_output
 
+build:ci-msan --copt="-fsanitize-ignorelist=/toolchain/bazel/msan_ignorelist.txt"
 
 # gcc is not installed in our build image. everything should link against compiler-rt and libunwind
 # instead of libgcc.
