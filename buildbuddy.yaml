@@ -66,6 +66,10 @@ actions:
             //test/...
 
   - name: "Test (tsan)"
+    platform_properties:
+      # NB: compiler-rt needs to be able to modify ASLR personality for tsan support
+      # (see llvm-project/compiler-rt/lib/tsan/rtl/tsan_platform_linux.cpp)
+      dockerRunAsRoot: "true"
     triggers:
       push:
         branches:

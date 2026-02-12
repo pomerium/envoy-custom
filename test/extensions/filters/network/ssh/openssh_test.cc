@@ -23,25 +23,7 @@ extern "C" {
 #include "openssh/ssherr.h"
 }
 
-namespace {
-static int setup = [] {
-  if (getuid() == 0) {
-    // Some tests in this file rely on *not* being able to read files on disk.
-    // This is intended for CI which has uid/gid 1000 already set up.
-    //
-    // NB: tests in CI need to run as root by default to be able to modify ASLR personality for
-    // tsan support (see llvm-project/compiler-rt/lib/tsan/rtl/tsan_platform_linux.cpp).
-    if (setgid(1000) != 0 || setuid(1000) != 0) {
-      PANIC(fmt::format("failed to drop root privileges: {}", errno));
-    }
-    ENVOY_LOG_MISC(info, "dropped root privileges successfully");
-  }
-  return 0;
-}();
-} // namespace
-
 namespace openssh::test {
-
 using Envoy::Extensions::NetworkFilters::GenericProxy::Codec::test::copyTestdataToWritableTmp;
 
 TEST(OpensshTest, StatusFromErr) {
@@ -862,6 +844,9 @@ TEST(OpensshTest, LoadHostKeysFromBytes_InvalidInlineData) {
 }
 
 TEST(OpensshTest, LoadHostKeys_InvalidMode_Unreadable) {
+  if (getuid() == 0) {
+    GTEST_SKIP() << "skipping test when running as root";
+  }
   std::vector<corev3::DataSource> sources;
   for (auto keyName : {"rsa_1", "ecdsa_1", "ed25519_1", "rsa_2"}) {
     // set invalid permissions on only one of the keys
