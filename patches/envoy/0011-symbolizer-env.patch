@@ -1,8 +1,8 @@
 diff --git a/bazel/envoy_test.bzl b/bazel/envoy_test.bzl
-index 96bddca75a..78ac9ec827 100644
+index 96bddca75a..2f024aa8a5 100644
 --- a/bazel/envoy_test.bzl
 +++ b/bazel/envoy_test.bzl
-@@ -185,9 +185,13 @@ def envoy_cc_test(
+@@ -185,9 +185,8 @@ def envoy_cc_test(
          name = name,
          srcs = srcs,
          data = data + select({
@@ -10,16 +10,11 @@ index 96bddca75a..78ac9ec827 100644
 -            "%s//bazel:asan_build" % repository: ["@llvm_toolchain_llvm//:symbolizer"],
 -            "//conditions:default": [],
 +            "@envoy_repo//:use_local_llvm": [],
-+            "//conditions:default": select({
-+                "%s//bazel:asan_build" % repository: ["@llvm_toolchain//:llvm-symbolizer"],
-+                "%s//bazel:msan_build" % repository: ["@llvm_toolchain//:llvm-symbolizer"],
-+                "%s//bazel:tsan_build" % repository: ["@llvm_toolchain//:llvm-symbolizer"],
-+                "//conditions:default": [],
-+            }),
++            "//conditions:default": ["@llvm_toolchain//:llvm-symbolizer"],
          }),
          copts = envoy_copts(repository, test = True) + copts + envoy_pch_copts(repository, "//test:test_pch"),
          additional_linker_inputs = envoy_exported_symbols_input(),
-@@ -208,9 +212,21 @@ def envoy_cc_test(
+@@ -208,9 +207,18 @@ def envoy_cc_test(
          size = size,
          flaky = flaky,
          env = env | select({
@@ -32,15 +27,12 @@ index 96bddca75a..78ac9ec827 100644
 +                "TSAN_SYMBOLIZER_PATH": "%s/bin/llvm-symbolizer" % LLVM_PATH,
 +                "UBSAN_SYMBOLIZER_PATH": "%s/bin/llvm-symbolizer" % LLVM_PATH,
 +            },
-+            "//conditions:default": select({
-+                "%s//bazel:asan_build" % repository: {
-+                    "ASAN_SYMBOLIZER_PATH": "$(location @llvm_toolchain//:llvm-symbolizer)",
-+                    "UBSAN_SYMBOLIZER_PATH": "$(location @llvm_toolchain//:llvm-symbolizer)",
-+                },
-+                "%s//bazel:msan_build" % repository: {"MSAN_SYMBOLIZER_PATH": "$(location @llvm_toolchain//:llvm-symbolizer)"},
-+                "%s//bazel:tsan_build" % repository: {"TSAN_SYMBOLIZER_PATH": "$(location @llvm_toolchain//:llvm-symbolizer)"},
-+                "//conditions:default": {},
-+            }),
++            "//conditions:default": {
++                "ASAN_SYMBOLIZER_PATH": "$(location @llvm_toolchain//:llvm-symbolizer)",
++                "MSAN_SYMBOLIZER_PATH": "$(location @llvm_toolchain//:llvm-symbolizer)",
++                "TSAN_SYMBOLIZER_PATH": "$(location @llvm_toolchain//:llvm-symbolizer)",
++                "UBSAN_SYMBOLIZER_PATH": "$(location @llvm_toolchain//:llvm-symbolizer)",
++            },
          }),
          exec_properties = exec_properties,
      )
