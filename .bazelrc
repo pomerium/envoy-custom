@@ -8,6 +8,7 @@ build --cxxopt=-std=c++23 --host_cxxopt=-std=c++23
 build --config=clang
 
 build:asan-common --test_env=UBSAN_SYMBOLIZER_PATH
+build:tsan --test_env=TSAN_SYMBOLIZER_PATH
 
 # The following options are required to build using hermetic llvm without gcc:
 

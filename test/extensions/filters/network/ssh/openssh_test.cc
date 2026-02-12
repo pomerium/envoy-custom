@@ -23,6 +23,23 @@ extern "C" {
 #include "openssh/ssherr.h"
 }
 
+namespace {
+static int setup = [] {
+  if (getuid() == 0) {
+    // Some tests in this file rely on *not* being able to read files on disk.
+    // This is intended for CI which has uid/gid 1000 already set up.
+    //
+    // NB: tests in CI need to run as root by default to be able to modify ASLR personality for
+    // tsan support (see llvm-project/compiler-rt/lib/tsan/rtl/tsan_platform_linux.cpp).
+    if (setgid(1000) != 0 || setuid(1000) != 0) {
+      PANIC(fmt::format("failed to drop root privileges: {}", errno));
+    }
+    ENVOY_LOG_MISC(info, "dropped root privileges successfully");
+  }
+  return 0;
+}();
+} // namespace
+
 namespace openssh::test {
 
 using Envoy::Extensions::NetworkFilters::GenericProxy::Codec::test::copyTestdataToWritableTmp;
@@ -854,16 +871,7 @@ TEST(OpensshTest, LoadHostKeys_InvalidMode_Unreadable) {
     *src.mutable_filename() = filename;
     sources.push_back(std::move(src));
   }
-  if (getuid() == 0) {
-    // For CI
-    ASSERT_EQ(0, seteuid(1000));
-    ASSERT_EQ(0, setegid(1000));
-  }
   auto stat = loadHostKeys(sources);
-  if (getuid() == 0) {
-    ASSERT_EQ(0, seteuid(0));
-    ASSERT_EQ(0, setegid(0));
-  }
   ASSERT_EQ(absl::PermissionDeniedError(fmt::format("error loading ssh host key [2/4] from file {}: Permission denied",
                                                     sources.at(1).filename())),
             stat.status());
