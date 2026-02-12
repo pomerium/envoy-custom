@@ -62,6 +62,7 @@ actions:
             --config=ci \
             --config=buildbuddy \
             --config=msan \
+            --config=ci-msan \
             -c dbg \
             //test/...
 
