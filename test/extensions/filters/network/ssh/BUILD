@@ -276,7 +276,6 @@ envoy_cc_test(
 
 envoy_cc_test(
     name = "kex_test",
-    size = "enormous",
     srcs = [
         "kex_test.cc",
     ],
@@ -462,7 +461,6 @@ envoy_cc_test_library(
 
 envoy_cc_test(
     name = "reverse_tunnel_test",
-    size = "large",
     srcs = [
         "reverse_tunnel_test.cc",
     ],
@@ -474,7 +472,6 @@ envoy_cc_test(
 
 envoy_cc_test(
     name = "graceful_shutdown_test",
-    size = "large",
     srcs = [
         "graceful_shutdown_test.cc",
     ],
