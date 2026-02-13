@@ -7,3 +7,9 @@ fun:sha512_block_data_order
 fun:BCM_sha512_update
 fun:ssh_ed25519_generate
 fun:barrett_reduce
+fun:sshbuf_dtob64
+fun:cipher_crypt
+fun:sshbuf_put
+fun:sshkey_generate
+fun:sshbuf_put_string
+src:*/openssh*.c
