@@ -1,3 +1,2 @@
-[memory]
 src:*/external/boringssl/*
-src:*/openssh.build_tmpdir/*
+invalid:*/openssh.build_tmpdir/*

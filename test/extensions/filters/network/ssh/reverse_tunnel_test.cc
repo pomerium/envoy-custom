@@ -563,7 +563,7 @@ TEST_P(StaticPortForwardTest, UpstreamFlowControl_ClientReadDisabledThenEnabledB
   ASSERT_TRUE(driver->wait(th2));
   // Window adjustments should be enabled immediately in response to the upstream socket re-enabling
   // read events on its io handle.
-  EXPECT_EQ(1, test_server_->counter(stat_window_adjustment_resumed)->value());
+  EXPECT_EQ(resumed + 1, test_server_->counter(stat_window_adjustment_resumed)->value());
 
   // all the data should be flushed
   EXPECT_TRUE(downstream->waitForData(total_bytes_written, driver->defaultTimeout()));
