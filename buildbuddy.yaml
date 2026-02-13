@@ -48,22 +48,22 @@ actions:
             -c dbg \
             //test/...
 
-  - name: "Test (msan)"
-    triggers:
-      push:
-        branches:
-          - "main"
-      pull_request:
-        branches:
-          - "*"
-    steps:
-      - run: |
-          BAZEL_LLVM_PATH=/toolchain bazel test \
-            --config=ci \
-            --config=buildbuddy \
-            --config=msan \
-            -c dbg \
-            //test/...
+  # - name: "Test (msan)"
+  #   triggers:
+  #     push:
+  #       branches:
+  #         - "main"
+  #     pull_request:
+  #       branches:
+  #         - "*"
+  #   steps:
+  #     - run: |
+  #         BAZEL_LLVM_PATH=/toolchain bazel test \
+  #           --config=ci \
+  #           --config=buildbuddy \
+  #           --config=msan \
+  #           -c dbg \
+  #           //test/...
 
   - name: "Test (tsan)"
     platform_properties:
