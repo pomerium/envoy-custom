@@ -1,2 +1,3 @@
 src:*/external/boringssl/*
-invalid:*/openssh.build_tmpdir/*
+*/openssh.build_tmpdir/*
+$$%#&^$%(*&#^$)
