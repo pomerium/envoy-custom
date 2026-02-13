@@ -526,11 +526,11 @@ TEST_P(StaticPortForwardTest, UpstreamFlowControl_ClientReadDisabledUntilChannel
   downstream->readDisable(false);
   downstream->waitForDisconnect(true);
 
-  EXPECT_EQ(1, test_server_->counter(stat_window_adjustment_paused)->value());
+  EXPECT_EQ(paused, test_server_->counter(stat_window_adjustment_paused)->value());
   // If the channel is closed while the server connection is read-disabled, it should not wake up
   // the io handle with a read event after flushing its write buffer, since it has already been
   // closed for writing.
-  EXPECT_EQ(0, test_server_->counter(stat_window_adjustment_resumed)->value());
+  EXPECT_EQ(resumed, test_server_->counter(stat_window_adjustment_resumed)->value());
 
   downstream->close();
 }
