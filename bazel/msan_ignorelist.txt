@@ -1,3 +1,9 @@
-src:*/external/boringssl/*
-*/openssh.build_tmpdir/*
-$$%#&^$%(*&#^$)
+fun:crypto_sign_ed25519_ref_scalarmult_base
+fun:crypto_sign_ed25519_ref_sc25519_from32bytes
+fun:crypto_sign_ed25519_keypair
+fun:sha512_final_impl
+fun:sha512_update
+fun:sha512_block_data_order
+fun:BCM_sha512_update
+fun:ssh_ed25519_generate
+fun:barrett_reduce
