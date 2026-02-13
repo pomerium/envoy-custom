@@ -42,11 +42,12 @@ RUN --mount=type=tmpfs,target=/var/cache/apt \
 
 COPY ci/BUILD /workspace/ci/BUILD
 
+COPY ci/msan_ignorelist.txt /tmp/msan_ignorelist.txt
 RUN mkdir -p /tmp/toolchain \
  && ln -s $(bazelisk info output_base)/external external \
  && /usr/local/bin/bazelisk cquery --output=files //ci:llvm_toolchain_targets 2>/dev/null | rsync -a --files-from=- /workspace /tmp/toolchain \
  && mv /tmp/toolchain/external/llvm_toolchain_llvm /toolchain \
- && cat /workspace/bazel/msan_ignorelist.txt | tee /toolchain/lib/clang/$(/toolchain/bin/clang -dumpversion | cut -d'.' -f1)/share/msan_ignorelist.txt \
+ && cat /tmp/msan_ignorelist.txt | tee /toolchain/lib/clang/$(/toolchain/bin/clang -dumpversion | cut -d'.' -f1)/share/msan_ignorelist.txt \
  && rm -rf /tmp/toolchain
 
 # work around a bug(?) in toolchains_llvm that adds these lib64 directories to modulemap files,
