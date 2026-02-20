@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             (unknown)
-// source: github.com/pomerium/envoy-custom/api/extensions/recording/recording.proto
+// source: github.com/pomerium/envoy-custom/api/extensions/x/recording/recording.proto
 
 package recording
 
@@ -109,5 +109,5 @@ var RecordingService_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 	},
-	Metadata: "github.com/pomerium/envoy-custom/api/extensions/recording/recording.proto",
+	Metadata: "github.com/pomerium/envoy-custom/api/extensions/x/recording/recording.proto",
 }

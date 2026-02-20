@@ -1,11 +1,11 @@
 syntax = "proto3";
 
-package pomerium.extensions;
+package pomerium.extensions.x.recording;
 
 import "google/protobuf/any.proto";
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/pomerium/envoy-custom/api/extensions/recording";
+option go_package = "github.com/pomerium/envoy-custom/api/x/recording";
 
 service RecordingService {
   rpc Record(stream RecordingData) returns (stream RecordingSession);
