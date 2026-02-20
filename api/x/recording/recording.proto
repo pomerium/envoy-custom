@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package pomerium.x.recording;
+
+import "google/protobuf/any.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/pomerium/envoy-custom/api/x/recording";
+
+service RecordingService {
+  rpc Record(stream RecordingData) returns (stream RecordingSession);
+}
+
+message RecordingSession {
+  ServerConfig  config   = 1;
+  ChunkManifest manifest = 2;
+}
+
+message RecordingData {
+  oneof data {
+    RecordingMetadata  metadata = 1;
+    bytes              chunk    = 2;
+    bytes              checksum = 3;
+    RecordingSignature sig      = 4;
+  }
+}
+
+enum RecordingFormat {
+  RecordingFormatUnknown = 0;
+  RecordingFormatSSH     = 1;
+}
+
+message RecordingMetadata {
+  string              id            = 1;
+  RecordingFormat     recordingType = 2;
+  google.protobuf.Any metadata      = 3;
+}
+
+message RecordingSignature {
+  //TODO:
+}
+
+message ServerConfig {
+  uint32 max_streams         = 1;
+  uint32 max_chunk_batch_num = 2;
+  uint32 max_chunk_size      = 3;
+}
+
+message ChunkManifest {
+  repeated ChunkMetadata items = 1;
+}
+
+message ChunkMetadata {
+  uint32                             size     = 1;
+  bytes                              checksum = 2;
+  optional google.protobuf.Timestamp start    = 3;
+  optional google.protobuf.Timestamp end      = 4;
+}

@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+package pomerium.x.recording.formats.ssh;
+
+import "api/extensions/filters/network/ssh/ssh.proto";
+import "envoy/config/core/v3/extension.proto";
+import "envoy/config/core/v3/grpc_service.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/pomerium/envoy-custom/api/x/recording/formats/ssh";
+
+message Config {
+  string storage_dir = 1;
+
+  envoy.config.core.v3.GrpcService          grpc_service       = 3;
+  envoy.config.core.v3.TypedExtensionConfig compressor_library = 4;
+}
+
+// This extension is added to [pomerium.extensions.ssh.UpstreamTarget] to enable session recording
+// and configure related options.
+message UpstreamTargetExtensionConfig {
+  // File basename for the recording, relative to the configured storage_dir.
+  string recording_name = 1;
+  // Recording format
+  Format format = 2;
+}
+
+enum Format {
+  UNKNOWN_FORMAT       = 0;
+  RAW_FORMAT           = 1;
+  ASCIICAST_FORMAT     = 2;
+  RAW_ENCRYPTED_FORMAT = 3;
+}
+
+message RecordingMetadata {
+  string                              recording_name    = 1;
+  Format                              format            = 2;
+  uint64                              uncompressed_size = 3;
+  google.protobuf.Timestamp           start_time        = 4;
+  google.protobuf.Timestamp           end_time          = 5;
+  string                              login_name        = 7;
+  extensions.ssh.UpstreamTarget       upstream          = 8;
+  string                              session_id        = 9;
+  uint64                              stream_id         = 10;
+  string                              route_name        = 11;
+  extensions.ssh.SSHDownstreamPTYInfo pty_info          = 12;
+}
+
+message Header {
+  int64                               start_time = 1; // unix milliseconds
+  extensions.ssh.SSHDownstreamPTYInfo pty_info   = 2;
+  bool                                encrypted  = 3;
+  map<string, string>                 metadata   = 4;
+}
+
+enum PacketDirection {
+  UPSTREAM_TO_DOWNSTREAM = 0;
+  DOWNSTREAM_TO_UPSTREAM = 1;
+}
+
+message Packet {
+  // Time delta relative to the previous packet, or 0 for the first packet.
+  // Encoding timestamps this way will compress better compared to full unix timestamps.
+  int64           time_delta_ms = 1;
+  PacketDirection direction     = 2;
+  oneof payload {
+    // Raw contents of ChannelDataMsg. This is an optimization to avoid encoding the message
+    // type, size, etc., since the majority of packets will be ChannelDataMsg.
+    bytes channel_data = 3;
+    // Any SSH message
+    bytes ssh_message = 4;
+  }
+}

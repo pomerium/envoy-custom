@@ -103,10 +103,10 @@ type StreamManagementServer interface {
 type UnimplementedStreamManagementServer struct{}
 
 func (UnimplementedStreamManagementServer) ManageStream(grpc.BidiStreamingServer[ClientMessage, ServerMessage]) error {
-	return status.Errorf(codes.Unimplemented, "method ManageStream not implemented")
+	return status.Error(codes.Unimplemented, "method ManageStream not implemented")
 }
 func (UnimplementedStreamManagementServer) ServeChannel(grpc.BidiStreamingServer[ChannelMessage, ChannelMessage]) error {
-	return status.Errorf(codes.Unimplemented, "method ServeChannel not implemented")
+	return status.Error(codes.Unimplemented, "method ServeChannel not implemented")
 }
 func (UnimplementedStreamManagementServer) testEmbeddedByValue() {}
 

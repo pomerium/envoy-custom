@@ -2,16 +2,15 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             (unknown)
-// source: github.com/pomerium/envoy-custom/api/extensions/filters/network/ssh/filters/session_recording/session_recording.proto
+// source: github.com/pomerium/envoy-custom/api/extensions/x/recording/recording.proto
 
-package session_recording
+package recording
 
 import (
 	context "context"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
-	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
 
 // This is a compile-time assertion to ensure that this generated file
@@ -20,19 +19,14 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	RecordingService_RecordingFinalized_FullMethodName = "/pomerium.extensions.ssh.filters.session_recording.RecordingService/RecordingFinalized"
+	RecordingService_Record_FullMethodName = "/pomerium.extensions.RecordingService/Record"
 )
 
 // RecordingServiceClient is the client API for RecordingService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RecordingServiceClient interface {
-	// Called when a recording is complete. The following will be written to the stream, in order:
-	//   - 1 metadata message
-	//   - zero or more chunks, each containing part of the raw recording
-	//   - 1 checksum message, computed over all chunks in order (the raw data, not the serialized
-	//     RecordingData message)
-	RecordingFinalized(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[RecordingData, emptypb.Empty], error)
+	Record(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[RecordingData, RecordingSession], error)
 }
 
 type recordingServiceClient struct {
@@ -43,29 +37,24 @@ func NewRecordingServiceClient(cc grpc.ClientConnInterface) RecordingServiceClie
 	return &recordingServiceClient{cc}
 }
 
-func (c *recordingServiceClient) RecordingFinalized(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[RecordingData, emptypb.Empty], error) {
+func (c *recordingServiceClient) Record(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[RecordingData, RecordingSession], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &RecordingService_ServiceDesc.Streams[0], RecordingService_RecordingFinalized_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &RecordingService_ServiceDesc.Streams[0], RecordingService_Record_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[RecordingData, emptypb.Empty]{ClientStream: stream}
+	x := &grpc.GenericClientStream[RecordingData, RecordingSession]{ClientStream: stream}
 	return x, nil
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type RecordingService_RecordingFinalizedClient = grpc.ClientStreamingClient[RecordingData, emptypb.Empty]
+type RecordingService_RecordClient = grpc.BidiStreamingClient[RecordingData, RecordingSession]
 
 // RecordingServiceServer is the server API for RecordingService service.
 // All implementations should embed UnimplementedRecordingServiceServer
 // for forward compatibility.
 type RecordingServiceServer interface {
-	// Called when a recording is complete. The following will be written to the stream, in order:
-	//   - 1 metadata message
-	//   - zero or more chunks, each containing part of the raw recording
-	//   - 1 checksum message, computed over all chunks in order (the raw data, not the serialized
-	//     RecordingData message)
-	RecordingFinalized(grpc.ClientStreamingServer[RecordingData, emptypb.Empty]) error
+	Record(grpc.BidiStreamingServer[RecordingData, RecordingSession]) error
 }
 
 // UnimplementedRecordingServiceServer should be embedded to have
@@ -75,8 +64,8 @@ type RecordingServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedRecordingServiceServer struct{}
 
-func (UnimplementedRecordingServiceServer) RecordingFinalized(grpc.ClientStreamingServer[RecordingData, emptypb.Empty]) error {
-	return status.Errorf(codes.Unimplemented, "method RecordingFinalized not implemented")
+func (UnimplementedRecordingServiceServer) Record(grpc.BidiStreamingServer[RecordingData, RecordingSession]) error {
+	return status.Error(codes.Unimplemented, "method Record not implemented")
 }
 func (UnimplementedRecordingServiceServer) testEmbeddedByValue() {}
 
@@ -98,26 +87,27 @@ func RegisterRecordingServiceServer(s grpc.ServiceRegistrar, srv RecordingServic
 	s.RegisterService(&RecordingService_ServiceDesc, srv)
 }
 
-func _RecordingService_RecordingFinalized_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(RecordingServiceServer).RecordingFinalized(&grpc.GenericServerStream[RecordingData, emptypb.Empty]{ServerStream: stream})
+func _RecordingService_Record_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(RecordingServiceServer).Record(&grpc.GenericServerStream[RecordingData, RecordingSession]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type RecordingService_RecordingFinalizedServer = grpc.ClientStreamingServer[RecordingData, emptypb.Empty]
+type RecordingService_RecordServer = grpc.BidiStreamingServer[RecordingData, RecordingSession]
 
 // RecordingService_ServiceDesc is the grpc.ServiceDesc for RecordingService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var RecordingService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "pomerium.extensions.ssh.filters.session_recording.RecordingService",
+	ServiceName: "pomerium.extensions.RecordingService",
 	HandlerType: (*RecordingServiceServer)(nil),
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
 		{
-			StreamName:    "RecordingFinalized",
-			Handler:       _RecordingService_RecordingFinalized_Handler,
+			StreamName:    "Record",
+			Handler:       _RecordingService_Record_Handler,
+			ServerStreams: true,
 			ClientStreams: true,
 		},
 	},
-	Metadata: "github.com/pomerium/envoy-custom/api/extensions/filters/network/ssh/filters/session_recording/session_recording.proto",
+	Metadata: "github.com/pomerium/envoy-custom/api/extensions/x/recording/recording.proto",
 }
