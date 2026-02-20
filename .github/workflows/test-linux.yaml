@@ -3,45 +3,45 @@ name: Test (Linux)
 permissions:
   contents: read
 
-on:
-  push:
-    branches:
-      - main
-  pull_request:
+on: {}
+  # push:
+  #   branches:
+  #     - main
+  # pull_request:
 
 jobs:
-  test-coverage:
-    if: ${{ github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready') }}
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: ["x64"]
+  coverage:
     runs-on:
-      - ubuntu-latest-16-cores${{ matrix.arch == 'arm64' && '-arm64' || '' }}
+      - ubuntu-latest
 
     steps:
       - name: checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@v6
 
       - name: disable man-db auto update
         if: ${{ runner.environment == 'github-hosted' }}
         run: sudo rm -f /var/lib/man-db/auto-update
 
-      - name: setup clang
-        run: |
-          sudo apt -y install virtualenv lcov
-
       - name: setup bazel
-        uses: bazel-contrib/setup-bazel@e8776f58fb6a6e9055cbaf1b38c52ccc5247e9c4
+        uses: bazel-contrib/setup-bazel@0.18.0
         with:
           bazelisk-version: 1.25.0
           bazelisk-cache: true
-          disk-cache: bazel-linux-${{ matrix.arch }}
           repository-cache: true
+          external-cache: true
 
-      - name: test
+      - name: install dependencies
         run: |
-          bazel coverage --test_output=errors //test/...
+          sudo apt -y install virtualenv lcov
+
+      - name: coverage
+        run: |
+          bazel coverage \
+            --config=ci \
+            --config=buildbuddy \
+            --nocache_test_results \
+            --remote_header=x-buildbuddy-api-key=${{ secrets.BUILDBUDDY_ORG_API_KEY }} \
+            //test/...
           tar xf bazel-out/_coverage/_coverage_report.dat ./lcov
 
       - name: upload to coveralls
@@ -50,34 +50,81 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           file: lcov
 
-  test-asan:
-    if: ${{ github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready') }}
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: ["x64"]
+  asan:
     runs-on:
-      - ubuntu-latest-16-cores${{ matrix.arch == 'arm64' && '-arm64' || '' }}
+      - ubuntu-latest
 
     steps:
       - name: checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-
-      - name: disable man-db auto update
-        if: ${{ runner.environment == 'github-hosted' }}
-        run: sudo rm -f /var/lib/man-db/auto-update
-
-      - name: setup clang
-        run: |
-          sudo apt -y install virtualenv lcov
+        uses: actions/checkout@v6
 
       - name: setup bazel
-        uses: bazel-contrib/setup-bazel@e8776f58fb6a6e9055cbaf1b38c52ccc5247e9c4
+        uses: bazel-contrib/setup-bazel@0.18.0
         with:
           bazelisk-version: 1.25.0
           bazelisk-cache: true
-          disk-cache: bazel-linux-${{ matrix.arch }}-asan
           repository-cache: true
+          external-cache: true
 
-      - name: test
-        run: bazel test -c dbg --config=asan --test_output=errors //test/...
+      - name: test (asan)
+        run: |
+          bazel test \
+            --config=ci \
+            --config=buildbuddy \
+            --config=asan \
+            -c dbg \
+            --remote_header=x-buildbuddy-api-key=${{ secrets.BUILDBUDDY_ORG_API_KEY }} \
+            //test/...
+
+  tsan:
+    runs-on:
+      - ubuntu-latest
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+
+      - name: setup bazel
+        uses: bazel-contrib/setup-bazel@0.18.0
+        with:
+          bazelisk-version: 1.25.0
+          bazelisk-cache: true
+          repository-cache: true
+          external-cache: true
+
+      - name: test (tsan)
+        run: |
+          bazel test \
+            --config=ci \
+            --config=buildbuddy \
+            --config=tsan \
+            -c dbg \
+            --remote_header=x-buildbuddy-api-key=${{ secrets.BUILDBUDDY_ORG_API_KEY }} \
+            //test/...
+
+  msan:
+    runs-on:
+      - ubuntu-latest
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+
+      - name: setup bazel
+        uses: bazel-contrib/setup-bazel@0.18.0
+        with:
+          bazelisk-version: 1.25.0
+          bazelisk-cache: true
+          repository-cache: true
+          external-cache: true
+
+      - name: test (msan)
+        run: |
+          bazel test \
+            --config=ci \
+            --config=buildbuddy \
+            --config=msan \
+            --config=ci-msan \
+            -c dbg \
+            --remote_header=x-buildbuddy-api-key=${{ secrets.BUILDBUDDY_ORG_API_KEY }} \
+            //test/...

@@ -6,9 +6,9 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 # https://github.com/hedronvision/bazel-compile-commands-extractor
 http_archive(
     name = "hedron_compile_commands",
-    sha256 = "ba3feefdf57b6d4c749e3c4abfa86f3673e7db364cb13acfc3496dce6ea801a3",
-    strip_prefix = "bazel-compile-commands-extractor-f5fbd4cee671d8d908f37c83abaf70fba5928fc7",
-    url = "https://github.com/mikael-s-persson/bazel-compile-commands-extractor/archive/f5fbd4cee671d8d908f37c83abaf70fba5928fc7.tar.gz",
+    sha256 = "e875b18876190b172ab59eaf193c2eec16fff8c46306c5eb0577ef7d1f8a65f7",
+    strip_prefix = "bazel-compile-commands-extractor-9f69112e3f61b9df76a8275085dabad36ef37c96",
+    url = "https://github.com/kralicky/bazel-compile-commands-extractor/archive/9f69112e3f61b9df76a8275085dabad36ef37c96.tar.gz",
 )
 
 load("@hedron_compile_commands//:workspace_setup.bzl", "hedron_compile_commands_setup")
@@ -55,6 +55,11 @@ http_archive(
         "//patches/envoy:0006-coverage-format.patch",
         "//patches/envoy:0007-user-space-io-handle.patch",
         "//patches/envoy:0008-fake-upstream.patch",
+        "//patches/envoy:0009-fix-integration-test-server-exit.patch",
+        "//patches/envoy:0010-fix-mock-connection-race.patch",
+        "//patches/envoy:0011-symbolizer-env.patch",
+        "//patches/envoy:0012-foreign-cc-toolchains.patch",
+        "//patches/envoy:0013-no-stdlib-deps.patch",
         "//patches/envoy:tmp-transport-socket-options.patch",
     ],
     sha256 = "bb111b2037e35d8732f12f003ccf82e0d09dfc8a8b7810e849eb081f36d50ddc",
@@ -93,6 +98,10 @@ envoy_dependency_imports()
 load("@envoy//bazel:repo.bzl", "envoy_repo")
 
 envoy_repo()
+
+load("@rules_foreign_cc//foreign_cc:repositories.bzl", "rules_foreign_cc_dependencies")
+
+rules_foreign_cc_dependencies()
 
 load("//bazel:toolchains.bzl", "pomerium_envoy_toolchains")
 

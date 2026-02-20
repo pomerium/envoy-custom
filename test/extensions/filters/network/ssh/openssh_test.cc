@@ -1,6 +1,7 @@
 #include "source/common/span.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
 #include "gtest/gtest.h"
+#include <unistd.h>
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/wire/packet.h"
@@ -23,7 +24,6 @@ extern "C" {
 }
 
 namespace openssh::test {
-
 using Envoy::Extensions::NetworkFilters::GenericProxy::Codec::test::copyTestdataToWritableTmp;
 
 TEST(OpensshTest, StatusFromErr) {
@@ -844,6 +844,9 @@ TEST(OpensshTest, LoadHostKeysFromBytes_InvalidInlineData) {
 }
 
 TEST(OpensshTest, LoadHostKeys_InvalidMode_Unreadable) {
+  if (getuid() == 0) {
+    GTEST_SKIP() << "skipping test when running as root";
+  }
   std::vector<corev3::DataSource> sources;
   for (auto keyName : {"rsa_1", "ecdsa_1", "ed25519_1", "rsa_2"}) {
     // set invalid permissions on only one of the keys
