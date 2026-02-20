@@ -16,6 +16,7 @@ actions:
             //:envoy.stripped
 
   - name: "Test (coverage)"
+    self_hosted: true
     triggers:
       push:
         branches:
