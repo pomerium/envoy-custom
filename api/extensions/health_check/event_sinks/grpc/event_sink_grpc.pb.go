@@ -64,7 +64,7 @@ type HealthCheckEventSinkServer interface {
 type UnimplementedHealthCheckEventSinkServer struct{}
 
 func (UnimplementedHealthCheckEventSinkServer) LogHealthCheckEvent(context.Context, *v3.HealthCheckEvent) (*emptypb.Empty, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method LogHealthCheckEvent not implemented")
+	return nil, status.Error(codes.Unimplemented, "method LogHealthCheckEvent not implemented")
 }
 func (UnimplementedHealthCheckEventSinkServer) testEmbeddedByValue() {}
 

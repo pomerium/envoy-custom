@@ -76,7 +76,7 @@ type RecordingServiceServer interface {
 type UnimplementedRecordingServiceServer struct{}
 
 func (UnimplementedRecordingServiceServer) RecordingFinalized(grpc.ClientStreamingServer[RecordingData, emptypb.Empty]) error {
-	return status.Errorf(codes.Unimplemented, "method RecordingFinalized not implemented")
+	return status.Error(codes.Unimplemented, "method RecordingFinalized not implemented")
 }
 func (UnimplementedRecordingServiceServer) testEmbeddedByValue() {}
 
