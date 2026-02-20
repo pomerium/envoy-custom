@@ -124,6 +124,7 @@ jobs:
             --config=ci \
             --config=buildbuddy \
             --config=msan \
+            --config=ci-msan \
             -c dbg \
             --remote_header=x-buildbuddy-api-key=${{ secrets.BUILDBUDDY_ORG_API_KEY }} \
             //test/...

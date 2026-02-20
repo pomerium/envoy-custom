@@ -9,6 +9,7 @@
 #include "test/test_common/test_common.h"
 #include "test/test_common/utility.h"
 #include "absl/synchronization/notification.h"
+#include "absl/synchronization/blocking_counter.h"
 #include "test/mocks/server/server_factory_context.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
@@ -963,8 +964,21 @@ TYPED_TEST_P(TransportBaseTest, TestSimultaneousRekeyOnRWThresholds) {
     lastMessage.Notify();
   });
   lastMessage.WaitForNotificationWithTimeout(defaultTimeout());
-  ASSERT_GT(this->Client().write_bytes_remaining_, 0);
-  ASSERT_GT(this->Server().read_bytes_remaining_, 0);
+  {
+    absl::BlockingCounter wait(2);
+    uint64_t wr = 0, rr = 0;
+    this->Client().Post([&](auto& self) {
+      wr = self.write_bytes_remaining_;
+      wait.DecrementCount();
+    });
+    this->Server().Post([&](auto& self) {
+      rr = self.read_bytes_remaining_;
+      wait.DecrementCount();
+    });
+    wait.Wait();
+    ASSERT_GT(wr, 0);
+    ASSERT_GT(rr, 0);
+  }
 
   auto* const old_cipher = std::to_address(this->Client().cipher_);
 

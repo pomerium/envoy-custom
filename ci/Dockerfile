@@ -32,7 +32,7 @@ COPY source/ /workspace/source
 COPY test/ /workspace/test
 COPY tools/ /workspace/tools
 
-RUN /usr/local/bin/bazelisk build --nobuild //:envoy
+RUN /usr/local/bin/bazelisk fetch //:envoy
 
 RUN --mount=type=tmpfs,target=/var/cache/apt \
     --mount=type=tmpfs,target=/var/lib/apt/lists \
@@ -42,9 +42,12 @@ RUN --mount=type=tmpfs,target=/var/cache/apt \
 
 COPY ci/BUILD /workspace/ci/BUILD
 
+COPY ci/msan_ignorelist.txt /tmp/msan_ignorelist.txt
 RUN mkdir -p /tmp/toolchain \
- && /usr/local/bin/bazelisk cquery --output=files //ci:llvm_toolchain_targets 2>/dev/null | rsync -a --files-from=- $(/usr/local/bin/bazelisk info output_base) /tmp/toolchain \
+ && ln -s $(bazelisk info output_base)/external external \
+ && /usr/local/bin/bazelisk cquery --output=files //ci:llvm_toolchain_targets 2>/dev/null | rsync -a --files-from=- /workspace /tmp/toolchain \
  && mv /tmp/toolchain/external/llvm_toolchain_llvm /toolchain \
+ && cat /tmp/msan_ignorelist.txt | tee /toolchain/lib/clang/$(/toolchain/bin/clang -dumpversion | cut -d'.' -f1)/share/msan_ignorelist.txt \
  && rm -rf /tmp/toolchain
 
 # work around a bug(?) in toolchains_llvm that adds these lib64 directories to modulemap files,

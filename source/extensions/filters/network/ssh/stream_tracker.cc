@@ -77,10 +77,15 @@ void StreamTracker::startGracefulShutdown(std::chrono::milliseconds delay, std::
   ASSERT(!shutdown_started_);
   shutdown_started_ = true;
 
-  std::shared_ptr<void> wg = std::make_shared<Cleanup>([this, complete_cb] {
+  // Capture shared_from_this to ensure that the StreamTracker is not destroyed before this cleanup
+  // routine can be invoked
+  std::shared_ptr<void> wg = std::make_shared<Cleanup>([self = shared_from_this(), complete_cb] {
     ENVOY_LOG(info, "ssh: all streams shutdown");
-    shutdown_completed_ = true;
-    main_thread_dispatcher_.post(std::move(complete_cb));
+
+    self->main_thread_dispatcher_.post([self = std::move(self), cb = std::move(complete_cb)] {
+      self->shutdown_completed_ = true;
+      cb();
+    });
   });
 
   thread_local_stream_table_.runOnAllThreads(

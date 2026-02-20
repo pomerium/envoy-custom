@@ -71,6 +71,7 @@ public:
   static absl::StatusOr<std::unique_ptr<SSHKey>> fromPrivateKeyBytes(const std::string& bytes);
   static absl::StatusOr<std::unique_ptr<SSHKey>> fromPrivateKeyDataSource(const ::corev3::DataSource& ds);
   static absl::StatusOr<std::unique_ptr<SSHKey>> fromPublicKeyBlob(const bytes& public_key);
+
   static absl::StatusOr<std::unique_ptr<SSHKey>> generate(sshkey_types type, uint32_t bits);
 
   static sshkey_types keyTypeFromName(const std::string& name);

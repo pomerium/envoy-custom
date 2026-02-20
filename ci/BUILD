@@ -7,6 +7,7 @@ filegroup(
         "@llvm_toolchain_llvm//:extra_config_site",
         "@llvm_toolchain_llvm//:include",
         "@llvm_toolchain_llvm//:ld",
+        "@llvm_toolchain_llvm//:lib/clang/19/share/msan_ignorelist.txt",
         "@llvm_toolchain_llvm//:lib_legacy",
         "@llvm_toolchain_llvm//:libclang",
     ] + [

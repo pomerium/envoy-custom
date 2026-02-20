@@ -30,58 +30,58 @@ actions:
             --config=buildbuddy \
             --nocache_test_results \
             //test/...
+          cp $(bazel info output_path)/_coverage/_coverage_report.dat $BUILDBUDDY_ARTIFACTS_DIRECTORY
 
-  - name: "Test (asan)"
-    triggers:
-      push:
-        branches:
-          - "main"
-      pull_request:
-        branches:
-          - "*"
-    steps:
-      - run: |
-          BAZEL_LLVM_PATH=/toolchain bazel test \
-            --config=ci \
-            --config=buildbuddy \
-            --config=asan \
-            -c dbg \
-            //test/...
+  # - name: "Test (asan)"
+  #   triggers:
+  #     push:
+  #       branches:
+  #         - "main"
+  #     pull_request:
+  #       branches:
+  #         - "*"
+  #   steps:
+  #     - run: |
+  #         BAZEL_LLVM_PATH=/toolchain bazel test \
+  #           --config=ci \
+  #           --config=buildbuddy \
+  #           --config=asan \
+  #           -c dbg \
+  #           //test/...
+  # - name: "Test (msan)"
+  #   triggers:
+  #     push:
+  #       branches:
+  #         - "main"
+  #     pull_request:
+  #       branches:
+  #         - "*"
+  #   steps:
+  #     - run: |
+  #         BAZEL_LLVM_PATH=/toolchain bazel test \
+  #           --config=ci \
+  #           --config=buildbuddy \
+  #           --config=msan \
+  #           -c dbg \
+  #           //test/...
 
-  - name: "Test (msan)"
-    triggers:
-      push:
-        branches:
-          - "main"
-      pull_request:
-        branches:
-          - "*"
-    steps:
-      - run: |
-          BAZEL_LLVM_PATH=/toolchain bazel test \
-            --config=ci \
-            --config=buildbuddy \
-            --config=msan \
-            -c dbg \
-            //test/...
-
-  - name: "Test (tsan)"
-    platform_properties:
-      # NB: compiler-rt needs to be able to modify ASLR personality for tsan support
-      # (see llvm-project/compiler-rt/lib/tsan/rtl/tsan_platform_linux.cpp)
-      dockerRunAsRoot: "true"
-    triggers:
-      push:
-        branches:
-          - "main"
-      pull_request:
-        branches:
-          - "*"
-    steps:
-      - run: |
-          BAZEL_LLVM_PATH=/toolchain bazel test \
-            --config=ci \
-            --config=buildbuddy \
-            --config=tsan \
-            -c dbg \
-            //test/...
+  # - name: "Test (tsan)"
+  #   platform_properties:
+  #     # NB: compiler-rt needs to be able to modify ASLR personality for tsan support
+  #     # (see llvm-project/compiler-rt/lib/tsan/rtl/tsan_platform_linux.cpp)
+  #     dockerRunAsRoot: "true"
+  #   triggers:
+  #     push:
+  #       branches:
+  #         - "main"
+  #     pull_request:
+  #       branches:
+  #         - "*"
+  #   steps:
+  #     - run: |
+  #         BAZEL_LLVM_PATH=/toolchain bazel test \
+  #           --config=ci \
+  #           --config=buildbuddy \
+  #           --config=tsan \
+  #           -c dbg \
+  #           //test/...

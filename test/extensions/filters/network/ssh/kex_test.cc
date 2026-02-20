@@ -268,7 +268,10 @@ public:
     client_host_keys_.push_back(*openssh::SSHKey::generate(KEY_ECDSA, 256));
     client_host_keys_.push_back(*openssh::SSHKey::generate(KEY_ECDSA, 384));
     client_host_keys_.push_back(*openssh::SSHKey::generate(KEY_ECDSA, 521));
+#if !__has_feature(memory_sanitizer)
+    // Generating rsa keys under msan takes an extremely long time
     client_host_keys_.push_back(*openssh::SSHKey::generate(KEY_RSA, 2048));
+#endif
 
     auto maskedKexAlgNames = alg_opts.disable_kex_algorithms();
     algorithm_factories_.setMaskedNames({maskedKexAlgNames.begin(), maskedKexAlgNames.end()});
@@ -295,8 +298,9 @@ public:
     hostKeys.push_back(*openssh::SSHKey::generate(KEY_ECDSA, 256));
     hostKeys.push_back(*openssh::SSHKey::generate(KEY_ECDSA, 384));
     hostKeys.push_back(*openssh::SSHKey::generate(KEY_ECDSA, 521));
+#if !__has_feature(memory_sanitizer)
     hostKeys.push_back(*openssh::SSHKey::generate(KEY_RSA, 2048));
-
+#endif
     std::unordered_map<std::string, bytes> hostKeyBlobs;
     for (const auto& key : hostKeys) {
       const auto blob = key->toPublicKeyBlob();
@@ -435,8 +439,10 @@ protected:
         "ecdsa-sha2-nistp256",
         "ecdsa-sha2-nistp384",
         "ecdsa-sha2-nistp521",
+#if !__has_feature(memory_sanitizer)
         "rsa-sha2-256",
         "rsa-sha2-512",
+#endif
       };
       auto expectServerKexInit = [&] {
         EXPECT_SERVER_REPLY_VAR(sequence.server_kex_init_,
@@ -771,8 +777,10 @@ TEST_P(AlgorithmNegotiationTest, NoCommonHostKey) {
                   "ecdsa-sha2-nistp256",
                   "ecdsa-sha2-nistp384",
                   "ecdsa-sha2-nistp521",
+#if !__has_feature(memory_sanitizer)
                   "rsa-sha2-256",
                   "rsa-sha2-512",
+#endif
                 })));
 }
 
@@ -1229,17 +1237,21 @@ TEST_P(ServerKexTest, MultiStepAlgorithm) {
 
 TEST_P(ServerKexTest, PickHostKey) {
   EXPECT_EQ(*kex_->pickHostKey("ssh-ed25519"), **openssh::SSHKey::fromPublicKeyBlob(host_key_blobs_["ssh-ed25519"]));
+#if !__has_feature(memory_sanitizer)
   EXPECT_EQ(*kex_->pickHostKey("rsa-sha2-512"), **openssh::SSHKey::fromPublicKeyBlob(host_key_blobs_["rsa-sha2-512"]));
   EXPECT_EQ(*kex_->pickHostKey("rsa-sha2-256"), **openssh::SSHKey::fromPublicKeyBlob(host_key_blobs_["rsa-sha2-256"]));
+  EXPECT_EQ(kex_->pickHostKey("rsa-sha2-256-cert-v01@openssh.com"), nullptr);
+#endif
   EXPECT_EQ(kex_->pickHostKey("ssh-rsa"), nullptr); // sha1 (deprecated)
   EXPECT_EQ(kex_->pickHostKey("nonexistent"), nullptr);
-  EXPECT_EQ(kex_->pickHostKey("rsa-sha2-256-cert-v01@openssh.com"), nullptr);
   EXPECT_EQ(kex_->pickHostKey("ssh-ed25519-cert-v01@openssh.com"), nullptr);
 }
 
 TEST_P(ServerKexTest, GetHostKey) {
   EXPECT_EQ(*kex_->getHostKey(KEY_ED25519), **openssh::SSHKey::fromPublicKeyBlob(host_key_blobs_["ssh-ed25519"]));
+#if !__has_feature(memory_sanitizer)
   EXPECT_EQ(*kex_->getHostKey(KEY_RSA), **openssh::SSHKey::fromPublicKeyBlob(host_key_blobs_["rsa-sha2-512"]));
+#endif
 #if !__has_feature(address_sanitizer)
   EXPECT_EQ(kex_->getHostKey(static_cast<sshkey_types>(99)), nullptr);
 #endif

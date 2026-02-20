@@ -241,6 +241,7 @@ public:
 TEST_F(StreamTrackerThreadingTest, ThreadSafety_Serial) {
   // Test creating all streams at once and deleting all streams at once
 
+  absl::Mutex mu;
   absl::BitGen rng;
 
   ConditionalInitializer beginStreams, endStreams;
@@ -252,7 +253,9 @@ TEST_F(StreamTrackerThreadingTest, ThreadSafety_Serial) {
       auto testCallbacks = std::make_shared<TestStreamCallbacks>();
       testing::NiceMock<Network::MockConnection> conn;
       ON_CALL(conn, dispatcher).WillByDefault(ReturnRef(*thread_dispatcher));
+      mu.Lock();
       auto id = absl::Uniform<stream_id_t>(rng);
+      mu.Unlock();
       beginStreams.wait();
 
       auto handle = stream_tracker_->onStreamBegin(id, conn, *testCallbacks, *testCallbacks);
@@ -280,6 +283,8 @@ TEST_F(StreamTrackerThreadingTest, ThreadSafety_Serial) {
 
 TEST_F(StreamTrackerThreadingTest, ThreadSafety_Mixed) {
   // Test mixed create and delete operations at the same time
+
+  absl::Mutex mu;
   absl::BitGen rng;
 
   ConditionalInitializer beginStreams;
@@ -289,7 +294,9 @@ TEST_F(StreamTrackerThreadingTest, ThreadSafety_Mixed) {
       auto testCallbacks = std::make_shared<TestStreamCallbacks>();
       testing::NiceMock<Network::MockConnection> conn;
       ON_CALL(conn, dispatcher).WillByDefault(ReturnRef(*thread_dispatcher));
+      mu.Lock();
       auto id = absl::Uniform<stream_id_t>(rng);
+      mu.Unlock();
       beginStreams.wait();
 
       for (int i = 0; i < 100; i++) {
@@ -361,17 +368,18 @@ struct TestThreadLocalData : ThreadLocal::ThreadLocalObject {
 TEST_F(StreamTrackerThreadingTest, NonBlockingTryLock) {
   auto slot = ThreadLocal::TypedSlot<TestThreadLocalData>::makeUnique(tls());
 
-  std::unordered_map<Envoy::Event::Dispatcher*, stream_id_t> ids;
+  auto ids = std::make_shared<std::unordered_map<Envoy::Event::Dispatcher*, stream_id_t>>();
+  ids->insert({main_dispatcher_.get(), 0});
   for (size_t tid = 0; tid < thread_dispatchers_.size(); tid++) {
-    ids.insert({thread_dispatchers_[tid].get(), tid});
+    ids->insert({thread_dispatchers_[tid].get(), tid});
   }
 
   // Set up thread-local state on each worker
-  slot->set([&ids](Envoy::Event::Dispatcher& d) {
+  slot->set([ids = std::shared_ptr<const std::unordered_map<Envoy::Event::Dispatcher*, stream_id_t>>(ids)](Envoy::Event::Dispatcher& d) {
     auto tld = std::make_shared<TestThreadLocalData>();
     tld->callbacks = std::make_shared<TestStreamCallbacks>();
     ON_CALL(tld->conn, dispatcher).WillByDefault(ReturnRef(d));
-    tld->id = ids[&d];
+    tld->id = ids->at(&d);
     return tld;
   });
 
