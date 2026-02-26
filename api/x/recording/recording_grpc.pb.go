@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             (unknown)
-// source: github.com/pomerium/envoy-custom/api/extensions/x/recording/recording.proto
+// source: github.com/pomerium/envoy-custom/api/x/recording/recording.proto
 
 package recording
 
@@ -19,7 +19,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	RecordingService_Record_FullMethodName = "/pomerium.extensions.RecordingService/Record"
+	RecordingService_Record_FullMethodName = "/pomerium.x.recording.RecordingService/Record"
 )
 
 // RecordingServiceClient is the client API for RecordingService service.
@@ -98,7 +98,7 @@ type RecordingService_RecordServer = grpc.BidiStreamingServer[RecordingData, Rec
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var RecordingService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "pomerium.extensions.RecordingService",
+	ServiceName: "pomerium.x.recording.RecordingService",
 	HandlerType: (*RecordingServiceServer)(nil),
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
@@ -109,5 +109,5 @@ var RecordingService_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 	},
-	Metadata: "github.com/pomerium/envoy-custom/api/extensions/x/recording/recording.proto",
+	Metadata: "github.com/pomerium/envoy-custom/api/x/recording/recording.proto",
 }
