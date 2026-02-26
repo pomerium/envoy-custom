@@ -7,7 +7,7 @@ Client (envoy)                     Server (pomerium-core)
   │                                    │    Validate recording ID
   │                                    │    Create chunk writer
   │                                    │
-  │◄─── RecordingSession ──────────────┤ 2. Send server config + manifest
+  │◄─── RecordingSession ──────────────┤ 2. Send + manifest
   │     (config, manifest)             │    (for resume support)
   │                                    │
   ├──► RecordingData(Chunk) ──────────►│ 3. Stream chunks
