@@ -67,19 +67,20 @@ private:
   void initServices();
   void registerMessageHandlers(MessageDispatcher<wire::Message>& dispatcher) override;
 
+  bool upstream_is_direct_tcpip_{};
+  bool response_stream_header_sent_{};
+  bool been_terminated_{};
   AuthInfoSharedPtr auth_info_;
-  std::unique_ptr<UpstreamUserAuthService> user_auth_svc_;
-  std::unique_ptr<UpstreamConnectionService> connection_svc_;
-  std::unique_ptr<PingExtensionHandler> ping_handler_;
-  std::unique_ptr<Envoy::Event::DeferredDeletable> handoff_middleware_;
+
+  Envoy::OptRef<Envoy::Event::Dispatcher> connection_dispatcher_;
   std::shared_ptr<ChannelIDManager> channel_id_manager_; // shared with downstream
+  std::unique_ptr<PingExtensionHandler> ping_handler_;
+
+  std::unique_ptr<Envoy::Event::DeferredDeletable> handoff_middleware_;
 
   std::map<std::string, UpstreamService*> services_;
-  Envoy::OptRef<Envoy::Event::Dispatcher> connection_dispatcher_;
-
-  bool upstream_is_direct_tcpip_{false};
-  bool response_stream_header_sent_{false};
-  bool been_terminated_{false};
+  std::unique_ptr<UpstreamUserAuthService> user_auth_svc_;
+  std::unique_ptr<UpstreamConnectionService> connection_svc_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

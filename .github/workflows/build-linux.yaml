@@ -1,0 +1,43 @@
+name: Build (Linux)
+
+permissions:
+  contents: read
+
+on: {}
+# on:
+#   push:
+#     branches:
+#       - main
+#   pull_request: # temporary
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        # arch: ["x64", "arm64"]
+        arch: ["x64"]
+    runs-on:
+      - ubuntu-latest-4-cores-${{ matrix.arch }}
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+
+      - name: setup bazel
+        uses: bazel-contrib/setup-bazel@0.18.0
+        with:
+          bazelisk-version: 1.25.0
+          bazelisk-cache: true
+          repository-cache: true
+          external-cache: true
+
+      - name: build
+        run: |
+          bazel build \
+            --config=ci \
+            --config=buildbuddy \
+            --remote_header=x-buildbuddy-api-key=${{ secrets.BUILDBUDDY_ORG_API_KEY }} \
+            -c opt \
+            --config=debug \
+            //:envoy.stripped
