@@ -439,6 +439,16 @@ message PortForwardPermission {
 }
 
 message EndpointMetadata {
-  ServerPort            server_port        = 1;
-  PortForwardPermission matched_permission = 2;
+  // Pomerium route info. Corresponds to github.com/pomerium/pomerium/pkg/ssh/portforward.RouteInfo.
+  // Not all fields are included: the 'to' addresses are part of the ClusterLoadAssignment, and
+  // the cluster ID is already known.
+  message RouteInfo {
+    string from     = 1;
+    string hostname = 2;
+    uint32 port     = 3;
+  }
+
+  ServerPort            server_port         = 1;
+  PortForwardPermission matched_permission  = 2;
+  RouteInfo             pomerium_route_info = 3;
 }
