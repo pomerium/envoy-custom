@@ -40,6 +40,6 @@ ProtobufTypes::MessagePtr GrpcHealthCheckEventSinkFactory::createEmptyConfigProt
   return std::make_unique<envoy::extensions::health_check::event_sinks::grpc::Config>();
 }
 
-REGISTER_FACTORY(GrpcHealthCheckEventSinkFactory, HealthCheckEventSinkFactory);
+REGISTER_FACTORY(GrpcHealthCheckEventSinkFactory, HealthCheckEventSinkFactory)
 
 } // namespace Envoy::Upstream
