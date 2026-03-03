@@ -50,6 +50,7 @@ jobs:
 
       - name: Build Envoy
         run: |
+          set -o pipefail
           echo "::group::Bazel build"
           bazel build --config=gebru //:envoy --verbose_failures 2>&1 | tee build.log
           echo "::endgroup::"
@@ -59,10 +60,12 @@ jobs:
         run: |
           echo "## BuildBarn PoC — Build Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if grep -q "Build completed successfully" build.log 2>/dev/null; then
+          if grep -q "Build did NOT complete successfully" build.log 2>/dev/null; then
+            echo "❌ **Build failed**" >> $GITHUB_STEP_SUMMARY
+          elif grep -q "Build completed successfully" build.log 2>/dev/null; then
             echo "✅ **Build succeeded**" >> $GITHUB_STEP_SUMMARY
           else
-            echo "❌ **Build failed**" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ **Build status unknown**" >> $GITHUB_STEP_SUMMARY
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
           # Extract timing and process info from Bazel output
