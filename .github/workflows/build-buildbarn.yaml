@@ -39,7 +39,7 @@ jobs:
           build:gebru --host_platform=@local_config_platform//:host
 
           # Force IPv4 — Tailscale Funnel's AAAA record doesn't route from GH runners
-          startup:gebru --host_jvm_args=-Djava.net.preferIPv4Stack=true
+          startup --host_jvm_args=-Djava.net.preferIPv4Stack=true
           BAZELRC
           echo "common:gebru --remote_executor=${BUILDBARN_ENDPOINT}" >> user.bazelrc
           echo "common:gebru --remote_cache=${BUILDBARN_ENDPOINT}" >> user.bazelrc
