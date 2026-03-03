@@ -1389,10 +1389,66 @@ TEST_P(DynamicPortForwardTest, DownstreamClosesDuringUpstreamSocks5Handshake) {
   ASSERT_TRUE(driver->wait(th2));
 }
 
-class ConflictingModesPortForwardTest : public BaseReverseTunnelIntegrationTest,
-                                        public testing::WithParamInterface<std::tuple<Network::Address::IpVersion, std::string>> {
+class ProtocolMismatchUpstreamExpectingDynamicModeTest : public BaseReverseTunnelIntegrationTest,
+                                                         public testing::WithParamInterface<std::tuple<Network::Address::IpVersion, std::string>> {
 public:
-  ConflictingModesPortForwardTest()
+  ProtocolMismatchUpstreamExpectingDynamicModeTest()
+      : BaseReverseTunnelIntegrationTest(std::get<0>(GetParam())),
+        requested_host_(std::get<1>(GetParam())) {}
+
+  void SetUp() override {
+    initialize();
+    driver = makeSshConnectionDriver();
+    driver->connect();
+    ASSERT_TRUE(driver->waitForKex());
+    ASSERT_TRUE(driver->waitForUserAuth());
+    ASSERT_TRUE(driver->requestReversePortForward(requested_host_, 0, virtual_port));
+
+    setClusterLoad(cluster_name,
+                   {{
+                     .stream_id = *driver->serverStreamId(),
+                     .requested_host = requested_host_,
+                     .requested_port = 0, // note: port doesn't matter here
+                     .server_port = virtual_port,
+                     .is_dynamic = false, // <- envoy thinks the upstream is not expecting dynamic mode
+                   }});
+  }
+
+  void TearDown() override {
+    ASSERT_TRUE(driver->disconnect());
+  }
+
+  const uint32_t virtual_port = 12345;
+  const std::string cluster_name = "tcp_cluster";
+  const std::string requested_host_;
+  std::shared_ptr<SshConnectionDriver> driver;
+};
+
+TEST_P(ProtocolMismatchUpstreamExpectingDynamicModeTest, UpstreamExpectingDynamicMode) {
+  Tasks::Channel channel;
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>(requested_host_, virtual_port, 1)
+              .saveOutput(&channel)
+              .start();
+  auto downstream = makeTcpConnectionWithServerName(lookupPort("tcp"), "tcp-cluster");
+
+  ASSERT_TRUE(driver->wait(th));
+
+  // mimic openssh client behavior: read the first channel data packet, then send an EOF
+  auto th2 = driver->createTask<Tasks::WaitForChannelData>("not a socks5 handshake")
+               .then(driver->createTask<Tasks::SendChannelCloseAndWait>(Tasks::SendEOF(true)))
+               .start(channel);
+
+  EXPECT_TRUE(downstream->write("not a socks5 handshake"));
+  ASSERT_TRUE(driver->wait(th2));
+  EXPECT_TRUE(driver->waitForDiagnostic("ssh client may be expecting dynamic port-forwarding"));
+
+  downstream->waitForDisconnect();
+}
+
+class ProtocolMismatchUpstreamExpectingStaticModeTest : public BaseReverseTunnelIntegrationTest,
+                                                        public testing::WithParamInterface<std::tuple<Network::Address::IpVersion, std::string>> {
+public:
+  ProtocolMismatchUpstreamExpectingStaticModeTest()
       : BaseReverseTunnelIntegrationTest(std::get<0>(GetParam())),
         requested_host_(std::get<1>(GetParam())) {}
 
@@ -1410,7 +1466,7 @@ public:
                      .requested_host = requested_host_,
                      .requested_port = 0,
                      .server_port = virtual_port,
-                     .is_dynamic = false, // <- envoy thinks the upstream is not expecting dynamic mode
+                     .is_dynamic = true, // <- envoy thinks the upstream IS expecting dynamic mode
                    }});
   }
 
@@ -1424,7 +1480,7 @@ public:
   std::shared_ptr<SshConnectionDriver> driver;
 };
 
-TEST_P(ConflictingModesPortForwardTest, UpstreamExpectingDynamicMode) {
+TEST_P(ProtocolMismatchUpstreamExpectingStaticModeTest, HandleUpstreamServerErrorReply) {
   Tasks::Channel channel;
   auto th = driver->createTask<Tasks::AcceptReversePortForward>(requested_host_, virtual_port, 1)
               .saveOutput(&channel)
@@ -1433,14 +1489,72 @@ TEST_P(ConflictingModesPortForwardTest, UpstreamExpectingDynamicMode) {
 
   ASSERT_TRUE(driver->wait(th));
 
-  // mimic openssh server behavior
-  auto th2 = driver->createTask<Tasks::WaitForChannelData>("not a socks5 handshake")
+  // The 3-byte socks5 header packet we send will be forwarded to the upstream server. This packet
+  // should not be a [complete] valid start to a request for any supported protocol, but the
+  // way this error will manifest may depend on the upstream protocol.
+  //
+  // For HTTP/1, the server might immediately error out, as [0x05,0x01,0x00] is an invalid start to
+  // an HTTP/1 Request-Line (see https://datatracker.ietf.org/doc/html/rfc2616#section-5.1 and
+  // the 'token' production defined at https://datatracker.ietf.org/doc/html/rfc2616#section-2.2
+  // which restricts ascii CTL chars). Some HTTP servers will delay decoding until a CRLF is
+  // received (go net/http). This will result in the request simply timing out. Some will validate
+  // characters read before the first newline (quiche/balsa; see BalsaFrame::ProcessHeaders in
+  // github.com/google/quiche/quiche/balsa/balsa_frame.cc), which should result in the upstream
+  // sending an HTTP error as channel data, raising an upstream error and closing the channel.
+  // Importantly however, the downstream connection needs to remain in the connecting state until
+  // it times out.
+
+  auto th2 = driver->createTask<Tasks::WaitForChannelData>("\x05\x01\x00")
+               .then(driver->createTask<Tasks::SendChannelData>("not a socks5 response")
+                       .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>(Tasks::ExpectEOF::Yes)))
+               .start(channel);
+
+  EXPECT_TRUE(downstream->write("hello"));
+  ASSERT_TRUE(driver->wait(th2));
+  EXPECT_TRUE(driver->waitForDiagnostic("ssh client may be expecting static port-forwarding"));
+
+  downstream->waitForDisconnect();
+}
+
+TEST_P(ProtocolMismatchUpstreamExpectingStaticModeTest, HandleUpstreamServerTimeout) {
+  Tasks::Channel channel;
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>(requested_host_, virtual_port, 1)
+              .saveOutput(&channel)
+              .start();
+  auto downstream = makeTcpConnectionWithServerName(lookupPort("tcp"), "tcp-cluster");
+
+  ASSERT_TRUE(driver->wait(th));
+
+  // Simulate the upstream server timing out (e.g. in the case of waiting for \r\n for HTTP)
+
+  auto th2 = driver->createTask<Tasks::WaitForChannelData>("\x05\x01\x00")
+               .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>(Tasks::ExpectEOF::Yes))
+               .start(channel);
+
+  EXPECT_TRUE(downstream->write("hello"));
+  ASSERT_TRUE(driver->wait(th2));
+  EXPECT_TRUE(driver->waitForDiagnostic("ssh client may be expecting static port-forwarding"));
+
+  downstream->waitForDisconnect();
+}
+
+TEST_P(ProtocolMismatchUpstreamExpectingStaticModeTest, HandleUpstreamServerClose) {
+  Tasks::Channel channel;
+  auto th = driver->createTask<Tasks::AcceptReversePortForward>(requested_host_, virtual_port, 1)
+              .saveOutput(&channel)
+              .start();
+  auto downstream = makeTcpConnectionWithServerName(lookupPort("tcp"), "tcp-cluster");
+
+  ASSERT_TRUE(driver->wait(th));
+
+  // Simulate the upstream server giving up and disconnecting without sending anything
+  auto th2 = driver->createTask<Tasks::WaitForChannelData>("\x05\x01\x00")
                .then(driver->createTask<Tasks::SendChannelCloseAndWait>(Tasks::SendEOF(true)))
                .start(channel);
 
-  EXPECT_TRUE(downstream->write("not a socks5 handshake"));
+  EXPECT_TRUE(downstream->write("hello"));
   ASSERT_TRUE(driver->wait(th2));
-  EXPECT_TRUE(driver->waitForDiagnostic("ssh client may be expecting dynamic port-forwarding"));
+  EXPECT_TRUE(driver->waitForDiagnostic("ssh client may be expecting static port-forwarding"));
 
   downstream->waitForDisconnect();
 }
@@ -1721,9 +1835,13 @@ INSTANTIATE_TEST_SUITE_P(DynamicPortForward, DynamicPortForwardTest,
                          testing::ValuesIn(TestEnvironment::getIpVersionsForTest()),
                          TestUtility::ipTestParamsToString);
 
-INSTANTIATE_TEST_SUITE_P(ConflictingModes, ConflictingModesPortForwardTest,
+INSTANTIATE_TEST_SUITE_P(ProtocolMismatchUpstreamExpectingDynamicMode, ProtocolMismatchUpstreamExpectingDynamicModeTest,
                          testing::Combine(testing::ValuesIn(TestEnvironment::getIpVersionsForTest()),
-                                          testing::ValuesIn({""s, "localhost"s, "*"s, "*-cluster"s, "tcp?cluster"s})));
+                                          testing::ValuesIn({"example-route"s, ""s, "localhost"s, "*"s, "*-cluster"s, "tcp?cluster"s})));
+
+INSTANTIATE_TEST_SUITE_P(ProtocolMismatchUpstreamExpectingStaticMode, ProtocolMismatchUpstreamExpectingStaticModeTest,
+                         testing::Combine(testing::ValuesIn(TestEnvironment::getIpVersionsForTest()),
+                                          testing::ValuesIn({"example-route"s, ""s, "localhost"s, "*"s, "*-cluster"s, "tcp?cluster"s})));
 
 INSTANTIATE_TEST_SUITE_P(EDSUpdates, EDSUpdatesIntegrationTest,
                          testing::Combine(testing::ValuesIn(TestEnvironment::getIpVersionsForTest()),

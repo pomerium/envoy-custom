@@ -86,8 +86,13 @@ absl::Status Socks5ClientHandshaker::decodeMethodSelection(Buffer::Instance& buf
     // partial read
     return absl::OkStatus();
   }
-  if (buffer.peekInt<uint8_t>() != 0x05) {
-    return absl::InvalidArgumentError("socks5: invalid version");
+  if (auto firstByte = buffer.peekInt<uint8_t>(); firstByte != 0x05) {
+    bytes data;
+    auto sz = buffer.length();
+    data.resize(sz);
+    buffer.copyOut(0, sz, data.data());
+    callbacks_.onProtocolMismatch(std::move(data));
+    return absl::InvalidArgumentError("socks5: upstream protocol error");
   }
   switch (auto method = buffer.peekInt<uint8_t>(1); method) {
   case 0x00:
