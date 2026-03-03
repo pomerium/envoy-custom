@@ -12,36 +12,42 @@ on:
 jobs:
   test-coverage:
     if: ${{ github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready') }}
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: ["x64"]
-    runs-on:
-      - ubuntu-latest-16-cores${{ matrix.arch == 'arm64' && '-arm64' || '' }}
+    runs-on: self-hosted
+    environment: buildbarn
+    timeout-minutes: 60
+    permissions:
+      contents: read
 
     steps:
       - name: checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
-      - name: disable man-db auto update
-        if: ${{ runner.environment == 'github-hosted' }}
-        run: sudo rm -f /var/lib/man-db/auto-update
-
-      - name: setup clang
-        run: |
-          sudo apt -y install virtualenv lcov
+      - name: install lcov
+        run: sudo apt -y install lcov
 
       - name: setup bazel
         uses: bazel-contrib/setup-bazel@e8776f58fb6a6e9055cbaf1b38c52ccc5247e9c4
         with:
           bazelisk-version: 1.25.0
           bazelisk-cache: true
-          disk-cache: bazel-linux-${{ matrix.arch }}
           repository-cache: true
+
+      - name: configure remote execution
+        run: |
+          cat >> user.bazelrc << 'BAZELRC'
+          common:gebru --remote_executor=grpc://localhost:8980
+          common:gebru --remote_cache=grpc://localhost:8980
+          common:gebru --jobs=64
+          common:gebru --remote_timeout=3600
+          common:gebru --spawn_strategy=remote,sandboxed,local
+          common:gebru --remote_max_connections=100
+          build:gebru --host_platform=@local_config_platform//:host
+          build:gebru --remote_download_toplevel
+          BAZELRC
 
       - name: test
         run: |
-          bazel coverage --test_output=errors //test/...
+          bazel coverage --config=gebru --test_output=errors //test/...
           tar xf bazel-out/_coverage/_coverage_report.dat ./lcov
 
       - name: upload to coveralls
@@ -52,32 +58,35 @@ jobs:
 
   test-asan:
     if: ${{ github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready') }}
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: ["x64"]
-    runs-on:
-      - ubuntu-latest-16-cores${{ matrix.arch == 'arm64' && '-arm64' || '' }}
+    runs-on: self-hosted
+    environment: buildbarn
+    timeout-minutes: 60
+    permissions:
+      contents: read
 
     steps:
       - name: checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-
-      - name: disable man-db auto update
-        if: ${{ runner.environment == 'github-hosted' }}
-        run: sudo rm -f /var/lib/man-db/auto-update
-
-      - name: setup clang
-        run: |
-          sudo apt -y install virtualenv lcov
 
       - name: setup bazel
         uses: bazel-contrib/setup-bazel@e8776f58fb6a6e9055cbaf1b38c52ccc5247e9c4
         with:
           bazelisk-version: 1.25.0
           bazelisk-cache: true
-          disk-cache: bazel-linux-${{ matrix.arch }}-asan
           repository-cache: true
 
+      - name: configure remote execution
+        run: |
+          cat >> user.bazelrc << 'BAZELRC'
+          common:gebru --remote_executor=grpc://localhost:8980
+          common:gebru --remote_cache=grpc://localhost:8980
+          common:gebru --jobs=64
+          common:gebru --remote_timeout=3600
+          common:gebru --spawn_strategy=remote,sandboxed,local
+          common:gebru --remote_max_connections=100
+          build:gebru --host_platform=@local_config_platform//:host
+          build:gebru --remote_download_toplevel
+          BAZELRC
+
       - name: test
-        run: bazel test -c dbg --config=asan --test_output=errors //test/...
+        run: bazel test --config=gebru -c dbg --config=asan --test_output=errors //test/...
