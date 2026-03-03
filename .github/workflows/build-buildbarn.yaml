@@ -38,6 +38,10 @@ jobs:
           # exec_properties from @clang_platform / @envoy//bazel/platforms/rbe
           build:gebru --host_platform=@local_config_platform//:host
 
+          # Only download the final binary, not thousands of intermediate .o files.
+          # Intermediate artifacts stay in BuildBarn's CAS and are referenced by digest.
+          build:gebru --remote_download_toplevel
+
           # Force IPv4 — Tailscale Funnel's AAAA record doesn't route from GH runners
           startup --host_jvm_args=-Djava.net.preferIPv4Stack=true
           BAZELRC
