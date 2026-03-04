@@ -2,10 +2,6 @@
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-void SshFakeUpstreamHandler::cleanup(std::unique_ptr<SshFakeUpstreamHandler> self) {
-  self->dispatcher_->deleteInDispatcherThread(std::move(self));
-}
-
 SshFakeUpstreamHandler::SshFakeUpstreamHandler(Server::Configuration::ServerFactoryContext& context,
                                                std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
                                                std::shared_ptr<SshFakeUpstreamHandlerOpts> opts)

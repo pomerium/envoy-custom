@@ -9,7 +9,7 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 namespace test {
 
 SshIntegrationTest::SshIntegrationTest(std::vector<std::string> ssh_routes, Network::Address::IpVersion version)
-    : HttpIntegrationTest(Http::CodecType::HTTP1, version, defaultConfig(ssh_routes)) {
+    : HttpIntegrationTest(Http::CodecType::HTTP1, version, defaultConfig(ssh_routes, version)) {
   fake_upstreams_count_ = 0; // add our upstreams manually
   config_helper_.addConfigModifier([this, localhost = localhost(), ssh_routes](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
     RELEASE_ASSERT(bootstrap.mutable_static_resources()->clusters_size() == 0, "");
@@ -64,8 +64,14 @@ void SshIntegrationTest::cleanup() {
 
 void FakeUpstreamShimImpl::cleanup() {
   if (handler_ != nullptr) {
-    SshFakeUpstreamHandler::cleanup(std::move(handler_));
+    absl::Notification done;
+    fake_upstream_->dispatcher()->post([handler = std::move(handler_), &done] mutable {
+      handler.reset();
+      done.Notify();
+    });
+    done.WaitForNotification();
   }
+  fake_upstream_->cleanUp();
 }
 
 void SshIntegrationTest::initialize() {
@@ -174,7 +180,7 @@ AssertionResult FakeUpstreamShimImpl::configureSshUpstream(std::shared_ptr<SshFa
   });
 }
 
-std::string SshIntegrationTest::defaultConfig(const std::vector<std::string>& routes) {
+std::string SshIntegrationTest::defaultConfig(const std::vector<std::string>& routes, Network::Address::IpVersion version) {
   // TODO: we should relax this restriction
   RELEASE_ASSERT(!routes.empty(), "must set at least one route for the ssh listener to activate");
   constexpr auto baseConfigFmt = R"(
@@ -367,14 +373,15 @@ static_resources:
   for (const auto& route : routes) {
     matchers += fmt::format(matcherTemplate, route, "ssh_upstream_" + route);
   }
-  const auto baseConfig = fmt::format(baseConfigFmt, localhost());
-  const auto httpListener = fmt::format(httpListenerFmt, localhost());
+  auto lh = localhost(version);
+  const auto baseConfig = fmt::format(baseConfigFmt, lh);
+  const auto httpListener = fmt::format(httpListenerFmt, lh);
   const auto sshListener = fmt::format(sshListenerFmt,
-                                       localhost(),
+                                       lh,
                                        *host_key_->formatPrivateKey(SSHKEY_PRIVATE_OPENSSH, true),
                                        *user_ca_key_->formatPrivateKey(SSHKEY_PRIVATE_OPENSSH, true),
                                        matchers);
-  const auto tcpListener = fmt::format(tcpListenerFmt, localhost());
+  const auto tcpListener = fmt::format(tcpListenerFmt, lh);
 
   return absl::StrCat(baseConfig, httpListener, sshListener, tcpListener);
 }
@@ -384,9 +391,8 @@ IntegrationTcpClientPtr SshIntegrationTest::makeTcpConnectionWithServerName(uint
 
   uint32_t len = ntohl(server_name.size());
   std::string len_str(reinterpret_cast<char*>(&len), sizeof(len));
-  if (!tcp_client->write(len_str + server_name)) {
-    ADD_FAILURE() << "write error";
-  }
+  auto stat = tcp_client->write(len_str + server_name);
+  EXPECT_TRUE(stat) << "failed to write server name to ServerNameInjector";
   return tcp_client;
 }
 

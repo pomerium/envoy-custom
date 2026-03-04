@@ -141,13 +141,14 @@ protected:
   void initialize() override;
   void cleanup();
 
-  std::string localhost() const {
-    return (version_ == Network::Address::IpVersion::v4)
+  std::string localhost() const { return localhost(version_); }
+  static std::string localhost(Network::Address::IpVersion version) {
+    return (version == Network::Address::IpVersion::v4)
              ? "127.0.0.1"
              : "::1";
   }
 
-  std::string defaultConfig(const std::vector<std::string>& routes);
+  std::string defaultConfig(const std::vector<std::string>& routes, Network::Address::IpVersion version);
 
   std::shared_ptr<SshConnectionDriver> makeSshConnectionDriver();
   IntegrationTcpClientPtr makeTcpConnectionWithServerName(uint32_t port, const std::string& server_name);
