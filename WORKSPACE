@@ -96,6 +96,10 @@ load("@envoy//bazel:repo.bzl", "envoy_repo")
 
 envoy_repo()
 
+load("@rules_foreign_cc//foreign_cc:repositories.bzl", "rules_foreign_cc_dependencies")
+
+rules_foreign_cc_dependencies()
+
 load("//bazel:toolchains.bzl", "pomerium_envoy_toolchains")
 
 pomerium_envoy_toolchains()
