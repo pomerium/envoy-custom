@@ -69,11 +69,17 @@ using top_level_queue_message = wire::sub_message<
 using QueueMessage = wire::BasicMessage<top_level_queue_message>;
 using MessageQueue = moodycamel::ReaderWriterQueue<std::unique_ptr<QueueMessage>>;
 
+struct RemoteError {
+  absl::Status status;
+  bool send_eof{};
+  std::unique_ptr<bytes> upstream_response;
+};
+
 class RemoteStreamHandlerCallbacks : public Envoy::Event::DispatcherThreadDeletable {
 public:
   virtual ~RemoteStreamHandlerCallbacks() = default;
   virtual void scheduleQueueCallback() PURE;
-  virtual void scheduleErrorCallback(absl::Status error, bool send_eof) PURE;
+  virtual void scheduleErrorCallback(RemoteError&& err) PURE;
   virtual Envoy::Event::Dispatcher& localDispatcher() PURE;
 };
 
@@ -261,7 +267,11 @@ private:
     }
 
     // This will trigger a channel close, after which no further channel data messages can be sent.
-    peer_state_.callbacks->scheduleErrorCallback(err, send_eof);
+    peer_state_.callbacks->scheduleErrorCallback(RemoteError{
+      .status = err,
+      .send_eof = send_eof,
+      .upstream_response = std::exchange(upstream_error_response_, nullptr),
+    });
   }
 
   void onDetached(std::unique_ptr<RemoteStreamHandler> self) {
@@ -291,6 +301,22 @@ private:
     onRemoteQueueReadyRead();
     if (!received_channel_close_) {
       // If we didn't see a channel close, then shutdown() has not yet been called on the io handle.
+
+      // NB: if the peer io handle is not in the connected state yet (i.e. if we have never written
+      // anything to it), closing our io handle below will prevent it from ever being opened.
+      // If the downstream connection is set to ignore early close (the default), it will be forced
+      // to await timeout. This is the intended behavior. If we get here, then likely a protocol
+      // error occurred while reading channel data from the upstream, which triggered the detach.
+      // The local half of this channel will handle sending and receiving ChannelClose messages with
+      // the SSH client, but in this case the remote half of the channel should make sure the
+      // downstream connection does not become connected if it isn't already (which simply entails
+      // not sending any write events).
+      // This is important especially for the case of SOCKS5 protocol mismatch, if the real upstream
+      // server has replied with an error (in whatever protocol it was expecting, e.g. HTTP) to the
+      // SOCKS5 request that was forwarded to it by the openssh client. This will raise an error
+      // when we attempt to decode it, eventually bringing us here. Since the SOCKS handshake was
+      // never completed, the downstream connection should remain in the connecting state until it
+      // times out.
       ENVOY_LOG(debug, "channel {}: local peer exited without sending a ChannelClose message", peer_state_.id);
     }
     // Close it for reading and writing, since reads are impossible
@@ -585,6 +611,23 @@ private:
     }));
   }
 
+  // Socks5ChannelCallbacks
+  void onProtocolMismatch(bytes&& server_response) override {
+    // This is called when the upstream server received our 3-byte SOCKS5 header and was able to
+    // determine that it is an invalid request. It may respond with a protocol-specific message,
+    // for example if the upstream is HTTP/1, the server_response may contain an HTTP/1.1-encoded
+    // 400 error (this is the case if another Envoy is the upstream). Some servers may not reply,
+    // e.g. the Go HTTP/1 server will wait for a CRLF and the connection will time out instead.
+    // If that happens, this function is not called.
+
+    // The channel will be closed very shortly after this, so we need to issue a diagnostic warning
+    // to let the user know they need to fix their -R flag.
+
+    ENVOY_LOG(debug, "ssh: SOCKS5 protocol mismatch; server reply: {}",
+              std::string_view(reinterpret_cast<char*>(server_response.data()), server_response.size()));
+    upstream_error_response_ = std::make_unique<bytes>(std::move(server_response));
+  }
+
   void enqueueLocalMessage(std::unique_ptr<QueueMessage> msg) {
     ASSERT(initialized_);
     ASSERT(remote_dispatcher_.isThreadSafe());
@@ -693,13 +736,15 @@ private:
   ReverseTunnelStats& reverse_tunnel_stats_;
   std::unique_ptr<pomerium::extensions::ssh::EndpointMetadata> metadata_;
   std::shared_ptr<const envoy::config::core::v3::Address> upstream_address_;
-  std::unique_ptr<RemoteStreamHandler> detached_self_;
+  std::unique_ptr<bytes> upstream_error_response_;
 
   MessageQueue remote_queue_; // occupies 2 cache lines
   MessageQueue local_queue_;  // occupies 2 cache lines
 
   Buffer::OwnedImpl window_buffer_;
   Buffer::OwnedImpl read_buffer_;
+
+  std::unique_ptr<RemoteStreamHandler> detached_self_;
 };
 
 class InternalDownstreamChannel final : public Channel,
@@ -793,7 +838,7 @@ public:
           error_callback_(local_dispatcher_.createSchedulableCallback([this] {
             if (!detached_) {
               local_queue_callback_->cancel();
-              parent_->onErrorCallback(error_, send_eof_);
+              parent_->onErrorCallback(error_);
             }
           })) {}
 
@@ -811,10 +856,9 @@ public:
     }
 
     // RemoteStreamHandlerCallbacks
-    void scheduleErrorCallback(absl::Status error, bool send_eof) override {
+    void scheduleErrorCallback(RemoteError&& err) override {
       // Called from the remote thread
-      error_ = error;
-      send_eof_ = send_eof;
+      error_ = std::move(err);
       error_callback_->scheduleCallbackNextIteration();
     }
 
@@ -833,12 +877,11 @@ public:
 
   private:
     bool detached_{false};
-    bool send_eof_{false};
     InternalDownstreamChannel* parent_;
     Envoy::Event::Dispatcher& local_dispatcher_;
     Envoy::Event::SchedulableCallbackPtr local_queue_callback_;
     Envoy::Event::SchedulableCallbackPtr error_callback_;
-    absl::Status error_;
+    RemoteError error_;
   };
 
   // Local thread
@@ -927,18 +970,18 @@ private:
     }
   }
 
-  void onErrorCallback(absl::Status error, bool send_eof) {
+  void onErrorCallback(const RemoteError& err) {
     // Note: the local queue callback is automatically canceled before this function is called
     ASSERT(local_dispatcher_.isThreadSafe());
-    ENVOY_LOG(debug, "channel {}: error: {}", channel_id_, error);
+    ENVOY_LOG(debug, "channel {}: error: {}", channel_id_, err.status);
     // Flush any queued channel messages before sending the channel close message. This is invoked
     // from a separate callback, so it can race if both are scheduled on the current iteration.
     onLocalQueueReadyRead();
     ENVOY_LOG(debug, "channel {}: flushed read queue", channel_id_);
-    maybeSendChannelClose(error, send_eof);
+    maybeSendChannelClose(err.status, err.send_eof, makeOptRefFromPtr(err.upstream_response.get()));
   }
 
-  void maybeSendChannelClose(absl::Status status, bool send_eof) {
+  void maybeSendChannelClose(absl::Status status, bool send_eof, Envoy::OptRef<bytes> server_response = {}) {
     if (channel_close_sent_) {
       ENVOY_LOG(debug, "channel {}: channel close already sent", channel_id_);
       return;
@@ -948,6 +991,7 @@ private:
 
     if (send_eof) {
       ENVOY_LOG(debug, "channel {}: sending eof", channel_id_);
+      maybeWarnOnEOF(server_response);
       callbacks_->sendMessageLocal(wire::ChannelEOFMsg{
         .recipient_channel = channel_id_,
       });
@@ -1034,37 +1078,89 @@ private:
     downstream_address_ = addr->address();
   }
 
-  void maybeWarnOnEOF() {
-    // If this is the first message received by the server, and we did not send a socks5
-    // handshake, it is possible that the server was expecting us to. If the upstream server
-    // simply failed to connect, we would have received a channel open failure instead.
+  void maybeWarnOnEOF(Envoy::OptRef<bytes> server_response = {}) {
+    // Some values for -R are invalid but we can't detect them until attempting to open a
+    // connection and receiving an early EOF.
+    //
+    // 1: `-R some-hostname:<nonzero port>` (server_port().is_dynamic() == false)
+    //    This is indistinguishable from a valid static port forward request from the server's
+    //    perspective. If we attempt to open a connection on this channel, the ssh client will be
+    //    expecting a SOCKS handshake, but we won't send it one.
+    //
+    // 2: `-R some-hostname:0:localhost:### (server_port().is_dynamic() == true)
+    //    This is indistinguishable from a valid dynamic port forward request from the server's
+    //    perspective. If we attempt to open a connection on this channel, the ssh client will _not_
+    //    be expecting a SOCKS handshake, but we will have sent it one.
+    //
+    // 3: `-R {*:,:,<empty>}<nonzero port>` (server_port().is_dynamic() == false)
+    //    As in (1), but with wildcards. This should probably be rejected by the server though.
+    //
+    // 4: `-R *:0:localhost:###`  (server_port().is_dynamic() == true)
+    //    As in (2), but with a hostname containing wildcards.
+    //
+    // If the upstream server simply failed to connect, we would have received a channel open
+    // failure instead.
     const auto& requestedHost = metadata_.matched_permission().requested_host();
-    bool isFirstMsgReceived = tx_bytes_total_ == 0;
-    bool requestedHostHasWildcards = (requestedHost == "" || requestedHost == "localhost" ||
-                                      requestedHost.contains("*") || requestedHost.contains("?"));
-    if (isFirstMsgReceived && !metadata_.server_port().is_dynamic() && requestedHostHasWildcards) {
+    bool requestedHostHasWildcards = (requestedHost == "" ||
+                                      requestedHost.contains("*") ||
+                                      requestedHost.contains("?"));
+    const auto& upstreamAddr = upstream_address_->socket_address().address();
+    auto upstreamPort = upstream_address_->socket_address().port_value();
+    const auto& routeInfo = metadata_.pomerium_route_info();
+
+    if (tx_bytes_total_ == 0 && !metadata_.server_port().is_dynamic()) {
+      // Case (1)
       pomerium::extensions::ssh::Diagnostic diag;
       diag.set_severity(pomerium::extensions::ssh::Diagnostic::Warning);
       diag.set_message("ssh client may be expecting dynamic port-forwarding");
 
       auto requestedPort = metadata_.matched_permission().requested_port();
-      const auto& upstreamAddr = upstream_address_->socket_address().address();
-      auto upstreamPort = upstream_address_->socket_address().port_value();
       if (requestedHost == "localhost") {
-        // The -R syntax that sends 'localhost' is slightly different
-        diag.add_hints(fmt::format("try requesting port 0 instead of {} (ex: '-R :0')", requestedPort));
+        // The -R syntax that sends 'localhost' is slightly different (no leading ':')
+        diag.add_hints(fmt::format("request port 0 instead of {} (ex: '-R 0')", requestedPort));
         diag.add_hints(fmt::format("or, specify a local host:port (ex: '-R {}:{}:{}')",
                                    metadata_.server_port().value(),
                                    upstreamAddr, upstreamPort));
       } else {
-        diag.add_hints(fmt::format("try requesting port 0 instead of {} (ex: '-R {}:0')",
+        diag.add_hints(fmt::format("request port 0 instead of {} (ex: '-R {}:0')",
                                    requestedPort, requestedHost));
-        diag.add_hints(fmt::format("or, specify a local host:port (ex: '-R {}:{}:{}:{}')",
-                                   requestedHost,
-                                   metadata_.server_port().value(),
-                                   upstreamAddr, upstreamPort));
+        if (!requestedHostHasWildcards) {
+          // This would be an invalid command if there were wildcards in the host name
+          diag.add_hints(fmt::format("or, specify a local host:port (ex: '-R {}:{}:{}:{}')",
+                                     requestedHost,
+                                     metadata_.server_port().value(),
+                                     upstreamAddr, upstreamPort));
+        }
       }
       diagnostics_.push_back(std::move(diag));
+    } else if (rx_bytes_total_ == 3 && metadata_.server_port().is_dynamic()) {
+      // Technically the condition below could be simplified, but this is better modeled as two
+      // separate scenarios: either we never heard back from the server (likely a timeout) or
+      // the server replied with an error after reading the 3-byte socks5 header, and the size of
+      // that reply exactly matches with the value of tx_bytes_total_.
+      if (tx_bytes_total_ == 0 ||
+          (server_response.has_value() && server_response->size() == tx_bytes_total_)) {
+        // Case (2)
+        pomerium::extensions::ssh::Diagnostic diag;
+        diag.set_severity(pomerium::extensions::ssh::Diagnostic::Warning);
+        diag.set_message("ssh client may be expecting static port-forwarding");
+
+        if (requestedHost == "localhost") {
+          diag.add_hints("when requesting port 0, do not specify a local host:port (ex: '-R 0')");
+          diag.add_hints(fmt::format("or, request port {} directly and provide a hostname (ex: '-R {}:{}:{}:{}')",
+                                     routeInfo.port(),
+                                     routeInfo.hostname(), routeInfo.port(), upstreamAddr, upstreamPort));
+        } else {
+          diag.add_hints(fmt::format("when requesting port 0, do not specify a local host:port (ex: '-R {}:0')",
+                                     requestedHost));
+          if (!requestedHostHasWildcards) {
+            diag.add_hints(fmt::format("or, request port {} directly (ex: '-R {}:{}:{}:{}')",
+                                       routeInfo.port(),
+                                       routeInfo.hostname(), routeInfo.port(), upstreamAddr, upstreamPort));
+          }
+        }
+        diagnostics_.push_back(std::move(diag));
+      }
     }
   }
 

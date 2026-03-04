@@ -12,6 +12,7 @@ namespace test {
 class MockSocks5ChannelCallbacks : public Socks5ChannelCallbacks {
 public:
   MOCK_METHOD(void, writeChannelData, (bytes&&));
+  MOCK_METHOD(void, onProtocolMismatch, (bytes&&));
 };
 
 static const auto AddressParams = testing::ValuesIn(std::vector<std::pair<envoy::config::core::v3::Address, bytes>>{
@@ -91,9 +92,25 @@ TEST_P(MethodSelectionTest, WrongProtocol) {
   Buffer::OwnedImpl buffer;
   buffer.writeByte(0x04);
   buffer.writeByte(0x00);
-  ASSERT_EQ(absl::InvalidArgumentError("socks5: invalid version"),
+  EXPECT_CALL(callbacks_, onProtocolMismatch("\x04\x00"_bytes));
+  ASSERT_EQ(absl::InvalidArgumentError("socks5: upstream protocol error"),
             handshaker_.readChannelData(buffer));
   EXPECT_EQ(2, buffer.length());
+}
+
+TEST_P(MethodSelectionTest, WrongProtocol_HttpResponse) {
+  Buffer::OwnedImpl buffer;
+  // the response should be treated as opaque, same as in the previous test (as long as the first byte is not 0x05)
+  auto httpResponse = "HTTP/1.1 400 Bad Request\r\ncontent-length: 11\r\ncontent-type: text/plain\r\nconnection: close\r\n\r\nBad Request"sv;
+  buffer.add(httpResponse);
+  auto len = buffer.length();
+  EXPECT_CALL(callbacks_, onProtocolMismatch(to_bytes(httpResponse)));
+  ASSERT_EQ(absl::InvalidArgumentError("socks5: upstream protocol error"),
+            handshaker_.readChannelData(buffer));
+  // I don't think it matters whether or not the window buffer gets drained here, as long as
+  // readChannelData returns an error. Once the upstream error flag is set, it will stop reading
+  // even if there is more data left in the buffer.
+  EXPECT_EQ(len, buffer.length());
 }
 
 TEST_P(MethodSelectionTest, AuthRequired) {
