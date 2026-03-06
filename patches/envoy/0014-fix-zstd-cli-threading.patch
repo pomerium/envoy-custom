@@ -1,0 +1,13 @@
+diff --git a/bazel/external/zstd.BUILD b/bazel/external/zstd.BUILD
+index f8b9c93908..51040c8e98 100644
+--- a/bazel/external/zstd.BUILD
++++ b/bazel/external/zstd.BUILD
+@@ -56,7 +56,7 @@ cc_library(
+     includes = ["lib"],
+     linkopts = ["-pthread"],
+     linkstatic = True,
+-    local_defines = [
++    defines = [
+         "XXH_NAMESPACE=ZSTD_",
+         "ZSTD_MULTITHREAD",
+         "ZSTD_BUILD_SHARED=OFF",

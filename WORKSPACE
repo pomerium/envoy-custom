@@ -57,6 +57,10 @@ http_archive(
         "//patches/envoy:0008-fake-upstream.patch",
         "//patches/envoy:0009-fix-integration-test-server-exit.patch",
         "//patches/envoy:0010-fix-mock-connection-race.patch",
+        "//patches/envoy:0011-symbolizer-env.patch",
+        "//patches/envoy:0012-foreign-cc-toolchains.patch",
+        "//patches/envoy:0013-no-stdlib-deps.patch",
+        "//patches/envoy:0014-fix-zstd-cli-threading.patch",
         "//patches/envoy:tmp-transport-socket-options.patch",
     ],
     sha256 = "bb111b2037e35d8732f12f003ccf82e0d09dfc8a8b7810e849eb081f36d50ddc",
@@ -188,3 +192,20 @@ envoy_http_archive(
         ),
     ),
 )
+
+rules_oci_version = "2.2.6"
+
+http_archive(
+    name = "rules_oci",
+    sha256 = "5994ec0e8df92c319ef5da5e1f9b514628ceb8fc5824b4234f2fe635abb8cc2e",
+    strip_prefix = "rules_oci-" + rules_oci_version,
+    url = "https://github.com/bazel-contrib/rules_oci/releases/download/v" + rules_oci_version + "/rules_oci-v" + rules_oci_version + ".tar.gz",
+)
+
+load("@rules_oci//oci:dependencies.bzl", "rules_oci_dependencies")
+
+rules_oci_dependencies()
+
+load("@rules_oci//oci:repositories.bzl", "oci_register_toolchains")
+
+oci_register_toolchains(name = "oci")
