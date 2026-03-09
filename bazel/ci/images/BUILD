@@ -1,6 +1,5 @@
 load("@aspect_bazel_lib//lib:jq.bzl", "jq")
-
-repo_name = "pomerium/envoy-custom"
+load(":oci.bzl", "REPO_NAME")
 
 # List of jq expressions to generate image tags
 tag_exprs = [
@@ -18,9 +17,20 @@ jq(
         "-r",
         "--arg",
         "repo",
-        repo_name,
+        REPO_NAME,
     ],
     filter = "[%s]" % ",".join(tag_exprs) + r'| map("\($repo):\(.)") | .[]',
+    visibility = ["//visibility:public"],
+)
+
+jq(
+    name = "remote_tags",
+    srcs = ["//bazel/build_info:stable_status"],
+    out = "remote_tags.txt",
+    args = [
+        "-r",
+    ],
+    filter = "[%s]" % ",".join(tag_exprs) + r"| .[]",
     visibility = ["//visibility:public"],
 )
 
