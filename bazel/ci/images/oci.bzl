@@ -1,5 +1,9 @@
+load("@aspect_bazel_lib//lib:expand_template.bzl", "expand_template")
+load("@aspect_bazel_lib//lib:jq.bzl", "jq")
+load("@aspect_bazel_lib//lib:paths.bzl", "BASH_RLOCATION_FUNCTION", "to_rlocation_path")
 load("@rules_oci//oci:defs.bzl", "oci_image", "oci_image_index", "oci_load", "oci_push")
 load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
+load("//bazel/ci/images:update_index.bzl", "oci_update_index")
 
 REPO_NAME = "pomerium/envoy-custom"
 
@@ -30,19 +34,18 @@ def image(name, srcs):
         entrypoint = ["/envoy"],
     )
 
-    oci_image_index(
-        name = name,
-        images = [
-            _img_name,
-        ],
+    oci_push(
+        name = "push." + _img_name,
+        image = _img_name,
+        repository = REPO_NAME,
         visibility = ["//visibility:public"],
     )
 
-    oci_push(
-        name = "push." + name,
-        image = name,
+    oci_update_index(
+        name = "update_index." + _img_name,
         repository = REPO_NAME,
-        remote_tags = "//bazel/ci/images:remote_tags",
+        manifest_digest = _img_name + ".digest",
+        index_tags = "//bazel/ci/images:remote_tags",
         visibility = ["//visibility:public"],
     )
 
