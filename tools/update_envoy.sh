@@ -31,5 +31,8 @@ curl -fsSL https://raw.githubusercontent.com/envoyproxy/envoy/$_commit/.bazelver
 # Update envoy .bazelrc file.
 curl -fsSL https://raw.githubusercontent.com/envoyproxy/envoy/$_commit/.bazelrc > "$_dir/envoy.bazelrc"
 
+# Update envoy bazel/get_workspace_status script
+curl -fsSL https://raw.githubusercontent.com/envoyproxy/envoy/$_commit/bazel/get_workspace_status > "$_dir/bazel/envoy.get_workspace_status"
+
 # Replay our local customizations to the upstream .bazelrc file
-git apply "$_dir/patches/envoy.bazelrc.patch"
+patch -p1 envoy.bazelrc "$_dir/patches/envoy.bazelrc.patch"

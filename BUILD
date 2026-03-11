@@ -79,8 +79,8 @@ configure_make(
     ],
     visibility = ["//visibility:public"],
     deps = [
-        "@envoy//bazel:boringcrypto",
-        "@envoy//bazel:boringssl",
+        "@envoy//bazel:crypto",
+        "@envoy//bazel:ssl",
     ],
 )
 
