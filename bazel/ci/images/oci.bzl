@@ -34,17 +34,11 @@ def image(name, srcs):
         entrypoint = ["/envoy"],
     )
 
-    oci_push(
-        name = _img_name + "_push_untagged",
-        image = _img_name,
-        repository = REPO_NAME,
-    )
-
     oci_update_index(
         name = "update_index." + name,
         repository = REPO_NAME,
+        image = _img_name,
         manifest_digest = _img_name + ".digest",
-        push_image = _img_name + "_push_untagged",
         index_tags = "//bazel/ci/images:remote_tags",
         visibility = ["//visibility:public"],
     )
