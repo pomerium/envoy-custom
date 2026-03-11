@@ -489,6 +489,6 @@ envoy_cc_benchmark_binary(
     deps = [
         "//source/extensions/filters/network/ssh:pomerium_ssh",
         "//test/test_common:test_common_lib",
-        "@com_github_google_benchmark//:benchmark",
+        "@benchmark",
     ],
 )
