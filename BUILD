@@ -4,6 +4,7 @@ load(
 )
 load("@hedron_compile_commands//:refresh_compile_commands.bzl", "refresh_compile_commands")
 load("@rules_foreign_cc//foreign_cc:configure.bzl", "configure_make")
+load("//bazel/ci/images:oci.bzl", "image")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -25,6 +26,16 @@ envoy_cc_binary(
         "//source/extensions/tracers/pomerium_otel",
         "@envoy//source/exe:envoy_main_entry_lib",
     ],
+)
+
+image(
+    name = "envoy.image",
+    srcs = [":envoy"],
+)
+
+image(
+    name = "envoy.stripped.image",
+    srcs = [":envoy.stripped"],
 )
 
 configure_make(

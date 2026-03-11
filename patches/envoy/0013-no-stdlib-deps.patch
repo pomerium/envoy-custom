@@ -1,0 +1,15 @@
+diff --git a/bazel/envoy_internal.bzl b/bazel/envoy_internal.bzl
+index f6d6eac6e1..6ce4addd20 100644
+--- a/bazel/envoy_internal.bzl
++++ b/bazel/envoy_internal.bzl
+@@ -177,9 +177,7 @@ def envoy_select_force_libcpp(if_libcpp, default = None):
+     })
+ 
+ def envoy_stdlib_deps():
+-    return select({
+-        "//conditions:default": ["@envoy//bazel:static_stdlib"],
+-    })
++    return []
+ 
+ def envoy_dbg_linkopts():
+     return select({
