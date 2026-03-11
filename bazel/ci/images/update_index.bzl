@@ -1,11 +1,20 @@
 load("@aspect_bazel_lib//lib:paths.bzl", "BASH_RLOCATION_FUNCTION", "to_rlocation_path")
 
 def _impl(ctx):
+    push_image_log = ctx.actions.declare_file("push_image.log")
+    ctx.actions.run(
+        executable = ctx.file.push_image,
+        progress_message = "Pushing untagged image",
+        outputs = [push_image_log],
+    )
+
     crane = ctx.attr._crane[platform_common.ToolchainInfo]
+    jq = ctx.attr._jq[platform_common.ToolchainInfo]
     executable = ctx.actions.declare_file("update_index_%s.sh" % ctx.label.name)
     substitutions = {
         "{{BASH_RLOCATION_FUNCTION}}": BASH_RLOCATION_FUNCTION,
         "{{crane_path}}": to_rlocation_path(ctx, crane.crane_info.binary),
+        "{{jq_path}}": to_rlocation_path(ctx, jq.jqinfo.bin),
         "{{manifest_digest_file}}": to_rlocation_path(ctx, ctx.file.manifest_digest),
         "{{index_tags_file}}": to_rlocation_path(ctx, ctx.file.index_tags),
         "{{repository}}": ctx.attr.repository,
@@ -22,6 +31,7 @@ def _impl(ctx):
         files = [ctx.file.manifest_digest, ctx.file.index_tags],
     )
     runfiles = runfiles.merge(crane.default.default_runfiles)
+    runfiles = runfiles.merge(jq.default.default_runfiles)
     runfiles = runfiles.merge(ctx.attr._runfiles.default_runfiles)
     return DefaultInfo(executable = executable, runfiles = runfiles)
 
@@ -39,6 +49,11 @@ oci_update_index = rule(
             mandatory = True,
             allow_single_file = True,
         ),
+        "push_image": attr.label(
+            executable = True,
+            cfg = "exec",
+            allow_single_file = True,
+        ),
         "_crane": attr.label(
             default = "@oci_crane_toolchains//:current_toolchain",
             cfg = "exec",
@@ -49,6 +64,10 @@ oci_update_index = rule(
         ),
         "_runfiles": attr.label(
             default = "@bazel_tools//tools/bash/runfiles",
+        ),
+        "_jq": attr.label(
+            default = "@jq_toolchains//:resolved_toolchain",
+            cfg = "exec",
         ),
     },
     toolchains = ["@bazel_tools//tools/sh:toolchain_type"],

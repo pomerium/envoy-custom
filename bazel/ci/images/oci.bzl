@@ -35,16 +35,16 @@ def image(name, srcs):
     )
 
     oci_push(
-        name = "push." + _img_name,
+        name = _img_name + "_push_untagged",
         image = _img_name,
         repository = REPO_NAME,
-        visibility = ["//visibility:public"],
     )
 
     oci_update_index(
-        name = "update_index." + _img_name,
+        name = "update_index." + name,
         repository = REPO_NAME,
         manifest_digest = _img_name + ".digest",
+        push_image = _img_name + "_push_untagged",
         index_tags = "//bazel/ci/images:remote_tags",
         visibility = ["//visibility:public"],
     )
