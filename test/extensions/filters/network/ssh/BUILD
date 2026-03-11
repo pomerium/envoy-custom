@@ -17,9 +17,9 @@ envoy_cc_mock(
     hdrs = ["test_mocks.h"],
     repository = "@envoy",
     deps = [
-        "//:openssh",
         "//source/extensions/filters/network/ssh:pomerium_ssh",
         "@envoy//test/mocks/stats:stats_mocks",
+        "@openssh_portable//:libssh",
     ],
 )
 
@@ -89,10 +89,10 @@ envoy_cc_test(
     ],
     repository = "@envoy",
     deps = [
-        "//:openssh",
         "//source/extensions/filters/network/ssh:pomerium_ssh",
         "//test/extensions/filters/network/ssh/wire:wire_test_util",
         "@envoy//test/test_common:environment_lib",
+        "@openssh_portable//:libssh",
     ],
 )
 
@@ -157,10 +157,10 @@ envoy_cc_test(
     ],
     repository = "@envoy",
     deps = [
-        "//:openssh",
         "//source/extensions/filters/network/ssh:pomerium_ssh",
         "//test/extensions/filters/network/ssh/wire:wire_test_util",
         "@envoy//test/test_common:environment_lib",
+        "@openssh_portable//:libssh",
     ],
 )
 
@@ -171,10 +171,10 @@ envoy_cc_test(
     ],
     repository = "@envoy",
     deps = [
-        "//:openssh",
         "//source/extensions/filters/network/ssh:pomerium_ssh",
         "//test/extensions/filters/network/ssh/wire:wire_test_util",
         "@envoy//test/test_common:environment_lib",
+        "@openssh_portable//:libssh",
     ],
 )
 
