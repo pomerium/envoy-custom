@@ -17,7 +17,7 @@ envoy_cc_test(
     deps = [
         "//source/extensions/http/early_header_mutation/trace_context:pomerium_trace_context",
         "//source/extensions/http/early_header_mutation/trace_context:trace_context_cc_proto",
-        "@com_google_absl//absl/random",
+        "@abseil-cpp//absl/random",
         "@envoy//source/common/common:random_generator_lib",
         "@envoy//test/mocks/runtime:runtime_mocks",
         "@envoy//test/mocks/server:factory_context_mocks",
