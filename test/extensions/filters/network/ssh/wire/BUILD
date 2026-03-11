@@ -14,7 +14,7 @@ envoy_cc_test(
         ":wire_test_mocks",
         ":wire_test_util",
         "//source/extensions/filters/network/ssh/wire:wire_lib",
-        "@com_google_absl//absl/random",
+        "@abseil-cpp//absl/random",
         "@envoy//source/common/common:random_generator_lib",
         "@envoy//test/mocks/runtime:runtime_mocks",
         "@envoy//test/mocks/stream_info:stream_info_mocks",
@@ -29,7 +29,7 @@ envoy_cc_benchmark_binary(
     deps = [
         ":wire_test_util",
         "//source/extensions/filters/network/ssh/wire:wire_lib",
-        "@com_github_google_benchmark//:benchmark",
+        "@benchmark",
     ],
 )
 
@@ -40,7 +40,7 @@ envoy_cc_benchmark_binary(
     deps = [
         ":wire_test_util",
         "//source/extensions/filters/network/ssh/wire:wire_lib",
-        "@com_github_google_benchmark//:benchmark",
+        "@benchmark",
     ],
 )
 
@@ -52,7 +52,7 @@ envoy_cc_test(
         ":wire_test_mocks",
         ":wire_test_util",
         "//source/extensions/filters/network/ssh/wire:wire_lib",
-        "@com_google_absl//absl/random",
+        "@abseil-cpp//absl/random",
         "@envoy//source/common/common:random_generator_lib",
         "@envoy//test/mocks/runtime:runtime_mocks",
         "@envoy//test/mocks/stream_info:stream_info_mocks",
@@ -68,7 +68,7 @@ envoy_cc_test(
         ":wire_test_mocks",
         ":wire_test_util",
         "//source/extensions/filters/network/ssh/wire:wire_lib",
-        "@com_google_absl//absl/random",
+        "@abseil-cpp//absl/random",
         "@envoy//source/common/common:random_generator_lib",
         "@envoy//test/mocks/runtime:runtime_mocks",
         "@envoy//test/mocks/stream_info:stream_info_mocks",
@@ -84,7 +84,7 @@ envoy_cc_test(
         ":wire_test_mocks",
         ":wire_test_util",
         "//source/extensions/filters/network/ssh/wire:wire_lib",
-        "@com_google_absl//absl/random",
+        "@abseil-cpp//absl/random",
         "@envoy//source/common/common:random_generator_lib",
         "@envoy//test/mocks/runtime:runtime_mocks",
         "@envoy//test/mocks/stream_info:stream_info_mocks",
@@ -99,7 +99,7 @@ envoy_cc_test(
     deps = [
         ":wire_test_util",
         "//source/extensions/filters/network/ssh/wire:wire_lib",
-        "@com_google_absl//absl/random",
+        "@abseil-cpp//absl/random",
         "@envoy//source/common/common:random_generator_lib",
     ],
 )
@@ -116,7 +116,7 @@ envoy_cc_test_library(
         "//source/common:common_lib",
         "//source/extensions/filters/network/ssh/wire:wire_lib_common",
         "//test/test_common:test_common_lib",
-        "@com_google_absl//absl/random",
+        "@abseil-cpp//absl/random",
     ],
 )
 
