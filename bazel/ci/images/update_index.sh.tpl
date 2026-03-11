@@ -8,6 +8,7 @@ readonly JQ="$(rlocation "{{jq_path}}")"
 readonly MANIFEST_DIGEST_FILE="$(rlocation "{{manifest_digest_file}}")"
 readonly REPOSITORY="{{repository}}"
 readonly INDEX_TAGS_FILE="$(rlocation "{{index_tags_file}}")"
+readonly IMAGE_DIR="$(rlocation "{{image_dir}}")"
 
 MANIFEST_DIGEST="$(tr -d '\n' <"${MANIFEST_DIGEST_FILE}")"
 
@@ -21,17 +22,19 @@ index_exists=false
 
 function fetch_index() {
   local tag="$1"
+  set +e
   index_manifest=$("${CRANE}" manifest "${REPOSITORY}:${tag}" 2>/dev/null)
   if [ $? = 0 ]; then
     index_exists=true
   else
     index_exists=false
   fi
+  set -e
 }
 
 function index_contains() {
   if [ $index_exists = false ]; then
-    return 0
+    return 1
   fi
   local contains
   contains=$("${JQ}" '[(.manifests // [])[] | select(.digest == $digest)] | any' --arg digest "$1" <<<"${index_manifest}") || exit 1
@@ -49,10 +52,10 @@ function update() {
   fi
   while ((retries_remaining > 0)); do
     if [ $index_exists = true ]; then
-      echo "=> creating index"
+      echo "=> updating existing index"
       "${CRANE}" index append -m "${REPOSITORY}@${MANIFEST_DIGEST}" "${REPOSITORY}:${tag}"
     else
-      echo "=> updating existing index"
+      echo "=> creating index"
       "${CRANE}" index append -m "${REPOSITORY}@${MANIFEST_DIGEST}" -t "${REPOSITORY}:${tag}"
     fi
     fetch_index "${tag}"
@@ -70,6 +73,10 @@ function update() {
   return 1
 }
 
+# Push the untagged image
+"${CRANE}" push "${IMAGE_DIR}" "${REPOSITORY}@${MANIFEST_DIGEST}"
+
+# Create or update the index
 while IFS=$'\n' read -r index_tag; do
   index_manifest=""
   index_exists=false

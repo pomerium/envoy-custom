@@ -1,12 +1,8 @@
 load("@aspect_bazel_lib//lib:paths.bzl", "BASH_RLOCATION_FUNCTION", "to_rlocation_path")
 
 def _impl(ctx):
-    push_image_log = ctx.actions.declare_file("push_image.log")
-    ctx.actions.run(
-        executable = ctx.file.push_image,
-        progress_message = "Pushing untagged image",
-        outputs = [push_image_log],
-    )
+    if not ctx.file.image.is_directory:
+        fail("image attribute must be a oci_image or oci_image_index")
 
     crane = ctx.attr._crane[platform_common.ToolchainInfo]
     jq = ctx.attr._jq[platform_common.ToolchainInfo]
@@ -17,6 +13,7 @@ def _impl(ctx):
         "{{jq_path}}": to_rlocation_path(ctx, jq.jqinfo.bin),
         "{{manifest_digest_file}}": to_rlocation_path(ctx, ctx.file.manifest_digest),
         "{{index_tags_file}}": to_rlocation_path(ctx, ctx.file.index_tags),
+        "{{image_dir}}": to_rlocation_path(ctx, ctx.file.image),
         "{{repository}}": ctx.attr.repository,
     }
 
@@ -28,10 +25,15 @@ def _impl(ctx):
     )
 
     runfiles = ctx.runfiles(
-        files = [ctx.file.manifest_digest, ctx.file.index_tags],
+        files = [
+            ctx.file.image,
+            ctx.file.manifest_digest,
+            ctx.file.index_tags,
+        ],
     )
     runfiles = runfiles.merge(crane.default.default_runfiles)
     runfiles = runfiles.merge(jq.default.default_runfiles)
+    runfiles = runfiles.merge(ctx.attr.image[DefaultInfo].default_runfiles)
     runfiles = runfiles.merge(ctx.attr._runfiles.default_runfiles)
     return DefaultInfo(executable = executable, runfiles = runfiles)
 
@@ -41,17 +43,16 @@ oci_update_index = rule(
         "repository": attr.string(
             mandatory = True,
         ),
+        "image": attr.label(
+            mandatory = True,
+            allow_single_file = True,
+        ),
         "manifest_digest": attr.label(
             mandatory = True,
             allow_single_file = True,
         ),
         "index_tags": attr.label(
             mandatory = True,
-            allow_single_file = True,
-        ),
-        "push_image": attr.label(
-            executable = True,
-            cfg = "exec",
             allow_single_file = True,
         ),
         "_crane": attr.label(
