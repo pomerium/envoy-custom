@@ -15,6 +15,7 @@ class Socks5ChannelCallbacks {
 public:
   virtual ~Socks5ChannelCallbacks() = default;
   virtual void writeChannelData(bytes&& bytes) PURE;
+  virtual void onProtocolMismatch(bytes&& server_response) PURE;
 };
 
 class Socks5ClientHandshaker : public Logger::Loggable<Logger::Id::filter> {
