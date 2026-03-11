@@ -27,7 +27,7 @@ load("@hedron_compile_commands//:workspace_setup_transitive_transitive_transitiv
 
 hedron_compile_commands_setup_transitive_transitive_transitive()
 
-envoy_version = "6d9bb7d9a85d616b220d1f8fe67b61f82bbdb8d3"
+envoy_version = "d53e7e2ec0249a71e1c50045df356772baf1d0c9"
 
 openssh_version = "V_10_2_P1"
 
@@ -48,7 +48,6 @@ http_archive(
     patch_tool = "patch",
     patches = [
         "//patches/envoy:0001-revert-deps-drop-BoringSSL-linkstatic-patch-38621.patch",
-        "//patches/envoy:0002-bump-dependencies.patch",
         "//patches/envoy:0003-envoy-copts.patch",
         "//patches/envoy:0004-protoc-gen-validate.patch",
         "//patches/envoy:0005-suppress-duplicate-wip-warnings.patch",
@@ -63,7 +62,7 @@ http_archive(
         "//patches/envoy:0014-fix-zstd-cli-threading.patch",
         "//patches/envoy:tmp-transport-socket-options.patch",
     ],
-    sha256 = "bb111b2037e35d8732f12f003ccf82e0d09dfc8a8b7810e849eb081f36d50ddc",
+    sha256 = "8fd77ba2fc8608731c4f0f39b94c22931a0bbc611b37526598ca557e7c6ce1bf",
     strip_prefix = "envoy-" + envoy_version,
     url = "https://github.com/envoyproxy/envoy/archive/" + envoy_version + ".zip",
 )
