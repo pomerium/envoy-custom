@@ -15,7 +15,7 @@ jobs:
       github.event_name != 'pull_request'
       || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready')
     runs-on: gebru
-    timeout-minutes: 60
+    timeout-minutes: 120
     permissions:
       contents: read
 
@@ -50,7 +50,8 @@ jobs:
           common:gebru --remote_executor=grpc://frontend.buildbarn.svc.cluster.local:8980
           common:gebru --remote_cache=grpc://frontend.buildbarn.svc.cluster.local:8980
           common:gebru --jobs=64
-          common:gebru --remote_timeout=3600
+  pull_request:
+          common:gebru --remote_timeout=7200
           common:gebru --spawn_strategy=remote,sandboxed,local
           common:gebru --remote_max_connections=100
           build:gebru --host_platform=@local_config_platform//:host
@@ -74,7 +75,7 @@ jobs:
       github.event_name != 'pull_request'
       || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready')
     runs-on: gebru
-    timeout-minutes: 60
+    timeout-minutes: 120
     permissions:
       contents: read
 
@@ -108,7 +109,7 @@ jobs:
           common:gebru --remote_executor=grpc://frontend.buildbarn.svc.cluster.local:8980
           common:gebru --remote_cache=grpc://frontend.buildbarn.svc.cluster.local:8980
           common:gebru --jobs=64
-          common:gebru --remote_timeout=3600
+          common:gebru --remote_timeout=7200
           common:gebru --spawn_strategy=remote,sandboxed,local
           common:gebru --remote_max_connections=100
           build:gebru --host_platform=@local_config_platform//:host
