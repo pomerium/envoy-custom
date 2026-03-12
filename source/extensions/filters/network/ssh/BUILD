@@ -8,6 +8,26 @@ package(default_visibility = ["//visibility:public"])
 licenses(["notice"])
 
 envoy_cc_library(
+    name = "openssh_lib",
+    srcs = [
+        "openssh.cc",
+    ],
+    hdrs = [
+        "openssh.h",
+    ],
+    repository = "@envoy",
+    deps = [
+        ":ssh_common_lib",
+        "//api/extensions/filters/network/ssh:pkg_cc_proto",
+        "//source/common:common_lib",
+        "//source/extensions/filters/network/ssh/wire:wire_lib",
+        "@envoy//source/common/buffer:buffer_lib",
+        "@openssh_portable//:libssh",
+    ],
+    alwayslink = True,
+)
+
+envoy_cc_library(
     name = "pomerium_ssh",
     srcs = [
         "channel.cc",
@@ -21,7 +41,6 @@ envoy_cc_library(
         "kex_alg.cc",
         "kex_alg_curve25519.cc",
         "kex_alg_mlkem.cc",
-        "openssh.cc",
         "packet_cipher.cc",
         "packet_cipher_aead.cc",
         "packet_cipher_etm.cc",
@@ -47,7 +66,6 @@ envoy_cc_library(
         "kex_alg_curve25519.h",
         "kex_alg_mlkem.h",
         "message_handler.h",
-        "openssh.h",
         "packet_cipher.h",
         "packet_cipher_aead.h",
         "packet_cipher_etm.h",
@@ -70,8 +88,8 @@ envoy_cc_library(
     ],
     repository = "@envoy",
     deps = [
+        ":openssh_lib",
         ":ssh_common_lib",
-        "//:openssh",
         "//api/extensions/filters/network/ssh:pkg_cc_proto",
         "//source/common:common_lib",
         "//source/extensions/filters/network/ssh/wire:wire_lib",
