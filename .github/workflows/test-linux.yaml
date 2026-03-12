@@ -50,7 +50,6 @@ jobs:
           common:gebru --remote_executor=grpc://frontend.buildbarn.svc.cluster.local:8980
           common:gebru --remote_cache=grpc://frontend.buildbarn.svc.cluster.local:8980
           common:gebru --jobs=64
-  pull_request:
           common:gebru --remote_timeout=7200
           common:gebru --spawn_strategy=remote,sandboxed,local
           common:gebru --remote_max_connections=100
