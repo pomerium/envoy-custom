@@ -6,10 +6,14 @@ on:
 
 jobs:
   build:
-    # Skip if PR has ci-not-ready label (matches existing CI pattern)
-    if: "!contains(github.event.pull_request.labels.*.name, 'ci-not-ready')"
-    runs-on: self-hosted
-    environment: buildbarn
+    # Only run on gebru for authors with write access (OWNER/MEMBER/COLLABORATOR).
+    # Push and workflow_dispatch already require write access; this gates PRs.
+    # Also skip if PR has ci-not-ready label.
+    if: >-
+      !contains(github.event.pull_request.labels.*.name, 'ci-not-ready')
+      && (github.event_name != 'pull_request'
+          || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association))
+    runs-on: gebru
     timeout-minutes: 60
     permissions:
       contents: read
@@ -24,12 +28,28 @@ jobs:
           repository-cache: true
           # No disk-cache — BuildBarn provides remote caching
 
+      - name: Configure LLVM toolchain for remote workers
+        run: |
+          # Generate clang.bazelrc pointing to /toolchains — the LLVM
+          # installation path inside BuildBarn's worker container image
+          # (joekralicky/envoy-build). This is imported via envoy.bazelrc's
+          # "try-import %workspace%/clang.bazelrc" and causes toolchains.bzl
+          # to set toolchain_roots = "/toolchains" instead of downloading LLVM.
+          cat > clang.bazelrc << 'CLANGRC'
+          build:clang --host_action_env=PATH=/toolchains/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin --action_env=PATH=/toolchains/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+          build:clang --action_env=LLVM_CONFIG=/toolchains/bin/llvm-config --host_action_env=LLVM_CONFIG=/toolchains/bin/llvm-config
+          build:clang --repo_env=LLVM_CONFIG=/toolchains/bin/llvm-config
+          build:clang --linkopt=-L/toolchains/lib
+          build:clang --linkopt=-Wl,-rpath,/toolchains/lib
+          build:asan --linkopt=-L/toolchains/lib/clang/19/lib/x86_64-unknown-linux-gnu
+          CLANGRC
+
       - name: Configure remote execution
         run: |
           cat >> user.bazelrc << 'BAZELRC'
-          # BuildBarn remote execution on localhost (self-hosted runner on gebru)
-          common:gebru --remote_executor=grpc://localhost:8980
-          common:gebru --remote_cache=grpc://localhost:8980
+          # BuildBarn remote execution via k8s service DNS (runner pod → frontend pod)
+          common:gebru --remote_executor=grpc://frontend.buildbarn.svc.cluster.local:8980
+          common:gebru --remote_cache=grpc://frontend.buildbarn.svc.cluster.local:8980
           common:gebru --jobs=64
           common:gebru --remote_timeout=3600
           common:gebru --spawn_strategy=remote,sandboxed,local
@@ -39,10 +59,14 @@ jobs:
           # exec_properties from @clang_platform / @envoy//bazel/platforms/rbe
           build:gebru --host_platform=@local_config_platform//:host
 
-          # Download top-level outputs only — localhost transfers are fast,
+          # Download top-level outputs only — cluster-internal transfers are fast,
           # and we may want the binary for testing. Intermediate artifacts
           # stay in BuildBarn's CAS.
           build:gebru --remote_download_toplevel
+
+          # Remote exec properties — tell BuildBarn which worker image to use.
+          # Must match the platform properties in the BuildBarn worker config.
+          build:gebru --remote_default_exec_properties=container-image=docker://docker.io/joekralicky/envoy-build@sha256:66cc767c0c5c8a851c1234ad52ea8fecae555bdab6e70d9d583119c4795aa71a
           BAZELRC
 
       - name: Build Envoy
@@ -68,4 +92,4 @@ jobs:
           # Extract timing and process info from Bazel output
           grep -E "^INFO: (Elapsed time|Found|[0-9]+ process)" build.log >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "*Remote executor: BuildBarn on gebru (localhost)*" >> $GITHUB_STEP_SUMMARY
+          echo "*Remote executor: BuildBarn on gebru (k8s cluster)*" >> $GITHUB_STEP_SUMMARY
