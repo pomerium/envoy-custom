@@ -12,7 +12,7 @@ jobs:
     if: >-
       !contains(github.event.pull_request.labels.*.name, 'ci-not-ready')
       && (github.event_name != 'pull_request'
-          || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association))
+      || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association))
     runs-on: gebru
     timeout-minutes: 60
     permissions:
