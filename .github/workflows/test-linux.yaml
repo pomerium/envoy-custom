@@ -23,15 +23,13 @@ jobs:
       - name: checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
-      - name: install lcov
-        run: sudo apt -y install lcov
-
-      - name: setup bazel
-        uses: bazel-contrib/setup-bazel@e8776f58fb6a6e9055cbaf1b38c52ccc5247e9c4
-        with:
-          bazelisk-version: 1.25.0
-          bazelisk-cache: true
-          repository-cache: true
+      - name: install dependencies
+        run: |
+          sudo apt-get update && sudo apt-get -y install lcov
+          curl -fsSL -o /usr/local/bin/bazel \
+            https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
+          chmod +x /usr/local/bin/bazel
+          bazel --version
 
       - name: configure LLVM toolchain for remote workers
         run: |
@@ -82,12 +80,12 @@ jobs:
       - name: checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
-      - name: setup bazel
-        uses: bazel-contrib/setup-bazel@e8776f58fb6a6e9055cbaf1b38c52ccc5247e9c4
-        with:
-          bazelisk-version: 1.25.0
-          bazelisk-cache: true
-          repository-cache: true
+      - name: install bazelisk
+        run: |
+          curl -fsSL -o /usr/local/bin/bazel \
+            https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
+          chmod +x /usr/local/bin/bazel
+          bazel --version
 
       - name: configure LLVM toolchain for remote workers
         run: |
