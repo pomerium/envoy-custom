@@ -15,6 +15,10 @@ def pomerium_envoy_toolchains():
         name = "llvm_toolchain",
         llvm_version = "19.1.1",
         cxx_standard = {"": "c++23"},
+        sysroot = {
+            "linux-x86_64": "@minimal_sysroot_linux_amd64//:sysroot",
+            "linux-aarch64": "@minimal_sysroot_linux_arm64//:sysroot",
+        },
         toolchain_roots = {"": LLVM_PATH} if LLVM_PATH else {},
         extra_compiler_files = None if LLVM_PATH else "@llvm_toolchain_llvm//:lib/clang/19/share/msan_ignorelist.txt",
         cxx_builtin_include_directories = {

@@ -71,6 +71,21 @@ load("@envoy//bazel:api_binding.bzl", "envoy_api_binding")
 
 envoy_api_binding()
 
+load("@envoy_api//bazel:envoy_http_archive.bzl", "envoy_http_archive")
+
+# override aspect_bazel_lib; upstream envoy downloads the wrong tarball
+envoy_http_archive(
+    name = "aspect_bazel_lib",
+    locations = {
+        "aspect_bazel_lib": {
+            "version": "2.21.2",
+            "sha256": "53cadea9109e646a93ed4dc90c9bbcaa8073c7c3df745b92f6a5000daf7aa3da",
+            "strip_prefix": "bazel-lib-2.21.2",
+            "urls": ["https://github.com/aspect-build/bazel-lib/releases/download/v2.21.2/bazel-lib-v2.21.2.tar.gz"],
+        },
+    },
+)
+
 load("@envoy//bazel:api_repositories.bzl", "envoy_api_dependencies")
 
 envoy_api_dependencies()
@@ -110,8 +125,6 @@ pomerium_envoy_toolchains()
 load("@llvm_toolchain//:toolchains.bzl", "llvm_register_toolchains")
 
 llvm_register_toolchains()
-
-load("@envoy_api//bazel:envoy_http_archive.bzl", "envoy_http_archive")
 
 envoy_http_archive(
     name = "openssh_portable",
@@ -180,11 +193,11 @@ envoy_http_archive(
     ),
 )
 
-rules_oci_version = "2.2.6"
+rules_oci_version = "2.2.7"
 
 http_archive(
     name = "rules_oci",
-    sha256 = "5994ec0e8df92c319ef5da5e1f9b514628ceb8fc5824b4234f2fe635abb8cc2e",
+    sha256 = "b8db7ab889d501db33313620b2c8040dbb07e95c26a0fefe06004b35baf80e08",
     strip_prefix = "rules_oci-" + rules_oci_version,
     url = "https://github.com/bazel-contrib/rules_oci/releases/download/v" + rules_oci_version + "/rules_oci-v" + rules_oci_version + ".tar.gz",
 )
@@ -196,3 +209,19 @@ rules_oci_dependencies()
 load("@rules_oci//oci:repositories.bzl", "oci_register_toolchains")
 
 oci_register_toolchains(name = "oci")
+
+load("//bazel/sysroots:load_sysroots.bzl", "load_sysroots")
+
+load_sysroots()
+
+load("//bazel/sysroots:minimal_sysroot.bzl", "minimal_sysroot")
+
+minimal_sysroot(
+    name = "minimal_sysroot_linux_amd64",
+    image = "@minimal_sysroot_image_linux_amd64",
+)
+
+minimal_sysroot(
+    name = "minimal_sysroot_linux_arm64",
+    image = "@minimal_sysroot_image_linux_arm64",
+)
