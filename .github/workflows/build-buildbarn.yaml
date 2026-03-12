@@ -18,10 +18,12 @@ jobs:
 
       - name: Install Bazelisk
         run: |
-          curl -fsSL -o /usr/local/bin/bazel \
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL -o "$HOME/.local/bin/bazel" \
             https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
-          chmod +x /usr/local/bin/bazel
-          bazel --version
+          chmod +x "$HOME/.local/bin/bazel"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/bazel" --version
 
       - name: Configure LLVM toolchain for remote workers
         run: |

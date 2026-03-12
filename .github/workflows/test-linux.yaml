@@ -26,10 +26,12 @@ jobs:
       - name: install dependencies
         run: |
           sudo apt-get update && sudo apt-get -y install lcov
-          curl -fsSL -o /usr/local/bin/bazel \
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL -o "$HOME/.local/bin/bazel" \
             https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
-          chmod +x /usr/local/bin/bazel
-          bazel --version
+          chmod +x "$HOME/.local/bin/bazel"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/bazel" --version
 
       - name: configure LLVM toolchain for remote workers
         run: |
@@ -82,10 +84,12 @@ jobs:
 
       - name: install bazelisk
         run: |
-          curl -fsSL -o /usr/local/bin/bazel \
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL -o "$HOME/.local/bin/bazel" \
             https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
-          chmod +x /usr/local/bin/bazel
-          bazel --version
+          chmod +x "$HOME/.local/bin/bazel"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/bazel" --version
 
       - name: configure LLVM toolchain for remote workers
         run: |
