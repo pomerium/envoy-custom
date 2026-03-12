@@ -11,11 +11,9 @@ on:
 
 jobs:
   test-coverage:
-    # Only run on gebru for authors with write access; skip ci-not-ready PRs.
     if: >-
       github.event_name != 'pull_request'
-      || (!contains(github.event.pull_request.labels.*.name, 'ci-not-ready')
-      && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association))
+      || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready')
     runs-on: gebru
     timeout-minutes: 60
     permissions:
@@ -72,11 +70,9 @@ jobs:
           file: lcov
 
   test-asan:
-    # Only run on gebru for authors with write access; skip ci-not-ready PRs.
     if: >-
       github.event_name != 'pull_request'
-      || (!contains(github.event.pull_request.labels.*.name, 'ci-not-ready')
-      && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association))
+      || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready')
     runs-on: gebru
     timeout-minutes: 60
     permissions:

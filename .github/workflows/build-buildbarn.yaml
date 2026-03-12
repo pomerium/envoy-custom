@@ -6,13 +6,8 @@ on:
 
 jobs:
   build:
-    # Only run on gebru for authors with write access (OWNER/MEMBER/COLLABORATOR).
-    # Push and workflow_dispatch already require write access; this gates PRs.
-    # Also skip if PR has ci-not-ready label.
-    if: >-
-      !contains(github.event.pull_request.labels.*.name, 'ci-not-ready')
-      && (github.event_name != 'pull_request'
-      || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association))
+    # Skip if PR has ci-not-ready label
+    if: "!contains(github.event.pull_request.labels.*.name, 'ci-not-ready')"
     runs-on: gebru
     timeout-minutes: 60
     permissions:
