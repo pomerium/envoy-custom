@@ -1,0 +1,69 @@
+diff --git a/bazel/BUILD b/bazel/BUILD
+index 05ea3ea3cc..7880068a78 100644
+--- a/bazel/BUILD
++++ b/bazel/BUILD
+@@ -227,6 +227,14 @@ config_setting(
+     values = {"define": "tcmalloc=gperftools"},
+ )
+ 
++selects.config_setting_group(
++    name = "tcmalloc_disabled",
++    match_any = [
++        ":disable_tcmalloc",
++        ":apple",
++    ],
++)
++
+ config_setting(
+     name = "disable_signal_trace",
+     values = {"define": "signal_trace=disabled"},
+@@ -640,17 +648,25 @@ config_setting(
+ # easier. More details: https://docs.bazel.build/versions/master/configurable-attributes.html#config_settingaliasing
+ config_setting(
+     name = "darwin",
+-    values = {"cpu": "darwin"},
++    constraint_values = [
++        "@platforms//os:osx",
++    ],
+ )
+ 
+ config_setting(
+     name = "darwin_x86_64",
+-    values = {"cpu": "darwin_x86_64"},
++    constraint_values = [
++        "@platforms//os:osx",
++        "@platforms//cpu:x86_64",
++    ],
+ )
+ 
+ config_setting(
+     name = "darwin_arm64",
+-    values = {"cpu": "darwin_arm64"},
++    constraint_values = [
++        "@platforms//os:osx",
++        "@platforms//cpu:aarch64",
++    ],
+ )
+ 
+ config_setting(
+diff --git a/bazel/envoy_internal.bzl b/bazel/envoy_internal.bzl
+index 8282fb3e4f..8b260fa15a 100644
+--- a/bazel/envoy_internal.bzl
++++ b/bazel/envoy_internal.bzl
+@@ -89,14 +89,10 @@ def envoy_copts(repository, test = False):
+                _repo("//bazel:no_debug_info"): ["-g0"],
+                "//conditions:default": [],
+            }) + selects.with_or({
+-               _repo("//bazel:disable_tcmalloc"): ["-DABSL_MALLOC_HOOK_MMAP_DISABLE"],
++               _repo("//bazel:tcmalloc_disabled"): ["-DABSL_MALLOC_HOOK_MMAP_DISABLE"],
+                _repo("//bazel:debug_tcmalloc"): ["-DENVOY_MEMORY_DEBUG_ENABLED=1", "-DGPERFTOOLS_TCMALLOC"],
+                _repo("//bazel:gperftools_tcmalloc"): ["-DGPERFTOOLS_TCMALLOC"],
+-               (
+-                   "@platforms//cpu:x86_64",
+-                   "@platforms//cpu:aarch64",
+-               ): ["-DTCMALLOC"],
+-               "//conditions:default": ["-DGPERFTOOLS_TCMALLOC"],
++               "//conditions:default": ["-DTCMALLOC"],
+            }) + select({
+                _repo("//bazel:disable_object_dump_on_signal_trace"): [],
+                "//conditions:default": ["-DENVOY_OBJECT_TRACE_ON_DUMP"],

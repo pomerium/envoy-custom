@@ -130,7 +130,10 @@ cc_library(
     includes = [
         ".",
     ],
-    linkopts = ["-lcrypt"],
+    linkopts = select({
+        "@platforms//os:osx": ["-lresolv.9"],
+        "//conditions:default": ["-lcrypt"],
+    }),
     linkstatic = True,
     visibility = ["//visibility:public"],
     deps = [

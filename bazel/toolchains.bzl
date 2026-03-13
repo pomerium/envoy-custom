@@ -16,12 +16,12 @@ def pomerium_envoy_toolchains():
         cxx_standard = {"": "c++23"},
         sysroot = {
             "linux-x86_64": "@minimal_sysroot_linux_amd64//:sysroot",
-            # "linux-aarch64": "@minimal_sysroot_linux_arm64//:sysroot",
+            "linux-aarch64": "@minimal_sysroot_linux_arm64//:sysroot",
             "darwin-aarch64": "@macos_sysroot//:sysroot",
         },
-        cxx_lib = {
+        cxx_cross_lib = {
             "linux-x86_64": "@cxx_libs_linux_amd64//:cxx_libs",
-            # "linux-aarch64": "@cxx_libs_linux_arm64//:cxx_libs",
+            "linux-aarch64": "@cxx_libs_linux_arm64//:cxx_libs",
             "darwin-aarch64": "@cxx_libs_darwin_arm64//:cxx_libs",
         },
         libclang_rt = {
@@ -31,12 +31,12 @@ def pomerium_envoy_toolchains():
             "@cxx_libs_linux_arm64//lib:libclang_rt.builtins.a": "aarch64-unknown-linux-gnu/libclang_rt.builtins.a",
             "@cxx_libs_linux_arm64//lib:clang_rt.crtbegin.o": "aarch64-unknown-linux-gnu/clang_rt.crtbegin.o",
             "@cxx_libs_linux_arm64//lib:clang_rt.crtend.o": "aarch64-unknown-linux-gnu/clang_rt.crtend.o",
-            "@cxx_libs_darwin_arm64//lib:libclang_rt.osx.a": "aarch64-apple-macos/libclang_rt.osx.a",
+            "@cxx_libs_darwin_arm64//lib:libclang_rt.osx.a": "aarch64-apple-macosx/libclang_rt.osx.a",
         },
         extra_link_flags = {
             "linux-x86_64": ["-rtlib=compiler-rt", "-l:libunwind.a"],
             "linux-aarch64": ["-rtlib=compiler-rt", "-l:libunwind.a"],
-            "darwin-aarch64": ["-rtlib=compiler-rt", "-l:libunwind.a"],
+            "darwin-aarch64": ["-rtlib=compiler-rt"],
         },
         toolchain_roots = {"": LLVM_PATH} if LLVM_PATH else {},
         extra_compiler_files = None if LLVM_PATH else "@llvm_toolchain_llvm//:lib/clang/22/share/msan_ignorelist.txt",

@@ -10,7 +10,7 @@ filegroup(
 """)
 
     rctx.download(
-        url = "https://github.com/cerisier/pkgutil/releases/download/v1.2.0/pkgutil_linux_amd64",
+        url = "https://github.com/cerisier/pkgutil/releases/download/v1.2.0/pkgutil_%s" % repo_utils.platform(rctx),
         sha256 = "3bcf79dbec6b7858ca0c1b6db03952ac122501a74073bac186c8080fcfb391fd",
         output = "pkgutil",
         executable = True,
@@ -36,7 +36,6 @@ filegroup(
     ]
     includes = [
         "usr/include/*",
-        "usr/lib/libc++*",
         "usr/lib/libc.tbd",
         "usr/lib/libcharset*",
         "usr/lib/libdl*",
