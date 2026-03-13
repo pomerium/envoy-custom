@@ -16,11 +16,13 @@ def pomerium_envoy_toolchains():
         cxx_standard = {"": "c++23"},
         sysroot = {
             "linux-x86_64": "@minimal_sysroot_linux_amd64//:sysroot",
-            "linux-aarch64": "@minimal_sysroot_linux_arm64//:sysroot",
+            # "linux-aarch64": "@minimal_sysroot_linux_arm64//:sysroot",
+            "darwin-aarch64": "@macos_sysroot//:sysroot",
         },
         cxx_lib = {
             "linux-x86_64": "@cxx_libs_linux_amd64//:cxx_libs",
-            "linux-aarch64": "@cxx_libs_linux_arm64//:cxx_libs",
+            # "linux-aarch64": "@cxx_libs_linux_arm64//:cxx_libs",
+            "darwin-aarch64": "@cxx_libs_darwin_arm64//:cxx_libs",
         },
         libclang_rt = {
             "@cxx_libs_linux_amd64//lib:libclang_rt.builtins.a": "x86_64-unknown-linux-gnu/libclang_rt.builtins.a",
@@ -29,16 +31,19 @@ def pomerium_envoy_toolchains():
             "@cxx_libs_linux_arm64//lib:libclang_rt.builtins.a": "aarch64-unknown-linux-gnu/libclang_rt.builtins.a",
             "@cxx_libs_linux_arm64//lib:clang_rt.crtbegin.o": "aarch64-unknown-linux-gnu/clang_rt.crtbegin.o",
             "@cxx_libs_linux_arm64//lib:clang_rt.crtend.o": "aarch64-unknown-linux-gnu/clang_rt.crtend.o",
+            "@cxx_libs_darwin_arm64//lib:libclang_rt.osx.a": "aarch64-apple-macos/libclang_rt.osx.a",
         },
         extra_link_flags = {
             "linux-x86_64": ["-rtlib=compiler-rt", "-l:libunwind.a"],
             "linux-aarch64": ["-rtlib=compiler-rt", "-l:libunwind.a"],
+            "darwin-aarch64": ["-rtlib=compiler-rt", "-l:libunwind.a"],
         },
         toolchain_roots = {"": LLVM_PATH} if LLVM_PATH else {},
         extra_compiler_files = None if LLVM_PATH else "@llvm_toolchain_llvm//:lib/clang/22/share/msan_ignorelist.txt",
         cxx_builtin_include_directories = {
             "linux-x86_64": ["%workspace%/" + LLVM_PATH + "/lib/clang/22/share" if LLVM_PATH else "%workspace%/external/llvm_toolchain_llvm/lib/clang/22/share"],
             "linux-aarch64": ["%workspace%/" + LLVM_PATH + "/lib/clang/22/share" if LLVM_PATH else "%workspace%/external/llvm_toolchain_llvm/lib/clang/22/share"],
+            "darwin-aarch64": ["%workspace%/" + LLVM_PATH + "/lib/clang/22/share" if LLVM_PATH else "%workspace%/external/llvm_toolchain_llvm/lib/clang/22/share"],
         },
         extra_llvm_distributions = {
             "LLVM-22.1.1-Linux-X64.tar.xz": "sha256:efc4d945744f951df00ec72c5b31da5d5a2eaf1d53cc7c9d0644f93f0f9e817d",

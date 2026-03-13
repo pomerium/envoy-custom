@@ -21,6 +21,12 @@ write_file(
     content = [],
 )
 
+write_file(
+    "endian_h",
+    out = "endian.h",
+    content = ["#include <machine/endian.h>"],
+)
+
 config_setting(
     name = "darwin",
     constraint_values = ["@platforms//os:macos"],
@@ -102,7 +108,10 @@ cc_library(
         "openbsd-compat/*.h",
     ] + [
         "umac.c",
-    ]),
+    ]) + select({
+        ":darwin": [":endian_h"],
+        "//conditions:default": [],
+    }),
     copts = [
         "-Wno-pointer-sign",
         "-Wno-unused-parameter",

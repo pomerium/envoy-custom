@@ -215,6 +215,7 @@ load("//bazel/sysroots:load_sysroots.bzl", "load_sysroots")
 
 load_sysroots()
 
+load("//bazel/sysroots:macos.bzl", "macos_sysroot")
 load("//bazel/sysroots:minimal_sysroot.bzl", "minimal_sysroot")
 
 minimal_sysroot(
@@ -227,11 +228,17 @@ minimal_sysroot(
     image = "@minimal_sysroot_image_linux_arm64",
 )
 
-load("//bazel/cxx_libs:load_cxx_libs.bzl", "load_cxx_libs")
+macos_sysroot(
+    name = "macos_sysroot",
+)
+
+load("//bazel/cxx_libs:load_cxx_libs.bzl", "load_cxx_libs", "load_darwin_cxx_libs")
+
+load_darwin_cxx_libs()
 
 load_cxx_libs()
 
-load("//bazel/cxx_libs:cxx_libs.bzl", "cxx_libs")
+load("//bazel/cxx_libs:cxx_libs.bzl", "cxx_libs", "cxx_libs_darwin")
 
 cxx_libs(
     name = "cxx_libs_linux_amd64",
@@ -241,4 +248,14 @@ cxx_libs(
 cxx_libs(
     name = "cxx_libs_linux_arm64",
     image = "@cxx_libs_image_linux_arm64",
+)
+
+cxx_libs_darwin(
+    name = "cxx_libs_darwin_amd64",
+    image = "@cxx_libs_image_darwin_linux_amd64",
+)
+
+cxx_libs_darwin(
+    name = "cxx_libs_darwin_arm64",
+    image = "@cxx_libs_image_darwin_linux_amd64",
 )
