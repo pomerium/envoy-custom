@@ -1,0 +1,38 @@
+diff --git a/bazel/foreign_cc/luajit.patch b/bazel/foreign_cc/luajit.patch
+index 1d6fd7aa8b..67ed234f5a 100644
+--- a/bazel/foreign_cc/luajit.patch
++++ b/bazel/foreign_cc/luajit.patch
+@@ -39,17 +39,17 @@ index c83abfa0..0276f9e3 100644
+  TARGET_AR= $(CROSS)ar rcus
+ -TARGET_STRIP= $(CROSS)strip
+ +TARGET_STRIP?= $(CROSS)strip
+- 
++
+  TARGET_LIBPATH= $(or $(PREFIX),/usr/local)/$(or $(MULTILIB),lib)
+  TARGET_SONAME= libluajit-$(ABIVER).so.$(MAJVER)
+ @@ -616,7 +616,7 @@ endif
+- 
++
+  Q= @
+  E= @echo
+ -#Q=
+ +Q=
+  #E= @:
+- 
++
+  ##############################################################################
+ diff --git a/luajit_build.sh b/luajit_build.sh
+ new file mode 100755
+@@ -97,10 +97,10 @@ index 00000000..3b4f8eca
+ +    EXTRA_MAKE_ARGS+=("TARGET_AR=${AR} ${ARFLAGS:-rcus}")
+ +    if [[ -n "${TARGET_TRIPLE}" && "${TARGET_TRIPLE}" != *"$(uname -m)"* ]]; then
+ +        # Cross-compiling: use native gcc for host tools so they run on the build machine.
+-+        EXTRA_MAKE_ARGS+=("HOSTCC=gcc")
+++        EXTRA_MAKE_ARGS+=("HOSTCC=${DEFAULT_CC}")
+ +    elif [[ -n "${FUSE_LD_FLAG}" ]]; then
+ +        # Native hermetic build: system linker may not exist; pass linker flags for host tools.
+-+        EXTRA_MAKE_ARGS+=("HOST_LDFLAGS=${FUSE_LD_FLAG} ${SYSROOT_FLAG}")
+++        : #EXTRA_MAKE_ARGS+=("HOST_LDFLAGS=${FUSE_LD_FLAG} ${SYSROOT_FLAG}")
+ +    fi
+ +    export TARGET_LDFLAGS="${LDFLAGS:-} -fno-function-sections -fno-data-sections"
+ +    export CFLAGS=""

@@ -107,7 +107,6 @@ cc_library(
         "-Wno-pointer-sign",
         "-Wno-unused-parameter",
         "-Wno-unused-result",
-        "-mretpoline",
         "-ftrapv",
         "-fzero-call-used-regs=used",
     ],

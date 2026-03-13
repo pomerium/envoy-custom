@@ -61,6 +61,7 @@ http_archive(
         "//patches/envoy:0013-no-stdlib-deps.patch",
         "//patches/envoy:0014-fix-zstd-cli-threading.patch",
         "//patches/envoy:tmp-transport-socket-options.patch",
+        "//patches/envoy:0015-fix-luajit-cross-compilation.patch",
     ],
     sha256 = "46e132c211dedbf08b6d2f6d04077c34b6a85b3381b94df4fecbe42def019537",
     strip_prefix = "envoy-" + envoy_version,
@@ -224,4 +225,20 @@ minimal_sysroot(
 minimal_sysroot(
     name = "minimal_sysroot_linux_arm64",
     image = "@minimal_sysroot_image_linux_arm64",
+)
+
+load("//bazel/cxx_libs:load_cxx_libs.bzl", "load_cxx_libs")
+
+load_cxx_libs()
+
+load("//bazel/cxx_libs:cxx_libs.bzl", "cxx_libs")
+
+cxx_libs(
+    name = "cxx_libs_linux_amd64",
+    image = "@cxx_libs_image_linux_amd64",
+)
+
+cxx_libs(
+    name = "cxx_libs_linux_arm64",
+    image = "@cxx_libs_image_linux_arm64",
 )
