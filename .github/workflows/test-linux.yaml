@@ -11,10 +11,9 @@ on:
 
 jobs:
   test-coverage:
-    if: false
-    #if: >-
-      #github.event_name != 'pull_request'
-      #|| !contains(github.event.pull_request.labels.*.name, 'ci-not-ready')
+    if: >-
+      github.event_name != 'pull_request'
+      || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready')
     runs-on: gebru
     timeout-minutes: 240
     permissions:
@@ -71,9 +70,10 @@ jobs:
           file: lcov
 
   test-asan:
-    if: >-
-      github.event_name != 'pull_request'
-      || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready')
+    if: false
+    #if: >-
+      #github.event_name != 'pull_request'
+      #|| !contains(github.event.pull_request.labels.*.name, 'ci-not-ready')
     runs-on: gebru
     timeout-minutes: 240
     permissions:
