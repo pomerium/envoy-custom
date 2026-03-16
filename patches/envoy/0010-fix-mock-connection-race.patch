@@ -1,0 +1,42 @@
+diff --git a/test/mocks/network/connection.cc b/test/mocks/network/connection.cc
+index 1dbdd14673..b1e6079645 100644
+--- a/test/mocks/network/connection.cc
++++ b/test/mocks/network/connection.cc
+@@ -12,8 +12,6 @@ namespace Network {
+ MockConnectionCallbacks::MockConnectionCallbacks() = default;
+ MockConnectionCallbacks::~MockConnectionCallbacks() = default;
+ 
+-uint64_t MockConnectionBase::next_id_;
+-
+ void MockConnectionBase::raiseEvent(Network::ConnectionEvent event) {
+   if (event == Network::ConnectionEvent::RemoteClose ||
+       event == Network::ConnectionEvent::LocalClose) {
+@@ -94,7 +92,7 @@ template <class T> static void initializeMockConnection(T& connection) {
+         connection.local_close_reason_ = std::string(details);
+         connection.raiseEvent(Network::ConnectionEvent::LocalClose);
+       }));
+-  ON_CALL(connection, id()).WillByDefault(Return(connection.next_id_));
++  ON_CALL(connection, id()).WillByDefault(Return(connection.id_));
+   connection.stream_info_.downstream_connection_info_provider_->setConnectionID(connection.id_);
+   ON_CALL(connection, state()).WillByDefault(ReturnPointee(&connection.state_));
+ 
+diff --git a/test/mocks/network/connection.h b/test/mocks/network/connection.h
+index 0ae16ae6c8..cb4c7deb97 100644
+--- a/test/mocks/network/connection.h
++++ b/test/mocks/network/connection.h
+@@ -1,5 +1,6 @@
+ #pragma once
+ 
++#include <atomic>
+ #include <list>
+ #include <ostream>
+ 
+@@ -33,7 +34,7 @@ public:
+   void runHighWatermarkCallbacks();
+   void runLowWatermarkCallbacks();
+ 
+-  static uint64_t next_id_;
++  static inline std::atomic_uint64_t next_id_;
+ 
+   testing::NiceMock<Event::MockDispatcher> dispatcher_;
+   std::list<Network::ConnectionCallbacks*> callbacks_;

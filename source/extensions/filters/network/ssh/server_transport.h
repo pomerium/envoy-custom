@@ -74,24 +74,24 @@ private:
   absl::StatusOr<std::unique_ptr<wire::HostKeysProveResponseMsg>>
   handleHostKeysProve(const wire::HostKeysProveRequestMsg& msg);
 
+  bool respond_called_{};
+  bool received_port_forward_request_{};
+  bool been_terminated_{};
+  stream_id_t stream_id_{};
   AuthInfoSharedPtr auth_info_;
-  std::map<std::string, Service*> services_;
-  std::unique_ptr<DownstreamUserAuthService> user_auth_service_;
-  std::unique_ptr<DownstreamConnectionService> connection_service_;
+
+  Envoy::OptRef<Envoy::Event::Dispatcher> connection_dispatcher_;
+  std::shared_ptr<ChannelIDManager> channel_id_manager_;
   std::unique_ptr<PingExtensionHandler> ping_handler_;
+  StreamTrackerSharedPtr stream_tracker_;
 
   std::unique_ptr<StreamManagementServiceClient> mgmt_client_;
   std::shared_ptr<ChannelStreamServiceClient> channel_client_;
   std::shared_ptr<Envoy::Grpc::RawAsyncClient> grpc_client_;
-  std::shared_ptr<ChannelIDManager> channel_id_manager_;
-  stream_id_t stream_id_;
 
-  Envoy::OptRef<Envoy::Event::Dispatcher> connection_dispatcher_;
-  StreamTrackerSharedPtr stream_tracker_;
-
-  bool respond_called_{};
-  bool received_port_forward_request_{};
-  bool been_terminated_{};
+  std::map<std::string, Service*> services_;
+  std::unique_ptr<DownstreamUserAuthService> user_auth_service_;
+  std::unique_ptr<DownstreamConnectionService> connection_service_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

@@ -62,17 +62,3 @@ index 42799230cc..382c147ffe 100644
  
    const envoy::config::core::v3::Http2ProtocolOptions http2_options_;
    const envoy::config::core::v3::Http3ProtocolOptions http3_options_;
-diff --git a/test/integration/server.cc b/test/integration/server.cc
-index 3a75dba9d0..cc5239a4e2 100644
---- a/test/integration/server.cc
-+++ b/test/integration/server.cc
-@@ -282,6 +282,9 @@ void IntegrationTestServerImpl::createAndRunEnvoyServer(
-     server.run();
-   }
-   server_gone_.Notify();
-+  server_ = nullptr;
-+  admin_address_ = nullptr;
-+  stat_store_ = nullptr;
- }
- 
- IntegrationTestServerImpl::~IntegrationTestServerImpl() {
