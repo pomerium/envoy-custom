@@ -152,6 +152,14 @@ load("//bazel:toolchains.bzl", "pomerium_envoy_toolchains")
 
 pomerium_envoy_toolchains()
 
+load("//bazel/sysroots:load_sysroots.bzl", "load_sysroots")
+
+load_sysroots()
+
+load("//bazel/cxx_libs:load_cxx_cross_libs.bzl", "load_cxx_cross_libs")
+
+load_cxx_cross_libs()
+
 load("@llvm_toolchain//:toolchains.bzl", "llvm_register_toolchains")
 
 llvm_register_toolchains()
@@ -221,53 +229,4 @@ envoy_http_archive(
             version = readerwriterqueue_version,
         ),
     ),
-)
-
-load("//bazel/sysroots:load_sysroots.bzl", "load_sysroots")
-
-load_sysroots()
-
-load("//bazel/sysroots:macos.bzl", "macos_sysroot")
-load("//bazel/sysroots:minimal_sysroot.bzl", "minimal_sysroot")
-
-minimal_sysroot(
-    name = "minimal_sysroot_linux_amd64",
-    image = "@minimal_sysroot_image_linux_amd64",
-)
-
-minimal_sysroot(
-    name = "minimal_sysroot_linux_arm64",
-    image = "@minimal_sysroot_image_linux_arm64",
-)
-
-macos_sysroot(
-    name = "macos_sysroot",
-)
-
-load("//bazel/cxx_libs:load_cxx_libs.bzl", "load_cxx_libs", "load_darwin_cxx_libs")
-
-load_darwin_cxx_libs()
-
-load_cxx_libs()
-
-load("//bazel/cxx_libs:cxx_libs.bzl", "cxx_libs", "cxx_libs_darwin")
-
-cxx_libs(
-    name = "cxx_libs_linux_amd64",
-    image = "@cxx_libs_image_linux_amd64",
-)
-
-cxx_libs(
-    name = "cxx_libs_linux_arm64",
-    image = "@cxx_libs_image_linux_arm64",
-)
-
-cxx_libs_darwin(
-    name = "cxx_libs_darwin_amd64",
-    image = "@cxx_libs_image_darwin_linux_amd64",
-)
-
-cxx_libs_darwin(
-    name = "cxx_libs_darwin_arm64",
-    image = "@cxx_libs_image_darwin_linux_amd64",
 )

@@ -1,9 +1,17 @@
-load("@rules_oci//oci:pull.bzl", "oci_pull")
+load("//bazel/sysroots:linux.bzl", "linux_sysroot")
+load("//bazel/sysroots:macos.bzl", "macos_sysroot")
 
 def load_sysroots():
-    oci_pull(
-        name = "minimal_sysroot_image",
-        digest = "sha256:a9a7c6a2639a82dc6298a0f724618c8eb68cad17a53dc0afaa2559fad03a22ca",
-        image = "docker.io/joekralicky/sysroot",
-        platforms = ["linux/amd64", "linux/arm64"],
+    linux_sysroot(
+        name = "minimal_sysroot_linux_amd64",
+        arch = "amd64",
+    )
+
+    linux_sysroot(
+        name = "minimal_sysroot_linux_arm64",
+        arch = "arm64",
+    )
+
+    macos_sysroot(
+        name = "macos_sysroot",
     )
