@@ -1,8 +1,23 @@
 diff --git a/.bazelrc b/.bazelrc
-index c0bda60546..0221b5caf9 100644
+index c0bda60546..4465dc3c4b 100644
 --- a/.bazelrc
 +++ b/.bazelrc
-@@ -249,13 +249,11 @@ test:sanitizer --build_tests_only
+@@ -86,14 +86,11 @@ build --@rules_rust//rust/settings:rustfmt.toml=@envoy//:rustfmt.toml
+ # os
+ #############################################################################
+ 
+-build:linux --copt=-fdebug-types-section
+ # Enable position independent code (this is the default on macOS and Windows)
+ # (Workaround for https://github.com/bazelbuild/rules_foreign_cc/issues/421)
+ build:linux --copt=-fPIC
+ build:linux --cxxopt=-fsized-deallocation --host_cxxopt=-fsized-deallocation
+ build:linux --conlyopt=-fexceptions
+-build:linux --fission=dbg,opt
+-build:linux --features=per_object_debug_info
+ 
+ # macOS
+ build:macos --action_env=PATH=/opt/homebrew/bin:/opt/local/bin:/usr/local/bin:/usr/bin:/bin
+@@ -249,13 +246,11 @@ test:sanitizer --build_tests_only
  # ASAN config with clang runtime
  build:asan --config=asan-common
  build:asan --linkopt --rtlib=compiler-rt
@@ -16,7 +31,7 @@ index c0bda60546..0221b5caf9 100644
  
  # Basic ASAN/UBSAN that works for gcc or llvm
  build:asan-common --config=sanitizer
-@@ -276,7 +274,7 @@ build:asan-common --test_env=ASAN_OPTIONS=handle_abort=1:allow_addr2line=true:ch
+@@ -276,7 +271,7 @@ build:asan-common --test_env=ASAN_OPTIONS=handle_abort=1:allow_addr2line=true:ch
  build:asan-common --test_env=UBSAN_OPTIONS=halt_on_error=true:print_stacktrace=1
  build:asan-common --test_env=ASAN_SYMBOLIZER_PATH
  # ASAN needs -O1 to get reasonable performance.
