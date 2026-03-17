@@ -86,14 +86,11 @@ build --@rules_rust//rust/settings:rustfmt.toml=@envoy//:rustfmt.toml
 # os
 #############################################################################
 
-# build:linux --copt=-fdebug-types-section
 # Enable position independent code (this is the default on macOS and Windows)
 # (Workaround for https://github.com/bazelbuild/rules_foreign_cc/issues/421)
 build:linux --copt=-fPIC
 build:linux --cxxopt=-fsized-deallocation --host_cxxopt=-fsized-deallocation
 build:linux --conlyopt=-fexceptions
-# build:linux --fission=dbg,opt
-# build:linux --features=per_object_debug_info
 
 # macOS
 build:macos --action_env=PATH=/opt/homebrew/bin:/opt/local/bin:/usr/local/bin:/usr/bin:/bin
