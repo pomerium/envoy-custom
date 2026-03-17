@@ -59,7 +59,7 @@ configure_make(
     includes = [
         "openssh",
     ],
-    lib_source = "@openssh_portable//:all",
+    lib_source = "@openssh_portable//:all_sources",
     linkopts = ["-pthread"],
     out_static_libs = [
         "libssh.a",
@@ -86,7 +86,6 @@ configure_make(
 
 refresh_compile_commands(
     name = "refresh_compile_commands",
-    exclude_headers = "external",
     targets = {
         "//:envoy": "",
         "//test/...": "",
