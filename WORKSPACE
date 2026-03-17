@@ -61,6 +61,8 @@ http_archive(
         "//patches/envoy:0013-no-stdlib-deps.patch",
         "//patches/envoy:0014-fix-zstd-cli-threading.patch",
         "//patches/envoy:tmp-transport-socket-options.patch",
+        "//patches/envoy:0015-fix-luajit-cross-compilation.patch",
+        "//patches/envoy:tmp-tcmalloc-macos-constraints.patch",
     ],
     sha256 = "46e132c211dedbf08b6d2f6d04077c34b6a85b3381b94df4fecbe42def019537",
     strip_prefix = "envoy-" + envoy_version,
@@ -71,13 +73,56 @@ load("@envoy//bazel:api_binding.bzl", "envoy_api_binding")
 
 envoy_api_binding()
 
+load("@envoy_api//bazel:envoy_http_archive.bzl", "envoy_http_archive")
+
+# override aspect_bazel_lib; upstream envoy downloads the wrong tarball
+envoy_http_archive(
+    name = "aspect_bazel_lib",
+    locations = {
+        "aspect_bazel_lib": {
+            "version": "2.21.2",
+            "sha256": "53cadea9109e646a93ed4dc90c9bbcaa8073c7c3df745b92f6a5000daf7aa3da",
+            "strip_prefix": "bazel-lib-2.21.2",
+            "urls": ["https://github.com/aspect-build/bazel-lib/releases/download/v2.21.2/bazel-lib-v2.21.2.tar.gz"],
+        },
+    },
+)
+
 load("@envoy//bazel:api_repositories.bzl", "envoy_api_dependencies")
 
 envoy_api_dependencies()
 
-load("@envoy//bazel:repositories.bzl", "envoy_dependencies")
+load("@envoy//bazel:repositories.bzl", "envoy_dependencies", "external_http_archive")
+
+external_http_archive(
+    name = "toolchains_llvm",
+    patch_args = ["-p1"],
+    patches = [
+        # (temporary) upstream patch from https://github.com/envoyproxy/toolshed/blob/main/bazel/patches/toolchains_llvm.patch
+        "//patches/toolchains_llvm:0001-upstream.patch",
+        # linux->darwin cross-compile support
+        "//patches/toolchains_llvm:0002-darwin.patch",
+    ],
+)
 
 envoy_dependencies()
+
+rules_oci_version = "2.2.7"
+
+http_archive(
+    name = "rules_oci",
+    sha256 = "b8db7ab889d501db33313620b2c8040dbb07e95c26a0fefe06004b35baf80e08",
+    strip_prefix = "rules_oci-" + rules_oci_version,
+    url = "https://github.com/bazel-contrib/rules_oci/releases/download/v" + rules_oci_version + "/rules_oci-v" + rules_oci_version + ".tar.gz",
+)
+
+load("@rules_oci//oci:dependencies.bzl", "rules_oci_dependencies")
+
+rules_oci_dependencies()
+
+load("@rules_oci//oci:repositories.bzl", "oci_register_toolchains")
+
+oci_register_toolchains(name = "oci")
 
 load("@envoy//bazel:bazel_deps.bzl", "envoy_bazel_dependencies")
 
@@ -107,27 +152,21 @@ load("//bazel:toolchains.bzl", "pomerium_envoy_toolchains")
 
 pomerium_envoy_toolchains()
 
+load("//bazel/sysroots:load_sysroots.bzl", "load_sysroots")
+
+load_sysroots()
+
+load("//bazel/cxx_libs:load_cxx_cross_libs.bzl", "load_cxx_cross_libs")
+
+load_cxx_cross_libs()
+
 load("@llvm_toolchain//:toolchains.bzl", "llvm_register_toolchains")
 
 llvm_register_toolchains()
 
-load("@envoy_api//bazel:envoy_http_archive.bzl", "envoy_http_archive")
-
 envoy_http_archive(
     name = "openssh_portable",
-    build_file_content = """
-filegroup(
-    name = "all",
-    srcs = glob(["**"]),
-    visibility = ["//visibility:public"],
-)
-filegroup(
-    name = "testdata_sshkey",
-    srcs = glob(["regress/unittests/sshkey/testdata/*"]),
-    visibility = ["//visibility:public"],
-    testonly = True,
-)
-    """,
+    build_file = "//bazel/foreign_cc:openssh.BUILD",
     locations = dict(
         openssh_portable = dict(
             license = "BSD",

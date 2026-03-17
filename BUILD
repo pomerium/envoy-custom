@@ -39,7 +39,7 @@ image(
 )
 
 configure_make(
-    name = "openssh",
+    name = "legacy_openssh",
     args = ["-j4"],
     autoreconf = True,
     configure_in_place = True,
