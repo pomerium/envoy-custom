@@ -86,14 +86,14 @@ build --@rules_rust//rust/settings:rustfmt.toml=@envoy//:rustfmt.toml
 # os
 #############################################################################
 
-build:linux --copt=-fdebug-types-section
+# build:linux --copt=-fdebug-types-section
 # Enable position independent code (this is the default on macOS and Windows)
 # (Workaround for https://github.com/bazelbuild/rules_foreign_cc/issues/421)
 build:linux --copt=-fPIC
 build:linux --cxxopt=-fsized-deallocation --host_cxxopt=-fsized-deallocation
 build:linux --conlyopt=-fexceptions
-build:linux --fission=dbg,opt
-build:linux --features=per_object_debug_info
+# build:linux --fission=dbg,opt
+# build:linux --features=per_object_debug_info
 
 # macOS
 build:macos --action_env=PATH=/opt/homebrew/bin:/opt/local/bin:/usr/local/bin:/usr/bin:/bin
@@ -102,7 +102,6 @@ build:macos --define tcmalloc=disabled
 build:macos --cxxopt=-Wno-nullability-completeness
 build:macos --@toolchains_llvm//toolchain/config:compiler-rt=false
 build:macos --@toolchains_llvm//toolchain/config:libunwind=false
-
 
 #############################################################################
 # compiler
@@ -204,18 +203,37 @@ build:compile-time-options --define=admin_html=disabled
 build:compile-time-options --define=signal_trace=disabled
 build:compile-time-options --define=hot_restart=disabled
 build:compile-time-options --define=google_grpc=disabled
-build:compile-time-options --define=boringssl=fips
+build:compile-time-options --config=boringssl-fips
 build:compile-time-options --define=log_debug_assert_in_release=enabled
 build:compile-time-options --define=path_normalization_by_default=true
 build:compile-time-options --define=deprecated_features=disabled
 build:compile-time-options --define=tcmalloc=gperftools
-build:compile-time-options --define=zlib=ng
 build:compile-time-options --define=uhv=enabled
 # gRPC has a lot of deprecated-enum-enum-conversion warnings with C++20
 build:compile-time-options --copt=-Wno-error=deprecated-enum-enum-conversion
 build:compile-time-options --test_env=ENVOY_HAS_EXTRA_EXTENSIONS=true
 build:compile-time-options --@envoy//bazel:http3=False
 build:compile-time-options --@envoy//source/extensions/filters/http/kill_request:enabled
+
+
+#############################################################################
+# SSL
+#############################################################################
+
+common:fips-common --test_tag_filters=-nofips
+common:fips-common --build_tag_filters=-nofips
+common:fips-common --//bazel:fips=True
+
+# BoringSSL FIPS
+common:boringssl-fips --config=fips-common
+common:boringssl-fips --//bazel:ssl=@boringssl_fips//:ssl
+common:boringssl-fips --//bazel:crypto=@boringssl_fips//:crypto
+
+# AWS-LC FIPS
+common:aws-lc-fips --config=fips-common
+common:aws-lc-fips --//bazel:ssl=@aws_lc//:ssl
+common:aws-lc-fips --//bazel:crypto=@aws_lc//:crypto
+common:aws-lc-fips --//bazel:http3=False
 
 
 #############################################################################
@@ -230,13 +248,11 @@ test:sanitizer --build_tests_only
 # ASAN config with clang runtime
 build:asan --config=asan-common
 build:asan --linkopt --rtlib=compiler-rt
-build:asan --linkopt --unwindlib=libgcc
 build:asan --linkopt=-l:libclang_rt.ubsan_standalone.a
 build:asan --linkopt=-l:libclang_rt.ubsan_standalone_cxx.a
 build:asan --action_env=ENVOY_UBSAN_VPTR=1
 build:asan --copt=-fsanitize=vptr,function
 build:asan --linkopt=-fsanitize=vptr,function
-build:asan --linkopt='-L/opt/llvm/lib/clang/18/lib/x86_64-unknown-linux-gnu'
 
 # Basic ASAN/UBSAN that works for gcc or llvm
 build:asan-common --config=sanitizer

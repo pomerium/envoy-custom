@@ -1,0 +1,84 @@
+diff --git a/toolchain/cc_toolchain_config.bzl b/toolchain/cc_toolchain_config.bzl
+index 6e80a11..6f22842 100644
+--- a/toolchain/cc_toolchain_config.bzl
++++ b/toolchain/cc_toolchain_config.bzl
+@@ -224,6 +224,8 @@ def cc_toolchain_config(
+     elif target_arch in ["wasm32", "wasm64"]:
+         # lld is invoked as wasm-ld for WebAssembly targets.
+         use_libtool = False
++    elif exec_os != "darwin":
++        use_libtool = False
+     else:
+         link_flags.extend([
+             "-Wl,--build-id=md5",
+@@ -273,6 +275,13 @@ def cc_toolchain_config(
+                 "-Bstatic",
+                 "-lunwind",
+             ]
++        elif target_os == "darwin":
++            # Cross-compiling from linux to darwin
++            link_libs.extend([
++                "-lc++",
++                "-lc++abi",
++            ])
++            compiler_rt_link_flags = ["-rtlib=compiler-rt"]
+         else:
+             # For single-platform builds, we can statically link the bundled
+             # libraries.
+@@ -294,9 +303,10 @@ def cc_toolchain_config(
+             "-stdlib=libc++",
+         ]
+ 
++        compiler_rt_link_flags = ["-rtlib=compiler-rt"]
+         link_libs.extend([
+-            "-l:libc++.a",
+-            "-l:libc++abi.a",
++            "-l:libc++.a" if target_os != "darwin" else "-lc++",
++            "-l:libc++abi.a" if target_os != "darwin" else "-lc++abi",
+         ])
+     elif stdlib == "dynamic-stdc++":
+         cxx_flags = [
+@@ -320,12 +330,14 @@ def cc_toolchain_config(
+         cxx_flags = [
+             "-std=" + cxx_standard,
+         ]
+-        libunwind_link_flags = [
+-            "-l:libunwind.a",
+-            # To support libunwind.
+-            "-lpthread",
+-            "-ldl",
+-        ]
++        if target_os != "darwin":
++            compiler_rt_link_flags = ["-rtlib=compiler-rt"]
++            libunwind_link_flags = [
++                "-l:libunwind.a",
++                # To support libunwind.
++                "-lpthread",
++                "-ldl",
++            ]
+     elif stdlib == "none":
+         cxx_flags = [
+             "-nostdlib",
+diff --git a/toolchain/internal/configure.bzl b/toolchain/internal/configure.bzl
+index 30eab91..4519e21 100644
+--- a/toolchain/internal/configure.bzl
++++ b/toolchain/internal/configure.bzl
+@@ -158,6 +158,7 @@ def llvm_config_impl(rctx):
+     for target_pair, cxx_cross_lib_label_str in rctx.attr.cxx_cross_lib.items():
+         if target_pair == exec_pair:
+             continue
++        target_os = target_pair.split("-")[0]
+         cxx_cross_lib_label = Label(cxx_cross_lib_label_str)
+         cxx_cross_lib_path = _pkg_path_from_label(cxx_cross_lib_label)
+         cxx_cross_lib_include_dirs[target_pair] = [
+@@ -165,8 +166,8 @@ def llvm_config_impl(rctx):
+         ]
+         cxx_cross_lib_link_flags[target_pair] = [
+             "-L" + cxx_cross_lib_path + "/lib",
+-            "-l:libc++.a",
+-            "-l:libc++abi.a",
++            "-l:libc++.a" if target_os != "darwin" else "-lc++",
++            "-l:libc++abi.a" if target_os != "darwin" else "-lc++abi",
+         ]
+         cxx_cross_lib_cxx_flags[target_pair] = [
+             "-nostdinc++",

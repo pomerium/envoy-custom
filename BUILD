@@ -4,6 +4,7 @@ load(
 )
 load("@hedron_compile_commands//:refresh_compile_commands.bzl", "refresh_compile_commands")
 load("@rules_foreign_cc//foreign_cc:configure.bzl", "configure_make")
+load("//bazel/ci/images:oci.bzl", "image")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -27,8 +28,18 @@ envoy_cc_binary(
     ],
 )
 
+image(
+    name = "envoy.image",
+    srcs = [":envoy"],
+)
+
+image(
+    name = "envoy.stripped.image",
+    srcs = [":envoy.stripped"],
+)
+
 configure_make(
-    name = "openssh",
+    name = "legacy_openssh",
     args = ["-j4"],
     autoreconf = True,
     configure_in_place = True,
@@ -68,8 +79,8 @@ configure_make(
     ],
     visibility = ["//visibility:public"],
     deps = [
-        "@envoy//bazel:boringcrypto",
-        "@envoy//bazel:boringssl",
+        "@envoy//bazel:crypto",
+        "@envoy//bazel:ssl",
     ],
 )
 

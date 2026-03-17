@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+# Run the upstream get_workspace_status script
+# shellcheck disable=SC1091
+( source "$(dirname "$0")/envoy.get_workspace_status" )
+
+
+# Get the commit timestamp (in go module pseudo version timestamp format, "20060102150405")
+# this is derived from the command go uses to obtain rev info, see go/internal/modfetch/codehost/git.go
+commit_timestamp="$(TZ=UTC0 git log --no-decorate -n1 --date="format-local:%Y%m%d%H%M%S" --format="format:%cd" HEAD)"
+echo "STABLE_BUILD_SCM_REVISION_TIMESTAMP ${commit_timestamp}"
