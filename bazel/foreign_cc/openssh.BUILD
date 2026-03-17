@@ -142,3 +142,9 @@ cc_library(
     ],
     alwayslink = True,
 )
+
+filegroup(
+    name = "all_sources",
+    srcs = ["**"],
+    visibility = ["//visibility:public"],
+)
