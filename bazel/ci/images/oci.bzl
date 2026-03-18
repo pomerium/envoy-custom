@@ -5,7 +5,7 @@ load("@rules_oci//oci:defs.bzl", "oci_image", "oci_image_index", "oci_load", "oc
 load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
 load("//bazel/ci/images:update_index.bzl", "oci_update_index")
 
-REPO_NAME = "pomerium/envoy-custom"
+REPO_NAME = "ghcr.io/pomerium/envoy-custom"
 
 def image(name, srcs):
     _tar_name = "_" + name + "_tar"
