@@ -70,10 +70,9 @@ jobs:
           file: lcov
 
   test-asan:
-    if: false
-    #if: >-
-      #github.event_name != 'pull_request'
-      #|| !contains(github.event.pull_request.labels.*.name, 'ci-not-ready')
+    if: >-
+      github.event_name != 'pull_request'
+      || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready')
     runs-on: gebru
     timeout-minutes: 240
     permissions:
@@ -119,3 +118,4 @@ jobs:
 
       - name: test
         run: bazel test --config=gebru -c dbg --config=asan --test_output=errors //test/...
+        continue-on-error: true
