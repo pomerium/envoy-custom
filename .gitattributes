@@ -1,1 +1,2 @@
 /bazel/foreign_cc/openssh/include/*/config.h linguist-generated=true
+/bazel/foreign_cc/*.BUILD linguist-language=Starlark
