@@ -1,6 +1,5 @@
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("@pomerium_envoy//bazel/foreign_cc:luajit.bzl", "lj_cc_binary", "lj_cc_library")
-load("@pomerium_envoy//bazel/foreign_cc:run_binary.bzl", "run_binary")
 
 lj_cc_library(
     name = "host_buildvm_lib",
@@ -54,9 +53,10 @@ write_file(
     # exec_compatible_with = HOST_CONSTRAINTS,
 )
 
-run_binary(
+genrule(
     name = "luajit_h",
     srcs = [
+        ":minilua",
         "src/host/genversion.lua",
         "src/luajit_rolling.h",
         ":luajit_relver_h",
@@ -64,22 +64,14 @@ run_binary(
     outs = [
         "src/luajit.h",
     ],
-    args = [
-        "$(location src/host/genversion.lua)",
-        "$(location src/luajit_rolling.h)",
-        "$(location :luajit_relver_h)",
-        "$(location src/luajit.h)",
-    ],
-    # exec_compatible_with = HOST_CONSTRAINTS,
-    tool = ":minilua",
-)
+    cmd = "$(location :minilua) " +
+          "$(location src/host/genversion.lua) " +
+          "$(location src/luajit_rolling.h) " +
+          "$(location :luajit_relver_h) " +
+          "$(location src/luajit.h)",
 
-alias(
-    name = "dasm_dasc",
-    actual = select({
-        "@pomerium_envoy//bazel/foreign_cc:luajit_target_x64": "src/vm_x64.dasc",
-        "@pomerium_envoy//bazel/foreign_cc:luajit_target_arm64": "src/vm_arm64.dasc",
-    }),
+    # exec_compatible_with = HOST_CONSTRAINTS,
+    # tool = ":minilua",
 )
 
 # DASM = :minilua dynasm/dynasm.lua [...]
@@ -87,63 +79,56 @@ alias(
 # add cflags:
 # -DLJ_ARCH_HASFPU=1 (all)
 #  -DLJ_ABI_SOFTFP=0 (all)
-run_binary(
+genrule(
     name = "host_buildvm_arch_h",
     srcs = [
+        ":minilua",
         "src/lj_arch.h",
         "src/lua.h",
         "src/luaconf.h",
-        ":dasm_dasc",
-    ] + glob([
-        "src/*.dasc",
+    ] + select({
+        "@pomerium_envoy//bazel/foreign_cc:luajit_target_x64": ["src/vm_x64.dasc"],
+        "@pomerium_envoy//bazel/foreign_cc:luajit_target_arm64": ["src/vm_arm64.dasc"],
+    }) + glob([
         "dynasm/*.lua",
     ]),
     outs = ["src/host/buildvm_arch.h"],
-    args = [
-        "$(location dynasm/dynasm.lua)",
-        "-D",
-        "ENDIAN_LE",
-        "-D",
-        "P64",
-        "-D",
-        "JIT",
-        "-D",
-        "FFI",
-        "-D",
-        "FPU",
-        "-D",
-        "HFABI",
-    ] + select({
-        "@pomerium_envoy//bazel/foreign_cc:luajit_target_x64": [],
-        "@pomerium_envoy//bazel/foreign_cc:luajit_target_arm64": [
-            "-D",
-            "DUALNUM",
-            "-D",
-            "VER=80",
-        ],
-    }) + [
-        "-o",
-        "$(location src/host/buildvm_arch.h)",
-    ] + [
-        "$(location :dasm_dasc)",
-    ],
-    tool = ":minilua",
+    cmd = "$(location :minilua) " +
+          "$(location dynasm/dynasm.lua) " +
+          "-D ENDIAN_LE " +
+          "-D P64 " +
+          "-D JIT " +
+          "-D FFI " +
+          "-D FPU " +
+          "-D HFABI " +
+          select({
+              "@pomerium_envoy//bazel/foreign_cc:luajit_target_x64": " ",
+              "@pomerium_envoy//bazel/foreign_cc:luajit_target_arm64": "-D DUALNUM -D VER=80 ",
+          }) +
+          "-o $@ " +
+          # "$(location :dasm_dasc)",
+          select({
+              "@pomerium_envoy//bazel/foreign_cc:luajit_target_x64": "$(location src/vm_x64.dasc)",
+              "@pomerium_envoy//bazel/foreign_cc:luajit_target_arm64": "$(location src/vm_arm64.dasc)",
+          }),
+
+    # tool = ":minilua",
     # exec_compatible_with = HOST_CONSTRAINTS,
     # toolchains = [":host_buildvm_toolchain_type"],
 )
 
-run_binary(
+genrule(
     name = "lj_vm_s",
+    srcs = [":host_buildvm"],
     outs = ["src/lj_vm.S"],
-    args = ["-m"] + select({
-        "@platforms//os:linux": ["elfasm"],
-        "@platforms//os:osx": ["machasm"],
-    }) + [
-        "-o",
-        "$(location src/lj_vm.S)",
-    ],
+    cmd = "$(location :host_buildvm) -m " +
+          select({
+              "@platforms//os:linux": "elfasm ",
+              "@platforms//os:osx": "machasm ",
+          }) + "-o $@",
+
     # exec_compatible_with = HOST_CONSTRAINTS,
-    tool = ":host_buildvm",
+    # tool = ":host_buildvm",
 )
 
 # LJLIB_C
@@ -166,85 +151,73 @@ genrule(
     name = "lj_bcdef_h",
     srcs = [":host_buildvm"] + ljlib_c_srcs,
     outs = ["src/lj_bcdef.h"],
-    cmd = "$(location :host_buildvm)" + " ".join([
-        "-m",
-        "bcdef",
-        "-o",
-        "$(location src/lj_bcdef.h)",
-    ] + ["$(location %s)" % src for src in ljlib_c_srcs]),
+    cmd = "$(location :host_buildvm) " +
+          "-m bcdef " +
+          "-o $@ " +
+          " ".join(["$(location %s)" % src for src in ljlib_c_srcs]),
     # exec_compatible_with = HOST_CONSTRAINTS,
     # tool = ":host_buildvm",
 )
 
-run_binary(
+genrule(
     name = "lj_ffdef_h",
-    srcs = ljlib_c_srcs,
+    srcs = [":host_buildvm"] + ljlib_c_srcs,
     outs = ["src/lj_ffdef.h"],
-    args = [
-        "-m",
-        "ffdef",
-        "-o",
-        "$(location src/lj_ffdef.h)",
-    ] + ["$(location %s)" % src for src in ljlib_c_srcs],
+    cmd = "$(location :host_buildvm) " +
+          "-m ffdef " +
+          "-o $@ " +
+          " ".join(["$(location %s)" % src for src in ljlib_c_srcs]),
     # exec_compatible_with = HOST_CONSTRAINTS,
-    tool = ":host_buildvm",
+    # tool = ":host_buildvm",
 )
 
-run_binary(
+genrule(
     name = "lj_libdef_h",
-    srcs = ljlib_c_srcs,
+    srcs = [":host_buildvm"] + ljlib_c_srcs,
     outs = ["src/lj_libdef.h"],
-    args = [
-        "-m",
-        "libdef",
-        "-o",
-        "$(location src/lj_libdef.h)",
-    ] + ["$(location %s)" % src for src in ljlib_c_srcs],
+    cmd = "$(location :host_buildvm) " +
+          "-m libdef " +
+          "-o $@ " +
+          " ".join(["$(location %s)" % src for src in ljlib_c_srcs]),
     # exec_compatible_with = HOST_CONSTRAINTS,
-    tool = ":host_buildvm",
+    # tool = ":host_buildvm",
 )
 
-run_binary(
+genrule(
     name = "lj_recdef_h",
-    srcs = ljlib_c_srcs,
+    srcs = [":host_buildvm"] + ljlib_c_srcs,
     outs = ["src/lj_recdef.h"],
-    args = [
-        "-m",
-        "recdef",
-        "-o",
-        "$(location src/lj_recdef.h)",
-    ] + ["$(location %s)" % src for src in ljlib_c_srcs],
+    cmd = "$(location :host_buildvm) " +
+          "-m recdef " +
+          "-o $@ " +
+          " ".join(["$(location %s)" % src for src in ljlib_c_srcs]),
     # exec_compatible_with = HOST_CONSTRAINTS,
-    tool = ":host_buildvm",
+    # tool = ":host_buildvm",
 )
 
-run_binary(
+genrule(
     name = "jit_vmdef_lua",
-    srcs = ljlib_c_srcs,
+    srcs = [":host_buildvm"] + ljlib_c_srcs,
     outs = ["jit/vmdef.lua"],
-    args = [
-        "-m",
-        "vmdef",
-        "-o",
-        "$(location jit/vmdef.lua)",
-    ] + ["$(location %s)" % src for src in ljlib_c_srcs],
+    cmd = "$(location :host_buildvm) " +
+          "-m vmdef " +
+          "-o $@ " +
+          " ".join(["$(location %s)" % src for src in ljlib_c_srcs]),
     # exec_compatible_with = HOST_CONSTRAINTS,
-    tool = ":host_buildvm",
+    # tool = ":host_buildvm",
 )
 
-run_binary(
+genrule(
     name = "lj_folddef_h",
-    srcs = ["src/lj_opt_fold.c"],
+    srcs = [":host_buildvm"] + ["src/lj_opt_fold.c"],
     outs = ["src/lj_folddef.h"],
-    args = [
-        "-m",
-        "folddef",
-        "-o",
-        "$(location src/lj_folddef.h)",
-        "$(location src/lj_opt_fold.c)",
-    ],
+    cmd = "$(location :host_buildvm) " +
+          "-m folddef " +
+          "-o $@ " +
+          "$(location src/lj_opt_fold.c)",
+
     # exec_compatible_with = HOST_CONSTRAINTS,
-    tool = ":host_buildvm",
+    # tool = ":host_buildvm",
 )
 
 lj_cc_library(

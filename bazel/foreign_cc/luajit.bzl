@@ -43,6 +43,13 @@ _platform_mappings = {
 }
 
 def _use_host_platform_impl(settings, _):
+    existing_target = settings["@pomerium_envoy//bazel/foreign_cc:luajit_target"]
+    if existing_target and existing_target != "unset":
+        print("found an existing luajit_target, not modifying it: %s" % existing_target)
+        return {
+            "//command_line_option:platforms": "@platforms//host",
+            "@pomerium_envoy//bazel/foreign_cc:luajit_target": existing_target,
+        }
     target_platform = Label(settings["//command_line_option:platforms"][0]).name
     print("target_platform: %s" % target_platform)
     if target_platform in _platform_mappings:
@@ -58,7 +65,7 @@ def _use_host_platform_impl(settings, _):
     }
 
 _use_host_platform = transition(
-    inputs = ["//command_line_option:platforms"],
+    inputs = ["//command_line_option:platforms", "@pomerium_envoy//bazel/foreign_cc:luajit_target"],
     outputs = ["//command_line_option:platforms", "@pomerium_envoy//bazel/foreign_cc:luajit_target"],
     implementation = _use_host_platform_impl,
 )
