@@ -60,8 +60,9 @@ http_archive(
         "//patches/envoy:0012-foreign-cc-toolchains.patch",
         "//patches/envoy:0013-no-stdlib-deps.patch",
         "//patches/envoy:0014-fix-zstd-cli-threading.patch",
-        "//patches/envoy:tmp-transport-socket-options.patch",
         "//patches/envoy:0015-fix-luajit-cross-compilation.patch",
+        "//patches/envoy:0016-remove-antlr4-cpp-runtime.patch",
+        "//patches/envoy:tmp-transport-socket-options.patch",
         "//patches/envoy:tmp-tcmalloc-macos-constraints.patch",
     ],
     sha256 = "46e132c211dedbf08b6d2f6d04077c34b6a85b3381b94df4fecbe42def019537",
@@ -106,6 +107,10 @@ external_http_archive(
 )
 
 envoy_dependencies()
+
+load("//bazel:repositories.bzl", "patch_antlr4_runtimes")
+
+patch_antlr4_runtimes()
 
 rules_oci_version = "2.2.7"
 

@@ -1,0 +1,29 @@
+diff --git a/bazel/repositories.bzl b/bazel/repositories.bzl
+index ad51ee705e..9e1b3b19b7 100644
+--- a/bazel/repositories.bzl
++++ b/bazel/repositories.bzl
+@@ -552,24 +552,6 @@ def _cel_cpp():
+         repo_mapping = {"@com_google_absl": "@abseil-cpp"},
+     )
+ 
+-    # cel-cpp references ``@antlr4-cpp-runtime//:antlr4-cpp-runtime`` but it internally
+-    # defines ``antlr4_runtimes`` with a cpp target.
+-    # We are creating a repository alias to avoid duplicating the ANTLR4 dependency.
+-    native.new_local_repository(
+-        name = "antlr4-cpp-runtime",
+-        path = ".",
+-        build_file_content = """
+-package(default_visibility = ["//visibility:public"])
+-
+-# Alias to cel-cpp's embedded ANTLR4 runtime.
+-alias(
+-    name = "antlr4-cpp-runtime",
+-    actual = "@antlr4_runtimes//:cpp",
+-)
+-""",
+-        repo_mapping = {"@com_google_absl": "@abseil-cpp"},
+-    )
+-
+ def _perfetto():
+     external_http_archive(
+         name = "perfetto",
