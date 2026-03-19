@@ -1,6 +1,8 @@
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("@pomerium_envoy//bazel/foreign_cc:luajit.bzl", "lj_cc_binary", "lj_cc_library")
 
+package(default_visibility = ["//visibility:public"])
+
 lj_cc_library(
     name = "host_buildvm_lib",
     srcs = [
@@ -50,7 +52,6 @@ write_file(
     # git timestamp of the current luajit version
     # todo: don't hard-code this
     content = ["1753364724"],
-    # exec_compatible_with = HOST_CONSTRAINTS,
 )
 
 genrule(
@@ -69,16 +70,8 @@ genrule(
           "$(location src/luajit_rolling.h) " +
           "$(location :luajit_relver_h) " +
           "$(location src/luajit.h)",
-
-    # exec_compatible_with = HOST_CONSTRAINTS,
-    # tool = ":minilua",
 )
 
-# DASM = :minilua dynasm/dynasm.lua [...]
-
-# add cflags:
-# -DLJ_ARCH_HASFPU=1 (all)
-#  -DLJ_ABI_SOFTFP=0 (all)
 genrule(
     name = "host_buildvm_arch_h",
     srcs = [
@@ -106,15 +99,10 @@ genrule(
               "@pomerium_envoy//bazel/foreign_cc:luajit_target_arm64": "-D DUALNUM -D VER=80 ",
           }) +
           "-o $@ " +
-          # "$(location :dasm_dasc)",
           select({
               "@pomerium_envoy//bazel/foreign_cc:luajit_target_x64": "$(location src/vm_x64.dasc)",
               "@pomerium_envoy//bazel/foreign_cc:luajit_target_arm64": "$(location src/vm_arm64.dasc)",
           }),
-
-    # tool = ":minilua",
-    # exec_compatible_with = HOST_CONSTRAINTS,
-    # toolchains = [":host_buildvm_toolchain_type"],
 )
 
 genrule(
@@ -123,12 +111,9 @@ genrule(
     outs = ["src/lj_vm.S"],
     cmd = "$(location :host_buildvm) -m " +
           select({
-              "@platforms//os:linux": "elfasm ",
-              "@platforms//os:osx": "machasm ",
+              "@pomerium_envoy//bazel/foreign_cc:luajit_target_linux": "elfasm ",
+              "@pomerium_envoy//bazel/foreign_cc:luajit_target_macos": "machasm ",
           }) + "-o $@",
-
-    # exec_compatible_with = HOST_CONSTRAINTS,
-    # tool = ":host_buildvm",
 )
 
 # LJLIB_C
@@ -155,8 +140,6 @@ genrule(
           "-m bcdef " +
           "-o $@ " +
           " ".join(["$(location %s)" % src for src in ljlib_c_srcs]),
-    # exec_compatible_with = HOST_CONSTRAINTS,
-    # tool = ":host_buildvm",
 )
 
 genrule(
@@ -167,8 +150,6 @@ genrule(
           "-m ffdef " +
           "-o $@ " +
           " ".join(["$(location %s)" % src for src in ljlib_c_srcs]),
-    # exec_compatible_with = HOST_CONSTRAINTS,
-    # tool = ":host_buildvm",
 )
 
 genrule(
@@ -179,8 +160,6 @@ genrule(
           "-m libdef " +
           "-o $@ " +
           " ".join(["$(location %s)" % src for src in ljlib_c_srcs]),
-    # exec_compatible_with = HOST_CONSTRAINTS,
-    # tool = ":host_buildvm",
 )
 
 genrule(
@@ -191,8 +170,6 @@ genrule(
           "-m recdef " +
           "-o $@ " +
           " ".join(["$(location %s)" % src for src in ljlib_c_srcs]),
-    # exec_compatible_with = HOST_CONSTRAINTS,
-    # tool = ":host_buildvm",
 )
 
 genrule(
@@ -203,8 +180,6 @@ genrule(
           "-m vmdef " +
           "-o $@ " +
           " ".join(["$(location %s)" % src for src in ljlib_c_srcs]),
-    # exec_compatible_with = HOST_CONSTRAINTS,
-    # tool = ":host_buildvm",
 )
 
 genrule(
@@ -215,9 +190,6 @@ genrule(
           "-m folddef " +
           "-o $@ " +
           "$(location src/lj_opt_fold.c)",
-
-    # exec_compatible_with = HOST_CONSTRAINTS,
-    # tool = ":host_buildvm",
 )
 
 lj_cc_library(
@@ -296,7 +268,10 @@ lj_cc_library(
         ":lj_libdef_h",
         ":lj_recdef_h",
         ":luajit_h",
-    ] + glob(["src/*.h"]),
+    ] + glob([
+        "src/*.h",
+        "src/*.hpp",
+    ]),
     host = False,
     includes = ["src/"],
     linkstatic = True,
