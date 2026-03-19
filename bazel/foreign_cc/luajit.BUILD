@@ -1,7 +1,69 @@
+load("@bazel_skylib//lib:selects.bzl", "selects")
+load("@bazel_skylib//rules:common_settings.bzl", "string_setting")
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("@pomerium_envoy//bazel/foreign_cc:luajit.bzl", "lj_cc_binary", "lj_cc_library")
 
-package(default_visibility = ["//visibility:public"])
+string_setting(
+    name = "luajit_target",
+    build_setting_default = "unset",
+    values = [
+        "linux_x64",
+        "linux_arm64",
+        "macos_arm64",
+        "unset",
+    ],
+)
+
+config_setting(
+    name = "luajit_target_linux_x64",
+    flag_values = {
+        ":luajit_target": "linux_x64",
+    },
+)
+
+config_setting(
+    name = "luajit_target_linux_arm64",
+    flag_values = {
+        ":luajit_target": "linux_arm64",
+    },
+)
+
+config_setting(
+    name = "luajit_target_macos_arm64",
+    flag_values = {
+        ":luajit_target": "macos_arm64",
+    },
+)
+
+selects.config_setting_group(
+    name = "luajit_target_x64",
+    match_any = [
+        "luajit_target_linux_x64",
+    ],
+)
+
+selects.config_setting_group(
+    name = "luajit_target_arm64",
+    match_any = [
+        "luajit_target_linux_arm64",
+        "luajit_target_macos_arm64",
+    ],
+)
+
+selects.config_setting_group(
+    name = "luajit_target_linux",
+    match_any = [
+        "luajit_target_linux_x64",
+        "luajit_target_linux_arm64",
+    ],
+)
+
+selects.config_setting_group(
+    name = "luajit_target_macos",
+    match_any = [
+        "luajit_target_macos_arm64",
+    ],
+)
 
 lj_cc_library(
     name = "host_buildvm_lib",
@@ -80,8 +142,8 @@ genrule(
         "src/lua.h",
         "src/luaconf.h",
     ] + select({
-        "@pomerium_envoy//bazel/foreign_cc:luajit_target_x64": ["src/vm_x64.dasc"],
-        "@pomerium_envoy//bazel/foreign_cc:luajit_target_arm64": ["src/vm_arm64.dasc"],
+        ":luajit_target_x64": ["src/vm_x64.dasc"],
+        ":luajit_target_arm64": ["src/vm_arm64.dasc"],
     }) + glob([
         "dynasm/*.lua",
     ]),
@@ -95,13 +157,13 @@ genrule(
           "-D FPU " +
           "-D HFABI " +
           select({
-              "@pomerium_envoy//bazel/foreign_cc:luajit_target_x64": " ",
-              "@pomerium_envoy//bazel/foreign_cc:luajit_target_arm64": "-D DUALNUM -D VER=80 ",
+              ":luajit_target_x64": "",
+              ":luajit_target_arm64": "-D DUALNUM -D VER=80 ",
           }) +
           "-o $@ " +
           select({
-              "@pomerium_envoy//bazel/foreign_cc:luajit_target_x64": "$(location src/vm_x64.dasc)",
-              "@pomerium_envoy//bazel/foreign_cc:luajit_target_arm64": "$(location src/vm_arm64.dasc)",
+              ":luajit_target_x64": "$(location src/vm_x64.dasc)",
+              ":luajit_target_arm64": "$(location src/vm_arm64.dasc)",
           }),
 )
 
@@ -111,8 +173,8 @@ genrule(
     outs = ["src/lj_vm.S"],
     cmd = "$(location :host_buildvm) -m " +
           select({
-              "@pomerium_envoy//bazel/foreign_cc:luajit_target_linux": "elfasm ",
-              "@pomerium_envoy//bazel/foreign_cc:luajit_target_macos": "machasm ",
+              ":luajit_target_linux": "elfasm ",
+              ":luajit_target_macos": "machasm ",
           }) + "-o $@",
 )
 
@@ -273,7 +335,7 @@ lj_cc_library(
         "src/*.hpp",
     ]),
     host = False,
-    includes = ["src/"],
+    includes = ["src"],
     linkstatic = True,
     visibility = ["//visibility:public"],
     deps = [":ljvm"],
@@ -291,8 +353,9 @@ lj_cc_binary(
         ":luajit_h",
     ],
     host = False,
-    includes = ["src/"],
+    includes = ["src"],
     linkstatic = True,
+    visibility = ["//visibility:public"],
     deps = [
         ":ljvm",
         ":luajit",
