@@ -16,7 +16,6 @@ def luajit_copts():
             ],
             "@pomerium_envoy//bazel/foreign_cc:luajit_target_arm64": [
                 "-DLUAJIT_TARGET=LUAJIT_ARCH_arm64",
-                "-fno-omit-frame-pointer",
             ],
         },
         # error messages set here are rather hard to notice by default
@@ -26,9 +25,33 @@ def luajit_copts():
                          "*******************************",
     )
 
+def _get_host_platform():
+    if "@platforms//cpu:x86_64" in HOST_CONSTRAINTS:
+        return "x64"
+    elif "@platforms//cpu:arm64" in HOST_CONSTRAINTS:
+        return "arm64"
+    else:
+        fail("unknown host platform: %s" % HOST_CONSTRAINTS)
+
+_platform_mappings = {
+    "linux_x64": "x64",
+    "linux_x86_64": "x64",
+    "linux_arm64": "arm64",
+    "linux_aarch64": "arm64",
+    "macos_arm64": "arm64",
+    "macos_aarch64": "arm64",
+}
+
 def _use_host_platform_impl(settings, _):
-    target_platform = settings["//command_line_option:platforms"]
-    set_target_arch = "x64" if "x86_64" in str(target_platform) else "arm64"
+    target_platform = Label(settings["//command_line_option:platforms"][0]).name
+    print("target_platform: %s" % target_platform)
+    if target_platform in _platform_mappings:
+        set_target_arch = _platform_mappings[target_platform]
+    else:
+        print("using host platform")
+        set_target_arch = _get_host_platform()
+    print("set_target_arch: %s" % set_target_arch)
+
     return {
         "//command_line_option:platforms": "@platforms//host",
         "@pomerium_envoy//bazel/foreign_cc:luajit_target": set_target_arch,
@@ -41,8 +64,15 @@ _use_host_platform = transition(
 )
 
 def _use_target_platform_impl(settings, _):
-    target_platform = settings["//command_line_option:platforms"]
-    set_target_arch = "x64" if "x86_64" in str(target_platform) else "arm64"
+    target_platform = Label(settings["//command_line_option:platforms"][0]).name
+    print("target_platform: %s" % target_platform)
+    if target_platform in _platform_mappings:
+        set_target_arch = _platform_mappings[target_platform]
+    else:
+        print("using host platform")
+        set_target_arch = _get_host_platform()
+    print("set_target_arch: %s" % set_target_arch)
+
     return {
         "@pomerium_envoy//bazel/foreign_cc:luajit_target": set_target_arch,
     }
@@ -90,6 +120,7 @@ _lj_cc_binary = rule(
 )
 
 def lj_cc_binary(name, host = False, **kwargs):
+    print("lj_cc_binary: %s" % name)
     if host:
         _lj_cc_binary(
             name = name,

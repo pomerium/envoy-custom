@@ -1,6 +1,6 @@
-load("@bazel_skylib//rules:run_binary.bzl", "run_binary")
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
-load("@pomerium_envoy//bazel/foreign_cc:luajit.bzl", "lj_cc_binary", "lj_cc_library", "luajit_copts")
+load("@pomerium_envoy//bazel/foreign_cc:luajit.bzl", "lj_cc_binary", "lj_cc_library")
+load("@pomerium_envoy//bazel/foreign_cc:run_binary.bzl", "run_binary")
 
 lj_cc_library(
     name = "host_buildvm_lib",
@@ -118,6 +118,8 @@ run_binary(
         "@pomerium_envoy//bazel/foreign_cc:luajit_target_arm64": [
             "-D",
             "DUALNUM",
+            "-D",
+            "VER=80",
         ],
     }) + [
         "-o",
@@ -160,18 +162,18 @@ ljlib_c_srcs = [
     "src/lib_table.c",
 ]
 
-run_binary(
+genrule(
     name = "lj_bcdef_h",
-    srcs = ljlib_c_srcs,
+    srcs = [":host_buildvm"] + ljlib_c_srcs,
     outs = ["src/lj_bcdef.h"],
-    args = [
+    cmd = "$(location :host_buildvm)" + " ".join([
         "-m",
         "bcdef",
         "-o",
         "$(location src/lj_bcdef.h)",
-    ] + ["$(location %s)" % src for src in ljlib_c_srcs],
+    ] + ["$(location %s)" % src for src in ljlib_c_srcs]),
     # exec_compatible_with = HOST_CONSTRAINTS,
-    tool = ":host_buildvm",
+    # tool = ":host_buildvm",
 )
 
 run_binary(
@@ -313,7 +315,7 @@ lj_cc_library(
         "src/lj_udata.c",
         "src/lj_vmevent.c",
         "src/lj_vmmath.c",
-    ] + ljlib_c_srcs + [":ljvm"],
+    ] + ljlib_c_srcs,
     hdrs = [
         ":lj_bcdef_h",
         ":lj_ffdef_h",
@@ -326,6 +328,7 @@ lj_cc_library(
     includes = ["src/"],
     linkstatic = True,
     visibility = ["//visibility:public"],
+    deps = [":ljvm"],
 )
 
 lj_cc_binary(
@@ -337,12 +340,13 @@ lj_cc_binary(
         "src/luaconf.h",
         "src/luajit.c",
         "src/lualib.h",
-        ":ljvm",
-        ":luajit",
         ":luajit_h",
     ],
-    copts = luajit_copts(),
     host = False,
     includes = ["src/"],
     linkstatic = True,
+    deps = [
+        ":ljvm",
+        ":luajit",
+    ],
 )
