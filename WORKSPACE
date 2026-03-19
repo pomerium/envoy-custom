@@ -52,6 +52,7 @@ http_archive(
         "//patches/envoy:0005-user-space-io-handle.patch",
         "//patches/envoy:0006-fake-upstream.patch",
         "//patches/envoy:0007-coverage-format.patch",
+        "//patches/envoy:0008-sanitizer-deps.patch",
         "//patches/envoy:fix-antlr4-cpp-runtime.patch",
         "//patches/envoy:fix-integration-test-server-exit.patch",
         "//patches/envoy:fix-luajit-cross-compilation.patch",
@@ -73,18 +74,18 @@ envoy_api_binding()
 
 load("@envoy_api//bazel:envoy_http_archive.bzl", "envoy_http_archive")
 
-# override aspect_bazel_lib; upstream envoy downloads the wrong tarball
-envoy_http_archive(
-    name = "aspect_bazel_lib",
-    locations = {
-        "aspect_bazel_lib": {
-            "version": "2.21.2",
-            "sha256": "53cadea9109e646a93ed4dc90c9bbcaa8073c7c3df745b92f6a5000daf7aa3da",
-            "strip_prefix": "bazel-lib-2.21.2",
-            "urls": ["https://github.com/aspect-build/bazel-lib/releases/download/v2.21.2/bazel-lib-v2.21.2.tar.gz"],
-        },
-    },
-)
+# # override aspect_bazel_lib; upstream envoy downloads the wrong tarball
+# envoy_http_archive(
+#     name = "aspect_bazel_lib",
+#     locations = {
+#         "aspect_bazel_lib": {
+#             "version": "2.21.2",
+#             "sha256": "53cadea9109e646a93ed4dc90c9bbcaa8073c7c3df745b92f6a5000daf7aa3da",
+#             "strip_prefix": "bazel-lib-2.21.2",
+#             "urls": ["https://github.com/aspect-build/bazel-lib/releases/download/v2.21.2/bazel-lib-v2.21.2.tar.gz"],
+#         },
+#     },
+# )
 
 load("@envoy//bazel:api_repositories.bzl", "envoy_api_dependencies")
 
@@ -101,6 +102,11 @@ external_http_archive(
         # linux->darwin cross-compile support
         "//patches/toolchains_llvm:0002-darwin.patch",
     ],
+)
+
+external_http_archive(
+    name = "luajit",
+    build_file = "//bazel/foreign_cc:luajit.BUILD",
 )
 
 envoy_dependencies()
