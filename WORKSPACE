@@ -74,18 +74,18 @@ envoy_api_binding()
 
 load("@envoy_api//bazel:envoy_http_archive.bzl", "envoy_http_archive")
 
-# # override aspect_bazel_lib; upstream envoy downloads the wrong tarball
-# envoy_http_archive(
-#     name = "aspect_bazel_lib",
-#     locations = {
-#         "aspect_bazel_lib": {
-#             "version": "2.21.2",
-#             "sha256": "53cadea9109e646a93ed4dc90c9bbcaa8073c7c3df745b92f6a5000daf7aa3da",
-#             "strip_prefix": "bazel-lib-2.21.2",
-#             "urls": ["https://github.com/aspect-build/bazel-lib/releases/download/v2.21.2/bazel-lib-v2.21.2.tar.gz"],
-#         },
-#     },
-# )
+# override aspect_bazel_lib; upstream envoy downloads the wrong tarball
+envoy_http_archive(
+    name = "aspect_bazel_lib",
+    locations = {
+        "aspect_bazel_lib": {
+            "version": "2.21.2",
+            "sha256": "53cadea9109e646a93ed4dc90c9bbcaa8073c7c3df745b92f6a5000daf7aa3da",
+            "strip_prefix": "bazel-lib-2.21.2",
+            "urls": ["https://github.com/aspect-build/bazel-lib/releases/download/v2.21.2/bazel-lib-v2.21.2.tar.gz"],
+        },
+    },
+)
 
 load("@envoy//bazel:api_repositories.bzl", "envoy_api_dependencies")
 
