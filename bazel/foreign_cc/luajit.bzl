@@ -53,7 +53,13 @@ _platform_mappings = {
     "linux_aarch64": "linux_arm64",
     "macos_arm64": "macos_arm64",
     "macos_aarch64": "macos_arm64",
+    "darwin_arm64": "macos_arm64",
+    "darwin_aarch64": "macos_arm64",
+    "osx_arm64": "macos_arm64",
+    "osx_aarch64": "macos_arm64",
     "macos": "macos_arm64",
+    "darwin": "macos_arm64",
+    "osx": "macos_arm64",
 }
 
 def _use_host_platform_impl(settings, _):
