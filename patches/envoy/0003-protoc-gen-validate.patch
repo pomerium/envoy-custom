@@ -7,7 +7,7 @@ index c93daba62e..55f77d7b7d 100644
          name = "com_envoyproxy_protoc_gen_validate",
          patch_args = ["-p1"],
 -        patches = ["@envoy//bazel:pgv.patch"],
-+        patches = ["@envoy//bazel:pgv.patch", "//patches/protoc-gen-validate:utf8-len.patch"],
++        patches = ["@envoy//bazel:pgv.patch", "//patches/protoc_gen_validate:fix-utf8-len.patch"],
          repo_mapping = {"@com_google_absl": "@abseil-cpp"},
      )
      external_http_archive(

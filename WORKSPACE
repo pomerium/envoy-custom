@@ -42,28 +42,25 @@ local_repository(
 
 http_archive(
     name = "envoy",
-    patch_args = [
-        "-p1",
-    ],
+    patch_args = ["-p1"],
     patch_tool = "patch",
     patches = [
         "//patches/envoy:0001-revert-deps-drop-BoringSSL-linkstatic-patch-38621.patch",
-        "//patches/envoy:0003-envoy-copts.patch",
-        "//patches/envoy:0004-protoc-gen-validate.patch",
-        "//patches/envoy:0005-suppress-duplicate-wip-warnings.patch",
-        "//patches/envoy:0006-coverage-format.patch",
-        "//patches/envoy:0007-user-space-io-handle.patch",
-        "//patches/envoy:0008-fake-upstream.patch",
-        "//patches/envoy:0009-fix-integration-test-server-exit.patch",
-        "//patches/envoy:0010-fix-mock-connection-race.patch",
-        "//patches/envoy:0011-symbolizer-env.patch",
-        "//patches/envoy:0012-foreign-cc-toolchains.patch",
-        "//patches/envoy:0013-no-stdlib-deps.patch",
-        "//patches/envoy:0014-fix-zstd-cli-threading.patch",
-        "//patches/envoy:0015-fix-luajit-cross-compilation.patch",
-        "//patches/envoy:0016-remove-antlr4-cpp-runtime.patch",
-        "//patches/envoy:tmp-transport-socket-options.patch",
-        "//patches/envoy:tmp-tcmalloc-macos-constraints.patch",
+        "//patches/envoy:0002-envoy-copts.patch",
+        "//patches/envoy:0003-protoc-gen-validate.patch",
+        "//patches/envoy:0004-suppress-duplicate-wip-warnings.patch",
+        "//patches/envoy:0005-user-space-io-handle.patch",
+        "//patches/envoy:0006-fake-upstream.patch",
+        "//patches/envoy:0007-coverage-format.patch",
+        "//patches/envoy:fix-antlr4-cpp-runtime.patch",
+        "//patches/envoy:fix-integration-test-server-exit.patch",
+        "//patches/envoy:fix-luajit-cross-compilation.patch",
+        "//patches/envoy:fix-missing-symbolizer-env.patch",
+        "//patches/envoy:fix-mock-connection-race.patch",
+        "//patches/envoy:fix-static-libgcc-flag.patch",
+        "//patches/envoy:fix-tcmalloc-macos-constraints.patch",
+        "//patches/envoy:fix-transport-socket-options.patch",
+        "//patches/envoy:fix-zstd-cli-threading.patch",
     ],
     sha256 = "46e132c211dedbf08b6d2f6d04077c34b6a85b3381b94df4fecbe42def019537",
     strip_prefix = "envoy-" + envoy_version,
@@ -149,10 +146,6 @@ load("@envoy//bazel:repo.bzl", "envoy_repo")
 
 envoy_repo()
 
-load("@rules_foreign_cc//foreign_cc:repositories.bzl", "rules_foreign_cc_dependencies")
-
-rules_foreign_cc_dependencies()
-
 load("//bazel:toolchains.bzl", "pomerium_envoy_toolchains")
 
 pomerium_envoy_toolchains()
@@ -183,9 +176,7 @@ envoy_http_archive(
             version = openssh_version,
         ),
     ),
-    patch_args = [
-        "-p1",
-    ],
+    patch_args = ["-p1"],
     patches = [
         # Openssh by default links against libcrypto with -lcrypto, but envoy's boringcrypto lib
         # is named crypto_internal
