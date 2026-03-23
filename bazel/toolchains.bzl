@@ -32,8 +32,8 @@ def pomerium_envoy_toolchains():
     arch_alias(
         name = "clang_platform",
         aliases = {
-            "amd64": "@envoy//bazel/platforms/rbe:linux_x64",
-            "aarch64": "@envoy//bazel/platforms/rbe:linux_arm64",
+            "amd64": "@//bazel/platforms/rbe:linux_x64",
+            "aarch64": "@//bazel/platforms/rbe:linux_arm64",
         },
     )
     llvm_toolchain(
