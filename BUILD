@@ -4,6 +4,7 @@ load(
 )
 load("@hedron_compile_commands//:refresh_compile_commands.bzl", "refresh_compile_commands")
 load("@rules_foreign_cc//foreign_cc:configure.bzl", "configure_make")
+load("//bazel:multi_arch.bzl", "multiarch_envoy_cc_binary")
 load("//bazel/ci/images:oci.bzl", "image")
 
 package(default_visibility = ["//visibility:public"])
@@ -26,6 +27,13 @@ envoy_cc_binary(
         "//source/extensions/tracers/pomerium_otel",
         "@envoy//source/exe:envoy_main_entry_lib",
     ],
+)
+
+# Note: for this to work correctly, set --host_platform explicitly on the command line, and enable
+# --experimental_platform_in_output_dir
+multiarch_envoy_cc_binary(
+    name = "envoy_multiarch",
+    target = ":envoy",
 )
 
 image(
