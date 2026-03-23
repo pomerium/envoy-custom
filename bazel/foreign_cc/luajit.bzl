@@ -12,6 +12,7 @@ def luajit_copts():
         "-DLJ_ARCH_HASFPU=1",
         "-DLJ_ABI_SOFTFP=0",
         "-DLUAJIT_UNWIND_EXTERNAL",
+        "-DLUAJIT_ENABLE_LUA52COMPAT",
     ] + select(
         {
             ":luajit_target_x64": [
