@@ -62,6 +62,7 @@ http_archive(
         "//patches/envoy:fix-tcmalloc-macos-constraints.patch",
         "//patches/envoy:fix-transport-socket-options.patch",
         "//patches/envoy:fix-zstd-cli-threading.patch",
+        "//patches/envoy:fix-allow-dev-shm.patch",
     ],
     sha256 = "46e132c211dedbf08b6d2f6d04077c34b6a85b3381b94df4fecbe42def019537",
     strip_prefix = "envoy-" + envoy_version,

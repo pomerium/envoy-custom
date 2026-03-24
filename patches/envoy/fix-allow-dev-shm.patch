@@ -1,0 +1,18 @@
+diff --git a/source/common/filesystem/posix/filesystem_impl.cc b/source/common/filesystem/posix/filesystem_impl.cc
+index 7f95a490b5..947b0fd981 100644
+--- a/source/common/filesystem/posix/filesystem_impl.cc
++++ b/source/common/filesystem/posix/filesystem_impl.cc
+@@ -355,6 +355,13 @@ bool InstanceImplPosix::illegalPath(const std::string& path) {
+     return true;
+   }
+ 
++  // Allow /dev/shm/*, which is a standard tmpfs location. A common use case is to set the bazel
++  // sandbox_base to /dev/shm, since /tmp is not always backed by memory. Integration tests may
++  // then need to access files in bazel sandboxes under this directory.
++  if (absl::StartsWith(path, "/dev/shm/")) {
++    return false;
++  }
++
+   // Platform specific path sanity; we provide a convenience to avoid Envoy
+   // instances poking in bad places. We may have to consider conditioning on
+   // platform in the future, growing these or relaxing some constraints (e.g.
