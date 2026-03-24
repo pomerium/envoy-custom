@@ -866,16 +866,23 @@ TEST_P(StaticPortForwardTest, UpstreamSendsUnexpectedChannelMessage) {
 }
 
 TEST_P(StaticPortForwardTest, UpstreamEOF) {
+  Tasks::Channel channel;
   auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
-              .then(driver->createTask<Tasks::SendChannelEOF>()
-                      .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>()))
+              .saveOutput(&channel)
               .start();
 
   auto tcp_client = makeTcpConnectionWithServerName(route_port, route_name);
+
+  ASSERT_TRUE(driver->wait(th));
+
+  auto th2 = driver->createTask<Tasks::SendChannelEOF>()
+               .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>())
+               .start(channel);
+
   tcp_client->waitForDisconnect();
   tcp_client->close();
 
-  ASSERT_TRUE(driver->wait(th));
+  ASSERT_TRUE(driver->wait(th2));
 }
 
 TEST_P(StaticPortForwardTest, BlockDownstreamSocksPacket) {
@@ -1492,6 +1499,7 @@ TEST_P(ProtocolMismatchUpstreamExpectingStaticModeTest, HandleUpstreamServerErro
   Tasks::Channel channel;
   auto th = driver->createTask<Tasks::AcceptReversePortForward>(requested_host_, virtual_port, 1)
               .saveOutput(&channel)
+              .then(driver->createTask<Tasks::WaitForChannelData>("\x05\x01\x00"))
               .start();
   auto downstream = makeTcpConnectionWithServerName(lookupPort("tcp"), "tcp-cluster");
 
@@ -1512,9 +1520,8 @@ TEST_P(ProtocolMismatchUpstreamExpectingStaticModeTest, HandleUpstreamServerErro
   // Importantly however, the downstream connection needs to remain in the connecting state until
   // it times out.
 
-  auto th2 = driver->createTask<Tasks::WaitForChannelData>("\x05\x01\x00")
-               .then(driver->createTask<Tasks::SendChannelData>("not a socks5 response")
-                       .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>(Tasks::ExpectEOF::Yes)))
+  auto th2 = driver->createTask<Tasks::SendChannelData>("not a socks5 response")
+               .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>(Tasks::ExpectEOF::Yes))
                .start(channel);
 
   EXPECT_TRUE(downstream->write("hello"));
@@ -1528,6 +1535,7 @@ TEST_P(ProtocolMismatchUpstreamExpectingStaticModeTest, HandleUpstreamServerTime
   Tasks::Channel channel;
   auto th = driver->createTask<Tasks::AcceptReversePortForward>(requested_host_, virtual_port, 1)
               .saveOutput(&channel)
+              .then(driver->createTask<Tasks::WaitForChannelData>("\x05\x01\x00"))
               .start();
   auto downstream = makeTcpConnectionWithServerName(lookupPort("tcp"), "tcp-cluster");
 
@@ -1535,8 +1543,7 @@ TEST_P(ProtocolMismatchUpstreamExpectingStaticModeTest, HandleUpstreamServerTime
 
   // Simulate the upstream server timing out (e.g. in the case of waiting for \r\n for HTTP)
 
-  auto th2 = driver->createTask<Tasks::WaitForChannelData>("\x05\x01\x00")
-               .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>(Tasks::ExpectEOF::Yes))
+  auto th2 = driver->createTask<Tasks::WaitForChannelCloseByPeer>(Tasks::ExpectEOF::Yes)
                .start(channel);
 
   EXPECT_TRUE(downstream->write("hello"));
@@ -1550,14 +1557,14 @@ TEST_P(ProtocolMismatchUpstreamExpectingStaticModeTest, HandleUpstreamServerClos
   Tasks::Channel channel;
   auto th = driver->createTask<Tasks::AcceptReversePortForward>(requested_host_, virtual_port, 1)
               .saveOutput(&channel)
+              .then(driver->createTask<Tasks::WaitForChannelData>("\x05\x01\x00"))
               .start();
   auto downstream = makeTcpConnectionWithServerName(lookupPort("tcp"), "tcp-cluster");
 
   ASSERT_TRUE(driver->wait(th));
 
   // Simulate the upstream server giving up and disconnecting without sending anything
-  auto th2 = driver->createTask<Tasks::WaitForChannelData>("\x05\x01\x00")
-               .then(driver->createTask<Tasks::SendChannelCloseAndWait>(Tasks::SendEOF(true)))
+  auto th2 = driver->createTask<Tasks::SendChannelCloseAndWait>(Tasks::SendEOF(true))
                .start(channel);
 
   EXPECT_TRUE(downstream->write("hello"));
