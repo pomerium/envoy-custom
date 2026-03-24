@@ -52,9 +52,10 @@ http_archive(
         "//patches/envoy:0005-user-space-io-handle.patch",
         "//patches/envoy:0006-fake-upstream.patch",
         "//patches/envoy:0007-coverage-format.patch",
+        "//patches/envoy:0008-sanitizer-deps.patch",
+        "//patches/envoy:0009-luajit.patch",
         "//patches/envoy:fix-antlr4-cpp-runtime.patch",
         "//patches/envoy:fix-integration-test-server-exit.patch",
-        "//patches/envoy:fix-luajit-cross-compilation.patch",
         "//patches/envoy:fix-missing-symbolizer-env.patch",
         "//patches/envoy:fix-mock-connection-race.patch",
         "//patches/envoy:fix-static-libgcc-flag.patch",
@@ -101,6 +102,11 @@ external_http_archive(
         # linux->darwin cross-compile support
         "//patches/toolchains_llvm:0002-darwin.patch",
     ],
+)
+
+external_http_archive(
+    name = "luajit",
+    build_file = "//bazel/foreign_cc:luajit.BUILD",
 )
 
 envoy_dependencies()

@@ -1,0 +1,14 @@
+diff --git a/bazel/sanitizers.bzl b/bazel/sanitizers.bzl
+index 7ca6a96d5f..15a2a71006 100644
+--- a/bazel/sanitizers.bzl
++++ b/bazel/sanitizers.bzl
+@@ -7,8 +7,4 @@ def sanitizer_deps():
+     sanitizer instrumentation. These libraries will be linked in place of
+     the system libc++.
+     """
+-    return select({
+-        "@envoy//bazel:msan_build": ["@envoy//bazel/foreign_cc:libcxx_msan_wrapper"],
+-        "@envoy//bazel:tsan_build": ["@envoy//bazel/foreign_cc:libcxx_tsan_wrapper"],
+-        "//conditions:default": [],
+-    })
++    return []
