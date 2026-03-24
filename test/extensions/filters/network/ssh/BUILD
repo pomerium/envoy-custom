@@ -59,6 +59,7 @@ envoy_cc_test(
         "@openssh_portable//:testdata_sshkey",
     ],
     repository = "@envoy",
+    shard_count = 8,
     deps = [
         ":test_env_util_lib",
         "//source/extensions/filters/network/ssh:pomerium_ssh",
@@ -265,6 +266,7 @@ envoy_cc_test(
         "version_exchange_test.cc",
     ],
     repository = "@envoy",
+    shard_count = 16,
     deps = [
         ":test_mocks",
         "//source/extensions/filters/network/ssh:pomerium_ssh",
@@ -281,6 +283,7 @@ envoy_cc_test(
         "kex_test.cc",
     ],
     repository = "@envoy",
+    shard_count = 16,
     deps = [
         ":test_mocks",
         "//source/extensions/filters/network/ssh:pomerium_ssh",
@@ -313,6 +316,7 @@ envoy_cc_test(
         "server_transport_test.cc",
     ],
     repository = "@envoy",
+    shard_count = 8,
     deps = [
         ":test_env_util_lib",
         ":test_mocks",
@@ -333,6 +337,7 @@ envoy_cc_test(
         "client_transport_test.cc",
     ],
     repository = "@envoy",
+    shard_count = 2,
     deps = [
         ":test_env_util_lib",
         ":test_mocks",
@@ -464,6 +469,7 @@ envoy_cc_test(
         "reverse_tunnel_test.cc",
     ],
     repository = "@envoy",
+    shard_count = 16,
     deps = [
         ":integration_lib",
     ],
@@ -476,6 +482,7 @@ envoy_cc_test(
         "graceful_shutdown_test.cc",
     ],
     repository = "@envoy",
+    shard_count = 4,
     deps = [
         ":integration_lib",
         ":test_mocks",
