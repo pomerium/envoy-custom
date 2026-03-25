@@ -391,8 +391,8 @@ IntegrationTcpClientPtr SshIntegrationTest::makeTcpConnectionWithServerName(uint
 
   uint32_t len = ntohl(server_name.size());
   std::string len_str(reinterpret_cast<char*>(&len), sizeof(len));
-  if (!tcp_client->write(len_str + server_name)) {
-    ADD_FAILURE() << "write error";
+  if (auto res = tcp_client->write(len_str + server_name); !res) {
+    ADD_FAILURE() << "error writing server name: " << res.message();
   }
   return tcp_client;
 }

@@ -358,15 +358,22 @@ TEST_P(StaticPortForwardTest, UnexpectedClientDisconnect) {
 }
 
 TEST_P(StaticPortForwardTest, ImmediateServerEOFClose) {
+  Tasks::Channel channel;
   auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
-              .then(driver->createTask<Tasks::SendChannelCloseAndWait>(Tasks::SendEOF(true)))
+              .saveOutput(&channel)
               .start();
 
   auto tcp_client = makeTcpConnectionWithServerName(route_port, route_name);
+
+  ASSERT_TRUE(driver->wait(th));
+
+  auto th2 = driver->createTask<Tasks::SendChannelCloseAndWait>(Tasks::SendEOF(true))
+               .start(channel);
+
   tcp_client->waitForDisconnect();
   tcp_client->close();
 
-  ASSERT_TRUE(driver->wait(th));
+  ASSERT_TRUE(driver->wait(th2));
 }
 
 static constexpr auto stat_window_adjustment_paused =
@@ -822,13 +829,20 @@ TEST_P(StaticPortForwardTest, UpstreamPacketTooLarge) {
 }
 
 TEST_P(StaticPortForwardTest, UpstreamPacketEmpty) {
+  Tasks::Channel channel;
   auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
-              .then(driver->createTask<Tasks::SendChannelData>("")
-                      .then(driver->createTask<Tasks::SendChannelCloseAndWait>()))
+              .saveOutput(&channel)
               .start();
   auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
-  // this should be a no-op
+
   ASSERT_TRUE(driver->wait(th));
+
+  auto th2 = driver->createTask<Tasks::SendChannelData>("")
+               .then(driver->createTask<Tasks::SendChannelCloseAndWait>())
+               .start(channel);
+
+  // this should be a no-op
+  ASSERT_TRUE(driver->wait(th2));
 
   downstream->close();
 }
@@ -1098,8 +1112,19 @@ TEST_P(StaticPortForwardTest, HostDrainBeforeChannelOpenFailureClosesDownstreamC
 
 TEST_P(StaticPortForwardTest, DownstreamConnectWithNoHealthyUpstreams) {
   setClusterLoad(cluster_name, {});
-  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
-  downstream->waitForDisconnect();
+  // Manually write the server name to the connection, as disconnects are expected but may occur
+  // during or after the write call.
+  auto tcp_client = makeTcpConnection(route_port, {}, {}, {});
+
+  uint32_t len = ntohl(route_name.size());
+  std::string len_str(reinterpret_cast<char*>(&len), sizeof(len));
+  auto res = tcp_client->write(len_str + route_name);
+  if (!res) {
+    // the server may have disconnected us during write(), which is okay
+    EXPECT_FALSE(tcp_client->connected()) << "unexpected write error: " << res.message();
+  }
+  // this is a no-op if the client is already disconnected, otherwise wait for the disconnect
+  tcp_client->waitForDisconnect();
 }
 
 TEST_P(StaticPortForwardTest, InternalDownstreamChannelOpenFails) {
