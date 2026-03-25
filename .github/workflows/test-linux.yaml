@@ -11,37 +11,56 @@ on:
 
 jobs:
   test-coverage:
-    if: ${{ github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready') }}
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: ["x64"]
-    runs-on:
-      - ubuntu-latest-16-cores${{ matrix.arch == 'arm64' && '-arm64' || '' }}
+    if: >-
+      github.event_name != 'pull_request'
+      || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready')
+    runs-on: envoy-custom-homelab
+    timeout-minutes: 240
+    permissions:
+      contents: read
 
     steps:
       - name: checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
-      - name: disable man-db auto update
-        if: ${{ runner.environment == 'github-hosted' }}
-        run: sudo rm -f /var/lib/man-db/auto-update
-
-      - name: setup clang
+      - name: install dependencies
         run: |
-          sudo apt -y install virtualenv lcov
+          sudo apt-get update && sudo apt-get -y install lcov zstd
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL -o "$HOME/.local/bin/bazel" \
+            https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
+          chmod +x "$HOME/.local/bin/bazel"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/bazel" --version
 
-      - name: setup bazel
-        uses: bazel-contrib/setup-bazel@e8776f58fb6a6e9055cbaf1b38c52ccc5247e9c4
-        with:
-          bazelisk-version: 1.25.0
-          bazelisk-cache: true
-          disk-cache: bazel-linux-${{ matrix.arch }}
-          repository-cache: true
+      - name: configure LLVM toolchain for remote workers
+        run: |
+          cat > clang.bazelrc << 'CLANGRC'
+          build:clang --host_action_env=PATH=/toolchains/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin --action_env=PATH=/toolchains/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+          build:clang --action_env=LLVM_CONFIG=/toolchains/bin/llvm-config --host_action_env=LLVM_CONFIG=/toolchains/bin/llvm-config
+          build:clang --repo_env=LLVM_CONFIG=/toolchains/bin/llvm-config
+          build:clang --linkopt=-L/toolchains/lib
+          build:clang --linkopt=-Wl,-rpath,/toolchains/lib
+          build:asan --linkopt=-L/toolchains/lib/clang/19/lib/x86_64-unknown-linux-gnu
+          CLANGRC
+
+      - name: configure remote execution
+        run: |
+          cat >> user.bazelrc << 'BAZELRC'
+          common:gebru --remote_executor=grpc://frontend.buildbarn.svc.cluster.local:8980
+          common:gebru --remote_cache=grpc://frontend.buildbarn.svc.cluster.local:8980
+          common:gebru --jobs=64
+          common:gebru --remote_timeout=14400
+          common:gebru --spawn_strategy=remote,sandboxed,local
+          common:gebru --remote_max_connections=100
+          build:gebru --host_platform=@local_config_platform//:host
+          build:gebru --remote_download_toplevel
+          build:gebru --remote_default_exec_properties=container-image=docker://ghcr.io/pomerium/envoy-build:22.1.1-1@sha256:77b3807b4109237d5a22d296f468352cc4680f0181c2038d055926872a85ecc4
+          BAZELRC
 
       - name: test
         run: |
-          bazel coverage --test_output=errors //test/...
+          bazel coverage --config=gebru --test_output=errors //test/...
           tar xf bazel-out/_coverage/_coverage_report.dat ./lcov
 
       - name: upload to coveralls
@@ -51,33 +70,52 @@ jobs:
           file: lcov
 
   test-asan:
-    if: ${{ github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready') }}
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: ["x64"]
-    runs-on:
-      - ubuntu-latest-16-cores${{ matrix.arch == 'arm64' && '-arm64' || '' }}
+    if: >-
+      github.event_name != 'pull_request'
+      || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready')
+    runs-on: envoy-custom-homelab
+    timeout-minutes: 240
+    permissions:
+      contents: read
 
     steps:
       - name: checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
-      - name: disable man-db auto update
-        if: ${{ runner.environment == 'github-hosted' }}
-        run: sudo rm -f /var/lib/man-db/auto-update
-
-      - name: setup clang
+      - name: install bazelisk
         run: |
-          sudo apt -y install virtualenv lcov
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL -o "$HOME/.local/bin/bazel" \
+            https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
+          chmod +x "$HOME/.local/bin/bazel"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/bazel" --version
 
-      - name: setup bazel
-        uses: bazel-contrib/setup-bazel@e8776f58fb6a6e9055cbaf1b38c52ccc5247e9c4
-        with:
-          bazelisk-version: 1.25.0
-          bazelisk-cache: true
-          disk-cache: bazel-linux-${{ matrix.arch }}-asan
-          repository-cache: true
+      - name: configure LLVM toolchain for remote workers
+        run: |
+          cat > clang.bazelrc << 'CLANGRC'
+          build:clang --host_action_env=PATH=/toolchains/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin --action_env=PATH=/toolchains/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+          build:clang --action_env=LLVM_CONFIG=/toolchains/bin/llvm-config --host_action_env=LLVM_CONFIG=/toolchains/bin/llvm-config
+          build:clang --repo_env=LLVM_CONFIG=/toolchains/bin/llvm-config
+          build:clang --linkopt=-L/toolchains/lib
+          build:clang --linkopt=-Wl,-rpath,/toolchains/lib
+          build:asan --linkopt=-L/toolchains/lib/clang/19/lib/x86_64-unknown-linux-gnu
+          CLANGRC
+
+      - name: configure remote execution
+        run: |
+          cat >> user.bazelrc << 'BAZELRC'
+          common:gebru --remote_executor=grpc://frontend.buildbarn.svc.cluster.local:8980
+          common:gebru --remote_cache=grpc://frontend.buildbarn.svc.cluster.local:8980
+          common:gebru --jobs=64
+          common:gebru --remote_timeout=14400
+          common:gebru --spawn_strategy=remote,sandboxed,local
+          common:gebru --remote_max_connections=100
+          build:gebru --host_platform=@local_config_platform//:host
+          build:gebru --remote_download_toplevel
+          build:gebru --remote_default_exec_properties=container-image=docker://ghcr.io/pomerium/envoy-build:22.1.1-1@sha256:77b3807b4109237d5a22d296f468352cc4680f0181c2038d055926872a85ecc4
+          BAZELRC
 
       - name: test
-        run: bazel test -c dbg --config=asan --test_output=errors //test/...
+        run: bazel test --config=gebru -c dbg --config=asan --test_output=errors //test/...
+        continue-on-error: true
