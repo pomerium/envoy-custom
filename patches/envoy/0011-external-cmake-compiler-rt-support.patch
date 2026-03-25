@@ -1,0 +1,32 @@
+diff --git a/bazel/envoy_build_system.bzl b/bazel/envoy_build_system.bzl
+index c3d0995330..81a4690bcb 100644
+--- a/bazel/envoy_build_system.bzl
++++ b/bazel/envoy_build_system.bzl
+@@ -143,18 +143,25 @@ def envoy_cmake(
+         "//conditions:default": {},
+     })
+
++    _compiler_rt_entries = select({
++        "@toolchains_llvm//toolchain/config:use_compiler_rt": {
++            "CMAKE_C_FLAGS": "-rtlib=compiler-rt -l:libunwind.a",
++        },
++        "//conditions:default": {},
++    })
++
+     # If cache_entries is a dict, merge defaults and wrap for debug builds.
+     # If it's a select(), pass it through directly.
+     if hasattr(cache_entries, "update"):
+         cache_entries.update(default_cache_entries)
+         cache_entries_debug = dict(cache_entries)
+         cache_entries_debug.update(debug_cache_entries)
+-        final_cache_entries = _lld_linker_entries | select({
++        final_cache_entries = _lld_linker_entries | _compiler_rt_entries | select({
+             "@envoy//bazel:dbg_build": cache_entries_debug,
+             "//conditions:default": cache_entries,
+         })
+     else:
+-        final_cache_entries = _lld_linker_entries | cache_entries
++        final_cache_entries = _lld_linker_entries | _compiler_rt_entries | cache_entries
+
+     pf = ""
+     if copy_pdb:
