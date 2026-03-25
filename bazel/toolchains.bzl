@@ -14,7 +14,7 @@ TOOLCHAIN_INFO = {
 
 TOOLCHAIN_INTEGRITY = struct(
     toolchain = {
-        "linux-amd64": "29b121ca6ca51a884c0a5d03c730a364785184b6b845f05d647648dfbd78a3a4",
+        "linux-x86_64": "29b121ca6ca51a884c0a5d03c730a364785184b6b845f05d647648dfbd78a3a4",
         "linux-aarch64": "ee9c759fddfdd51d34754a0ef3660086138951f038b3d6a2273a7d25b5e6b2da",
         "darwin-aarch64": "d140df515f617bdd473914408ccd15ee421f6d613965f63a41738f22c95015d8",
     },
