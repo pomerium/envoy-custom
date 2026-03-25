@@ -20,7 +20,7 @@ jobs:
             platform_flag: ""
           - arch: arm64
             platform_flag: "--platforms=//bazel/platforms/rbe:linux_arm64"
-    runs-on: gebru-homelab
+    runs-on: envoy-custom-homelab
     timeout-minutes: 120
     permissions:
       contents: read
