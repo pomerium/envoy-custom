@@ -59,7 +59,6 @@ jobs:
             //:update_index.envoy.image \
             --verbose_failures 2>&1 | tee build.log
           echo "::endgroup::"
-          echo "evil"
 
       - name: Push image (${{ matrix.arch }})
         if: github.event_name != 'pull_request'
