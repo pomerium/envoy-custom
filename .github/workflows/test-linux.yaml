@@ -11,12 +11,9 @@ on:
 
 jobs:
   test-coverage:
-    # Skip fork PRs (security: self-hosted runners) and ci-not-ready label
     if: >-
-      (github.event_name != 'pull_request'
-      || github.event.pull_request.head.repo.full_name == github.repository)
-      && (github.event_name != 'pull_request'
-      || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready'))
+      github.event_name != 'pull_request'
+      || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready')
     runs-on: envoy-custom-homelab
     timeout-minutes: 240
     permissions:
@@ -55,12 +52,9 @@ jobs:
           file: lcov
 
   test-asan:
-    # Skip fork PRs (security: self-hosted runners) and ci-not-ready label
     if: >-
-      (github.event_name != 'pull_request'
-      || github.event.pull_request.head.repo.full_name == github.repository)
-      && (github.event_name != 'pull_request'
-      || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready'))
+      github.event_name != 'pull_request'
+      || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready')
     runs-on: envoy-custom-homelab
     timeout-minutes: 240
     permissions:
@@ -91,12 +85,9 @@ jobs:
         run: bazel test --config=buildbarn  --config=asan --test_output=errors //test/...
 
   test-tsan:
-    # Skip fork PRs (security: self-hosted runners) and ci-not-ready label
     if: >-
-      (github.event_name != 'pull_request'
-      || github.event.pull_request.head.repo.full_name == github.repository)
-      && (github.event_name != 'pull_request'
-      || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready'))
+      github.event_name != 'pull_request'
+      || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready')
     runs-on: envoy-custom-homelab
     timeout-minutes: 240
     permissions:
