@@ -11,10 +11,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - arch: amd64
-            platform_flag: "--platforms=//bazel/platforms/rbe:linux_x64"
-          - arch: arm64
-            platform_flag: "--platforms=//bazel/platforms/rbe:linux_arm64"
+          - arch: linux_x64
+          - arch: linux_arm64
+          - arch: macos
     runs-on: envoy-custom-homelab
     timeout-minutes: 120
     permissions:
