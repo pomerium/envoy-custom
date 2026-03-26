@@ -54,7 +54,7 @@ jobs:
         run: |
           set -o pipefail
           echo "::group::Bazel build (${{ matrix.arch }})"
-          bazel build --config=buildbarn -c opt ${{ matrix.platform_flag }} \
+          bazel build --config=buildbarn -c opt --platforms=//bazel/platforms/rbe:${{ matrix.arch }} \
             //:update_index.envoy.image \
             --verbose_failures 2>&1 | tee build.log
           echo "::endgroup::"
@@ -64,7 +64,7 @@ jobs:
         run: |
           set -o pipefail
           echo "::group::Push ${{ matrix.arch }} image and update index"
-          bazel run --config=buildbarn -c opt ${{ matrix.platform_flag }} \
+          bazel run --config=buildbarn -c opt --platforms=//bazel/platforms/rbe:${{ matrix.arch }} \
             //:update_index.envoy.image 2>&1 | tee push.log
           echo "::endgroup::"
 
