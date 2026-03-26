@@ -30,6 +30,7 @@ def image(name, srcs):
             "@platforms//os:macos": "darwin",
         }),
         labels = "//bazel/ci/images:image_labels",
+        annotations = "//bazel/ci/images:image_annotations",
         tars = [_tar_name],
         entrypoint = ["/envoy"],
     )
