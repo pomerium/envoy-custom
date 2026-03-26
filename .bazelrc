@@ -47,5 +47,7 @@ build:buildbarn --host_action_env=LLVM_CONFIG=/toolchains/bin/llvm-config
 build:buildbarn --repo_env=LLVM_CONFIG=/toolchains/bin/llvm-config
 build:buildbarn --linkopt=-L/toolchains/lib
 build:buildbarn --linkopt=-Wl,-rpath,/toolchains/lib
+build:buildbarn --bes_results_url=https://buildbarn.k8s.bdd.io/bazel-invocations/
+build:buildbarn --bes_backend=grpc://portal.buildbarn.svc.cluster.local:8082
 # ASAN runtime library path on remote workers
 build:asan --linkopt=-L/toolchains/lib/clang/19/lib/x86_64-unknown-linux-gnu
