@@ -17,7 +17,7 @@ jobs:
       matrix:
         include:
           - arch: amd64
-            platform_flag: ""
+            platform_flag: "--platforms=//bazel/platforms/rbe:linux_x64"
           - arch: arm64
             platform_flag: "--platforms=//bazel/platforms/rbe:linux_arm64"
     runs-on: envoy-custom-homelab
