@@ -9,3 +9,8 @@
 # this is derived from the command go uses to obtain rev info, see go/internal/modfetch/codehost/git.go
 commit_timestamp="$(TZ=UTC0 git log --no-decorate -n1 --date="format-local:%Y%m%d%H%M%S" --format="format:%cd" HEAD)"
 echo "STABLE_BUILD_SCM_REVISION_TIMESTAMP ${commit_timestamp}"
+
+current_tag="$(git tag --points-at HEAD | xargs)"
+if [[ -n "$current_tag" ]]; then
+  echo "STABLE_BUILD_SCM_TAG ${current_tag}"
+fi

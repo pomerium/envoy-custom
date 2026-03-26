@@ -7,6 +7,7 @@ tag_exprs = [
     ".STABLE_BUILD_SCM_REVISION",
     # go module pseudo version format
     "((.STABLE_BUILD_SCM_REVISION_TIMESTAMP | tostring) + \"-\" + (.STABLE_BUILD_SCM_REVISION | tostring | .[0:12]))",
+    "(.STABLE_BUILD_SCM_TAG // \"\" | split(\" \"))",
 ]
 
 jq(
@@ -19,7 +20,7 @@ jq(
         "repo",
         REPO_NAME,
     ],
-    filter = "[%s]" % ",".join(tag_exprs) + r'| map("\($repo):\(.)") | .[]',
+    filter = "[%s]" % ",".join(tag_exprs) + r' | flatten | map(select(.)) | map("\($repo):\(.)") | .[]',
     visibility = ["//visibility:public"],
 )
 
