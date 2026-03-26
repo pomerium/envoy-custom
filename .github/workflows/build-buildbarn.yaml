@@ -61,7 +61,6 @@ jobs:
           common:gebru --remote_max_connections=100
           build:gebru --host_platform=@local_config_platform//:host
           build:gebru --remote_download_toplevel
-          build:gebru --remote_default_exec_properties=container-image=docker://ghcr.io/pomerium/envoy-build:22.1.1-1@sha256:77b3807b4109237d5a22d296f468352cc4680f0181c2038d055926872a85ecc4
           BAZELRC
 
       - name: Configure registry credentials
