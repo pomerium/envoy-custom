@@ -84,6 +84,36 @@ jobs:
         id: asan-test
         run: bazel test --config=buildbarn  --config=asan --test_output=errors //test/...
 
-      - name: warn on ASAN failure
-        if: steps.asan-test.outcome == 'failure'
-        run: echo "::warning::ASAN tests failed. Memory safety issues may be present. See test step output above."
+  test-tsan:
+    if: >-
+      github.event_name != 'pull_request'
+      || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready')
+    runs-on: envoy-custom-homelab
+    timeout-minutes: 240
+    permissions:
+      contents: read
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: install bazelisk
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL -o "$HOME/.local/bin/bazel" \
+            https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
+          chmod +x "$HOME/.local/bin/bazel"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/bazel" --version
+
+      - name: configure workflow-specific bazel settings
+        run: |
+          cat >> user.bazelrc << 'BAZELRC'
+          common:buildbarn --spawn_strategy=remote,sandboxed
+          common:buildbarn --remote_download_minimal
+          BAZELRC
+
+      - name: test
+        id: tsan-test
+        run: bazel test --config=buildbarn  --config=tsan --test_output=errors //test/...
+
