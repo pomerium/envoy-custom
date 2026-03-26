@@ -82,7 +82,7 @@ jobs:
 
       - name: test
         id: asan-test
-        run: bazel test --config=buildbarn -c opt --config=asan --test_output=errors //test/...
+        run: bazel test --config=buildbarn  --config=asan --test_output=errors //test/...
         continue-on-error: true
 
       - name: warn on ASAN failure

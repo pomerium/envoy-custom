@@ -8,6 +8,7 @@ build --cxxopt=-std=c++23 --host_cxxopt=-std=c++23
 build --config=clang
 
 build:asan-common --test_env=UBSAN_SYMBOLIZER_PATH
+build:asan-common --test_env=LSAN_OPTIONS=verbosity=1
 build:tsan --test_env=TSAN_SYMBOLIZER_PATH
 
 # The following options are required to build using hermetic llvm without gcc:
@@ -38,5 +39,5 @@ common:buildbarn --jobs=64
 common:buildbarn --remote_timeout=3600
 common:buildbarn --remote_max_connections=100
 common:buildbarn --host_platform=//bazel/platforms/rbe:linux_x64
-common:buildbarn --remote_default_exec_properties=container-image=docker://ghcr.io/pomerium/envoy-build:22.1.1-1@sha256:e58ed6feffccad36bd064efdb845eee9d7c7c73bf7b413a4089a9273d9db6b03
-# LLVM toolchain paths on remote workers
+common:buildbarn --bes_results_url=https://buildbarn.k8s.bdd.io/bazel-invocations/
+common:buildbarn --bes_backend=grpc://portal.buildbarn.svc.cluster.local:8082
