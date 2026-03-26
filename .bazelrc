@@ -31,3 +31,21 @@ build --@io_bazel_rules_go//go/config:pure=True
 
 build --macos_minimum_os=15.3
 build:linux --features=-libtool
+
+common:buildbarn --remote_executor=grpc://frontend.buildbarn.svc.cluster.local:8980
+common:buildbarn --remote_cache=grpc://frontend.buildbarn.svc.cluster.local:8980
+common:buildbarn --jobs=64
+common:buildbarn --remote_timeout=3600
+common:buildbarn --remote_max_connections=100
+common:buildbarn --host_platform=//bazel/platforms/rbe:linux_x64
+common:buildbarn --remote_default_exec_properties=container-image=docker://ghcr.io/pomerium/envoy-build:22.1.1-1@sha256:e58ed6feffccad36bd064efdb845eee9d7c7c73bf7b413a4089a9273d9db6b03
+# LLVM toolchain paths on remote workers
+build:buildbarn --host_action_env=PATH=/toolchains/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+build:buildbarn --action_env=PATH=/toolchains/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+build:buildbarn --action_env=LLVM_CONFIG=/toolchains/bin/llvm-config
+build:buildbarn --host_action_env=LLVM_CONFIG=/toolchains/bin/llvm-config
+build:buildbarn --repo_env=LLVM_CONFIG=/toolchains/bin/llvm-config
+build:buildbarn --linkopt=-L/toolchains/lib
+build:buildbarn --linkopt=-Wl,-rpath,/toolchains/lib
+# ASAN runtime library path on remote workers
+build:asan --linkopt=-L/toolchains/lib/clang/19/lib/x86_64-unknown-linux-gnu

@@ -38,30 +38,11 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           "$HOME/.local/bin/bazel" --version
 
-      - name: Configure LLVM toolchain for remote workers
-        run: |
-          cat > clang.bazelrc << 'CLANGRC'
-          build:clang --host_action_env=PATH=/toolchains/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin --action_env=PATH=/toolchains/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-          build:clang --action_env=LLVM_CONFIG=/toolchains/bin/llvm-config --host_action_env=LLVM_CONFIG=/toolchains/bin/llvm-config
-          build:clang --repo_env=LLVM_CONFIG=/toolchains/bin/llvm-config
-          build:clang --linkopt=-L/toolchains/lib
-          build:clang --linkopt=-Wl,-rpath,/toolchains/lib
-          build:asan --linkopt=-L/toolchains/lib/clang/19/lib/x86_64-unknown-linux-gnu
-          CLANGRC
-
-      - name: Configure remote execution
+      - name: Configure workflow-specific bazel settings
         run: |
           cat >> user.bazelrc << 'BAZELRC'
-          # BuildBarn remote execution via k8s service DNS
-          common:gebru --remote_executor=grpc://frontend.buildbarn.svc.cluster.local:8980
-          common:gebru --remote_cache=grpc://frontend.buildbarn.svc.cluster.local:8980
-          common:gebru --jobs=64
-          common:gebru --remote_timeout=3600
-          common:gebru --spawn_strategy=remote,sandboxed,local
-          common:gebru --remote_max_connections=100
-          build:gebru --host_platform=//bazel/platforms/rbe:linux_x64
-          build:gebru --remote_download_toplevel
-          build:gebru --remote_default_exec_properties=container-image=docker://ghcr.io/pomerium/envoy-build:22.1.1-1@sha256:e58ed6feffccad36bd064efdb845eee9d7c7c73bf7b413a4089a9273d9db6b03
+          build:buildbarn --spawn_strategy=remote,sandboxed,local
+          build:buildbarn --remote_download_toplevel
           BAZELRC
 
       - name: Configure registry credentials
@@ -76,7 +57,7 @@ jobs:
         run: |
           set -o pipefail
           echo "::group::Bazel build (${{ matrix.arch }})"
-          bazel build --config=gebru -c dbg ${{ matrix.platform_flag }} \
+          bazel build --config=buildbarn -c opt ${{ matrix.platform_flag }} \
             //:update_index.envoy.image \
             --verbose_failures 2>&1 | tee build.log
           echo "::endgroup::"
@@ -85,7 +66,7 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           echo "::group::Push ${{ matrix.arch }} image and update index"
-          bazel run --config=gebru -c dbg ${{ matrix.platform_flag }} \
+          bazel run --config=buildbarn -c opt ${{ matrix.platform_flag }} \
             //:update_index.envoy.image
           echo "::endgroup::"
 
@@ -104,4 +85,4 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           grep -E "^INFO: (Elapsed time|Found|[0-9]+ process)" build.log >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "*Remote executor: BuildBarn on gebru (k8s cluster)*" >> $GITHUB_STEP_SUMMARY
+          echo "*Remote executor: BuildBarn (k8s cluster)*" >> $GITHUB_STEP_SUMMARY

@@ -33,34 +33,16 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           "$HOME/.local/bin/bazel" --version
 
-      - name: configure LLVM toolchain for remote workers
-        run: |
-          cat > clang.bazelrc << 'CLANGRC'
-          build:clang --host_action_env=PATH=/toolchains/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin --action_env=PATH=/toolchains/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-          build:clang --action_env=LLVM_CONFIG=/toolchains/bin/llvm-config --host_action_env=LLVM_CONFIG=/toolchains/bin/llvm-config
-          build:clang --repo_env=LLVM_CONFIG=/toolchains/bin/llvm-config
-          build:clang --linkopt=-L/toolchains/lib
-          build:clang --linkopt=-Wl,-rpath,/toolchains/lib
-          build:asan --linkopt=-L/toolchains/lib/clang/19/lib/x86_64-unknown-linux-gnu
-          CLANGRC
-
-      - name: configure remote execution
+      - name: configure workflow-specific bazel settings
         run: |
           cat >> user.bazelrc << 'BAZELRC'
-          # BuildBarn remote execution via k8s service DNS
-          common:gebru --remote_executor=grpc://frontend.buildbarn.svc.cluster.local:8980
-          common:gebru --remote_cache=grpc://frontend.buildbarn.svc.cluster.local:8980
-          common:gebru --jobs=64
-          common:gebru --remote_timeout=3600
-          common:gebru --spawn_strategy=remote,sandboxed
-          common:gebru --remote_max_connections=100
-          common:gebru --host_platform=//bazel/platforms/rbe:linux_x64
-          common:gebru --remote_download_minimal
+          common:buildbarn --spawn_strategy=remote,sandboxed
+          common:buildbarn --remote_download_minimal
           BAZELRC
 
       - name: test
         run: |
-          bazel coverage --config=gebru --test_output=errors //test/...
+          bazel coverage --config=buildbarn --test_output=errors //test/...
           tar xf bazel-out/_coverage/_coverage_report.dat ./lcov
 
       - name: upload to coveralls
@@ -91,31 +73,13 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           "$HOME/.local/bin/bazel" --version
 
-      - name: configure LLVM toolchain for remote workers
-        run: |
-          cat > clang.bazelrc << 'CLANGRC'
-          build:clang --host_action_env=PATH=/toolchains/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin --action_env=PATH=/toolchains/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-          build:clang --action_env=LLVM_CONFIG=/toolchains/bin/llvm-config --host_action_env=LLVM_CONFIG=/toolchains/bin/llvm-config
-          build:clang --repo_env=LLVM_CONFIG=/toolchains/bin/llvm-config
-          build:clang --linkopt=-L/toolchains/lib
-          build:clang --linkopt=-Wl,-rpath,/toolchains/lib
-          build:asan --linkopt=-L/toolchains/lib/clang/19/lib/x86_64-unknown-linux-gnu
-          CLANGRC
-
-      - name: configure remote execution
+      - name: configure workflow-specific bazel settings
         run: |
           cat >> user.bazelrc << 'BAZELRC'
-          # BuildBarn remote execution via k8s service DNS
-          common:gebru --remote_executor=grpc://frontend.buildbarn.svc.cluster.local:8980
-          common:gebru --remote_cache=grpc://frontend.buildbarn.svc.cluster.local:8980
-          common:gebru --jobs=64
-          common:gebru --remote_timeout=3600
-          common:gebru --spawn_strategy=remote,sandboxed
-          common:gebru --remote_max_connections=100
-          common:gebru --host_platform=//bazel/platforms/rbe:linux_x64
-          common:gebru --remote_download_minimal
+          common:buildbarn --spawn_strategy=remote,sandboxed
+          common:buildbarn --remote_download_minimal
           BAZELRC
 
       - name: test
-        run: bazel test --config=gebru -c opt --config=asan --test_output=errors //test/...
+        run: bazel test --config=buildbarn -c opt --config=asan --test_output=errors //test/...
         continue-on-error: true
