@@ -117,5 +117,5 @@ jobs:
           BAZELRC
 
       - name: test
-        run: bazel test --config=gebru -c dbg --config=asan --test_output=errors //test/...
+        run: bazel test --config=gebru -c opt --config=asan --test_output=errors //test/...
         continue-on-error: true
