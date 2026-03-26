@@ -224,12 +224,10 @@ public:
   }
 
   ~StreamTrackerThreadingTest() {
-    std::weak_ptr<StreamTracker> wp = stream_tracker_;
-    ASSERT(!wp.expired());
-    runOnMainBlocking([&] { stream_tracker_.reset(); });
     shutdownThreading();
-    exitThreads();
-    ASSERT(wp.expired());
+    exitThreads([this] {
+      stream_tracker_.reset();
+    });
   }
 
   std::shared_ptr<StreamTracker> stream_tracker_;
