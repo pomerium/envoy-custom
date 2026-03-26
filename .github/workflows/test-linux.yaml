@@ -81,5 +81,10 @@ jobs:
           BAZELRC
 
       - name: test
+        id: asan-test
         run: bazel test --config=buildbarn -c opt --config=asan --test_output=errors //test/...
         continue-on-error: true
+
+      - name: warn on ASAN failure
+        if: steps.asan-test.outcome == 'failure'
+        run: echo "::warning::ASAN tests failed. Memory safety issues may be present. See test step output above."
