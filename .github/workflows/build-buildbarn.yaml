@@ -1,0 +1,101 @@
+name: Build & Publish Images
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-image:
+    # Skip fork PRs (security: self-hosted runners) and ci-not-ready label
+    if: >-
+      (github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name == github.repository)
+      && (github.event_name != 'pull_request'
+      || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready'))
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform_flag: "--platforms=//bazel/platforms/rbe:linux_x64"
+          - arch: arm64
+            platform_flag: "--platforms=//bazel/platforms/rbe:linux_arm64"
+    runs-on: envoy-custom-homelab
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Install Bazelisk
+        run: |
+          sudo curl -fsSL -o /usr/local/bin/bazel \
+            https://github.com/bazelbuild/bazelisk/releases/download/v1.25.0/bazelisk-linux-amd64
+          sudo chmod +x /usr/local/bin/bazel
+          bazel --version
+
+      - name: Configure workflow-specific bazel settings
+        run: |
+          cat >> user.bazelrc << 'BAZELRC'
+          build:buildbarn --spawn_strategy=remote,sandboxed
+          build:buildbarn --remote_download_toplevel
+          BAZELRC
+
+      - name: Configure registry credentials
+        if: github.event_name != 'pull_request'
+        run: |
+          # Set up Docker config so crane (used by update_index) can push.
+          # crane reads ~/.docker/config.json for registry auth.
+          mkdir -p ~/.docker
+          echo '{"auths":{"ghcr.io":{"auth":"'"$(echo -n '${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}' | base64 -w0)"'"}}}' > ~/.docker/config.json
+
+      - name: Build image (${{ matrix.arch }})
+        run: |
+          set -o pipefail
+          echo "::group::Bazel build (${{ matrix.arch }})"
+          bazel build --config=buildbarn -c opt ${{ matrix.platform_flag }} \
+            //:update_index.envoy.image \
+            --verbose_failures 2>&1 | tee build.log
+          echo "::endgroup::"
+
+      - name: Push image (${{ matrix.arch }})
+        if: github.event_name != 'pull_request'
+        run: |
+          set -o pipefail
+          echo "::group::Push ${{ matrix.arch }} image and update index"
+          bazel run --config=buildbarn -c opt ${{ matrix.platform_flag }} \
+            //:update_index.envoy.image 2>&1 | tee push.log
+          echo "::endgroup::"
+
+      - name: Build summary
+        if: always()
+        run: |
+          echo "## Build Results (${{ matrix.arch }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ ! -f build.log ]; then
+            echo "**Build did not run** — a prior step failed before the build started." >> $GITHUB_STEP_SUMMARY
+          elif grep -q "Build did NOT complete successfully" build.log; then
+            echo "**Build failed**" >> $GITHUB_STEP_SUMMARY
+          elif grep -q "Build completed successfully" build.log; then
+            echo "**Build succeeded**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Build status unknown** — build.log exists but contains no recognizable status line." >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f build.log ]; then
+            grep -E "^INFO: (Elapsed time|Found|[0-9]+ process)" build.log >> $GITHUB_STEP_SUMMARY || true
+          fi
+          if [ -f push.log ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            if grep -q "FAILED\|ERROR\|error" push.log; then
+              echo "**Push failed** — see push step logs for details." >> $GITHUB_STEP_SUMMARY
+            else
+              echo "Push completed." >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "*Remote executor: BuildBarn (k8s cluster)*" >> $GITHUB_STEP_SUMMARY
