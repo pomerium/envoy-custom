@@ -10,6 +10,15 @@ tag_exprs = [
     "(.STABLE_BUILD_SCM_TAG // \"\" | split(\" \"))",
 ]
 
+image_description = "This is an intermediate CI artifact used in the Pomerium build process. It is not intended to be run directly. " + \
+                    "If you are looking for the Pomerium docker image, it can be found at https://hub.docker.com/r/pomerium/pomerium."
+
+annotation_exprs = [
+    r'"org.opencontainers.image.source=" + (.BUILD_SCM_REMOTE | rtrimstr(".git") | tostring)',
+    r'"org.opencontainers.image.description=%s"' % image_description,
+    r'"org.opencontainers.image.licenses=Apache-2.0"',
+]
+
 jq(
     name = "repo_tags",
     srcs = ["//bazel/build_info:stable_status"],
@@ -42,6 +51,15 @@ jq(
     args = ["-r"],
     # convert the json object fields to plain key=value entries
     filter = r'to_entries | map("\(.key)=\(.value | tostring)") | .[]',
+    visibility = ["//visibility:public"],
+)
+
+jq(
+    name = "image_annotations",
+    srcs = ["//bazel/build_info:combined_status"],
+    out = "image_annotations.txt",
+    args = ["-r"],
+    filter = "[%s]" % ",".join(annotation_exprs) + r"| .[]",
     visibility = ["//visibility:public"],
 )
 
