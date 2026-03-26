@@ -39,7 +39,7 @@ jobs:
       - name: Configure workflow-specific bazel settings
         run: |
           cat >> user.bazelrc << 'BAZELRC'
-          build:buildbarn --spawn_strategy=remote,sandboxed,local
+          build:buildbarn --spawn_strategy=remote,sandboxed
           build:buildbarn --remote_download_toplevel
           BAZELRC
 
