@@ -822,12 +822,18 @@ public:
 };
 
 TEST_P(StaticPortForwardTest, UpstreamPacketTooLarge) {
+  Tasks::Channel channel;
   auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
-              .then(driver->createTask<SendTooLargePacket>()
-                      .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>()))
+              .saveOutput(&channel)
               .start();
+
   auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
   ASSERT_TRUE(driver->wait(th));
+
+  ASSERT_TRUE(driver->wait(
+    driver->createTask<SendTooLargePacket>()
+      .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>())
+      .start(channel)));
 
   downstream->close();
 }
@@ -1487,7 +1493,7 @@ TEST_P(ProtocolMismatchUpstreamExpectingDynamicModeTest, UpstreamExpectingDynami
                .then(driver->createTask<Tasks::SendChannelCloseAndWait>(Tasks::SendEOF(true)))
                .start(channel);
 
-  EXPECT_TRUE(downstream->write("not a socks5 handshake"));
+  EXPECT_TRUE(downstream->write("not a socks5 handshake", false, true, TestUtility::DefaultTimeout, true));
   ASSERT_TRUE(driver->wait(th2));
   EXPECT_TRUE(driver->waitForDiagnostic("ssh client may be expecting dynamic port-forwarding"));
 
