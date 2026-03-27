@@ -41,4 +41,4 @@ common:buildbarn --host_platform=//bazel/platforms/rbe:linux_x64
 common:buildbarn --bes_results_url=https://buildbarn.k8s.bdd.io/bazel-invocations/
 common:buildbarn --bes_backend=grpc://portal.buildbarn.svc.cluster.local:8082
 common:buildbarn --spawn_strategy=remote,sandboxed
-common:buildbarn --remote_download_toplevel
+common:buildbarn --remote_download_minimal
