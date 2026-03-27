@@ -26,6 +26,8 @@ namespace Envoy {
   COUNTER(downstream_flow_control_remote_window_restored_total)                     \
   COUNTER(downstream_flow_control_high_watermark_activated_total)                   \
   COUNTER(downstream_flow_control_low_watermark_activated_total)                    \
+  COUNTER(downstream_disconnect_before_init_total)                                  \
+  COUNTER(upstream_init_canceled_by_downstream_disconnect_total)                    \
   STATNAME(ssh_reverse_tunnel)
 
 MAKE_STAT_NAMES_STRUCT(ReverseTunnelStatNames, ALL_REVERSE_TUNNEL_STATS);
@@ -141,5 +143,3 @@ DECLARE_FACTORY(SshReverseTunnelClusterFactory);
 
 } // namespace Upstream
 } // namespace Envoy
-
-inline Envoy::Thread::ThreadSynchronizer remote_stream_handler_sync;

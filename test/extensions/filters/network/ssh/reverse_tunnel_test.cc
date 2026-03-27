@@ -386,6 +386,10 @@ static constexpr auto stat_downstream_high_watermark =
   "cluster.tcp_cluster.ssh_reverse_tunnel.downstream_flow_control_high_watermark_activated_total";
 static constexpr auto stat_downstream_low_watermark =
   "cluster.tcp_cluster.ssh_reverse_tunnel.downstream_flow_control_low_watermark_activated_total";
+static constexpr auto stat_downstream_disconnect_before_init =
+  "cluster.tcp_cluster.ssh_reverse_tunnel.downstream_disconnect_before_init_total";
+static constexpr auto stat_upstream_init_canceled_by_downstream_disconnect =
+  "cluster.tcp_cluster.ssh_reverse_tunnel.upstream_init_canceled_by_downstream_disconnect_total";
 
 class SendDataUntilRemoteWindowExhausted : public Task<Tasks::Channel, Tasks::Channel> {
 public:
@@ -818,12 +822,18 @@ public:
 };
 
 TEST_P(StaticPortForwardTest, UpstreamPacketTooLarge) {
+  Tasks::Channel channel;
   auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
-              .then(driver->createTask<SendTooLargePacket>()
-                      .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>()))
+              .saveOutput(&channel)
               .start();
+
   auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
   ASSERT_TRUE(driver->wait(th));
+
+  ASSERT_TRUE(driver->wait(
+    driver->createTask<SendTooLargePacket>()
+      .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>())
+      .start(channel)));
 
   downstream->close();
 }
@@ -1390,27 +1400,32 @@ TEST_P(DynamicPortForwardTest, DownstreamResetBeforeOpen) {
   ASSERT_TRUE(driver->wait(th));
 }
 
-static std::once_flag enable_once;
-
 TEST_P(DynamicPortForwardTest, DownstreamResetBeforeInitialize) {
-  std::call_once(enable_once, [] {
-    remote_stream_handler_sync.enable();
-  });
-  remote_stream_handler_sync.waitOn("initialize");
-  remote_stream_handler_sync.waitOn("downstream_closed");
-
-  auto th = driver->createTask<Tasks::AcceptReversePortForward>("", virtual_port, 1)
-              .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>(Tasks::ExpectEOF::Yes))
+  auto th = driver->createTask<ReceiveReversePortForwardButDoNotConfirm>()
               .start();
-
   auto downstream = makeTcpConnectionWithServerName(lookupPort("tcp"), "tcp-cluster");
-  downstream->close(Network::ConnectionCloseType::AbortReset);
-
-  remote_stream_handler_sync.barrierOn("downstream_closed");
-  remote_stream_handler_sync.signal("downstream_closed");
-  remote_stream_handler_sync.signal("initialize");
-
   ASSERT_TRUE(driver->wait(th));
+  downstream->close(Network::ConnectionCloseType::AbortReset);
+  test_server_->waitForCounterEq(stat_downstream_disconnect_before_init, 1);
+}
+
+TEST_P(DynamicPortForwardTest, AcceptAfterDownstreamDisconnected) {
+  Tasks::Channel channel;
+  auto th = driver->createTask<ReceiveReversePortForwardButDoNotConfirm>()
+              .saveOutput(&channel)
+              .start();
+  auto downstream = makeTcpConnectionWithServerName(lookupPort("tcp"), "tcp-cluster");
+  ASSERT_TRUE(driver->wait(th));
+  downstream->close(Network::ConnectionCloseType::AbortReset);
+  test_server_->waitForCounterEq(stat_downstream_disconnect_before_init, 1);
+  driver->sendMessage(wire::ChannelOpenConfirmationMsg{
+    .recipient_channel = channel.remote_id,
+    .sender_channel = channel.local_id,
+    .initial_window_size = wire::ChannelWindowSize,
+    .max_packet_size = wire::ChannelMaxPacketSize,
+  });
+  test_server_->waitForCounterEq(stat_upstream_init_canceled_by_downstream_disconnect, 1,
+                                 TestUtility::DefaultTimeout, driver->connectionDispatcher().ptr());
 }
 
 TEST_P(DynamicPortForwardTest, DownstreamClosesDuringUpstreamSocks5Handshake) {
@@ -1478,7 +1493,7 @@ TEST_P(ProtocolMismatchUpstreamExpectingDynamicModeTest, UpstreamExpectingDynami
                .then(driver->createTask<Tasks::SendChannelCloseAndWait>(Tasks::SendEOF(true)))
                .start(channel);
 
-  EXPECT_TRUE(downstream->write("not a socks5 handshake"));
+  EXPECT_TRUE(downstream->write("not a socks5 handshake", false, true, TestUtility::DefaultTimeout, true));
   ASSERT_TRUE(driver->wait(th2));
   EXPECT_TRUE(driver->waitForDiagnostic("ssh client may be expecting dynamic port-forwarding"));
 

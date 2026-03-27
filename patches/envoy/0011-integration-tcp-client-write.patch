@@ -1,0 +1,39 @@
+diff --git a/test/integration/integration_tcp_client.cc b/test/integration/integration_tcp_client.cc
+index e1655957dd..7ea2b8ad78 100644
+--- a/test/integration/integration_tcp_client.cc
++++ b/test/integration/integration_tcp_client.cc
+@@ -142,7 +142,8 @@ void IntegrationTcpClient::waitForHalfClose(std::chrono::milliseconds timeout,
+ void IntegrationTcpClient::readDisable(bool disabled) { connection_->readDisable(disabled); }
+ 
+ AssertionResult IntegrationTcpClient::write(const std::string& data, bool end_stream, bool verify,
+-                                            std::chrono::milliseconds timeout) {
++                                            std::chrono::milliseconds timeout,
++                                            bool ignore_disconnect_after_verified_write) {
+   Event::TestTimeSystem::RealTimeBound bound(timeout);
+   Buffer::OwnedImpl buffer(data);
+   if (verify) {
+@@ -165,6 +166,10 @@ AssertionResult IntegrationTcpClient::write(const std::string& data, bool end_st
+   if (!bound.withinBound()) {
+     return AssertionFailure() << "Timed out completing write";
+   } else if (verify && (disconnected_ || client_write_buffer_->bytesDrained() != bytes_expected)) {
++    if (disconnected_ && client_write_buffer_->bytesDrained() == bytes_expected &&
++        ignore_disconnect_after_verified_write) {
++      return AssertionSuccess();
++    }
+     return AssertionFailure()
+            << "Failed to complete write or unexpected disconnect. disconnected_: " << disconnected_
+            << " bytes_drained: " << client_write_buffer_->bytesDrained()
+diff --git a/test/integration/integration_tcp_client.h b/test/integration/integration_tcp_client.h
+index 7fb934401d..6f11120309 100644
+--- a/test/integration/integration_tcp_client.h
++++ b/test/integration/integration_tcp_client.h
+@@ -44,7 +44,8 @@ public:
+   void readDisable(bool disabled);
+   ABSL_MUST_USE_RESULT AssertionResult
+   write(const std::string& data, bool end_stream = false, bool verify = true,
+-        std::chrono::milliseconds timeout = TestUtility::DefaultTimeout);
++        std::chrono::milliseconds timeout = TestUtility::DefaultTimeout,
++        bool ignore_disconnect_after_verified_write = false);
+ 
+   const std::string& data() { return payload_reader_->data(); }
+   bool connected() const { return !disconnected_; }
