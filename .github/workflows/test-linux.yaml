@@ -31,13 +31,6 @@ jobs:
         with:
           bazelisk-version: 1.25.0
 
-      - name: configure workflow-specific bazel settings
-        run: |
-          cat >> user.bazelrc << 'BAZELRC'
-          common:buildbarn --spawn_strategy=remote,sandboxed
-          common:buildbarn --remote_download_minimal
-          BAZELRC
-
       - name: test
         run: |
           bazel coverage --config=buildbarn --test_output=errors //test/...
@@ -67,13 +60,6 @@ jobs:
         with:
           bazelisk-version: 1.25.0
 
-      - name: configure workflow-specific bazel settings
-        run: |
-          cat >> user.bazelrc << 'BAZELRC'
-          common:buildbarn --spawn_strategy=remote,sandboxed
-          common:buildbarn --remote_download_minimal
-          BAZELRC
-
       - name: test
         id: asan-test
         run: bazel test --config=buildbarn  --config=asan --test_output=errors //test/...
@@ -95,13 +81,6 @@ jobs:
         uses: bazel-contrib/setup-bazel@e8776f58fb6a6e9055cbaf1b38c52ccc5247e9c4
         with:
           bazelisk-version: 1.25.0
-
-      - name: configure workflow-specific bazel settings
-        run: |
-          cat >> user.bazelrc << 'BAZELRC'
-          common:buildbarn --spawn_strategy=remote,sandboxed
-          common:buildbarn --remote_download_minimal
-          BAZELRC
 
       - name: test
         id: tsan-test
