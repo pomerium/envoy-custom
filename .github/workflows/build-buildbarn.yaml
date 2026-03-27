@@ -35,7 +35,7 @@ jobs:
           bazelisk-version: 1.25.0
 
       - name: Configure registry credentials
-        #if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request'
         run: |
           # Set up Docker config so crane (used by update_index) can push.
           # crane reads ~/.docker/config.json for registry auth.
@@ -52,7 +52,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Push image (${{ matrix.arch }})
-        #if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request'
         run: |
           set -o pipefail
           echo "::group::Push ${{ matrix.arch }} image and update index"
