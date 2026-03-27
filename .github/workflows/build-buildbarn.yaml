@@ -29,12 +29,10 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
-      - name: Install Bazelisk
-        run: |
-          sudo curl -fsSL -o /usr/local/bin/bazel \
-            https://github.com/bazelbuild/bazelisk/releases/download/v1.25.0/bazelisk-linux-amd64
-          sudo chmod +x /usr/local/bin/bazel
-          bazel --version
+      - name: setup bazel
+        uses: bazel-contrib/setup-bazel@e8776f58fb6a6e9055cbaf1b38c52ccc5247e9c4
+        with:
+          bazelisk-version: 1.25.0
 
       - name: Configure registry credentials
         #if: github.event_name != 'pull_request'
