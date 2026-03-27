@@ -9,22 +9,23 @@ TOOLCHAIN_INFO = {
     "llvm_version": LLVM_VERSION,
     "llvm_major_version": LLVM_MAJOR_VERSION,
     "repository": "https://github.com/pomerium/toolchain-utils",
-    "release_revision": "1",
+    "release_revision": "3",
 }
 
 TOOLCHAIN_INTEGRITY = struct(
     toolchain = {
-        "linux-x86_64": "29b121ca6ca51a884c0a5d03c730a364785184b6b845f05d647648dfbd78a3a4",
-        "linux-aarch64": "ee9c759fddfdd51d34754a0ef3660086138951f038b3d6a2273a7d25b5e6b2da",
-        "darwin-aarch64": "d140df515f617bdd473914408ccd15ee421f6d613965f63a41738f22c95015d8",
+        "linux-x86_64": "1ce2cc8eeddf18168426c95f490ea1c28432324d310d3f4ed9c0047fec2c27ed",
+        "linux-aarch64": "d2240f6c9fb0b95c9034995239c0a246ba057c569012859f0febb08e819f950f",
+        "darwin-aarch64": "d027d7abfd2accc0303e5d54d930efbd73127dff62d8dedd08ce4f7e528805a9",
     },
     sysroot = {
-        "linux-amd64": "324d9db1a08fc6de7ef9f94bd540efe731c2c7b89753983c7930306a8fe2d66a",
-        "linux-aarch64": "79197a28e96d08cf11f02e8d4ad681bedd33955be8b4169fc9c549c4548b6146",
+        "linux-x86_64": "c10fe789f62979ae75ab052702202bec94778d6b2c3d0d2457460d6fdc27eba7",
+        "linux-aarch64": "387e15773486407c5bf048227bbcce749f880de4046646095b8b7868c1b303a1",
+        "darwin-aarch64": "afe40e4fc8393535524bd35d0a4d4901a000441ca722cc4d3e7267aaba50861e",
     },
     cxx_cross_libs = {
-        "linux-aarch64": "4ccbdd12777f7c8611dfb6b4347d5a7976e7a403595eed3f47ca7ec31f543cf9",
-        "darwin-aarch64": "fefa98978f5d79119307feeda4f613624e6b831f827a0386269851e923dc8928",
+        "linux-aarch64": "120c0261863967ba8a11dd687fa4fb7fc081a1b600cc2b712224e597729e55df",
+        "darwin-aarch64": "258c14feacb133ba3693249d6b505d7bd7c28edc74c006b7e2a899b3b3ff8706",
     },
 )
 
@@ -43,7 +44,7 @@ def pomerium_envoy_toolchains():
         sysroot = {
             "linux-x86_64": "@minimal_sysroot_linux_amd64//:sysroot",
             "linux-aarch64": "@minimal_sysroot_linux_arm64//:sysroot",
-            "darwin-aarch64": "@macos_sysroot//:sysroot",
+            "darwin-aarch64": "@minimal_sysroot_macos_arm64//:sysroot",
         },
         cxx_cross_lib = {
             "linux-aarch64": "@cxx_cross_libs_linux_arm64//:cxx_cross_libs",
