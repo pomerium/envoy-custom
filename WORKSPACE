@@ -54,6 +54,8 @@ http_archive(
         "//patches/envoy:0007-coverage-format.patch",
         "//patches/envoy:0008-sanitizer-deps.patch",
         "//patches/envoy:0009-luajit.patch",
+        "//patches/envoy:0010-ensure-lld-is-used-for-external-cmake-44075.patch",
+        "//patches/envoy:0011-external-cmake-compiler-rt-support.patch",
         "//patches/envoy:fix-antlr4-cpp-runtime.patch",
         "//patches/envoy:fix-integration-test-server-exit.patch",
         "//patches/envoy:fix-missing-symbolizer-env.patch",

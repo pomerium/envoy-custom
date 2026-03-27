@@ -16,14 +16,6 @@ build:tsan --test_env=TSAN_SYMBOLIZER_PATH
 # the dependency on libgcc.
 common:clang-common --@toolchains_llvm//toolchain/config:compiler-rt=true
 common:clang-common --@toolchains_llvm//toolchain/config:libunwind=true
-# Same as above, but applies to foreign_cc targets using autotools/cmake, which may not inherit the
-# link flags applied by the toolchain.
-# FIXME: this should not be necessary, but not having it breaks c-only foreign_cc dependencies
-# that use cmake. The c-only targets DO inherit flags from the toolchain's conly_flags option, but
-# that also breaks other C targets when set due to unused compiler flag errors.
-common:libc++ --action_env=LDFLAGS="-stdlib=libc++ -fuse-ld=lld -rtlib=compiler-rt"
-common:sanitizer --action_env=LDFLAGS="-stdlib=libc++ -fuse-ld=lld -rtlib=compiler-rt -l:libunwind.a"
-common:coverage --action_env=LDFLAGS="-stdlib=libc++ -fuse-ld=lld -rtlib=compiler-rt -l:libunwind.a"
 
 # Disable cgo. If cgo is enabled, some of the cc toolchain flags will propagate to the go toolchain,
 # which causes fPIC mismatch errors.
