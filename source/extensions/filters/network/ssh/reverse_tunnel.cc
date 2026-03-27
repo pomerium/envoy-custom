@@ -124,8 +124,6 @@ public:
     };
     *local_queue = &local_queue_;
 
-    remote_stream_handler_sync.syncPoint("initialize");
-
     // The remote dispatcher could be running concurrently, but it won't pick up this callback
     // until after the next time it acquires post_lock_ (see dispatcher_impl.cc). Because this call
     // to post() adds the callback to the queue while holding post_lock_, the write to peer_state_
@@ -138,10 +136,11 @@ public:
       // First check if the socket has been closed
       bool isDynamic = metadata_->server_port().is_dynamic();
       if (socket_closed_) {
-        ENVOY_LOG(debug, "channel {}: downstream closed before initialization", peer_state_.id);
+        ENVOY_LOG(debug, "channel {}: upstream init canceled: downstream is already disconnected", peer_state_.id);
         // If the downstream closes before sending any data, and the upstream is expecting a SOCKS
         // handshake, we have to send it an EOF before closing the channel because openssh client
         // can become stuck
+        reverse_tunnel_stats_.upstream_init_canceled_by_downstream_disconnect_total_.inc();
         onError(absl::CancelledError("downstream closed"), isDynamic);
         return;
       }
@@ -187,6 +186,7 @@ public:
 private:
   // Network::ConnectionCallbacks
   void onEvent(Network::ConnectionEvent event) override {
+    ASSERT(remote_dispatcher_.isThreadSafe());
     ENVOY_LOG(debug, "downstream connection event: {}", std::to_underlying(event));
     // These events are from the perspective of the downstream client connection, so LocalClose
     // means the downstream closed the connection, and RemoteClose means the upstream (us) closed
@@ -195,11 +195,11 @@ private:
         event == Network::ConnectionEvent::RemoteClose) {
       // This is the last event received; the downstream connection will be destroyed and it is
       // safe to delete this object.
-      remote_stream_handler_sync.syncPoint("downstream_closed");
       socket_closed_ = true;
       if (!initialized_) {
         // Downstream closed before initialization
         ENVOY_LOG(debug, "downstream closed before initialization");
+        reverse_tunnel_stats_.downstream_disconnect_before_init_total_.inc();
         if (detached_) {
           remote_dispatcher_.deferredDelete(std::move(detached_self_));
         }
