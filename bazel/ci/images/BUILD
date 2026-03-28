@@ -40,7 +40,7 @@ jq(
     args = [
         "-r",
     ],
-    filter = "[%s]" % ",".join(tag_exprs) + r"| .[]",
+    filter = "[%s]" % ",".join(tag_exprs) + r" | flatten | map(select(.)) | .[]",
     visibility = ["//visibility:public"],
 )
 

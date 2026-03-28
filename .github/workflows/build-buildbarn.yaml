@@ -1,0 +1,62 @@
+name: Build & Publish Images
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-image:
+    # Skip if PR has ci-not-ready label
+    if: >-
+      github.event_name != 'pull_request'
+      || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready')
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - arch: linux_x64
+          - arch: linux_arm64
+          - arch: macos
+    runs-on: envoy-custom-homelab
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: setup bazel
+        uses: bazel-contrib/setup-bazel@e8776f58fb6a6e9055cbaf1b38c52ccc5247e9c4
+        with:
+          bazelisk-version: 1.25.0
+
+      - name: Configure registry credentials
+        if: github.event_name != 'pull_request'
+        run: |
+          # Set up Docker config so crane (used by update_index) can push.
+          # crane reads ~/.docker/config.json for registry auth.
+          mkdir -p ~/.docker
+          echo '{"auths":{"ghcr.io":{"auth":"'"$(echo -n '${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}' | base64 -w0)"'"}}}' > ~/.docker/config.json
+
+      - name: Build image (${{ matrix.arch }})
+        run: |
+          set -o pipefail
+          echo "::group::Bazel build (${{ matrix.arch }})"
+          bazel build --config=buildbarn -c opt --platforms=//bazel/platforms/rbe:${{ matrix.arch }} \
+            //:update_index.envoy.image \
+            --verbose_failures
+          echo "::endgroup::"
+
+      - name: Push image (${{ matrix.arch }})
+        if: github.event_name != 'pull_request'
+        run: |
+          set -o pipefail
+          echo "::group::Push ${{ matrix.arch }} image and update index"
+          bazel run --config=buildbarn -c opt --platforms=//bazel/platforms/rbe:${{ matrix.arch }} \
+            //:update_index.envoy.image
+          echo "::endgroup::"
+

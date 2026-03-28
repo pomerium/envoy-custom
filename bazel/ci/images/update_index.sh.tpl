@@ -3,6 +3,8 @@
 #{{BASH_RLOCATION_FUNCTION}}
 runfiles_export_envvars
 
+set -eo pipefail
+
 readonly CRANE="$(rlocation "{{crane_path}}")"
 readonly JQ="$(rlocation "{{jq_path}}")"
 readonly MANIFEST_DIGEST_FILE="$(rlocation "{{manifest_digest_file}}")"
