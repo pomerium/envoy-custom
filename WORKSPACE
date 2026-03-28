@@ -54,6 +54,7 @@ http_archive(
         "//patches/envoy:0007-coverage-format.patch",
         "//patches/envoy:0008-sanitizer-deps.patch",
         "//patches/envoy:0009-luajit.patch",
+        "//patches/envoy:0011-integration-tcp-client-write.patch",
         "//patches/envoy:fix-antlr4-cpp-runtime.patch",
         "//patches/envoy:fix-integration-test-server-exit.patch",
         "//patches/envoy:fix-missing-symbolizer-env.patch",
