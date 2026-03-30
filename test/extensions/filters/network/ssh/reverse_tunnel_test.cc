@@ -1685,10 +1685,10 @@ TEST_P(EDSUpdatesIntegrationTest, TestClusterUpdates) {
   };
   setClusterLoad("tcp_cluster", {endpoint1});
 
-  test_server_->waitForCounterEq("cluster.tcp_cluster.update_no_rebuild", 0, std::chrono::seconds(1));
-  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_total", 1, std::chrono::seconds(1));
-  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_healthy", 1, std::chrono::seconds(1));
-  test_server_->waitForCounterEq("cluster.tcp_cluster.membership_change", 1, std::chrono::seconds(1));
+  test_server_->waitForCounterEq("cluster.tcp_cluster.update_no_rebuild", 0);
+  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_total", 1);
+  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_healthy", 1);
+  test_server_->waitForCounterEq("cluster.tcp_cluster.membership_change", 1);
 
   ClusterLoadOpts endpoint2{
     .stream_id = 2,
@@ -1699,10 +1699,10 @@ TEST_P(EDSUpdatesIntegrationTest, TestClusterUpdates) {
   };
   setClusterLoad("tcp_cluster", {endpoint1, endpoint2});
 
-  test_server_->waitForCounterEq("cluster.tcp_cluster.update_no_rebuild", 0, std::chrono::seconds(1));
-  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_total", 2, std::chrono::seconds(1));
-  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_healthy", 2, std::chrono::seconds(1));
-  test_server_->waitForCounterEq("cluster.tcp_cluster.membership_change", 2, std::chrono::seconds(1));
+  test_server_->waitForCounterEq("cluster.tcp_cluster.update_no_rebuild", 0);
+  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_total", 2);
+  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_healthy", 2);
+  test_server_->waitForCounterEq("cluster.tcp_cluster.membership_change", 2);
 
   ClusterLoadOpts endpoint3{
     .stream_id = 3,
@@ -1713,25 +1713,25 @@ TEST_P(EDSUpdatesIntegrationTest, TestClusterUpdates) {
   };
   setClusterLoad("tcp_cluster", {endpoint1, endpoint2, endpoint3});
 
-  test_server_->waitForCounterEq("cluster.tcp_cluster.update_no_rebuild", 0, std::chrono::seconds(1));
-  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_total", 3, std::chrono::seconds(1));
-  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_healthy", 3, std::chrono::seconds(1));
-  test_server_->waitForCounterEq("cluster.tcp_cluster.membership_change", 3, std::chrono::seconds(1));
+  test_server_->waitForCounterEq("cluster.tcp_cluster.update_no_rebuild", 0);
+  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_total", 3);
+  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_healthy", 3);
+  test_server_->waitForCounterEq("cluster.tcp_cluster.membership_change", 3);
 
   setClusterLoad("tcp_cluster", {endpoint2, endpoint3});
 
-  test_server_->waitForCounterEq("cluster.tcp_cluster.update_no_rebuild", 0, std::chrono::seconds(1));
-  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_total", 2, std::chrono::seconds(1));
-  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_healthy", 2, std::chrono::seconds(1));
-  test_server_->waitForCounterEq("cluster.tcp_cluster.membership_change", 4, std::chrono::seconds(1));
+  test_server_->waitForCounterEq("cluster.tcp_cluster.update_no_rebuild", 0);
+  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_total", 2);
+  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_healthy", 2);
+  test_server_->waitForCounterEq("cluster.tcp_cluster.membership_change", 4);
 
   endpoint3.is_dynamic = false; // trigger metadata update
   setClusterLoad("tcp_cluster", {endpoint2, endpoint3});
 
-  test_server_->waitForCounterEq("cluster.tcp_cluster.update_no_rebuild", 0, std::chrono::seconds(1)); // <-
-  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_total", 2, std::chrono::seconds(1));
-  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_healthy", 2, std::chrono::seconds(1));
-  test_server_->waitForCounterEq("cluster.tcp_cluster.membership_change", 4, std::chrono::seconds(1));
+  test_server_->waitForCounterEq("cluster.tcp_cluster.update_no_rebuild", 0);
+  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_total", 2);
+  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_healthy", 2);
+  test_server_->waitForCounterEq("cluster.tcp_cluster.membership_change", 4);
 }
 
 TEST_P(EDSUpdatesIntegrationTest, WrongClusterName) {
@@ -1740,7 +1740,7 @@ TEST_P(EDSUpdatesIntegrationTest, WrongClusterName) {
   envoy::config::endpoint::v3::ClusterLoadAssignment load;
   load.set_cluster_name("http_cluster");
   eds_helpers_["tcp_cluster"]->setEds(load);
-  test_server_->waitForCounterEq("cluster.tcp_cluster.update_rejected", 1, std::chrono::seconds(1));
+  test_server_->waitForCounterEq("cluster.tcp_cluster.update_rejected", 1);
 }
 
 TEST_P(EDSUpdatesIntegrationTest, InvalidResourceCount) {
@@ -1759,7 +1759,7 @@ TEST_P(EDSUpdatesIntegrationTest, InvalidResourceCount) {
     "tcp_cluster_eds.update.pb_text", MessageUtil::toTextProto(eds_response));
   TestEnvironment::renameFile(path, absl::StrReplaceAll(path, {{".update"s, ""s}}));
 
-  test_server_->waitForCounterEq("cluster.tcp_cluster.update_failure", 1, std::chrono::seconds(1));
+  test_server_->waitForCounterEq("cluster.tcp_cluster.update_failure", 1);
 }
 
 TEST_P(EDSUpdatesIntegrationTest, InvalidResourceData) {
@@ -1768,7 +1768,7 @@ TEST_P(EDSUpdatesIntegrationTest, InvalidResourceData) {
   std::string path = TestEnvironment::writeStringToFileForTest(
     "tcp_cluster_eds.update.pb_text", "bad data");
   TestEnvironment::renameFile(path, absl::StrReplaceAll(path, {{".update"s, ""s}}));
-  test_server_->waitForCounterGe("cluster.tcp_cluster.update_failure", 1, std::chrono::seconds(1));
+  test_server_->waitForCounterGe("cluster.tcp_cluster.update_failure", 1);
 }
 
 TEST_P(EDSUpdatesIntegrationTest, InvalidLbEndpointName) {
@@ -1792,7 +1792,7 @@ TEST_P(EDSUpdatesIntegrationTest, InvalidLbEndpointName) {
       "tcp_cluster_eds.update.pb_text", MessageUtil::toTextProto(eds_response));
     TestEnvironment::renameFile(path, absl::StrReplaceAll(path, {{".update"s, ""s}}));
 
-    test_server_->waitForCounterEq("cluster.tcp_cluster.update_failure", ++num_failures, std::chrono::seconds(1));
+    test_server_->waitForCounterEq("cluster.tcp_cluster.update_failure", ++num_failures);
   }
 }
 
