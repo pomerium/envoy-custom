@@ -53,6 +53,7 @@ StreamTracker::StreamTracker(Server::Configuration::ServerFactoryContext& contex
       startGracefulShutdown(delay, [this, start = absl::Now()] {
         ASSERT(main_thread_dispatcher_.isThreadSafe());
         ENVOY_LOG(info, "ssh: shutdown completed after {}", absl::FormatDuration(absl::Now() - start));
+        inflight_shutdown_guards_.clear();
       });
       return absl::OkStatus();
     });
