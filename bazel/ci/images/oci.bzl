@@ -5,9 +5,7 @@ load("@rules_oci//oci:defs.bzl", "oci_image", "oci_image_index", "oci_load", "oc
 load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
 load("//bazel/ci/images:update_index.bzl", "oci_update_index")
 
-REPO_NAME = "ghcr.io/pomerium/envoy-custom"
-
-def image(name, srcs):
+def image(name, srcs, repository = "ghcr.io/pomerium/envoy-custom"):
     _tar_name = "_" + name + "_tar"
     _img_name = "_" + name + "_img"
     pkg_tar(
@@ -37,7 +35,7 @@ def image(name, srcs):
 
     oci_update_index(
         name = "update_index." + name,
-        repository = REPO_NAME,
+        repository = repository,
         image = _img_name,
         manifest_digest = _img_name + ".digest",
         index_tags = "//bazel/ci/images:remote_tags",

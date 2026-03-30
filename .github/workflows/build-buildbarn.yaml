@@ -42,21 +42,21 @@ jobs:
           mkdir -p ~/.docker
           echo '{"auths":{"ghcr.io":{"auth":"'"$(echo -n '${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}' | base64 -w0)"'"}}}' > ~/.docker/config.json
 
-      - name: Build image (${{ matrix.arch }})
+      - name: Build (${{ matrix.arch }})
         run: |
           set -o pipefail
           echo "::group::Bazel build (${{ matrix.arch }})"
           bazel build --config=buildbarn -c opt --platforms=//bazel/platforms/rbe:${{ matrix.arch }} \
-            //:update_index.envoy.image \
-            --verbose_failures
+            //:envoy
           echo "::endgroup::"
 
-      - name: Push image (${{ matrix.arch }})
+      - name: Push images (${{ matrix.arch }})
         if: github.event_name != 'pull_request'
         run: |
           set -o pipefail
-          echo "::group::Push ${{ matrix.arch }} image and update index"
+          echo "::group::Push ${{ matrix.arch }} images and update index"
           bazel run --config=buildbarn -c opt --platforms=//bazel/platforms/rbe:${{ matrix.arch }} \
             //:update_index.envoy.image
+          bazel run --config=buildbarn -c opt --platforms=//bazel/platforms/rbe:${{ matrix.arch }} \
+            //:update_index.envoy.stripped.image
           echo "::endgroup::"
-

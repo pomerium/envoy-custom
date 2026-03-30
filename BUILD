@@ -31,11 +31,13 @@ envoy_cc_binary(
 image(
     name = "envoy.image",
     srcs = [":envoy"],
+    repository = "ghcr.io/pomerium/envoy-custom-debug",
 )
 
 image(
     name = "envoy.stripped.image",
     srcs = [":envoy.stripped"],
+    repository = "ghcr.io/pomerium/envoy-custom",
 )
 
 configure_make(
