@@ -91,6 +91,7 @@ build --@rules_rust//rust/settings:rustfmt.toml=@envoy//:rustfmt.toml
 build:linux --copt=-fPIC
 build:linux --cxxopt=-fsized-deallocation --host_cxxopt=-fsized-deallocation
 build:linux --conlyopt=-fexceptions
+build:linux --fission=dbg,opt
 
 # macOS
 build:macos --action_env=PATH=/opt/homebrew/bin:/opt/local/bin:/usr/local/bin:/usr/bin:/bin
@@ -99,6 +100,7 @@ build:macos --define tcmalloc=disabled
 build:macos --cxxopt=-Wno-nullability-completeness
 build:macos --@toolchains_llvm//toolchain/config:compiler-rt=false
 build:macos --@toolchains_llvm//toolchain/config:libunwind=false
+
 
 #############################################################################
 # compiler
