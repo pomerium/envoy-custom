@@ -12,9 +12,11 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 // ConnectionService
 
 ConnectionService::ConnectionService(
+  const ConnectionServiceOptions& options,
   TransportCallbacks& callbacks,
   Peer direction)
-    : transport_(callbacks),
+    : options_(options),
+      transport_(callbacks),
       local_peer_(direction) {}
 
 void ConnectionService::registerMessageHandlers(SshMessageDispatcher& dispatcher) {
@@ -268,7 +270,14 @@ void ConnectionService::ChannelCallbacksImpl::sendMessageLocal(wire::Message&& m
         // close as a way to gracefully signal that the host is being drained.
         parent_.transport_.terminate(absl::DeadlineExceededError(fmt::format("timed out waiting for channel close response from {}", local_peer_)));
       });
-      close_timer_->enableTimer(CloseResponseGracePeriod);
+      std::chrono::milliseconds timeout{5000};
+      if (parent_.options_.has_channel_close_response_grace_period()) {
+        timeout = std::max(std::chrono::milliseconds(100),
+                           std::chrono::milliseconds{
+                             google::protobuf::util::TimeUtil::DurationToMilliseconds(
+                               parent_.options_.channel_close_response_grace_period())});
+      }
+      close_timer_->enableTimer(timeout);
       return true;
     },
     [&](wire::ChannelOpenFailureMsg& msg) {
@@ -719,9 +728,10 @@ absl::StatusOr<MiddlewareResult> OpenHijackedChannelMiddleware::interceptMessage
 }
 
 DownstreamConnectionService::DownstreamConnectionService(
+  const ConnectionServiceOptions& options,
   TransportCallbacks& callbacks,
   std::shared_ptr<StreamTracker> stream_tracker)
-    : ConnectionService(callbacks, Peer::Downstream),
+    : ConnectionService(options, callbacks, Peer::Downstream),
       transport_(dynamic_cast<DownstreamTransportCallbacks&>(callbacks)),
       stream_tracker_(std::move(stream_tracker)) {}
 

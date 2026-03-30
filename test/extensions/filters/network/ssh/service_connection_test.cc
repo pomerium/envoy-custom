@@ -44,7 +44,7 @@ public:
 class ConnectionServiceTest : public testing::TestWithParam<Peer> {
 public:
   ConnectionServiceTest()
-      : service_(transport_, GetParam()) {
+      : service_(ConnectionServiceOptions{}, transport_, GetParam()) {
     EXPECT_CALL(transport_, channelIdManager)
       .WillRepeatedly(ReturnRef(channel_id_manager_));
     EXPECT_CALL(transport_, secretsProvider)

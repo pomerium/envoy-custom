@@ -1162,8 +1162,7 @@ TEST_P(StaticPortForwardTest, InternalDownstreamChannelOpenFails) {
   }
 }
 
-class ChannelCloseTimeoutTest : public Envoy::Event::TestUsingSimulatedTime,
-                                public StaticPortForwardTest {
+class ChannelCloseTimeoutTest : public StaticPortForwardTest {
   using StaticPortForwardTest::StaticPortForwardTest;
 };
 
@@ -1185,7 +1184,8 @@ TEST_P(ChannelCloseTimeoutTest, UpstreamIgnoresChannelCloseDuringHostDrain) {
                .start(channel);
   setClusterLoad(cluster_name, {});
   ASSERT_TRUE(driver->wait(th2));
-  simTime().advanceTimeWait(CloseResponseGracePeriod + std::chrono::milliseconds(10));
+  // channel_close_response_grace_period is set to 1000ms for the integration tests
+  timeSystem().advanceTimeWait(std::chrono::milliseconds(1010));
   ASSERT_TRUE(driver->wait(driver->createTask<Tasks::WaitForDisconnectWithError>("timed out waiting for channel close").start()));
   downstream->waitForDisconnect();
 }

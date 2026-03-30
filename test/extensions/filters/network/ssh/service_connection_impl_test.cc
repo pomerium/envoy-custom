@@ -29,7 +29,7 @@ class UpstreamConnectionServiceTest : public testing::Test {
 public:
   UpstreamConnectionServiceTest() {
     transport_ = std::make_unique<testing::StrictMock<MockUpstreamTransportCallbacks>>();
-    service_ = std::make_unique<UpstreamConnectionService>(*transport_);
+    service_ = std::make_unique<UpstreamConnectionService>(ConnectionServiceOptions{}, *transport_);
     service_->registerMessageHandlers(msg_dispatcher_);
   }
 
@@ -63,7 +63,7 @@ class DownstreamConnectionServiceTest : public testing::Test {
 public:
   DownstreamConnectionServiceTest() {
     transport_ = std::make_unique<testing::StrictMock<MockDownstreamTransportCallbacks>>();
-    service_ = std::make_unique<DownstreamConnectionService>(*transport_, std::make_shared<StreamTracker>(context_));
+    service_ = std::make_unique<DownstreamConnectionService>(ConnectionServiceOptions{}, *transport_, std::make_shared<StreamTracker>(context_));
     service_->registerMessageHandlers(msg_dispatcher_);
 
     EXPECT_CALL(*transport_, streamId)

@@ -11,14 +11,14 @@
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 using Envoy::Event::Dispatcher;
-constexpr auto CloseResponseGracePeriod = std::chrono::seconds(5);
+using pomerium::extensions::ssh::ConnectionServiceOptions;
 
 class ConnectionService : public virtual Service,
                           public virtual StreamCallbacks,
                           public Logger::Loggable<Logger::Id::filter> {
 public:
   std::string name() override { return "ssh-connection"; };
-  ConnectionService(TransportCallbacks& callbacks, Peer direction);
+  ConnectionService(const ConnectionServiceOptions& options, TransportCallbacks& callbacks, Peer direction);
 
   // Channel Lifetime:
   // Creating channels and sending/receiving channel messages must only happen via ConnectionService
@@ -147,6 +147,7 @@ protected:
   // is being deleted.
   void preempt(ChannelCallbacks& ccb, absl::Status err);
 
+  ConnectionServiceOptions options_;
   TransportCallbacks& transport_;
   const Peer local_peer_;
   Envoy::OptRef<MessageDispatcher<wire::Message>> msg_dispatcher_;
@@ -170,7 +171,8 @@ class DownstreamConnectionService final : public ConnectionService,
   friend class OpenHijackedChannelMiddleware;
 
 public:
-  DownstreamConnectionService(TransportCallbacks& callbacks,
+  DownstreamConnectionService(const ConnectionServiceOptions& options,
+                              TransportCallbacks& callbacks,
                               std::shared_ptr<StreamTracker> stream_tracker);
 
   void onStreamBegin(Network::Connection& connection);
@@ -202,8 +204,8 @@ private:
 class UpstreamConnectionService final : public ConnectionService,
                                         public UpstreamService {
 public:
-  UpstreamConnectionService(UpstreamTransportCallbacks& callbacks)
-      : ConnectionService(callbacks, Peer::Upstream) {}
+  UpstreamConnectionService(const ConnectionServiceOptions& options, UpstreamTransportCallbacks& callbacks)
+      : ConnectionService(options, callbacks, Peer::Upstream) {}
   absl::Status requestService() override;
   absl::Status onServiceAccepted() override;
 };
