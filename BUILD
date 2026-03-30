@@ -86,6 +86,7 @@ configure_make(
 
 refresh_compile_commands(
     name = "refresh_compile_commands",
+    exclude_headers = "external",
     targets = {
         "//:envoy": "",
         "//test/...": "",

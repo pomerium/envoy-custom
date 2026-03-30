@@ -2,7 +2,7 @@ diff --git a/.bazelrc b/.bazelrc
 index c0bda60546..4465dc3c4b 100644
 --- a/.bazelrc
 +++ b/.bazelrc
-@@ -86,14 +86,11 @@ build --@rules_rust//rust/settings:rustfmt.toml=@envoy//:rustfmt.toml
+@@ -86,14 +86,12 @@ build --@rules_rust//rust/settings:rustfmt.toml=@envoy//:rustfmt.toml
  # os
  #############################################################################
  
@@ -12,7 +12,7 @@ index c0bda60546..4465dc3c4b 100644
  build:linux --copt=-fPIC
  build:linux --cxxopt=-fsized-deallocation --host_cxxopt=-fsized-deallocation
  build:linux --conlyopt=-fexceptions
--build:linux --fission=dbg,opt
+ build:linux --fission=dbg,opt
 -build:linux --features=per_object_debug_info
  
  # macOS
