@@ -8,6 +8,7 @@ import "envoy/config/core/v3/config_source.proto";
 import "envoy/config/core/v3/extension.proto";
 import "envoy/config/core/v3/grpc_service.proto";
 import "google/protobuf/any.proto";
+import "google/protobuf/duration.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/wrappers.proto";
@@ -51,6 +52,8 @@ message CodecConfig {
   uint32 internal_channel_id_start = 6;
 
   AlgorithmOptions algorithm_options = 7;
+
+  ConnectionServiceOptions connection_service_options = 8;
 }
 
 message AlgorithmOptions {
@@ -61,6 +64,14 @@ message AlgorithmOptions {
   // Optional list of packet cipher algorithms to explicitly disable. By default, all supported
   // algorithms are enabled.
   repeated string disable_packet_cipher_algorithms = 2;
+}
+
+message ConnectionServiceOptions {
+  // Maximum duration to wait for a response to a channel close message sent by Envoy to a server or
+  // client. If the grace period elapses before the channel close reply is received, the connection
+  // is terminated. Defaults to 5 seconds; minimum is 100ms.
+  // This may be useful to adjust for debugging/testing purposes.
+  google.protobuf.Duration channel_close_response_grace_period = 1;
 }
 
 message ReverseTunnelCluster {

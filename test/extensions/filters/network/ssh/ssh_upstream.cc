@@ -6,6 +6,7 @@ SshFakeUpstreamHandler::SshFakeUpstreamHandler(Server::Configuration::ServerFact
                                                std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
                                                std::shared_ptr<SshFakeUpstreamHandlerOpts> opts)
     : TransportBase<SshFakeUpstreamHandlerCodec>(context, config, *this),
+      config_(config),
       opts_(opts) {}
 
 SshFakeUpstreamHandler::CodecCallbacks::CodecCallbacks(Network::Connection& connection)
@@ -33,7 +34,7 @@ void SshFakeUpstreamHandler::ReadFilter::initializeReadFilterCallbacks(Envoy::Ne
 }
 
 SshFakeUpstreamHandler::FakeUpstreamConnectionService::FakeUpstreamConnectionService(SshFakeUpstreamHandler& parent)
-    : ConnectionService(parent, Peer::Downstream),
+    : ConnectionService(parent.config_->connection_service_options(), parent, Peer::Downstream),
       parent_(parent) {
   (void)parent_;
 }

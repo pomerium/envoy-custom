@@ -86,7 +86,7 @@ TEST_P(GracefulShutdownIntegrationTest, ServerDrain) {
     });
   });
   ASSERT_TRUE(driver_->wait(th));
-  ASSERT_TRUE(drainComplete.WaitForNotificationWithTimeout(absl::Seconds(1)));
+  ASSERT_TRUE(drainComplete.WaitForNotificationWithTimeout(absl::FromChrono(TestUtility::DefaultTimeout)));
 }
 
 TEST_P(GracefulShutdownIntegrationTest, ServerShutdown) {
@@ -113,7 +113,7 @@ TEST_P(GracefulShutdownIntegrationTest, ServerShutdownThenDrain) {
     });
   });
   ASSERT_TRUE(driver_->wait(th));
-  ASSERT_FALSE(drainComplete.WaitForNotificationWithTimeout(absl::Milliseconds(100)));
+  ASSERT_FALSE(drainComplete.WaitForNotificationWithTimeout(absl::FromChrono(TestUtility::DefaultTimeout)));
 }
 
 TEST_P(GracefulShutdownIntegrationTest, ServerShutdownTwice) {

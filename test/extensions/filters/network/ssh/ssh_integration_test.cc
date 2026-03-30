@@ -160,9 +160,13 @@ AssertionResult FakeUpstreamShimImpl::configureSshUpstream(std::shared_ptr<SshFa
     // XXX: this only handles one connection. If we need to support multiple upstream connections at
     // the same time, this will need to be adjusted.
     ASSERT(handler_ == nullptr);
+    auto config = std::make_shared<pomerium::extensions::ssh::CodecConfig>();
+    config->mutable_connection_service_options()
+      ->mutable_channel_close_response_grace_period()
+      ->set_seconds(1);
     handler_ = std::make_unique<SshFakeUpstreamHandler>(
       *ctx,
-      std::make_shared<pomerium::extensions::ssh::CodecConfig>(),
+      config,
       opts);
     timer_ = fake_upstream_->dispatcher()->createTimer([this] {
       absl::ReleasableMutexLock lock(fake_upstream_->lock());
@@ -301,6 +305,9 @@ static_resources:
                 timeout: 0s
               max_concurrent_channels: 100
               internal_channel_id_start: 100
+              connection_service_options:
+                channel_close_response_grace_period:
+                  seconds: 1
           filters:
             - name: envoy.filters.generic.router
               typed_config:

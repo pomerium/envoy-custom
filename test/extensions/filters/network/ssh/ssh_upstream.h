@@ -148,7 +148,9 @@ protected:
   absl::Status handleMessage(wire::Message&& msg) override;
 
 private:
-  ChannelIDManager channel_id_manager_{100}; // order is important here
+  // order is important here
+  std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config_;
+  ChannelIDManager channel_id_manager_{100};
   MessageDispatcher<wire::Message>* msg_dispatcher_{};
   std::shared_ptr<SshFakeUpstreamHandlerOpts> opts_;
   std::unique_ptr<CodecCallbacks> codec_callbacks_;
