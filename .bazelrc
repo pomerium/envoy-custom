@@ -31,3 +31,14 @@ build --@io_bazel_rules_go//go/config:pure=True
 
 build --macos_minimum_os=15.5
 build:linux --features=-libtool
+
+common:buildbarn --remote_executor=grpc://frontend.buildbarn.svc.cluster.local:8980
+common:buildbarn --remote_cache=grpc://frontend.buildbarn.svc.cluster.local:8980
+common:buildbarn --jobs=64
+common:buildbarn --remote_timeout=3600
+common:buildbarn --remote_max_connections=100
+common:buildbarn --host_platform=//bazel/platforms/rbe:linux_x64
+common:buildbarn --bes_results_url=https://buildbarn.k8s.bdd.io/bazel-invocations/
+common:buildbarn --bes_backend=grpc://portal.buildbarn.svc.cluster.local:8082
+common:buildbarn --spawn_strategy=remote,sandboxed
+common:buildbarn --remote_download_minimal
