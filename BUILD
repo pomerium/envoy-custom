@@ -10,15 +10,17 @@ package(default_visibility = ["//visibility:public"])
 
 envoy_cc_binary(
     name = "envoy",
-    features = select({
-        "@platforms//os:macos": [],
-        "@envoy//bazel:asan_build": [],
-        "@envoy//bazel:tsan_build": [],
-        "//conditions:default": ["fully_static_link"],
-    }),
+    linkopts = [
+        "-fPIE",
+        "-Wl,-E",
+        "-Wl,-z,relro,-z,now",
+        "-Wl,--hash-style=gnu",
+    ],
     repository = "@envoy",
     stamped = True,
     deps = [
+        "//source/common/dynamic_extensions:version_lib",
+        "//source/extensions/bootstrap/dynamic_extension_loader",
         "//source/extensions/filters/network/ssh:pomerium_ssh",
         "//source/extensions/health_check/event_sinks/grpc:grpc_event_sink",
         "//source/extensions/http/early_header_mutation/trace_context:pomerium_trace_context",
@@ -92,5 +94,6 @@ refresh_compile_commands(
     targets = {
         "//:envoy": "",
         "//test/...": "",
+        "//tools/...": "",
     },
 )
