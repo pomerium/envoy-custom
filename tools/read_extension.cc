@@ -56,6 +56,7 @@ absl::StatusOr<std::unique_ptr<MmapFileHandle>> mmapFile(const std::string& file
 }
 
 struct SymbolInfo {
+  size_t index;
   const Elf64_Sym* symbol;
   Elf64_Half version_id;
 };
@@ -63,12 +64,11 @@ struct SymbolInfo {
 struct VersionNeededInfo {
   std::string_view version;
   std::string_view file;
-  bool weak;
 };
 
 struct SymbolVersionsCache {
-  std::unordered_map<Elf64_Half, std::string> allVersionIds;
-  std::unordered_map<Elf64_Half, std::string> versionIdsDefined;
+  std::unordered_map<Elf64_Half, std::string_view> allVersionIds;
+  std::unordered_map<Elf64_Half, std::string_view> versionIdsDefined;
   std::unordered_map<Elf64_Half, VersionNeededInfo> versionIdsNeeded;
 };
 
@@ -101,61 +101,67 @@ public:
   SymbolVersionFilter(std::vector<std::string> patterns) {
     any_filters_ = !patterns.empty();
     for (const auto& p : patterns) {
-      if (p.starts_with("src:")) {
-        exclude_srcs_.push_back(p.substr(4) + "\0"s);
-      } else if (p == "local") {
-        exclude_zero_ = true;
-      } else if (p == "global") {
-        exclude_one_ = true;
-      } else if (p == "hidden") {
-        exclude_hidden_ = true;
-      } else if (p == "weak") {
-        exclude_weak_ = true;
-      } else if (p == "noversion") {
-        exclude_zero_ = true;
-        exclude_one_ = true;
+      if (p.starts_with("file:")) {
+        auto value = p.substr(5);
+        if (value == "+") {
+          filter_any_file_ = true;
+          filter_no_file_ = false;
+        } else if (value == "-") {
+          filter_any_file_ = false;
+          filter_no_file_ = true;
+        } else if (!value.empty()) {
+          filter_files_.push_back(value + "\0"s); // to match the string views
+        }
       } else if (p.starts_with("id:")) {
-        exclude_ids_.push_back(static_cast<Elf64_Half>(std::stoi(p.substr(3))));
+        auto value = p.substr(3);
+        if (value == "hidden") {
+          filter_hidden_ = true;
+        } else {
+          filter_ids_.push_back(static_cast<Elf64_Half>(std::stoi(value)));
+        }
       }
     }
   }
 
-  bool shouldExclude(const SymbolInfo& info, const SymbolVersionsCache& cache) const {
+  bool shouldInclude(const SymbolInfo& info, const SymbolVersionsCache& cache) const {
     if (!any_filters_) {
-      return false;
+      return true;
     }
-    switch (info.version_id) {
+    auto hidden = (info.version_id & 1 << 15) != 0;
+    auto id = info.version_id & 0x7FFF;
+    if (hidden && filter_hidden_) {
+      return true;
+    }
+    switch (id) {
     case 0:
-      return exclude_zero_;
     case 1:
-      return exclude_one_;
+      return filter_no_file_;
     default:
-      if ((info.version_id & (1 << 15)) != 0) {
-        return exclude_hidden_;
-      }
-      if (std::find(exclude_ids_.begin(), exclude_ids_.end(), info.version_id) != exclude_ids_.end()) {
+      if (filter_any_file_) {
         return true;
       }
-      if (auto it = cache.versionIdsNeeded.find(info.version_id); it != cache.versionIdsNeeded.end()) {
-        if (exclude_weak_ && it->second.weak) {
-          return true;
-        }
-        if (std::find(exclude_srcs_.begin(), exclude_srcs_.end(), it->second.file) != exclude_srcs_.end()) {
+      if (filter_files_.empty() && filter_ids_.empty()) {
+        return false;
+      }
+      if (std::find(filter_ids_.begin(), filter_ids_.end(), id) != filter_ids_.end()) {
+        return true;
+      }
+      if (auto it = cache.versionIdsNeeded.find(id); it != cache.versionIdsNeeded.end()) {
+        if (std::find(filter_files_.begin(), filter_files_.end(), it->second.file) != filter_files_.end()) {
           return true;
         }
       }
-      return false;
     }
+    return false;
   }
 
 private:
   bool any_filters_{};
-  bool exclude_zero_{};
-  bool exclude_one_{};
-  bool exclude_hidden_{};
-  bool exclude_weak_{};
-  std::vector<std::string> exclude_srcs_;
-  std::vector<Elf64_Half> exclude_ids_;
+  bool filter_hidden_{};
+  bool filter_any_file_{};
+  bool filter_no_file_{};
+  std::vector<std::string> filter_files_;
+  std::vector<Elf64_Half> filter_ids_;
 };
 
 std::string_view strtabCStrView(bytes_view view) {
@@ -304,7 +310,6 @@ absl::StatusOr<SymbolTableView> readDynamicSymbols(const MmapFileHandle& f, Symb
             out.version_info.versionIdsNeeded[auxEntry->vna_other] = {
               .version = version_name,
               .file = filename,
-              .weak = (auxEntry->vna_flags & VER_FLG_WEAK) == VER_FLG_WEAK,
             };
             if (auxEntry->vna_next == 0) {
               // this should always be hit if the file is well-formed
@@ -343,7 +348,7 @@ absl::StatusOr<SymbolTableView> readDynamicSymbols(const MmapFileHandle& f, Symb
         // find the corresponding entry in the versym table
         auto versionId = *reinterpret_cast<const Elf64_Half*>(
           versymTable.subspan(i * sizeof(Elf64_Half), sizeof(Elf64_Half)).data());
-        out.items.emplace_back(symName, SymbolInfo{.symbol = sym, .version_id = versionId});
+        out.items.emplace_back(symName, SymbolInfo{.index = i, .symbol = sym, .version_id = versionId});
       }
     }
   }
@@ -391,7 +396,7 @@ absl::Status printDynamicSymbols(const MmapFileHandle& f,
   size_t len = 0;
   const bool demangle = flag_demangle;
   for (const auto& [k, v] : dst->items) {
-    if (version_filter.shouldExclude(v, dst->version_info)) {
+    if (!version_filter.shouldInclude(v, dst->version_info)) {
       continue;
     }
 
@@ -414,6 +419,9 @@ absl::Status printDynamicSymbols(const MmapFileHandle& f,
       std::cout << k.substr(0, k.size() - 1);
     }
 
+    bool hidden = (v.version_id & 1 << 15) != 0;
+    auto vid = v.version_id & 0x7FFF;
+
     if (v.version_id < 2) {
       goto no_version;
     }
@@ -423,27 +431,29 @@ absl::Status printDynamicSymbols(const MmapFileHandle& f,
       std::cout << "\n";
       break;
     case PrintVersions::All:
-      std::cout << "@" << dst->version_info.allVersionIds[v.version_id] << "\n";
+      std::cout << "@" << dst->version_info.allVersionIds[vid] << "\n";
       break;
     case PrintVersions::Needed:
-      if (auto it = dst->version_info.versionIdsNeeded.find(v.version_id);
+      if (auto it = dst->version_info.versionIdsNeeded.find(vid);
           it != dst->version_info.versionIdsNeeded.end()) {
         std::cout << "@" << it->second.version << "\n";
       }
       break;
     case PrintVersions::Defined:
-      if (auto it = dst->version_info.versionIdsDefined.find(v.version_id);
+      if (auto it = dst->version_info.versionIdsDefined.find(vid);
           it != dst->version_info.versionIdsDefined.end()) {
         std::cout << "@" << it->second << "\n";
       }
       break;
     case PrintVersions::Verbose:
-      if (auto it = dst->version_info.versionIdsNeeded.find(v.version_id);
+      if (auto it = dst->version_info.versionIdsNeeded.find(vid);
           it != dst->version_info.versionIdsNeeded.end()) {
-        std::cout << fmt::format("@{} [needed; id:{}; src:{}]\n", it->second.version, v.version_id, it->second.file);
-      } else if (auto it = dst->version_info.versionIdsDefined.find(v.version_id);
+        std::cout << fmt::format("@{} [needed; id:{}; file:{}{}]\n", it->second.version, vid, it->second.file,
+                                 hidden ? "; hidden" : "");
+      } else if (auto it = dst->version_info.versionIdsDefined.find(vid);
                  it != dst->version_info.versionIdsDefined.end()) {
-        std::cout << fmt::format("@{} [defined; id:{}]\n", it->second, v.version_id);
+        std::cout << fmt::format("@{} [defined; id:{}{}]\n", it->second, vid,
+                                 hidden ? "; hidden" : "");
       }
     }
   }
@@ -496,9 +506,9 @@ int main(int argc, char** argv) {
     .nargs(1)
     .choices("none", "all", "needed", "defined", "verbose");
 
-  cmd.add_argument("-x", "--exclude")
-    .help("When printing symbols, omit any whose version info matches the given pattern.\n"
-          "Can be repeated; specify one pattern per --exclude flag. Patterns are OR'd together.")
+  cmd.add_argument("-f", "--filter")
+    .help("When printing symbols, only include those matching the given patterns.\n"
+          "Can be repeated; specify one pattern per --filter flag. Patterns are OR'd together.")
     .append()
     .nargs(1);
 
@@ -520,14 +530,11 @@ int main(int argc, char** argv) {
   defined      | only print versions for symbols defined in the file
   verbose      | always print symbol versions; also show dependency filenames
 
-'--exclude' pattern syntax:
-  src:filename | filter versions by source filename (ex: "src:libc.so.6")
-  local        | filter local symbols (id 0)
-  global       | filter global symbols (id 1)
-  hidden       | filter hidden symbols (bit 15 set)
-  weak         | filter weak symbols
-  noversion    | filter symbols with no named versions (same as '--exclude=local --exclude=global')
-  id:[0-9]+    | filter versions by id)"s.substr(1));
+'--filter' pattern syntax:
+  file:<name>  | filter needed symbols by dependency filename; also accepts "+" for any filename
+                 or "-" for no filename (ex: "file:libc.so.6", "file:+", "file:-")
+  id:<number>  | filter symbols by version id; also accepts "hidden" for any id with bit 15 set
+                 (ex: "id:0", "id:2", "id:hidden"))"s.substr(1));
 
   cmd.set_usage_break_on_mutex();
 
@@ -561,7 +568,7 @@ int main(int argc, char** argv) {
     if (cmd.is_used("--metadata")) {
       return printMetadata(**f);
     } else if (cmd.is_used("--symbols")) {
-      SymbolVersionFilter versionFilter(cmd.get<std::vector<std::string>>("--exclude"));
+      SymbolVersionFilter versionFilter(cmd.get<std::vector<std::string>>("--filter"));
       return printDynamicSymbols(**f,
                                  filterModeLookup.at(cmd.get("--symbols")),
                                  printVersionsLookup.at(cmd.get("--versions")),
