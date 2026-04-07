@@ -5,6 +5,7 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <cxxabi.h>
+#include <unordered_map>
 
 #include "fmt/format.h"
 #include "argparse/argparse.hpp"
@@ -54,6 +55,23 @@ absl::StatusOr<std::unique_ptr<MmapFileHandle>> mmapFile(const std::string& file
   return std::make_unique<MmapFileHandle>(filename, addr, info);
 }
 
+struct SymbolInfo {
+  const Elf64_Sym* symbol;
+  Elf64_Half version_id;
+};
+
+struct VersionNeededInfo {
+  std::string_view version;
+  std::string_view file;
+  bool weak;
+};
+
+struct SymbolVersionsCache {
+  std::unordered_map<Elf64_Half, std::string> allVersionIds;
+  std::unordered_map<Elf64_Half, std::string> versionIdsDefined;
+  std::unordered_map<Elf64_Half, VersionNeededInfo> versionIdsNeeded;
+};
+
 struct SymbolTableView {
   SymbolTableView() = default;
   SymbolTableView(const SymbolTableView&) = delete;
@@ -61,25 +79,93 @@ struct SymbolTableView {
   SymbolTableView& operator=(const SymbolTableView&) = delete;
   SymbolTableView& operator=(SymbolTableView&&) = default;
 
-  std::vector<std::tuple<std::string_view, const Elf64_Sym*>> items; // keys are null-terminated
+  std::vector<std::tuple<std::string_view, SymbolInfo>> items; // keys are null-terminated
+  SymbolVersionsCache version_info;
 };
 
-enum class Filter {
+enum class SymbolKindFilter {
   Undefined = 1,
   Defined = 2,
 };
 
-constexpr Filter operator|(Filter lhs, Filter rhs) {
-  return static_cast<Filter>(std::to_underlying(lhs) | std::to_underlying(rhs));
+constexpr SymbolKindFilter operator|(SymbolKindFilter lhs, SymbolKindFilter rhs) {
+  return static_cast<SymbolKindFilter>(std::to_underlying(lhs) | std::to_underlying(rhs));
 }
 
-constexpr Filter operator&(Filter lhs, Filter rhs) {
-  return static_cast<Filter>(std::to_underlying(lhs) & std::to_underlying(rhs));
+constexpr SymbolKindFilter operator&(SymbolKindFilter lhs, SymbolKindFilter rhs) {
+  return static_cast<SymbolKindFilter>(std::to_underlying(lhs) & std::to_underlying(rhs));
+}
+
+class SymbolVersionFilter {
+public:
+  SymbolVersionFilter(std::vector<std::string> patterns) {
+    any_filters_ = !patterns.empty();
+    for (const auto& p : patterns) {
+      if (p.starts_with("src:")) {
+        exclude_srcs_.push_back(p.substr(4) + "\0"s);
+      } else if (p == "local") {
+        exclude_zero_ = true;
+      } else if (p == "global") {
+        exclude_one_ = true;
+      } else if (p == "hidden") {
+        exclude_hidden_ = true;
+      } else if (p == "weak") {
+        exclude_weak_ = true;
+      } else if (p == "noversion") {
+        exclude_zero_ = true;
+        exclude_one_ = true;
+      } else if (p.starts_with("id:")) {
+        exclude_ids_.push_back(static_cast<Elf64_Half>(std::stoi(p.substr(3))));
+      }
+    }
+  }
+
+  bool shouldExclude(const SymbolInfo& info, const SymbolVersionsCache& cache) const {
+    if (!any_filters_) {
+      return false;
+    }
+    switch (info.version_id) {
+    case 0:
+      return exclude_zero_;
+    case 1:
+      return exclude_one_;
+    default:
+      if ((info.version_id & (1 << 15)) != 0) {
+        return exclude_hidden_;
+      }
+      if (std::find(exclude_ids_.begin(), exclude_ids_.end(), info.version_id) != exclude_ids_.end()) {
+        return true;
+      }
+      if (auto it = cache.versionIdsNeeded.find(info.version_id); it != cache.versionIdsNeeded.end()) {
+        if (exclude_weak_ && it->second.weak) {
+          return true;
+        }
+        if (std::find(exclude_srcs_.begin(), exclude_srcs_.end(), it->second.file) != exclude_srcs_.end()) {
+          return true;
+        }
+      }
+      return false;
+    }
+  }
+
+private:
+  bool any_filters_{};
+  bool exclude_zero_{};
+  bool exclude_one_{};
+  bool exclude_hidden_{};
+  bool exclude_weak_{};
+  std::vector<std::string> exclude_srcs_;
+  std::vector<Elf64_Half> exclude_ids_;
+};
+
+std::string_view strtabCStrView(bytes_view view) {
+  auto strLen = std::distance(view.begin(), std::next(std::find(view.begin(), view.end(), 0u)));
+  return to_string_view(view.first(strLen));
 }
 
 bool flag_demangle;
 
-absl::StatusOr<SymbolTableView> readDynamicSymbols(const MmapFileHandle& f, Filter filter) {
+absl::StatusOr<SymbolTableView> readDynamicSymbols(const MmapFileHandle& f, SymbolKindFilter kind_filter) {
   if (f.info_.st_size < sizeof(Elf64_Ehdr)) {
     return absl::InvalidArgumentError("file is not an ELF binary");
   }
@@ -102,8 +188,10 @@ absl::StatusOr<SymbolTableView> readDynamicSymbols(const MmapFileHandle& f, Filt
     return absl::InvalidArgumentError("failed to read section headers");
   }
 
-  bool showUndefined = (filter & Filter::Undefined) == Filter::Undefined;
-  bool showDefined = (filter & Filter::Defined) == Filter::Defined;
+  bool showUndefined = (kind_filter & SymbolKindFilter::Undefined) == SymbolKindFilter::Undefined;
+  bool showDefined = (kind_filter & SymbolKindFilter::Defined) == SymbolKindFilter::Defined;
+
+  SymbolTableView out;
 
   auto extension_data = f.view();
 
@@ -118,92 +206,146 @@ absl::StatusOr<SymbolTableView> readDynamicSymbols(const MmapFileHandle& f, Filt
       extension_data.subspan(header->e_shoff + shIdx * sizeof(Elf64_Shdr), sizeof(Elf64_Shdr)).data());
 
     switch (sectionHeader->sh_type) {
-    case SHT_DYNAMIC:
-      sh_dynamic = sectionHeader;
-      break;
-    case SHT_DYNSYM:
-      sh_dynsym = sectionHeader;
-      break;
-    case SHT_GNU_versym:
-      sh_gnu_versym = sectionHeader;
-      break;
-    case SHT_GNU_verdef:
-      sh_gnu_verdef = sectionHeader;
-      break;
-    case SHT_GNU_verneed:
-      sh_gnu_verneed = sectionHeader;
-      break;
+    case SHT_DYNAMIC:     sh_dynamic = sectionHeader; break;
+    case SHT_DYNSYM:      sh_dynsym = sectionHeader; break;
+    case SHT_GNU_versym:  sh_gnu_versym = sectionHeader; break;
+    case SHT_GNU_verdef:  sh_gnu_verdef = sectionHeader; break;
+    case SHT_GNU_verneed: sh_gnu_verneed = sectionHeader; break;
     default:
       continue;
     }
   }
   if (sh_dynamic == nullptr) {
-    return absl::InvalidArgumentError("file is missing section: .dynamic");
+    return absl::InvalidArgumentError("missing section: .dynamic");
   }
   if (sh_dynsym == nullptr) {
-    return absl::InvalidArgumentError("file is missing section: .dynsym");
+    return absl::InvalidArgumentError("missing section: .dynsym");
   }
   if (sh_gnu_versym == nullptr) {
-    return absl::InvalidArgumentError("file is missing section: .gnu.version");
+    return absl::InvalidArgumentError("missing section: .gnu.version");
   }
   if (sh_gnu_verdef == nullptr) {
-    return absl::InvalidArgumentError("file is missing section: .gnu.version_d");
+    return absl::InvalidArgumentError("missing section: .gnu.version_d");
   }
   if (sh_gnu_verneed == nullptr) {
-    return absl::InvalidArgumentError("file is missing section: .gnu.version_r");
+    return absl::InvalidArgumentError("missing section: .gnu.version_r");
   }
 
-  // Find version requirements in .dynamic
   {
-    Elf64_Xword verdefnum{};
-    Elf64_Xword verneednum{};
+    Elf64_Xword numVerdefEntries{};
+    Elf64_Xword numVerneedEntries{};
     auto dynamicEntries = extension_data.subspan(sh_dynamic->sh_offset, sh_dynamic->sh_size);
     while (!dynamicEntries.empty()) {
       auto* entry = reinterpret_cast<const Elf64_Dyn*>(dynamicEntries.data());
       switch (entry->d_tag) {
-      case DT_VERDEF:
-      case DT_VERDEFNUM:
-        verdefnum = entry->d_un.d_val;
-        break;
-      case DT_VERNEED:
-      case DT_VERNEEDNUM:
-        verneednum = entry->d_un.d_val;
-        break;
+      case DT_VERDEFNUM:  numVerdefEntries = entry->d_un.d_val; break;
+      case DT_VERNEEDNUM: numVerneedEntries = entry->d_un.d_val; break;
+      default:            break;
       }
       dynamicEntries = dynamicEntries.subspan(sizeof(Elf64_Dyn));
     }
 
-    auto* versionStrTabHdr = reinterpret_cast<const Elf64_Shdr*>(
-      extension_data.subspan(header->e_shoff + sh_gnu_verdef->sh_link * sizeof(Elf64_Shdr), sizeof(Elf64_Shdr)).data());
-    auto versionStrTable = extension_data.subspan(versionStrTabHdr->sh_offset, versionStrTabHdr->sh_size);
-    auto verdefEntries = extension_data.subspan(sh_gnu_verdef->sh_offset, sh_gnu_verdef->sh_size);
-    for (auto i = 0; i < verdefnum; i++) {
-      auto* entry = reinterpret_cast<const Elf64_Verdef*>(
-        verdefEntries.subspan(i * sizeof(Elf64_Verdef), sizeof(Elf64_Verdef)).data());
+    {
+      auto* verdefStrTabHdr = reinterpret_cast<const Elf64_Shdr*>(
+        extension_data.subspan(header->e_shoff + sh_gnu_verdef->sh_link * sizeof(Elf64_Shdr), sizeof(Elf64_Shdr)).data());
+      auto verdefStrTable = extension_data.subspan(verdefStrTabHdr->sh_offset, verdefStrTabHdr->sh_size);
+
+      auto verdefEntries = extension_data.subspan(sh_gnu_verdef->sh_offset, sh_gnu_verdef->sh_size);
+      for (size_t entryOffset = 0, n = 0;;) {
+        assert(n < numVerdefEntries);
+        auto* verdefEntry = reinterpret_cast<const Elf64_Verdef*>(
+          verdefEntries.subspan(entryOffset, sizeof(Elf64_Verdef)).data());
+
+        // skip the version for the file itself, only look at symbol versions
+        if ((verdefEntry->vd_flags & VER_FLG_BASE) == 0) {
+          if (verdefEntry->vd_cnt == 0) {
+            std::cerr << "warn: section .gnu.version_d contains a version definition with no version name" << std::endl;
+          } else if (verdefEntry->vd_cnt > 1) {
+            std::cerr << "warn: section .gnu.version_d contains a version definition with multiple version names" << std::endl;
+          } else {
+            auto* aux = reinterpret_cast<const Elf64_Verdaux*>(
+              verdefEntries.subspan(entryOffset + verdefEntry->vd_aux, sizeof(Elf64_Verdaux)).data());
+            auto version_name = strtabCStrView(verdefStrTable.subspan(aux->vda_name));
+            out.version_info.allVersionIds[verdefEntry->vd_ndx] = version_name;
+            out.version_info.versionIdsDefined[verdefEntry->vd_ndx] = version_name;
+          }
+        }
+
+        if (verdefEntry->vd_next == 0) {
+          // this should always be hit if the file is well-formed
+          break;
+        }
+        entryOffset += verdefEntry->vd_next;
+        n++;
+      }
+    }
+
+    {
+      auto* verneedStrTabHdr = reinterpret_cast<const Elf64_Shdr*>(
+        extension_data.subspan(header->e_shoff + sh_gnu_verneed->sh_link * sizeof(Elf64_Shdr), sizeof(Elf64_Shdr)).data());
+      auto verneedStrTable = extension_data.subspan(verneedStrTabHdr->sh_offset, verneedStrTabHdr->sh_size);
+
+      auto verneedEntries = extension_data.subspan(sh_gnu_verneed->sh_offset, sh_gnu_verneed->sh_size);
+      for (size_t entryOffset = 0, n = 0;;) {
+        assert(n < numVerneedEntries);
+        auto* verneedEntry = reinterpret_cast<const Elf64_Verneed*>(
+          verneedEntries.subspan(entryOffset, sizeof(Elf64_Verneed)).data());
+        auto filename = strtabCStrView(verneedStrTable.subspan(verneedEntry->vn_file));
+
+        if (verneedEntry->vn_cnt == 0) {
+          std::cerr << "warn: section .gnu.version_r contains a version requirement with no version name" << std::endl;
+        } else {
+          for (size_t auxOffset = verneedEntry->vn_aux, a = 0;;) {
+            assert(a < verneedEntry->vn_cnt);
+            auto* auxEntry = reinterpret_cast<const Elf64_Vernaux*>(
+              verneedEntries.subspan(entryOffset + auxOffset, sizeof(Elf64_Vernaux)).data());
+            auto version_name = strtabCStrView(verneedStrTable.subspan(auxEntry->vna_name));
+            out.version_info.allVersionIds[auxEntry->vna_other] = version_name;
+            out.version_info.versionIdsNeeded[auxEntry->vna_other] = {
+              .version = version_name,
+              .file = filename,
+              .weak = (auxEntry->vna_flags & VER_FLG_WEAK) == VER_FLG_WEAK,
+            };
+            if (auxEntry->vna_next == 0) {
+              // this should always be hit if the file is well-formed
+              break;
+            }
+            auxOffset += auxEntry->vna_next;
+            a++;
+          }
+        }
+
+        if (verneedEntry->vn_next == 0) {
+          // this should always be hit if the file is well-formed
+          break;
+        }
+        entryOffset += verneedEntry->vn_next;
+        n++;
+      }
     }
   }
 
-  //
-
-  SymbolTableView out;
+  auto versymTable = extension_data.subspan(sh_gnu_versym->sh_offset, sh_gnu_versym->sh_size);
 
   auto* symbolStrTabHdr = reinterpret_cast<const Elf64_Shdr*>(
     extension_data.subspan(header->e_shoff + sh_dynsym->sh_link * sizeof(Elf64_Shdr), sizeof(Elf64_Shdr)).data());
   auto symbolStringTable = extension_data.subspan(symbolStrTabHdr->sh_offset, symbolStrTabHdr->sh_size);
 
   auto dynsymEntries = extension_data.subspan(sh_dynsym->sh_offset, sh_dynsym->sh_size);
-  out.items.reserve(out.items.size() + (dynsymEntries.size() / sizeof(Elf64_Sym)));
-  while (!dynsymEntries.empty()) {
-    auto* sym = reinterpret_cast<const Elf64_Sym*>(dynsymEntries.data());
+  out.items.reserve(sh_dynsym->sh_size / sizeof(Elf64_Sym));
+  assert(versymTable.size() == out.items.capacity() * sizeof(Elf64_Half));
+  for (size_t i = 0; i < sh_dynsym->sh_size / sizeof(Elf64_Sym); i++) {
+    auto* sym = reinterpret_cast<const Elf64_Sym*>(dynsymEntries.subspan(i * sizeof(Elf64_Sym), sizeof(Elf64_Sym)).data());
     if (sym->st_name != 0) {
       bool isUndefined = sym->st_shndx == SHN_UNDEF;
       if ((isUndefined && showUndefined) || (!isUndefined && showDefined)) {
-        auto symName = symbolStringTable.subspan(sym->st_name);
-        auto name = to_string_view(symName.first(std::distance(symName.begin(), std::next(std::find(symName.begin(), symName.end(), 0u)))));
-        out.items.emplace_back(name, sym);
+        auto symName = strtabCStrView(symbolStringTable.subspan(sym->st_name));
+        // find the corresponding entry in the versym table
+        auto versionId = *reinterpret_cast<const Elf64_Half*>(
+          versymTable.subspan(i * sizeof(Elf64_Half), sizeof(Elf64_Half)).data());
+        out.items.emplace_back(symName, SymbolInfo{.symbol = sym, .version_id = versionId});
       }
     }
-    dynsymEntries = dynsymEntries.subspan(sizeof(Elf64_Sym));
   }
 
   std::sort(out.items.begin(), out.items.end(), [](const auto& a, const auto& b) {
@@ -229,50 +371,100 @@ absl::Status printMetadata(const MmapFileHandle& f) {
   return absl::OkStatus();
 }
 
-absl::Status printDynamicSymbols(const MmapFileHandle& f, Filter filter) {
+enum class PrintVersions {
+  None,
+  All,
+  Needed,
+  Defined,
+  Verbose,
+};
+
+absl::Status printDynamicSymbols(const MmapFileHandle& f,
+                                 SymbolKindFilter filter,
+                                 PrintVersions print_versions,
+                                 const SymbolVersionFilter& version_filter) {
   auto dst = readDynamicSymbols(f, filter);
   if (!dst.ok()) {
     return dst.status();
   }
-  if (flag_demangle) {
-    char* buf{};
-    size_t len = 0;
-    for (const auto& [k, v] : dst->items) {
+  char* buf{};
+  size_t len = 0;
+  const bool demangle = flag_demangle;
+  for (const auto& [k, v] : dst->items) {
+    if (version_filter.shouldExclude(v, dst->version_info)) {
+      continue;
+    }
+
+    if (demangle) {
       int status{};
+      // note: the string views contain the null terminator
       buf = abi::__cxa_demangle(k.data(), buf, &len, &status); // NOLINT:bugprone-suspicious-stringview-data-usage
       switch (status) {
       case 0:
-        std::cout << buf << "\n";
+        std::cout << buf;
         break;
       case -2:
-        std::cout << k.data() << "\n";
+        std::cout << k.substr(0, k.size() - 1);
         break;
       default:
         free(buf);
         return absl::InternalError(fmt::format("__cxa_demangle error {}", status));
       }
+    } else {
+      std::cout << k.substr(0, k.size() - 1);
     }
-    free(buf);
-    std::cout.flush();
-  } else {
-    for (const auto& [k, v] : dst->items) {
-      std::cout << k.data() << "\n";
+
+    if (v.version_id < 2) {
+      goto no_version;
     }
-    std::cout.flush();
+    switch (print_versions) {
+    case PrintVersions::None:
+    no_version:
+      std::cout << "\n";
+      break;
+    case PrintVersions::All:
+      std::cout << "@" << dst->version_info.allVersionIds[v.version_id] << "\n";
+      break;
+    case PrintVersions::Needed:
+      if (auto it = dst->version_info.versionIdsNeeded.find(v.version_id);
+          it != dst->version_info.versionIdsNeeded.end()) {
+        std::cout << "@" << it->second.version << "\n";
+      }
+      break;
+    case PrintVersions::Defined:
+      if (auto it = dst->version_info.versionIdsDefined.find(v.version_id);
+          it != dst->version_info.versionIdsDefined.end()) {
+        std::cout << "@" << it->second << "\n";
+      }
+      break;
+    case PrintVersions::Verbose:
+      if (auto it = dst->version_info.versionIdsNeeded.find(v.version_id);
+          it != dst->version_info.versionIdsNeeded.end()) {
+        std::cout << fmt::format("@{} [needed; id:{}; src:{}]\n", it->second.version, v.version_id, it->second.file);
+      } else if (auto it = dst->version_info.versionIdsDefined.find(v.version_id);
+                 it != dst->version_info.versionIdsDefined.end()) {
+        std::cout << fmt::format("@{} [defined; id:{}]\n", it->second, v.version_id);
+      }
+    }
   }
+  free(buf);
+  std::cout.flush();
+
   return absl::OkStatus();
 }
 
 absl::Status checkCompatibility(const MmapFileHandle& host, const MmapFileHandle& ext) {
-  auto extUndefined = readDynamicSymbols(ext, Filter::Undefined);
+  auto extUndefined = readDynamicSymbols(ext, SymbolKindFilter::Undefined);
   if (!extUndefined.ok()) {
     return extUndefined.status();
   }
 
-  auto hostDefined = readDynamicSymbols(host, Filter::Defined);
+  auto hostDefined = readDynamicSymbols(host, SymbolKindFilter::Defined);
   if (!hostDefined.ok()) {
     return hostDefined.status();
   }
+
+  return absl::OkStatus();
 }
 
 int main(int argc, char** argv) {
@@ -285,6 +477,7 @@ int main(int argc, char** argv) {
   modes.add_argument("-s", "--symbols")
     .help("Print symbols in the extension's dynamic symbol table")
     .implicit_value("undefined"s)
+    .nargs(0, 1)
     .choices("undefined"s, "defined"s, "all"s);
 
   modes.add_argument("-c", "--check")
@@ -293,13 +486,50 @@ int main(int argc, char** argv) {
     .flag();
 
   cmd.add_argument("-d", "--demangle")
-    .help("Demangle C++ symbols when printing them")
-    .flag();
+    .help("Demangle C++ symbols")
+    .flag()
+    .store_into(flag_demangle);
+
+  cmd.add_argument("-v", "--versions")
+    .help("Show symbol versions")
+    .default_value("all")
+    .nargs(1)
+    .choices("none", "all", "needed", "defined", "verbose");
+
+  cmd.add_argument("-x", "--exclude")
+    .help("When printing symbols, omit any whose version info matches the given pattern.\n"
+          "Can be repeated; specify one pattern per --exclude flag. Patterns are OR'd together.")
+    .append()
+    .nargs(1);
 
   cmd.add_argument("filename")
     .nargs(1)
     .required()
     .help("Path to an extension binary");
+
+  cmd.add_epilog(R"(
+'--symbols' options:
+  undefined    | print undefined symbols (default)
+  defined      | print defined symbols
+  all          | print both defined and undefined symbols
+
+'--versions' options:
+  none         | do not print any symbol versions
+  all          | always print symbol versions (default)
+  needed       | only print versions for symbols needed from a dependency
+  defined      | only print versions for symbols defined in the file
+  verbose      | always print symbol versions; also show dependency filenames
+
+'--exclude' pattern syntax:
+  src:filename | filter versions by source filename (ex: "src:libc.so.6")
+  local        | filter local symbols (id 0)
+  global       | filter global symbols (id 1)
+  hidden       | filter hidden symbols (bit 15 set)
+  weak         | filter weak symbols
+  noversion    | filter symbols with no named versions (same as '--exclude=local --exclude=global')
+  id:[0-9]+    | filter versions by id)"s.substr(1));
+
+  cmd.set_usage_break_on_mutex();
 
   try {
     cmd.parse_args(argc, argv);
@@ -308,26 +538,35 @@ int main(int argc, char** argv) {
     return 1;
   }
 
+  static const std::unordered_map<std::string_view, SymbolKindFilter> filterModeLookup{
+    {"undefined"sv, SymbolKindFilter::Undefined},
+    {"defined"sv, SymbolKindFilter::Defined},
+    {"all"sv, SymbolKindFilter::Undefined | SymbolKindFilter::Defined},
+  };
+
+  static const std::unordered_map<std::string_view, PrintVersions> printVersionsLookup{
+    {"none"sv, PrintVersions::None},
+    {"all"sv, PrintVersions::All},
+    {"needed"sv, PrintVersions::Needed},
+    {"defined"sv, PrintVersions::Defined},
+    {"verbose"sv, PrintVersions::Verbose},
+  };
+
   auto filename = cmd.get("filename");
   auto stat = [&] {
     auto f = mmapFile(filename);
     if (!f.ok()) {
       return f.status();
     }
-    if (cmd.is_used("metadata")) {
+    if (cmd.is_used("--metadata")) {
       return printMetadata(**f);
-    } else if (cmd.is_used("symbols")) {
-      Filter filter{};
-      auto symbolsMode = cmd.get("symbols");
-      if (symbolsMode == "undefined") {
-        filter = Filter::Undefined;
-      } else if (symbolsMode == "defined") {
-        filter = Filter::Defined;
-      } else if (symbolsMode == "all") {
-        filter = Filter::Undefined | Filter::Defined;
-      }
-      return printDynamicSymbols(**f, filter);
-    } else if (cmd.is_used("check")) {
+    } else if (cmd.is_used("--symbols")) {
+      SymbolVersionFilter versionFilter(cmd.get<std::vector<std::string>>("--exclude"));
+      return printDynamicSymbols(**f,
+                                 filterModeLookup.at(cmd.get("--symbols")),
+                                 printVersionsLookup.at(cmd.get("--versions")),
+                                 versionFilter);
+    } else if (cmd.is_used("--check")) {
       auto host = mmapFile(filename);
       if (!host.ok()) {
         return host.status();
