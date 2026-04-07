@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <elf.h>
 #include <exception>
 #include <fcntl.h>
@@ -62,6 +63,7 @@ struct SymbolInfo {
 };
 
 struct VersionNeededInfo {
+  bool operator==(const VersionNeededInfo& other) const = default;
   std::string_view version;
   std::string_view file;
 };
@@ -79,6 +81,7 @@ struct SymbolTableView {
   SymbolTableView& operator=(const SymbolTableView&) = delete;
   SymbolTableView& operator=(SymbolTableView&&) = default;
 
+  std::vector<std::string_view> dt_needed;
   std::vector<std::tuple<std::string_view, SymbolInfo>> items; // keys are null-terminated
   SymbolVersionsCache version_info;
 };
@@ -114,7 +117,12 @@ public:
         }
       } else if (p.starts_with("id:")) {
         auto value = p.substr(3);
-        if (value == "hidden") {
+        if (value == "+") {
+          filter_versioned_ = true;
+        } else if (value == "-") {
+          filter_any_file_ = false;
+          filter_no_file_ = true;
+        } else if (value == "hidden") {
           filter_hidden_ = true;
         } else {
           filter_ids_.push_back(static_cast<Elf64_Half>(std::stoi(value)));
@@ -130,6 +138,9 @@ public:
     auto hidden = (info.version_id & 1 << 15) != 0;
     auto id = info.version_id & 0x7FFF;
     if (hidden && filter_hidden_) {
+      return true;
+    }
+    if (filter_versioned_ && id > 1) {
       return true;
     }
     switch (id) {
@@ -160,6 +171,7 @@ private:
   bool filter_hidden_{};
   bool filter_any_file_{};
   bool filter_no_file_{};
+  bool filter_versioned_{};
   std::vector<std::string> filter_files_;
   std::vector<Elf64_Half> filter_ids_;
 };
@@ -230,20 +242,22 @@ absl::StatusOr<SymbolTableView> readDynamicSymbols(const MmapFileHandle& f, Symb
   if (sh_gnu_versym == nullptr) {
     return absl::InvalidArgumentError("missing section: .gnu.version");
   }
-  if (sh_gnu_verdef == nullptr) {
-    return absl::InvalidArgumentError("missing section: .gnu.version_d");
-  }
-  if (sh_gnu_verneed == nullptr) {
-    return absl::InvalidArgumentError("missing section: .gnu.version_r");
-  }
 
   {
     Elf64_Xword numVerdefEntries{};
     Elf64_Xword numVerneedEntries{};
+
+    auto* dynamicStrTabHdr = reinterpret_cast<const Elf64_Shdr*>(
+      extension_data.subspan(header->e_shoff + sh_dynamic->sh_link * sizeof(Elf64_Shdr), sizeof(Elf64_Shdr)).data());
+    auto dynamicStrTable = extension_data.subspan(dynamicStrTabHdr->sh_offset, dynamicStrTabHdr->sh_size);
+
     auto dynamicEntries = extension_data.subspan(sh_dynamic->sh_offset, sh_dynamic->sh_size);
     while (!dynamicEntries.empty()) {
       auto* entry = reinterpret_cast<const Elf64_Dyn*>(dynamicEntries.data());
       switch (entry->d_tag) {
+      case DT_NEEDED:
+        out.dt_needed.push_back(strtabCStrView(dynamicStrTable.subspan(entry->d_un.d_ptr)));
+        break;
       case DT_VERDEFNUM:  numVerdefEntries = entry->d_un.d_val; break;
       case DT_VERNEEDNUM: numVerneedEntries = entry->d_un.d_val; break;
       default:            break;
@@ -251,7 +265,7 @@ absl::StatusOr<SymbolTableView> readDynamicSymbols(const MmapFileHandle& f, Symb
       dynamicEntries = dynamicEntries.subspan(sizeof(Elf64_Dyn));
     }
 
-    {
+    if (sh_gnu_verdef != nullptr && numVerdefEntries > 0) {
       auto* verdefStrTabHdr = reinterpret_cast<const Elf64_Shdr*>(
         extension_data.subspan(header->e_shoff + sh_gnu_verdef->sh_link * sizeof(Elf64_Shdr), sizeof(Elf64_Shdr)).data());
       auto verdefStrTable = extension_data.subspan(verdefStrTabHdr->sh_offset, verdefStrTabHdr->sh_size);
@@ -286,7 +300,7 @@ absl::StatusOr<SymbolTableView> readDynamicSymbols(const MmapFileHandle& f, Symb
       }
     }
 
-    {
+    if (sh_gnu_verneed != nullptr && numVerneedEntries > 0) {
       auto* verneedStrTabHdr = reinterpret_cast<const Elf64_Shdr*>(
         extension_data.subspan(header->e_shoff + sh_gnu_verneed->sh_link * sizeof(Elf64_Shdr), sizeof(Elf64_Shdr)).data());
       auto verneedStrTable = extension_data.subspan(verneedStrTabHdr->sh_offset, verneedStrTabHdr->sh_size);
@@ -463,18 +477,112 @@ absl::Status printDynamicSymbols(const MmapFileHandle& f,
   return absl::OkStatus();
 }
 
-absl::Status checkCompatibility(const MmapFileHandle& host, const MmapFileHandle& ext) {
-  auto extUndefined = readDynamicSymbols(ext, SymbolKindFilter::Undefined);
-  if (!extUndefined.ok()) {
-    return extUndefined.status();
+struct CompatibilityInfo {
+  bool compatible;
+  std::vector<std::string> diagnostics;
+};
+
+static const std::unordered_set<std::string> mallocApiSymbols{
+  "malloc",
+  "calloc",
+  "realloc",
+  "free",
+  "aligned_alloc",
+  "posix_memalign",
+  "cfree",
+  "memalign",
+  "valloc",
+  "pvalloc",
+};
+
+absl::StatusOr<CompatibilityInfo> checkCompatibility(const MmapFileHandle& host, const MmapFileHandle& ext) {
+  SymbolTableView extUndefined;
+  SymbolTableView hostSymbols;
+
+  if (auto r = readDynamicSymbols(ext, SymbolKindFilter::Undefined); !r.ok()) {
+    return r.status();
+  } else {
+    extUndefined = std::move(r).value();
   }
 
-  auto hostDefined = readDynamicSymbols(host, SymbolKindFilter::Defined);
-  if (!hostDefined.ok()) {
-    return hostDefined.status();
+  if (auto r = readDynamicSymbols(host, SymbolKindFilter::Defined | SymbolKindFilter::Undefined); !r.ok()) {
+    return r.status();
+  } else {
+    hostSymbols = std::move(r).value();
   }
 
-  return absl::OkStatus();
+  std::vector<std::string_view> bothDtNeeded;
+  for (auto extNeeded : std::as_const(extUndefined).dt_needed) {
+    for (auto hostNeeded : hostSymbols.dt_needed) {
+      if (extNeeded == hostNeeded) {
+        bothDtNeeded.push_back(extNeeded);
+        break;
+      }
+    }
+  }
+
+  std::vector<std::string> msgs;
+  for (const auto& kv : std::as_const(extUndefined).items) {
+    const auto& [symbolName, extSymInfo] = kv;
+    auto found = std::lower_bound(hostSymbols.items.begin(), hostSymbols.items.end(), kv, [](const auto& a, const auto& b) {
+      return std::get<0>(a) < std::get<0>(b);
+    });
+    if (found == hostSymbols.items.end() || std::get<0>(*found) != std::get<0>(kv)) {
+      msgs.push_back(fmt::format("missing symbol required by extension: {}", symbolName));
+      continue;
+    }
+    const auto& hostKv = *found;
+    const auto& [_, hostSymInfo] = hostKv;
+
+    // note: version ids are specific to each binary
+
+    if (!extUndefined.version_info.versionIdsNeeded.contains(extSymInfo.version_id)) {
+      // if the symbol is unversioned in the extension, it should also be unversioned in the host
+      if (hostSymbols.version_info.allVersionIds.contains(hostSymInfo.version_id)) {
+        if (hostSymbols.version_info.versionIdsDefined.contains(hostSymInfo.version_id)) {
+          msgs.push_back(fmt::format("symbol version mismatch: {} (extension needs unversioned symbol; host defines the symbol with version {})",
+                                     symbolName, hostSymbols.version_info.versionIdsDefined.at(hostSymInfo.version_id)));
+          continue;
+        } else if (hostSymbols.version_info.versionIdsNeeded.contains(hostSymInfo.version_id)) {
+          auto hostNeededInfo = hostSymbols.version_info.versionIdsNeeded.at(hostSymInfo.version_id);
+          msgs.push_back(fmt::format("symbol version mismatch: {} (extension needs unversioned symbol; host needs the symbol with version {} from {})",
+                                     symbolName, hostNeededInfo.version, hostNeededInfo.file));
+          continue;
+        }
+      }
+    } else {
+      // if the symbol is versioned in the extension, the host should define or require the same version
+      auto extSymbolVersion = extUndefined.version_info.versionIdsNeeded.at(extSymInfo.version_id);
+      if (hostSymbols.version_info.versionIdsDefined.contains(hostSymInfo.version_id)) {
+        // the symbol is defined by the host
+        auto hostSymbolVersion = hostSymbols.version_info.versionIdsDefined.at(hostSymInfo.version_id);
+        if (hostSymbolVersion != extSymbolVersion.version) {
+          msgs.push_back(fmt::format("symbol version mismatch: {} (host defines version: {}; extension needs version: {})",
+                                     symbolName, hostSymbolVersion, extSymbolVersion.version));
+        }
+      } else if (hostSymbols.version_info.versionIdsNeeded.contains(hostSymInfo.version_id)) {
+        // the symbol is needed by the host's own dependency. check if the needed version matches
+        auto hostNeededVersion = hostSymbols.version_info.versionIdsNeeded.at(hostSymInfo.version_id);
+        if (hostNeededVersion != extSymbolVersion) {
+          msgs.push_back(fmt::format("symbol version mismatch: {} (host needs version {} from {}; extension needs version {} from {})",
+                                     symbolName, hostNeededVersion.version, hostNeededVersion.file, extSymbolVersion.version, extSymbolVersion.file));
+        }
+      } else {
+        // the symbol is versioned in the extension but defined unversioned in the host
+        // warn here unless the symbol is one of the c malloc api functions, which are defined from
+        // tcmalloc.
+        if (!mallocApiSymbols.contains(std::string(symbolName.substr(0, symbolName.size() - 1)))) {
+          msgs.push_back(fmt::format("symbol version mismatch: {} (extension needs version {} from {}; host defines the symbol unversioned)",
+                                     symbolName, extSymbolVersion.version, extSymbolVersion.file));
+        }
+      }
+    }
+  }
+
+  return CompatibilityInfo{
+    .compatible = msgs.empty(),
+    .diagnostics = std::move(msgs),
+  };
 }
 
 int main(int argc, char** argv) {
@@ -492,8 +600,7 @@ int main(int argc, char** argv) {
 
   modes.add_argument("-c", "--check")
     .help("Check if the extension is compatible with the given binary")
-    .nargs(1)
-    .flag();
+    .nargs(1);
 
   cmd.add_argument("-d", "--demangle")
     .help("Demangle C++ symbols")
@@ -513,28 +620,31 @@ int main(int argc, char** argv) {
     .nargs(1);
 
   cmd.add_argument("filename")
-    .nargs(1)
+    .nargs(argparse::nargs_pattern::at_least_one)
     .required()
     .help("Path to an extension binary");
 
   cmd.add_epilog(R"(
 '--symbols' options:
-  undefined    | print undefined symbols (default)
-  defined      | print defined symbols
-  all          | print both defined and undefined symbols
+  undefined    | Print undefined symbols (default)
+  defined      | Print defined symbols
+  all          | Print both defined and undefined symbols
 
 '--versions' options:
-  none         | do not print any symbol versions
-  all          | always print symbol versions (default)
-  needed       | only print versions for symbols needed from a dependency
-  defined      | only print versions for symbols defined in the file
-  verbose      | always print symbol versions; also show dependency filenames
+  none         | Do not print any symbol versions
+  all          | Always print symbol versions (default)
+  needed       | Only print versions for symbols needed from a dependency
+  defined      | Only print versions for symbols defined in the file
+  verbose      | Always print symbol versions; also show dependency filenames
 
 '--filter' pattern syntax:
-  file:<name>  | filter needed symbols by dependency filename; also accepts "+" for any filename
-                 or "-" for no filename (ex: "file:libc.so.6", "file:+", "file:-")
-  id:<number>  | filter symbols by version id; also accepts "hidden" for any id with bit 15 set
-                 (ex: "id:0", "id:2", "id:hidden"))"s.substr(1));
+  file:<name>  | Filter needed symbols by dependency filename. Also accepts "+" for any filename
+                 or "-" for no filename.
+                 Examples: "file:libc.so.6", "file:+", "file:-"
+  id:<number>  | Filter symbols by version id. Also accepts "hidden" for any id with bit 15 set,
+                 "-" for ids 0 and 1, and and "+" for ids >1.
+                 Note: "id:-" is equivalent to "file:-".
+                 Examples: "id:0", "id:2", "id:hidden")"s.substr(1));
 
   cmd.set_usage_break_on_mutex();
 
@@ -559,32 +669,59 @@ int main(int argc, char** argv) {
     {"verbose"sv, PrintVersions::Verbose},
   };
 
-  auto filename = cmd.get("filename");
+  auto filenames = cmd.get<std::vector<std::string>>("filename");
+  if (filenames.size() > 1 && !cmd.is_used("--check")) {
+    std::cerr << "multiple extension filenames can only be given in --check mode" << std::endl;
+    return 1;
+  }
   auto stat = [&] {
-    auto f = mmapFile(filename);
-    if (!f.ok()) {
-      return f.status();
-    }
     if (cmd.is_used("--metadata")) {
+      auto f = mmapFile(filenames[0]);
+      if (!f.ok()) {
+        return f.status();
+      }
       return printMetadata(**f);
     } else if (cmd.is_used("--symbols")) {
+      auto f = mmapFile(filenames[0]);
+      if (!f.ok()) {
+        return f.status();
+      }
       SymbolVersionFilter versionFilter(cmd.get<std::vector<std::string>>("--filter"));
       return printDynamicSymbols(**f,
                                  filterModeLookup.at(cmd.get("--symbols")),
                                  printVersionsLookup.at(cmd.get("--versions")),
                                  versionFilter);
     } else if (cmd.is_used("--check")) {
-      auto host = mmapFile(filename);
+      auto host = mmapFile(cmd.get<std::string>("--check"));
       if (!host.ok()) {
         return host.status();
       }
-      return checkCompatibility(**host, **f);
+      for (const auto& ext : filenames) {
+        auto f = mmapFile(filenames[0]);
+        if (!f.ok()) {
+          return f.status();
+        }
+        auto info = checkCompatibility(**host, **f);
+        if (!info.ok()) {
+          return info.status();
+        }
+        std::cout << fmt::format("{}: ", ext);
+        if (info->compatible) {
+          std::cout << "compatible\n";
+        } else {
+          std::cout << "incompatible\n";
+          for (const auto& msg : info->diagnostics) {
+            std::cout << fmt::format(" => {}\n", msg);
+          }
+        }
+        std::cout.flush();
+      }
     }
     return absl::OkStatus();
   }();
 
   if (!stat.ok()) {
-    std::cerr << fmt::format("{}: {}", filename, statusToString(stat)) << std::endl;
+    std::cerr << statusToString(stat) << std::endl;
     return 1;
   }
   return 0;

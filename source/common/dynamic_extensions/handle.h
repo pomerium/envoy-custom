@@ -2,7 +2,6 @@
 
 #include "envoy/server/instance.h"
 #include "source/common/dynamic_extensions/metadata.h"
-#include "source/common/dynamic_extensions/version.h"
 
 using DynamicExtensionInitFunc = void (*)(Envoy::Server::Instance&);
 
@@ -23,7 +22,7 @@ public:
 private:
   void loadAbiFunctions() {
     abi_dynamic_extension_init_ = reinterpret_cast<DynamicExtensionInitFunc>(
-      dlvsym(raw_handle_, "_Z20dynamicExtensionInitRN5Envoy6Server8InstanceE", POMERIUM_BUILD_HASH));
+      dlsym(raw_handle_, "_Z20dynamicExtensionInitRN5Envoy6Server8InstanceE"));
     if (abi_dynamic_extension_init_ == nullptr) {
       ENVOY_LOG_MISC(warn, "extension has no dynamicExtensionInit: " + info_.path);
     }

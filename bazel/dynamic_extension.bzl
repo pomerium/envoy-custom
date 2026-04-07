@@ -30,7 +30,7 @@ def cc_dynamic_extension(
             "-fvisibility=hidden",
             "-fPIC",
         ],
-        deps = ["//source/common/dynamic_extensions:cc_dynamic_extension_lib"],
+        deps = ["//source/common/dynamic_extensions:version_ref_lib"],
         linkshared = True,
         linkstatic = False,
     )

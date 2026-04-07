@@ -1,26 +1,12 @@
 load("@aspect_bazel_lib//lib:jq.bzl", "jq")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 
-global_versioned_symbols = [
-    "pomerium_envoy_version",
-    "_Z20dynamicExtensionInitRN5Envoy6Server8InstanceE",
-]
-
 jq(
-    name = "_version_script",
+    name = "_version_hash_h",
     srcs = ["//bazel/build_info:volatile_status"],
-    out = "version.lds",
+    out = "version_hash.h",
     args = ["-r"],
-    filter = r'"\(.BUILD_SCM_HASH) { global: %s; };"' % ";".join(global_versioned_symbols),
-    visibility = ["//visibility:private"],
-)
-
-jq(
-    name = "_version_h",
-    srcs = ["//bazel/build_info:volatile_status"],
-    out = "version.h",
-    args = ["-r"],
-    filter = r'"#pragma once\n#define POMERIUM_BUILD_HASH \"\(.BUILD_SCM_HASH)\""',
+    filter = r'"#pragma once\n#define POMERIUM_BUILD_HASH \(.BUILD_SCM_HASH)"',
     visibility = ["//visibility:private"],
 )
 
@@ -28,7 +14,7 @@ cc_library(
     name = "extension_api_lib",
     hdrs = [
         "handle.h",
-        ":_version_h",
+        ":_version_hash_h",
     ],
     visibility = ["//visibility:public"],
     deps = [
@@ -49,20 +35,48 @@ cc_library(
 
 cc_library(
     name = "version_lib",
-    srcs = ["version.cc"],
-    hdrs = [":_version_h"],
+    hdrs = [
+        "version.h",
+        ":_version_hash_h",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "version_ref_lib",
+    srcs = ["version_ref.cc"],
     linkstatic = True,
     visibility = ["//visibility:public"],
+    deps = [":version_lib"],
+    alwayslink = True,
+)
+
+cc_library(
+    name = "cc_extension_host_lib",
+    srcs = [
+        "version.cc",
+    ],
+    linkstatic = True,
+    visibility = ["//source/extensions/bootstrap/dynamic_extension_loader:__pkg__"],
+    deps = [
+        ":extension_api_lib",
+        ":metadata_lib",
+        ":version_lib",
+    ],
     alwayslink = True,
 )
 
 cc_library(
     name = "cc_dynamic_extension_lib",
-    hdrs = ["extension.h"],
-    additional_linker_inputs = [":_version_script"],
-    linkopts = ["-Wl,--version-script=$(location :_version_script)"],
+    srcs = [
+        "version.cc",
+    ],
+    hdrs = [
+        "extension.h",
+        "version.h",
+        ":_version_hash_h",
+    ],
     linkstatic = True,
     visibility = ["//visibility:public"],
-    deps = [":version_lib"],
     alwayslink = True,
 )

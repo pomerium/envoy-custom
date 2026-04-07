@@ -4,7 +4,6 @@
 
 #include "source/common/status.h"
 #include "source/common/types.h"
-#include "source/common/dynamic_extensions/version.h"
 #include "source/common/dynamic_extensions/metadata.h"
 
 namespace Envoy::Extensions::Bootstrap::DynamicExtensionLoader {
@@ -62,10 +61,6 @@ absl::StatusOr<DynamicExtensionHandlePtr> ExtensionLoader::loadExtension(const E
   auto* rawHandle = dlopen(info.path.c_str(), RTLD_LOCAL | RTLD_LAZY);
   if (rawHandle == nullptr) {
     return absl::InvalidArgumentError(fmt::format("dlopen failed: {}", dlerror()));
-  }
-  if (dlvsym(rawHandle, "pomerium_envoy_version", POMERIUM_BUILD_HASH) == nullptr) {
-    dlclose(rawHandle);
-    return absl::InvalidArgumentError(fmt::format("extension version does not match"));
   }
   rawHandle = dlopen(info.path.c_str(), RTLD_LOCAL | RTLD_NOW | RTLD_NOLOAD);
   if (rawHandle == nullptr) {
