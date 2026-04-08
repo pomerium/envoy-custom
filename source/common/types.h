@@ -34,6 +34,10 @@ constexpr bytes_view to_bytes_view(std::string_view sv) {
 #pragma clang unsafe_buffer_usage end
 }
 
+constexpr std::string_view to_string_view(const bytes_view& bv) {
+  return {reinterpret_cast<const char*>(bv.data()), bv.size()};
+}
+
 constexpr bytes operator""_bytes(const char* str, size_t len) {
   return to_bytes(std::string_view(str, len));
 }
@@ -51,11 +55,7 @@ constexpr bool operator==(const bytes_view& lhs, const bytes_view& rhs) {
 }
 
 constexpr bool operator!=(const bytes_view& lhs, const bytes_view& rhs) {
-  return !std::equal(lhs.begin(), lhs.end(), rhs.begin(), rhs.end());
-}
-
-constexpr std::string_view to_string_view(const bytes_view& bv) {
-  return {reinterpret_cast<const char*>(bv.data()), bv.size()};
+  return !(lhs == rhs);
 }
 
 constexpr std::string to_string(const bytes_view& bv) {

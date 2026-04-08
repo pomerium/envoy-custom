@@ -6,6 +6,7 @@ load(
 envoy_cc_test(
     name = "common_test",
     srcs = [
+        "bytes_view_test.cc",
         "factory_test.cc",
         "fixed_string_test.cc",
         "id_alloc_test.cc",
