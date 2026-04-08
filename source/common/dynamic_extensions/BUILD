@@ -3,10 +3,10 @@ load("@rules_cc//cc:cc_library.bzl", "cc_library")
 
 jq(
     name = "_version_hash_h",
-    srcs = ["//bazel/build_info:volatile_status"],
+    srcs = ["//bazel/build_info:combined_status"],
     out = "version_hash.h",
     args = ["-r"],
-    filter = r'"#pragma once\n#define POMERIUM_BUILD_HASH \(.BUILD_SCM_HASH)"',
+    filter = r'"#pragma once\n#define POMERIUM_ENVOY_VERSION \(.STABLE_BUILD_SCM_REVISION)"',
     visibility = ["//visibility:private"],
 )
 

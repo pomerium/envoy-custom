@@ -27,5 +27,6 @@ envoy_cc_library(
         "@envoy//envoy/server:factory_context_interface",
         "@envoy//envoy/server:instance_interface",
         "@envoy//source/common/filesystem:directory_lib",
+        "@envoy//source/common/json:json_streamer_lib",
     ],
 )

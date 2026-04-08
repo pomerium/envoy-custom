@@ -19,6 +19,10 @@ public:
     }
   }
 
+  const ExtensionInfo& info() const {
+    return info_;
+  }
+
 private:
   void loadAbiFunctions() {
     abi_dynamic_extension_init_ = reinterpret_cast<DynamicExtensionInitFunc>(
