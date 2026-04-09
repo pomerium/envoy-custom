@@ -11,17 +11,19 @@ envoy_cc_library(
     name = "dynamic_extension_loader",
     srcs = [
         "config.cc",
+        "handle.cc",
         "loader.cc",
     ],
     hdrs = [
         "config.h",
+        "handle.h",
         "loader.h",
     ],
     repository = "@envoy",
     deps = [
         "//api/extensions/bootstrap/dynamic_extension_loader:pkg_cc_proto",
         "//source/common:common_lib",
-        "//source/common/dynamic_extensions:cc_extension_host_lib",
+        "//source/common/dynamic_extensions:extension_host_lib",
         "@envoy//envoy/registry",
         "@envoy//envoy/server:bootstrap_extension_config_interface",
         "@envoy//envoy/server:factory_context_interface",

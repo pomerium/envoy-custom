@@ -1,5 +1,11 @@
 load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
 
+# dependencies required for all extensions
+builtin_weak_deps = [
+    "@envoy//envoy/server:instance_interface",
+    "@envoy//source/common/common:logger_lib",
+]
+
 def cc_dynamic_extension(
         name,
         srcs = [],
@@ -19,13 +25,14 @@ def cc_dynamic_extension(
         ],
         features = ["prefer_pic_for_opt_binaries"],
         linkstatic = True,
-        deps = weak_deps + ["//source/common/dynamic_extensions:cc_dynamic_extension_lib"],
+        deps = weak_deps + builtin_weak_deps + [
+            "//source/common/dynamic_extensions:cc_dynamic_extension_lib",
+        ],
         alwayslink = True,
     )
     cc_binary(
         name = name,
         srcs = [_name],
-        copts = ["-fPIC"],
         linkopts = [
             "-fvisibility=hidden",
             "-fPIC",

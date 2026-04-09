@@ -12,3 +12,6 @@
 #define DYNAMIC_EXTENSION(value) _DYNAMIC_EXTENSION_METADATA(id, value)
 #define DYNAMIC_EXTENSION_LICENSE(value) _DYNAMIC_EXTENSION_METADATA(license, value)
 #define DYNAMIC_EXTENSION_EXPORT __attribute__((used, retain, visibility("default")))
+
+constexpr const char* dynamic_extension_init_sym = "_Z20dynamicExtensionInitRKN6google8protobuf3AnyERN5Envoy6Server8InstanceE";
+constexpr const char* dynamic_extension_init_no_config_sym = "_Z20dynamicExtensionInitRN5Envoy6Server8InstanceE";

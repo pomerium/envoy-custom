@@ -1,8 +1,8 @@
 #pragma once
 
 #include "api/extensions/bootstrap/dynamic_extension_loader/dynamic_extension_loader.pb.h"
-#include "source/common/dynamic_extensions/handle.h"
 #include "envoy/server/bootstrap_extension_config.h"
+#include "source/extensions/bootstrap/dynamic_extension_loader/handle.h"
 #include "source/common/dynamic_extensions/metadata.h"
 
 namespace Envoy::Extensions::Bootstrap::DynamicExtensionLoader {
@@ -28,8 +28,9 @@ private:
     ExtensionLoader& parent_;
   };
 
-  struct ExtensionLoadError {
+  struct ExtensionError {
     ExtensionInfo info;
+    std::string kind;
     absl::Status err;
   };
 
@@ -39,7 +40,7 @@ private:
   pomerium::extensions::dynamic_extension_loader::Config config_;
   Server::Configuration::ServerFactoryContext& server_factory_context_;
   std::vector<DynamicExtensionHandlePtr> handles_;
-  std::vector<ExtensionLoadError> load_errors_;
+  std::vector<ExtensionError> load_errors_;
   std::unique_ptr<AdminApi> admin_api_;
 };
 

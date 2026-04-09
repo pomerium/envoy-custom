@@ -1,0 +1,433 @@
+#include "api/extensions/bootstrap/dynamic_extension_loader/dynamic_extension_loader.pb.h"
+#include "source/common/dynamic_extensions/metadata.h"
+#include "source/common/types.h"
+#include "test/integration/base_integration_test.h"
+#include "test/test_common/status_utility.h"
+#include "gtest/gtest.h"
+#include <csignal>
+#include <sstream>
+#include <unistd.h>
+#include <utility>
+
+// NOLINTBEGIN(readability-identifier-naming)
+
+class DynamicExtensionsIntegrationTest : public testing::Test,
+                                         public Envoy::BaseIntegrationTest {
+public:
+  DynamicExtensionsIntegrationTest()
+      : Envoy::BaseIntegrationTest(Envoy::Network::Address::IpVersion::v4,
+                                   Envoy::ConfigHelper::baseConfigNoListeners()) {
+  }
+
+  void initialize() override {
+    Envoy::BaseIntegrationTest::initialize();
+    registerTestServerPorts({}); // register the admin port
+  }
+
+  struct exec_result {
+    int exit_code;
+    std::string out;
+  };
+
+  std::string SelfPath() {
+    std::string buf(1024, 0);
+    auto n = readlink("/proc/self/exe", buf.data(), buf.size());
+    if (n == -1) {
+      PANIC("readlink failed");
+    }
+    buf.resize(n);
+    return buf;
+  }
+
+  absl::StatusOr<Envoy::Json::ObjectSharedPtr> FetchAdminApiStatus() {
+    auto response = Envoy::IntegrationUtil::makeSingleRequest(
+      lookupPort("admin"), "GET", "/dynamic_extensions/status",
+      "", Envoy::Http::CodecType::HTTP1, version_);
+
+    if (!response->complete()) {
+      return absl::InternalError("admin api request failed");
+    }
+    return Envoy::Json::Factory::loadFromString(response->body());
+  }
+
+  absl::StatusOr<exec_result> RunReadExtension(std::vector<std::string> args) {
+    int stdout_pipe[2];
+    if (pipe(static_cast<int*>(stdout_pipe)) != 0) {
+      return absl::InternalError("pipe() failed");
+    }
+    auto path = Envoy::TestEnvironment::runfilesPath("tools/read-extension", "pomerium_envoy");
+    std::vector<char*> argv;
+    argv.push_back(path.data());
+    for (std::string& arg : args) {
+      argv.push_back(arg.data());
+    }
+    argv.push_back(nullptr);
+    auto pid = fork();
+    if (pid == -1) {
+      return absl::InternalError("fork() failed");
+    }
+    if (pid == 0) {
+      close(stdout_pipe[0]);
+      dup2(stdout_pipe[1], fileno(stdout));
+      dup2(stdout_pipe[1], fileno(stderr));
+      close(stdout_pipe[1]);
+
+      execve(path.c_str(), std::as_const(argv).data(), environ);
+      std::unreachable();
+    } else {
+      close(stdout_pipe[1]);
+      std::stringstream ss;
+      std::thread read_thread{[&] {
+        std::array<char, 256> buf;
+        while (true) {
+          ssize_t n = read(stdout_pipe[0], buf.data(), sizeof(buf));
+          if (n == -1) {
+            PANIC("read() failed");
+          }
+          ss.write(buf.data(), n);
+          if (n == 0) {
+            break;
+          }
+        }
+        close(stdout_pipe[0]);
+      }};
+      int status{};
+      while (true) {
+        auto w = waitpid(pid, &status, 0);
+        if (w == -1) {
+          return absl::InternalError("waitpid() failed");
+        }
+        if (WIFEXITED(status)) {
+          read_thread.join();
+          return exec_result{
+            .exit_code = WEXITSTATUS(status),
+            .out = ss.str(),
+          };
+        } else if (WIFSIGNALED(status)) {
+          read_thread.join();
+          return absl::InternalError(fmt::format("process killed by signal {}", WTERMSIG(status)));
+        }
+      }
+    }
+  }
+
+  AssertionResult CheckExtensionLoaded(Envoy::Json::ObjectSharedPtr status, std::string id) {
+    auto obj = status->getObjectArray("loaded");
+    if (!obj.ok()) {
+      return AssertionFailure() << obj.status();
+    }
+    for (const auto& entry : *obj) {
+      if (*entry->getString("id") == id) {
+        return AssertionSuccess();
+      }
+    }
+    return AssertionFailure() << "extension was not reported as loaded by the admin api";
+  }
+
+  AssertionResult CheckExtensionFailed(Envoy::Json::ObjectSharedPtr status, std::string id, std::string kind, std::optional<std::string> error_substring = {}) {
+    auto obj = status->getObjectArray("failed");
+    if (!obj.ok()) {
+      return AssertionFailure() << obj.status();
+    }
+    for (const auto& entry : *obj) {
+      auto info = entry->getObject("info");
+      if (!info.ok()) {
+        return AssertionFailure() << info.status();
+      }
+      if (*info->get()->getString("id") == id) {
+        if (auto actual = *entry->getString("kind"); actual != kind) {
+          return AssertionFailure() << fmt::format("expected failure kind: '{}', actual: '{}'", kind, actual);
+        }
+        if (error_substring.has_value()) {
+          auto actual = *entry->getString("error");
+          if (!actual.contains(*error_substring)) {
+            return AssertionFailure() << fmt::format(
+                     "error message:\n  {}\ndoes not contain expected substring:\n  {}", actual, *error_substring);
+          }
+        }
+        return AssertionSuccess();
+      }
+    }
+    return AssertionFailure() << "extension was not reported as failed by the admin api";
+  }
+};
+// NOLINTEND(readability-identifier-naming)
+
+int test_no_config_dynamic_extension_init_called{};
+
+class NoConfigTest : public DynamicExtensionsIntegrationTest {
+public:
+  using DynamicExtensionsIntegrationTest::DynamicExtensionsIntegrationTest;
+
+  void SetUp() override {
+    test_no_config_dynamic_extension_init_called = 0;
+
+    extension_path_ = Envoy::TestEnvironment::runfilesPath(
+      "test/common/dynamic_extensions/test/libtest_no_config.so", "pomerium_envoy");
+
+    auto result = RunReadExtension({"--check", SelfPath(), extension_path_});
+    ASSERT_OK(result.status());
+    ASSERT_EQ(result->exit_code, 0) << result->out;
+  }
+
+  std::string extension_path_;
+};
+
+TEST_F(NoConfigTest, TestNoConfig) {
+  config_helper_.addConfigModifier([&](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+    auto* ext = bootstrap.add_bootstrap_extensions();
+    ext->set_name("envoy.bootstrap.dynamic_extension_loader");
+    pomerium::extensions::dynamic_extension_loader::Config config;
+    config.add_paths(extension_path_);
+    ext->mutable_typed_config()->PackFrom(config);
+  });
+  ASSERT_EQ(test_no_config_dynamic_extension_init_called, 0);
+  initialize();
+  ASSERT_EQ(test_no_config_dynamic_extension_init_called, 1);
+
+  auto status = FetchAdminApiStatus();
+  ASSERT_OK(status);
+  ASSERT_TRUE(CheckExtensionLoaded(*status, "test.no-config"));
+}
+
+TEST_F(NoConfigTest, TestNoConfig_ConfigSet) {
+  config_helper_.addConfigModifier([&](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+    auto* ext = bootstrap.add_bootstrap_extensions();
+    ext->set_name("envoy.bootstrap.dynamic_extension_loader");
+    pomerium::extensions::dynamic_extension_loader::Config config;
+    config.add_paths(extension_path_);
+
+    Envoy::Protobuf::StringValue str;
+    str.set_value("foo");
+    (*config.mutable_extension_configs())["test.no-config"].PackFrom(str);
+
+    ext->mutable_typed_config()->PackFrom(config);
+  });
+  ASSERT_EQ(test_no_config_dynamic_extension_init_called, 0);
+  initialize();
+  ASSERT_EQ(test_no_config_dynamic_extension_init_called, 0);
+
+  auto status = FetchAdminApiStatus();
+  ASSERT_OK(status);
+  ASSERT_TRUE(CheckExtensionFailed(*status, "test.no-config", "initialization_failure"));
+}
+
+int test_optional_config_dynamic_extension_init_called{};
+
+class OptionalConfigTest : public DynamicExtensionsIntegrationTest {
+public:
+  using DynamicExtensionsIntegrationTest::DynamicExtensionsIntegrationTest;
+
+  void SetUp() override {
+    test_optional_config_dynamic_extension_init_called = 0;
+
+    extension_path_ = Envoy::TestEnvironment::runfilesPath(
+      "test/common/dynamic_extensions/test/libtest_optional_config.so", "pomerium_envoy");
+
+    auto result = RunReadExtension({"--check", SelfPath(), extension_path_});
+    ASSERT_OK(result.status());
+    ASSERT_EQ(result->exit_code, 0) << result->out;
+  }
+
+  std::string extension_path_;
+};
+
+TEST_F(OptionalConfigTest, TestOptionalConfig_ConfigNotSet) {
+  config_helper_.addConfigModifier([&](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+    auto* ext = bootstrap.add_bootstrap_extensions();
+    ext->set_name("envoy.bootstrap.dynamic_extension_loader");
+    pomerium::extensions::dynamic_extension_loader::Config config;
+    config.add_paths(extension_path_);
+    ext->mutable_typed_config()->PackFrom(config);
+  });
+  ASSERT_EQ(test_optional_config_dynamic_extension_init_called, 0);
+  initialize();
+  ASSERT_EQ(test_optional_config_dynamic_extension_init_called, 1);
+
+  auto status = FetchAdminApiStatus();
+  ASSERT_OK(status);
+  ASSERT_TRUE(CheckExtensionLoaded(*status, "test.optional-config"));
+}
+
+TEST_F(OptionalConfigTest, TestOptionalConfig_ConfigSet) {
+  config_helper_.addConfigModifier([&](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+    auto* ext = bootstrap.add_bootstrap_extensions();
+    ext->set_name("envoy.bootstrap.dynamic_extension_loader");
+    pomerium::extensions::dynamic_extension_loader::Config config;
+    config.add_paths(extension_path_);
+
+    Envoy::Protobuf::StringValue str;
+    str.set_value("foo");
+    (*config.mutable_extension_configs())["test.optional-config"].PackFrom(str);
+
+    ext->mutable_typed_config()->PackFrom(config);
+  });
+  ASSERT_EQ(test_optional_config_dynamic_extension_init_called, 0);
+  initialize();
+  ASSERT_EQ(test_optional_config_dynamic_extension_init_called, 2);
+
+  auto status = FetchAdminApiStatus();
+  ASSERT_OK(status);
+  ASSERT_TRUE(CheckExtensionLoaded(*status, "test.optional-config"));
+}
+
+int test_required_config_dynamic_extension_init_called{};
+
+class RequiredConfigTest : public DynamicExtensionsIntegrationTest {
+public:
+  using DynamicExtensionsIntegrationTest::DynamicExtensionsIntegrationTest;
+
+  void SetUp() override {
+    test_required_config_dynamic_extension_init_called = 0;
+
+    extension_path_ = Envoy::TestEnvironment::runfilesPath(
+      "test/common/dynamic_extensions/test/libtest_required_config.so", "pomerium_envoy");
+
+    auto result = RunReadExtension({"--check", SelfPath(), extension_path_});
+    ASSERT_OK(result.status());
+    ASSERT_EQ(result->exit_code, 0) << result->out;
+  }
+
+  std::string extension_path_;
+};
+
+TEST_F(RequiredConfigTest, TestRequiredConfig_ConfigNotSet) {
+  config_helper_.addConfigModifier([&](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+    auto* ext = bootstrap.add_bootstrap_extensions();
+    ext->set_name("envoy.bootstrap.dynamic_extension_loader");
+    pomerium::extensions::dynamic_extension_loader::Config config;
+    config.add_paths(extension_path_);
+    ext->mutable_typed_config()->PackFrom(config);
+  });
+  ASSERT_EQ(test_required_config_dynamic_extension_init_called, 0);
+  initialize();
+  ASSERT_EQ(test_required_config_dynamic_extension_init_called, 0);
+
+  auto status = FetchAdminApiStatus();
+  ASSERT_OK(status);
+  ASSERT_TRUE(CheckExtensionFailed(*status, "test.required-config", "initialization_failure"));
+}
+
+TEST_F(RequiredConfigTest, TestRequiredConfig_ConfigSet) {
+  config_helper_.addConfigModifier([&](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+    auto* ext = bootstrap.add_bootstrap_extensions();
+    ext->set_name("envoy.bootstrap.dynamic_extension_loader");
+    pomerium::extensions::dynamic_extension_loader::Config config;
+    config.add_paths(extension_path_);
+
+    Envoy::Protobuf::StringValue str;
+    str.set_value("foo");
+    (*config.mutable_extension_configs())["test.required-config"].PackFrom(str);
+
+    ext->mutable_typed_config()->PackFrom(config);
+  });
+  ASSERT_EQ(test_required_config_dynamic_extension_init_called, 0);
+  initialize();
+  ASSERT_EQ(test_required_config_dynamic_extension_init_called, 2);
+
+  auto status = FetchAdminApiStatus();
+  ASSERT_OK(status);
+  ASSERT_TRUE(CheckExtensionLoaded(*status, "test.required-config"));
+}
+
+class MissingWeakDependencyTest : public DynamicExtensionsIntegrationTest {
+public:
+  using DynamicExtensionsIntegrationTest::DynamicExtensionsIntegrationTest;
+
+  void SetUp() override {
+    extension_path_ = Envoy::TestEnvironment::runfilesPath(
+      "test/common/dynamic_extensions/test/libtest_missing_symbol.so", "pomerium_envoy");
+
+    auto result = RunReadExtension({"--check", SelfPath(), "--demangle", extension_path_});
+    ASSERT_OK(result.status());
+    EXPECT_NE(result->exit_code, 0);
+    ASSERT_THAT(result->out, testing::HasSubstr("missing symbol required by extension: symbolNotAvailableInExtensionHost()"));
+  }
+
+  std::string extension_path_;
+};
+
+TEST_F(MissingWeakDependencyTest, TestMissingWeakDependency) {
+  config_helper_.addConfigModifier([&](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+    auto* ext = bootstrap.add_bootstrap_extensions();
+    ext->set_name("envoy.bootstrap.dynamic_extension_loader");
+    pomerium::extensions::dynamic_extension_loader::Config config;
+    config.add_paths(extension_path_);
+    ext->mutable_typed_config()->PackFrom(config);
+  });
+  initialize();
+  auto status = FetchAdminApiStatus();
+  ASSERT_OK(status);
+  ASSERT_TRUE(CheckExtensionFailed(*status, "test.missing-symbol", "load_failure"));
+}
+
+class VersionMismatchTest : public DynamicExtensionsIntegrationTest {
+public:
+  using DynamicExtensionsIntegrationTest::DynamicExtensionsIntegrationTest;
+};
+
+TEST_F(VersionMismatchTest, TestVersionMismatch) {
+  auto extension_path = Envoy::TestEnvironment::runfilesPath(
+    "test/common/dynamic_extensions/test/libtest_version_mismatch.so", "pomerium_envoy");
+
+  config_helper_.addConfigModifier([&](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+    auto* ext = bootstrap.add_bootstrap_extensions();
+    ext->set_name("envoy.bootstrap.dynamic_extension_loader");
+    pomerium::extensions::dynamic_extension_loader::Config config;
+    config.add_paths(extension_path);
+    ext->mutable_typed_config()->PackFrom(config);
+  });
+  initialize();
+  auto status = FetchAdminApiStatus();
+  ASSERT_OK(status);
+  ASSERT_TRUE(CheckExtensionFailed(*status, "test.version-mismatch", "load_failure",
+                                   "extension was built for version 0000000000000000000000000000000000000000, but the current version is"));
+}
+
+class ThreadLocalStorageTest : public DynamicExtensionsIntegrationTest {
+public:
+  ThreadLocalStorageTest() {
+    concurrency_ = 4;
+  }
+
+  void SetUp() override {
+    extension_path_ = Envoy::TestEnvironment::runfilesPath(
+      "test/common/dynamic_extensions/test/libtest_tls.so", "pomerium_envoy");
+
+    auto result = RunReadExtension({"--check", SelfPath(), extension_path_});
+    ASSERT_OK(result.status());
+    ASSERT_EQ(result->exit_code, 0) << result->out;
+  }
+
+  std::string extension_path_;
+};
+
+static absl::Mutex mu;
+static std::vector<std::string> test_data ABSL_GUARDED_BY(mu);
+
+absl::Notification test_wait_tls_init;
+void writeTestData(const std::string& data) {
+  absl::MutexLock lock(mu);
+  test_data.push_back(data);
+}
+
+TEST_F(ThreadLocalStorageTest, TestTLS) {
+  config_helper_.addConfigModifier([&](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+    auto* ext = bootstrap.add_bootstrap_extensions();
+    ext->set_name("envoy.bootstrap.dynamic_extension_loader");
+    pomerium::extensions::dynamic_extension_loader::Config config;
+    config.add_paths(extension_path_);
+    ext->mutable_typed_config()->PackFrom(config);
+  });
+  initialize();
+  auto status = FetchAdminApiStatus();
+  ASSERT_OK(status);
+  ASSERT_TRUE(CheckExtensionLoaded(*status, "test.tls"));
+
+  ASSERT_TRUE(test_wait_tls_init.WaitForNotificationWithTimeout(absl::Seconds(1)));
+
+  absl::MutexLock lock(mu);
+  std::sort(test_data.begin(), test_data.end());
+  auto expected = std::vector<std::string>{{"main_thread", "worker_0", "worker_1", "worker_2", "worker_3"}};
+  EXPECT_EQ(expected, test_data);
+}

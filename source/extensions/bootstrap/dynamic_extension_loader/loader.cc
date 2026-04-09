@@ -3,6 +3,7 @@
 #include <dlfcn.h>
 
 #include "source/common/json/json_streamer.h"
+#include "source/common/status.h"
 #include "source/common/types.h"
 #include "source/common/dynamic_extensions/version.h"
 #include "source/common/dynamic_extensions/metadata.h"
@@ -19,8 +20,9 @@ ExtensionLoader::ExtensionLoader(const pomerium::extensions::dynamic_extension_l
   for (const auto& info : extensionInfos) {
     auto handle = loadExtension(info);
     if (!handle.ok()) {
-      load_errors_.push_back(ExtensionLoadError{
+      load_errors_.push_back(ExtensionError{
         .info = info,
+        .kind = "load_failure",
         .err = handle.status(),
       });
       ENVOY_LOG(error, "error loading extension {}: {}", info.path, handle.status().message());
@@ -33,16 +35,35 @@ ExtensionLoader::ExtensionLoader(const pomerium::extensions::dynamic_extension_l
 
 void ExtensionLoader::onServerInitialized(Envoy::Server::Instance& server) {
   for (auto& handle : handles_) {
-    handle->dynamicExtensionInit(server);
+    auto stat = handle->dynamicExtensionInit(server);
+    if (!stat.ok()) {
+      ENVOY_LOG(error, "extension {} failed to initialize: {}", handle->info().metadata.id, statusToString(stat));
+      load_errors_.push_back(ExtensionError{
+        .info = handle->info(),
+        .kind = "initialization_failure",
+        .err = stat,
+      });
+      handle.reset();
+    }
   }
+  std::erase_if(handles_, [](auto& entry) { return entry == nullptr; });
   admin_api_ = std::make_unique<AdminApi>(*this, server.admin());
 }
 
 std::vector<ExtensionInfo> ExtensionLoader::initExtensions() {
   auto paths = config_.paths();
 
+  std::unordered_set<std::string> pathsSeen;
+  std::unordered_map<std::string, std::string> idsSeen;
+
   std::vector<ExtensionInfo> res;
   for (const auto& path : paths) {
+    if (pathsSeen.contains(path)) {
+      ENVOY_LOG(error, "duplicate extension path configured: {}", path);
+      continue;
+    }
+    pathsSeen.insert(path);
+
     ExtensionInfo info{
       .path = path,
     };
@@ -59,6 +80,13 @@ std::vector<ExtensionInfo> ExtensionLoader::initExtensions() {
       continue;
     }
     info.metadata = *metadata;
+
+    if (idsSeen.contains(info.metadata.id)) {
+      ENVOY_LOG(error, "not loading extension {}: duplicate extension ID '{}' (previously loaded by {})",
+                path, info.metadata.id, idsSeen.at(info.metadata.id));
+      continue;
+    }
+    idsSeen[info.metadata.id] = path;
 
     res.push_back(std::move(info));
   }
@@ -85,7 +113,12 @@ absl::StatusOr<DynamicExtensionHandlePtr> ExtensionLoader::loadExtension(const E
     }
     return absl::InvalidArgumentError(err);
   }
-  return std::make_unique<DynamicExtensionHandle>(rawHandle, info);
+
+  if (config_.extension_configs().contains(info.metadata.id)) {
+    return std::make_unique<DynamicExtensionHandle>(rawHandle, info, config_.extension_configs().at(info.metadata.id));
+  } else {
+    return std::make_unique<DynamicExtensionHandle>(rawHandle, info);
+  }
 }
 
 ExtensionLoader::AdminApi::AdminApi(ExtensionLoader& parent, Envoy::OptRef<Server::Admin> admin)
@@ -147,6 +180,10 @@ Http::Code ExtensionLoader::AdminApi::handleListExtensionsEndpoint(Http::Respons
         obj->addKey("info");
         auto infoObj = obj->addMap();
         renderInfo(*infoObj, error.info);
+      }
+      {
+        obj->addKey("kind");
+        obj->addString(error.kind);
       }
       obj->addKey("error");
       obj->addString(error.err.message());

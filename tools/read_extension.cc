@@ -272,7 +272,9 @@ absl::StatusOr<SymbolTableView> readDynamicSymbols(const MmapFileHandle& f, Symb
 
       auto verdefEntries = extension_data.subspan(sh_gnu_verdef->sh_offset, sh_gnu_verdef->sh_size);
       for (size_t entryOffset = 0, n = 0;;) {
-        assert(n < numVerdefEntries);
+        if (n >= numVerdefEntries) {
+          return absl::InvalidArgumentError("malformed input");
+        }
         auto* verdefEntry = reinterpret_cast<const Elf64_Verdef*>(
           verdefEntries.subspan(entryOffset, sizeof(Elf64_Verdef)).data());
 
@@ -307,7 +309,9 @@ absl::StatusOr<SymbolTableView> readDynamicSymbols(const MmapFileHandle& f, Symb
 
       auto verneedEntries = extension_data.subspan(sh_gnu_verneed->sh_offset, sh_gnu_verneed->sh_size);
       for (size_t entryOffset = 0, n = 0;;) {
-        assert(n < numVerneedEntries);
+        if (n >= numVerneedEntries) {
+          return absl::InvalidArgumentError("malformed input");
+        }
         auto* verneedEntry = reinterpret_cast<const Elf64_Verneed*>(
           verneedEntries.subspan(entryOffset, sizeof(Elf64_Verneed)).data());
         auto filename = strtabCStrView(verneedStrTable.subspan(verneedEntry->vn_file));
@@ -316,7 +320,9 @@ absl::StatusOr<SymbolTableView> readDynamicSymbols(const MmapFileHandle& f, Symb
           std::cerr << "warn: section .gnu.version_r contains a version requirement with no version name" << std::endl;
         } else {
           for (size_t auxOffset = verneedEntry->vn_aux, a = 0;;) {
-            assert(a < verneedEntry->vn_cnt);
+            if (a >= verneedEntry->vn_cnt) {
+              return absl::InvalidArgumentError("malformed input");
+            }
             auto* auxEntry = reinterpret_cast<const Elf64_Vernaux*>(
               verneedEntries.subspan(entryOffset + auxOffset, sizeof(Elf64_Vernaux)).data());
             auto version_name = strtabCStrView(verneedStrTable.subspan(auxEntry->vna_name));
@@ -528,7 +534,14 @@ absl::StatusOr<CompatibilityInfo> checkCompatibility(const MmapFileHandle& host,
       return std::get<0>(a) < std::get<0>(b);
     });
     if (found == hostSymbols.items.end() || std::get<0>(*found) != std::get<0>(kv)) {
-      msgs.push_back(fmt::format("missing symbol required by extension: {}", symbolName));
+      if (flag_demangle) {
+        auto* str = abi::__cxa_demangle(symbolName.data(), nullptr, nullptr, nullptr); // NOLINT:bugprone-suspicious-stringview-data-usage
+        msgs.push_back(fmt::format("missing symbol required by extension: {}", str));
+        free(str);
+      } else {
+        msgs.push_back(fmt::format("missing symbol required by extension: {}",
+                                   symbolName.substr(0, symbolName.size() - 1)));
+      }
       continue;
     }
     const auto& hostKv = *found;
@@ -674,6 +687,8 @@ int main(int argc, char** argv) {
     std::cerr << "multiple extension filenames can only be given in --check mode" << std::endl;
     return 1;
   }
+
+  std::optional<int> ok_exit_code;
   auto stat = [&] {
     if (cmd.is_used("--metadata")) {
       auto f = mmapFile(filenames[0]);
@@ -713,6 +728,7 @@ int main(int argc, char** argv) {
           for (const auto& msg : info->diagnostics) {
             std::cout << fmt::format(" => {}\n", msg);
           }
+          ok_exit_code = 2;
         }
         std::cout.flush();
       }
@@ -724,5 +740,5 @@ int main(int argc, char** argv) {
     std::cerr << statusToString(stat) << std::endl;
     return 1;
   }
-  return 0;
+  return ok_exit_code.value_or(0);
 }

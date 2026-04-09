@@ -11,19 +11,6 @@ jq(
 )
 
 cc_library(
-    name = "extension_api_lib",
-    hdrs = [
-        "handle.h",
-        ":_version_hash_h",
-    ],
-    visibility = ["//visibility:public"],
-    deps = [
-        ":metadata_lib",
-        "@envoy//envoy/server:instance_interface",
-    ],
-)
-
-cc_library(
     name = "metadata_lib",
     srcs = ["metadata.cc"],
     hdrs = ["metadata.h"],
@@ -43,6 +30,28 @@ cc_library(
 )
 
 cc_library(
+    name = "extension_common_lib",
+    srcs = ["extension.h"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "extension_host_lib",
+    srcs = [
+        "version.cc",
+    ],
+    linkstatic = True,
+    visibility = ["//source/extensions/bootstrap/dynamic_extension_loader:__pkg__"],
+    deps = [
+        ":extension_common_lib",
+        ":metadata_lib",
+        ":version_lib",
+        "@envoy//envoy/server:instance_interface",
+    ],
+    alwayslink = True,
+)
+
+cc_library(
     name = "version_ref_lib",
     srcs = ["version_ref.cc"],
     linkstatic = True,
@@ -52,31 +61,15 @@ cc_library(
 )
 
 cc_library(
-    name = "cc_extension_host_lib",
-    srcs = [
-        "version.cc",
-    ],
-    linkstatic = True,
-    visibility = ["//source/extensions/bootstrap/dynamic_extension_loader:__pkg__"],
-    deps = [
-        ":extension_api_lib",
-        ":metadata_lib",
-        ":version_lib",
-    ],
-    alwayslink = True,
-)
-
-cc_library(
     name = "cc_dynamic_extension_lib",
     srcs = [
         "version.cc",
     ],
-    hdrs = [
-        "extension.h",
-        "version.h",
-        ":_version_hash_h",
-    ],
     linkstatic = True,
     visibility = ["//visibility:public"],
+    deps = [
+        ":extension_common_lib",
+        ":version_lib",
+    ],
     alwayslink = True,
 )
