@@ -10,12 +10,20 @@ package(default_visibility = ["//visibility:public"])
 
 envoy_cc_binary(
     name = "envoy",
-    linkopts = [
-        "-fPIE",
-        "-Wl,-E",
-        "-Wl,-z,relro,-z,now",
-        "-Wl,--hash-style=gnu",
-    ],
+    linkopts = select({
+        "@envoy//bazel:apple": [
+            # https://github.com/envoyproxy/envoy/issues/24782
+            "-Wl,-framework,CoreFoundation",
+            # https://github.com/bazelbuild/bazel/pull/16414
+            "-Wl,-undefined,error",
+        ],
+        "//conditions:default": [
+            "-fPIE",
+            "-Wl,-E",
+            "-Wl,-z,relro,-z,now",
+            "-Wl,--hash-style=gnu",
+        ],
+    }),
     repository = "@envoy",
     stamped = True,
     deps = [
