@@ -19,15 +19,18 @@ envoy_cc_binary(
     repository = "@envoy",
     stamped = True,
     deps = [
-        "//source/common/dynamic_extensions:version_lib",
-        "//source/extensions/bootstrap/dynamic_extension_loader",
         "//source/extensions/filters/network/ssh:pomerium_ssh",
         "//source/extensions/health_check/event_sinks/grpc:grpc_event_sink",
         "//source/extensions/http/early_header_mutation/trace_context:pomerium_trace_context",
         "//source/extensions/request_id/uuidx:pomerium_uuidx",
         "//source/extensions/tracers/pomerium_otel",
         "@envoy//source/exe:envoy_main_entry_lib",
-    ],
+    ] + select({
+        "@platforms//os:linux": [
+            "//source/extensions/bootstrap/dynamic_extension_loader",
+        ],
+        "//conditions:default": [],
+    }),
 )
 
 image(
