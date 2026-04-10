@@ -79,6 +79,10 @@ std::vector<ExtensionInfo> ExtensionLoader::initExtensions() {
       ENVOY_LOG(error, "error loading extension {}: {}", path, metadata.status());
       continue;
     }
+    if (auto stat = validateExtensionMetadata(*metadata); !stat.ok()) {
+      ENVOY_LOG(error, "error loading extension {}: metadata validation failed: {}", path, stat);
+      continue;
+    }
     info.metadata = *metadata;
 
     if (idsSeen.contains(info.metadata.id)) {

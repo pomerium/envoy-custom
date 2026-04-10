@@ -22,3 +22,4 @@ struct ExtensionInfo {
 };
 
 absl::StatusOr<ExtensionMetadata> readExtensionMetadata(bytes_view extension_data);
+absl::Status validateExtensionMetadata(const ExtensionMetadata& md);

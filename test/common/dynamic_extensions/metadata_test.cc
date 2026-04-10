@@ -189,4 +189,40 @@ TEST(MetadataTest, ReadMetadata) {
     };
     EXPECT_EQ(unknownKeys, md->unknown_keys);
   }
+
+  {
+    auto copy = e;
+    std::array<char, 56> metadataWithMissingID{"license=Apache-2.0\0foo=bar"};
+    copy.dx_metadata.swap(metadataWithMissingID);
+
+    auto data = std::bit_cast<std::array<uint8_t, sizeof(elf)>>(copy);
+    auto md = readExtensionMetadata(data);
+    ASSERT_TRUE(md.ok());
+    auto stat = validateExtensionMetadata(*md);
+    ASSERT_EQ(stat, absl::InvalidArgumentError("no extension ID found"));
+  }
+
+  {
+    auto copy = e;
+    std::array<char, 56> metadataWithInvalidID{"id=invalid id\0license=Apache-2.0\0foo=bar"};
+    copy.dx_metadata.swap(metadataWithInvalidID);
+
+    auto data = std::bit_cast<std::array<uint8_t, sizeof(elf)>>(copy);
+    auto md = readExtensionMetadata(data);
+    ASSERT_TRUE(md.ok());
+    auto stat = validateExtensionMetadata(*md);
+    ASSERT_EQ(stat, absl::InvalidArgumentError("extension ID contains invalid characters (valid characters are [a-z0-9_.-])"));
+  }
+
+  {
+    auto copy = e;
+    std::array<char, 56> metadataWithInvalidKey{"id=test\0license=Apache-2.0\0invalid key=bar"};
+    copy.dx_metadata.swap(metadataWithInvalidKey);
+
+    auto data = std::bit_cast<std::array<uint8_t, sizeof(elf)>>(copy);
+    auto md = readExtensionMetadata(data);
+    ASSERT_TRUE(md.ok());
+    auto stat = validateExtensionMetadata(*md);
+    ASSERT_EQ(stat, absl::InvalidArgumentError("metadata contains key with invalid characters: \"invalid key\" (valid characters are [a-z0-9_.-])"));
+  }
 }

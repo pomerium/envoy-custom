@@ -79,3 +79,24 @@ absl::StatusOr<ExtensionMetadata> readExtensionMetadata(bytes_view extension_dat
 
   return absl::InvalidArgumentError("extension metadata not found in file");
 }
+
+absl::Status validateExtensionMetadata(const ExtensionMetadata& md) {
+  auto idValid = [](const std::string& id) {
+    return id.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_.-"sv) == std::string::npos;
+  };
+
+  if (md.id.empty()) {
+    return absl::InvalidArgumentError("no extension ID found");
+  } else if (!idValid(md.id)) {
+    return absl::InvalidArgumentError(
+      "extension ID contains invalid characters (valid characters are [a-z0-9_.-])");
+  }
+
+  for (const auto& [k, _] : md.unknown_keys) {
+    if (!idValid(k)) {
+      return absl::InvalidArgumentError(fmt::format(
+        "metadata contains key with invalid characters: {:?} (valid characters are [a-z0-9_.-])", k));
+    }
+  }
+  return absl::OkStatus();
+}

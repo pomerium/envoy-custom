@@ -52,6 +52,20 @@ cc_dynamic_extension(
     ],
 )
 
+cc_dynamic_extension(
+    name = "test_no_id",
+    srcs = [
+        "test_no_id.cc",
+    ],
+)
+
+cc_dynamic_extension(
+    name = "test_invalid_id",
+    srcs = [
+        "test_invalid_id.cc",
+    ],
+)
+
 cc_library(
     name = "missing_library",
     srcs = ["missing_library.cc"],
