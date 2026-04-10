@@ -17,6 +17,14 @@ index c0bda60546..4465dc3c4b 100644
  
  # macOS
  build:macos --action_env=PATH=/opt/homebrew/bin:/opt/local/bin:/usr/local/bin:/usr/bin:/bin
+@@ -116,7 +114,6 @@ common:clang-common --@toolchains_llvm//toolchain/config:libunwind=false
+ # Clang with libc++ (default)
+ common:clang --config=clang-common
+ common:clang --config=libc++
+-common:clang --host_platform=@clang_platform
+ common:clang --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
+ 
+ # Clang installed to non-standard location (ie not /opt/llvm/)
 @@ -249,13 +246,11 @@ test:sanitizer --build_tests_only
  # ASAN config with clang runtime
  build:asan --config=asan-common

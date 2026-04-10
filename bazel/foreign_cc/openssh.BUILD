@@ -35,8 +35,8 @@ config_setting(
 copy_file(
     name = "config_h",
     src = select({
-        ":darwin": "@//bazel/foreign_cc/openssh/include/config_darwin:config.h",
-        "//conditions:default": "@//bazel/foreign_cc/openssh/include/config_linux:config.h",
+        ":darwin": "@pomerium_envoy//bazel/foreign_cc/openssh/include/config_darwin:config.h",
+        "//conditions:default": "@pomerium_envoy//bazel/foreign_cc/openssh/include/config_linux:config.h",
     }),
     out = "config.h",
 )
