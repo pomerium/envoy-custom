@@ -26,7 +26,7 @@ def cc_dynamic_extension(
         features = ["prefer_pic_for_opt_binaries"],
         linkstatic = True,
         deps = weak_deps + builtin_weak_deps + [
-            "//source/common/dynamic_extensions:cc_dynamic_extension_lib",
+            "@pomerium_envoy//source/common/dynamic_extensions:cc_dynamic_extension_lib",
         ],
         alwayslink = True,
     )
@@ -37,7 +37,7 @@ def cc_dynamic_extension(
             "-fvisibility=hidden",
             "-fPIC",
         ],
-        deps = ["//source/common/dynamic_extensions:version_ref_lib"],
+        deps = ["@pomerium_envoy//source/common/dynamic_extensions:version_ref_lib"],
         linkshared = True,
         linkstatic = False,
     )
