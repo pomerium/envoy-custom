@@ -22,13 +22,15 @@ absl::StatusOr<ExtensionMetadata> readExtensionMetadata(bytes_view extension_dat
   }
 
   if (header->e_ident[EI_CLASS] != ELFCLASS64 ||
+      header->e_ident[EI_DATA] != ELFDATA2LSB ||
       (header->e_machine != EM_X86_64 && header->e_machine != EM_AARCH64) ||
       header->e_version != EV_CURRENT) {
-    return absl::InvalidArgumentError("ELF binary is not supported");
+    return absl::InvalidArgumentError("extension was built for an unsupported architecture");
   }
 
   // read all section headers
-  if (extension_data.size() < header->e_shoff + header->e_shnum * sizeof(Elf64_Shdr)) {
+  if (extension_data.size() < header->e_shoff + header->e_shnum * sizeof(Elf64_Shdr) ||
+      extension_data.size() < header->e_shoff + header->e_shstrndx * sizeof(Elf64_Shdr) + sizeof(Elf64_Shdr)) {
     return absl::InvalidArgumentError("failed to read section headers");
   }
 

@@ -1,6 +1,4 @@
 #include "api/extensions/bootstrap/dynamic_extension_loader/dynamic_extension_loader.pb.h"
-#include "source/common/dynamic_extensions/metadata.h"
-#include "source/common/types.h"
 #include "test/integration/base_integration_test.h"
 #include "test/test_common/status_utility.h"
 #include "gtest/gtest.h"
@@ -8,6 +6,8 @@
 #include <sstream>
 #include <unistd.h>
 #include <utility>
+
+using namespace std::literals;
 
 // NOLINTBEGIN(readability-identifier-naming)
 
@@ -330,6 +330,57 @@ TEST_F(RequiredConfigTest, TestRequiredConfig_ConfigSet) {
   ASSERT_TRUE(CheckExtensionLoaded(*status, "test.required-config"));
 }
 
+class NoInitTest : public DynamicExtensionsIntegrationTest {
+public:
+  using DynamicExtensionsIntegrationTest::DynamicExtensionsIntegrationTest;
+
+  void SetUp() override {
+    extension_path_ = Envoy::TestEnvironment::runfilesPath(
+      "test/common/dynamic_extensions/test/libtest_no_init.so", "pomerium_envoy");
+
+    auto result = RunReadExtension({"--check", SelfPath(), extension_path_});
+    ASSERT_OK(result.status());
+    ASSERT_EQ(result->exit_code, 0) << result->out;
+  }
+
+  std::string extension_path_;
+};
+
+TEST_F(NoInitTest, TestNoInit_ConfigNotSet) {
+  config_helper_.addConfigModifier([&](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+    auto* ext = bootstrap.add_bootstrap_extensions();
+    ext->set_name("envoy.bootstrap.dynamic_extension_loader");
+    pomerium::extensions::dynamic_extension_loader::Config config;
+    config.add_paths(extension_path_);
+    ext->mutable_typed_config()->PackFrom(config);
+  });
+  initialize();
+
+  auto status = FetchAdminApiStatus();
+  ASSERT_OK(status);
+  ASSERT_TRUE(CheckExtensionLoaded(*status, "test.no-init"));
+}
+
+TEST_F(NoInitTest, TestNonit_ConfigSet) {
+  config_helper_.addConfigModifier([&](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+    auto* ext = bootstrap.add_bootstrap_extensions();
+    ext->set_name("envoy.bootstrap.dynamic_extension_loader");
+    pomerium::extensions::dynamic_extension_loader::Config config;
+    config.add_paths(extension_path_);
+
+    Envoy::Protobuf::StringValue str;
+    str.set_value("foo");
+    (*config.mutable_extension_configs())["test.no-init"].PackFrom(str);
+
+    ext->mutable_typed_config()->PackFrom(config);
+  });
+  initialize();
+
+  auto status = FetchAdminApiStatus();
+  ASSERT_OK(status);
+  ASSERT_TRUE(CheckExtensionFailed(*status, "test.no-init", "initialization_failure"));
+}
+
 class MissingWeakDependencyTest : public DynamicExtensionsIntegrationTest {
 public:
   using DynamicExtensionsIntegrationTest::DynamicExtensionsIntegrationTest;
@@ -361,12 +412,7 @@ TEST_F(MissingWeakDependencyTest, TestMissingWeakDependency) {
   ASSERT_TRUE(CheckExtensionFailed(*status, "test.missing-symbol", "load_failure"));
 }
 
-class VersionMismatchTest : public DynamicExtensionsIntegrationTest {
-public:
-  using DynamicExtensionsIntegrationTest::DynamicExtensionsIntegrationTest;
-};
-
-TEST_F(VersionMismatchTest, TestVersionMismatch) {
+TEST_F(DynamicExtensionsIntegrationTest, TestVersionMismatch) {
   auto extension_path = Envoy::TestEnvironment::runfilesPath(
     "test/common/dynamic_extensions/test/libtest_version_mismatch.so", "pomerium_envoy");
 
@@ -382,6 +428,32 @@ TEST_F(VersionMismatchTest, TestVersionMismatch) {
   ASSERT_OK(status);
   ASSERT_TRUE(CheckExtensionFailed(*status, "test.version-mismatch", "load_failure",
                                    "extension was built for version 0000000000000000000000000000000000000000, but the current version is"));
+}
+
+TEST_F(DynamicExtensionsIntegrationTest, TestMetadataUnknownKeys) {
+  auto extension_path = Envoy::TestEnvironment::runfilesPath(
+    "test/common/dynamic_extensions/test/libtest_md_unknown_keys.so", "pomerium_envoy");
+
+  config_helper_.addConfigModifier([&](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+    auto* ext = bootstrap.add_bootstrap_extensions();
+    ext->set_name("envoy.bootstrap.dynamic_extension_loader");
+    pomerium::extensions::dynamic_extension_loader::Config config;
+    config.add_paths(extension_path);
+    ext->mutable_typed_config()->PackFrom(config);
+  });
+  initialize();
+  auto status = FetchAdminApiStatus();
+  ASSERT_OK(status);
+  ASSERT_TRUE(CheckExtensionLoaded(*status, "test.md-unknown-keys"));
+
+  auto obj = (*status)->getObjectArray("loaded");
+  for (const auto& entry : *obj) {
+    if (*entry->getString("id") == "test.md-unknown-keys") {
+      auto md = entry->getObject("unknown_keys");
+      EXPECT_EQ("bar"s, *md->get()->getString("foo"));
+      EXPECT_EQ("baz"s, *md->get()->getString("bar"));
+    }
+  }
 }
 
 class ThreadLocalStorageTest : public DynamicExtensionsIntegrationTest {
@@ -430,4 +502,102 @@ TEST_F(ThreadLocalStorageTest, TestTLS) {
   std::sort(test_data.begin(), test_data.end());
   auto expected = std::vector<std::string>{{"main_thread", "worker_0", "worker_1", "worker_2", "worker_3"}};
   EXPECT_EQ(expected, test_data);
+}
+
+TEST_F(DynamicExtensionsIntegrationTest, TestAdminApiMethodNotAllowed) {
+  config_helper_.addConfigModifier([&](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+    auto* ext = bootstrap.add_bootstrap_extensions();
+    ext->set_name("envoy.bootstrap.dynamic_extension_loader");
+    pomerium::extensions::dynamic_extension_loader::Config config;
+    ext->mutable_typed_config()->PackFrom(config);
+  });
+  initialize();
+
+  auto response = Envoy::IntegrationUtil::makeSingleRequest(
+    lookupPort("admin"), "POST", "/dynamic_extensions/status",
+    "", Envoy::Http::CodecType::HTTP1, version_);
+  ASSERT_TRUE(response->complete());
+  ASSERT_EQ("405", response->headers().getStatusValue());
+}
+
+TEST_F(DynamicExtensionsIntegrationTest, TestLoadDuplicatePaths) {
+  auto extension_path = Envoy::TestEnvironment::runfilesPath(
+    "test/common/dynamic_extensions/test/libtest_no_config.so", "pomerium_envoy");
+  config_helper_.addConfigModifier([&](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+    auto* ext = bootstrap.add_bootstrap_extensions();
+    ext->set_name("envoy.bootstrap.dynamic_extension_loader");
+    pomerium::extensions::dynamic_extension_loader::Config config;
+    config.add_paths(extension_path);
+    config.add_paths(extension_path);
+    config.add_paths(extension_path);
+    ext->mutable_typed_config()->PackFrom(config);
+  });
+  initialize();
+  auto status = FetchAdminApiStatus();
+  ASSERT_OK(status);
+  ASSERT_TRUE(CheckExtensionLoaded(*status, "test.no-config"));
+
+  ASSERT_EQ(1, status->get()->getObjectArray("loaded")->size());
+}
+
+TEST_F(DynamicExtensionsIntegrationTest, TestLoadDuplicateIds) {
+  auto path1 = Envoy::TestEnvironment::runfilesPath(
+    "test/common/dynamic_extensions/test/libtest_no_config.so", "pomerium_envoy");
+  auto path2 = Envoy::TestEnvironment::runfilesPath(
+    "test/common/dynamic_extensions/test/libtest_no_config_2.so", "pomerium_envoy");
+
+  config_helper_.addConfigModifier([&](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+    auto* ext = bootstrap.add_bootstrap_extensions();
+    ext->set_name("envoy.bootstrap.dynamic_extension_loader");
+    pomerium::extensions::dynamic_extension_loader::Config config;
+    config.add_paths(path1);
+    config.add_paths(path2);
+    ext->mutable_typed_config()->PackFrom(config);
+  });
+  initialize();
+  auto status = FetchAdminApiStatus();
+  ASSERT_OK(status);
+  ASSERT_TRUE(CheckExtensionLoaded(*status, "test.no-config"));
+
+  // duplicates are ignored
+  ASSERT_EQ(1, status->get()->getObjectArray("loaded")->size());
+  ASSERT_EQ(0, status->get()->getObjectArray("failed")->size());
+}
+
+TEST_F(DynamicExtensionsIntegrationTest, TestLoadNoMetadata) {
+  auto extension_path = Envoy::TestEnvironment::runfilesPath(
+    "test/common/dynamic_extensions/test/libtest_no_metadata.so", "pomerium_envoy");
+
+  config_helper_.addConfigModifier([&](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+    auto* ext = bootstrap.add_bootstrap_extensions();
+    ext->set_name("envoy.bootstrap.dynamic_extension_loader");
+    pomerium::extensions::dynamic_extension_loader::Config config;
+    config.add_paths(extension_path);
+    ext->mutable_typed_config()->PackFrom(config);
+  });
+  initialize();
+  auto status = FetchAdminApiStatus();
+  ASSERT_OK(status);
+
+  ASSERT_EQ(0, status->get()->getObjectArray("loaded")->size());
+  ASSERT_EQ(0, status->get()->getObjectArray("failed")->size());
+}
+
+TEST_F(DynamicExtensionsIntegrationTest, TestFileNotFound) {
+  auto extension_path = Envoy::TestEnvironment::runfilesPath(
+    "test/common/dynamic_extensions/test/nonexistent.so", "pomerium_envoy");
+
+  config_helper_.addConfigModifier([&](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+    auto* ext = bootstrap.add_bootstrap_extensions();
+    ext->set_name("envoy.bootstrap.dynamic_extension_loader");
+    pomerium::extensions::dynamic_extension_loader::Config config;
+    config.add_paths(extension_path);
+    ext->mutable_typed_config()->PackFrom(config);
+  });
+  initialize();
+  auto status = FetchAdminApiStatus();
+  ASSERT_OK(status);
+
+  ASSERT_EQ(0, status->get()->getObjectArray("loaded")->size());
+  ASSERT_EQ(0, status->get()->getObjectArray("failed")->size());
 }

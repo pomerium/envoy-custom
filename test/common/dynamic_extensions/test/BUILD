@@ -24,6 +24,34 @@ cc_dynamic_extension(
     ],
 )
 
+cc_dynamic_extension(
+    name = "test_no_config_2",
+    srcs = [
+        "test_no_config.cc",
+    ],
+)
+
+cc_dynamic_extension(
+    name = "test_no_init",
+    srcs = [
+        "test_no_init.cc",
+    ],
+)
+
+cc_dynamic_extension(
+    name = "test_md_unknown_keys",
+    srcs = [
+        "test_md_unknown_keys.cc",
+    ],
+)
+
+cc_dynamic_extension(
+    name = "test_no_metadata",
+    srcs = [
+        "test_no_metadata.cc",
+    ],
+)
+
 cc_library(
     name = "missing_library",
     srcs = ["missing_library.cc"],

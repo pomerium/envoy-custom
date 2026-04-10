@@ -9,7 +9,6 @@ namespace Envoy::Extensions::Bootstrap::DynamicExtensionLoader {
 
 class DynamicExtensionLoaderFactory : public Server::Configuration::BootstrapExtensionFactory {
 public:
-  ~DynamicExtensionLoaderFactory() override = default;
   std::string name() const override { return "envoy.bootstrap.dynamic_extension_loader"; }
   Server::BootstrapExtensionPtr
   createBootstrapExtension(const Protobuf::Message& config,
