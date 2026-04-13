@@ -39,7 +39,7 @@ def image(name, srcs, repository = "ghcr.io/pomerium/envoy-custom"):
 
     jq(
         name = _repo_tags_name,
-        srcs = ["//bazel/build_info:stable_status"],
+        srcs = ["@pomerium_envoy//bazel/build_info:stable_status"],
         out = "repo_tags_%s.txt" % name,
         args = [
             "-r",
@@ -52,7 +52,7 @@ def image(name, srcs, repository = "ghcr.io/pomerium/envoy-custom"):
 
     jq(
         name = _remote_tags_name,
-        srcs = ["//bazel/build_info:stable_status"],
+        srcs = ["@pomerium_envoy//bazel/build_info:stable_status"],
         out = "remote_tags_%s.txt" % name,
         args = ["-r"],
         filter = "[%s]" % ",".join(tag_exprs) + r" | flatten | map(select(.)) | .[]",
@@ -60,7 +60,7 @@ def image(name, srcs, repository = "ghcr.io/pomerium/envoy-custom"):
 
     jq(
         name = _img_labels_name,
-        srcs = ["//bazel/build_info:combined_status"],
+        srcs = ["@pomerium_envoy//bazel/build_info:combined_status"],
         out = "image_labels_%s.txt" % name,
         args = ["-r"],
         # convert the json object fields to plain key=value entries
@@ -69,7 +69,7 @@ def image(name, srcs, repository = "ghcr.io/pomerium/envoy-custom"):
 
     jq(
         name = _img_annotations_name,
-        srcs = ["//bazel/build_info:combined_status"],
+        srcs = ["@pomerium_envoy//bazel/build_info:combined_status"],
         out = "image_annotations_%s.txt" % name,
         args = ["-r"],
         filter = "[%s]" % ",".join(annotation_exprs) + r"| .[]",
