@@ -85,7 +85,7 @@ cc_dynamic_extension(
     srcs = [
         "test_missing_symbol.cc",
     ],
-    weak_deps = [
+    host_deps = [
         ":missing_library",
     ],
 )
@@ -95,7 +95,7 @@ cc_dynamic_extension(
     srcs = [
         "test_version_mismatch.cc",
     ],
-    weak_deps = [
+    host_deps = [
         ":invalid_version",
     ],
 )

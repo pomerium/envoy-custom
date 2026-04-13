@@ -1,7 +1,7 @@
 load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
 
 # dependencies required for all extensions
-builtin_weak_deps = [
+builtin_host_deps = [
     "@envoy//envoy/server:instance_interface",
     "@envoy//source/common/common:logger_lib",
 ]
@@ -11,7 +11,7 @@ def cc_dynamic_extension(
         srcs = [],
         hdrs = [],
         copts = [],
-        weak_deps = [],
+        host_deps = [],
         visibility = ["//visibility:public"]):
     _name = "_" + name
     cc_library(
@@ -25,7 +25,7 @@ def cc_dynamic_extension(
         ],
         features = ["prefer_pic_for_opt_binaries"],
         linkstatic = True,
-        deps = weak_deps + builtin_weak_deps + [
+        deps = host_deps + builtin_host_deps + [
             "@pomerium_envoy//source/common/dynamic_extensions:cc_dynamic_extension_lib",
         ],
         alwayslink = True,
