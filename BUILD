@@ -8,8 +8,44 @@ load("//bazel/ci/images:oci.bzl", "image")
 
 package(default_visibility = ["//visibility:public"])
 
+pomerium_extensions = [
+    "//source/extensions/filters/network/ssh:pomerium_ssh",
+    "//source/extensions/health_check/event_sinks/grpc:grpc_event_sink",
+    "//source/extensions/http/early_header_mutation/trace_context:pomerium_trace_context",
+    "//source/extensions/request_id/uuidx:pomerium_uuidx",
+    "//source/extensions/tracers/pomerium_otel",
+]
+
 envoy_cc_binary(
     name = "envoy",
+    linkopts = select({
+        "@envoy//bazel:apple": [
+            # https://github.com/envoyproxy/envoy/issues/24782
+            "-Wl,-framework,CoreFoundation",
+            # https://github.com/bazelbuild/bazel/pull/16414
+            "-Wl,-undefined,error",
+        ],
+        "//conditions:default": [
+            "-fPIE",
+            "-Wl,-E",
+            "-Wl,-z,relro,-z,now",
+            "-Wl,--hash-style=gnu",
+        ],
+    }),
+    repository = "@envoy",
+    stamped = True,
+    deps = pomerium_extensions + [
+        "@envoy//source/exe:envoy_main_entry_lib",
+    ] + select({
+        "@platforms//os:linux": [
+            "//source/extensions/bootstrap/dynamic_extension_loader",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+envoy_cc_binary(
+    name = "envoy.static",
     features = select({
         "@platforms//os:macos": [],
         "@envoy//bazel:asan_build": [],
@@ -18,12 +54,7 @@ envoy_cc_binary(
     }),
     repository = "@envoy",
     stamped = True,
-    deps = [
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
-        "//source/extensions/health_check/event_sinks/grpc:grpc_event_sink",
-        "//source/extensions/http/early_header_mutation/trace_context:pomerium_trace_context",
-        "//source/extensions/request_id/uuidx:pomerium_uuidx",
-        "//source/extensions/tracers/pomerium_otel",
+    deps = pomerium_extensions + [
         "@envoy//source/exe:envoy_main_entry_lib",
     ],
 )
@@ -38,6 +69,18 @@ image(
     name = "envoy.stripped.image",
     srcs = [":envoy.stripped"],
     repository = "ghcr.io/pomerium/envoy-custom",
+)
+
+image(
+    name = "envoy.static.image",
+    srcs = [":envoy.static"],
+    repository = "ghcr.io/pomerium/envoy-custom-static-debug",
+)
+
+image(
+    name = "envoy.static.stripped.image",
+    srcs = [":envoy.static.stripped"],
+    repository = "ghcr.io/pomerium/envoy-custom-static",
 )
 
 configure_make(
@@ -92,5 +135,6 @@ refresh_compile_commands(
     targets = {
         "//:envoy": "",
         "//test/...": "",
+        "//tools/...": "",
     },
 )

@@ -59,4 +59,8 @@ jobs:
             //:update_index.envoy.image
           bazel run --config=buildbarn -c opt --platforms=//bazel/platforms/rbe:${{ matrix.arch }} \
             //:update_index.envoy.stripped.image
+          bazel run --config=buildbarn -c opt --platforms=//bazel/platforms/rbe:${{ matrix.arch }} \
+            //:update_index.envoy.static.image
+          bazel run --config=buildbarn -c opt --platforms=//bazel/platforms/rbe:${{ matrix.arch }} \
+            //:update_index.envoy.static.stripped.image
           echo "::endgroup::"

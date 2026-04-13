@@ -6,7 +6,7 @@
 
 using bytes = std::vector<uint8_t>;
 
-using bytes_view = std::span<const uint8_t>;
+using bytes_view = std::span<const uint8_t, std::dynamic_extent>;
 
 template <size_t N>
 using fixed_bytes = std::array<uint8_t, N>;
@@ -28,12 +28,38 @@ constexpr bytes to_bytes(const auto& view) {
   return {view.begin(), view.end()};
 }
 
+constexpr bytes_view to_bytes_view(std::string_view sv) {
+#pragma clang unsafe_buffer_usage begin
+  return {reinterpret_cast<const uint8_t*>(sv.data()), sv.size()};
+#pragma clang unsafe_buffer_usage end
+}
+
+constexpr std::string_view to_string_view(const bytes_view& bv) {
+  return {reinterpret_cast<const char*>(bv.data()), bv.size()};
+}
+
 constexpr bytes operator""_bytes(const char* str, size_t len) {
   return to_bytes(std::string_view(str, len));
 }
 
 constexpr uint8_t operator""_byte(char c) {
   return static_cast<uint8_t>(c);
+}
+
+constexpr bytes_view operator""_bv(const char* str, size_t len) {
+  return to_bytes_view(std::string_view(str, len));
+}
+
+constexpr bool operator==(const bytes_view& lhs, const bytes_view& rhs) {
+  return std::equal(lhs.begin(), lhs.end(), rhs.begin(), rhs.end());
+}
+
+constexpr bool operator!=(const bytes_view& lhs, const bytes_view& rhs) {
+  return !(lhs == rhs);
+}
+
+constexpr std::string to_string(const bytes_view& bv) {
+  return {bv.begin(), bv.end()};
 }
 
 template <typename T>

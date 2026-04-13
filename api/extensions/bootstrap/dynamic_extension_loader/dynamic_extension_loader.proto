@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package pomerium.extensions.dynamic_extension_loader;
+
+import "google/protobuf/any.proto";
+
+option go_package = "github.com/pomerium/envoy-custom/api/extensions/bootstrap/dynamic_extension_loader";
+
+message Config {
+  // List of paths on disk to load extensions.
+  repeated string paths = 1;
+
+  // Opaque configuration by extension ID
+  map<string, google.protobuf.Any> extension_configs = 4;
+}
