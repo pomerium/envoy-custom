@@ -114,7 +114,6 @@ common:clang-common --@toolchains_llvm//toolchain/config:libunwind=false
 # Clang with libc++ (default)
 common:clang --config=clang-common
 common:clang --config=libc++
-common:clang --host_platform=@clang_platform
 common:clang --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
 
 # Clang installed to non-standard location (ie not /opt/llvm/)

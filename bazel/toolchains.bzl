@@ -30,13 +30,6 @@ TOOLCHAIN_INTEGRITY = struct(
 )
 
 def pomerium_envoy_toolchains():
-    arch_alias(
-        name = "clang_platform",
-        aliases = {
-            "amd64": "@//bazel/platforms/rbe:linux_x64",
-            "aarch64": "@//bazel/platforms/rbe:linux_arm64",
-        },
-    )
     llvm_toolchain(
         name = "llvm_toolchain",
         llvm_version = LLVM_VERSION,
