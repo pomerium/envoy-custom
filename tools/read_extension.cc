@@ -44,13 +44,15 @@ absl::StatusOr<std::unique_ptr<MmapFileHandle>> mmapFile(const std::string& file
   }
   struct stat info;
   if (fstat(fd, &info) == -1) {
+    auto err = absl::ErrnoToStatus(errno, "stat failed");
     close(fd);
-    return absl::ErrnoToStatus(errno, "stat failed");
+    return err;
   }
   auto* addr = mmap(nullptr, info.st_size, PROT_READ, MAP_SHARED, fd, 0);
   if (addr == MAP_FAILED) {
+    auto err = absl::ErrnoToStatus(errno, "mmap failed");
     close(fd);
-    return absl::ErrnoToStatus(errno, "mmap failed");
+    return err;
   }
   close(fd);
   return std::make_unique<MmapFileHandle>(filename, addr, info);
