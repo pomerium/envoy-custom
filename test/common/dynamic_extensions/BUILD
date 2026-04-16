@@ -9,6 +9,7 @@ envoy_cc_test(
         "dynamic_extensions_test.cc",
     ],
     data = [
+        "//test/common/dynamic_extensions/test:test_http_factory",
         "//test/common/dynamic_extensions/test:test_invalid_id",
         "//test/common/dynamic_extensions/test:test_md_unknown_keys",
         "//test/common/dynamic_extensions/test:test_missing_symbol",
@@ -28,12 +29,15 @@ envoy_cc_test(
     ],
     repository = "@envoy",
     shard_count = 8,
-    tags = ["no_san"],
     deps = [
         "//api/extensions/bootstrap/dynamic_extension_loader:pkg_cc_proto",
         "//source/extensions/bootstrap/dynamic_extension_loader",
+        "@envoy//source/extensions/filters/http/router:config",
+        "@envoy//source/extensions/filters/network/http_connection_manager:config",
         "@envoy//test/integration:integration_lib",
         "@envoy//test/test_common:status_utility_lib",
+        "@envoy_api//envoy/extensions/filters/http/router/v3:pkg_cc_proto",
+        "@envoy_api//envoy/extensions/filters/network/http_connection_manager/v3:pkg_cc_proto",
     ],
 )
 

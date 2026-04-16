@@ -32,7 +32,7 @@ absl::Status DynamicExtensionHandle::dynamicExtensionInit(Envoy::Server::Instanc
     }
   } else {
     if (abi_dynamic_extension_init_no_config_ != nullptr) {
-      ENVOY_LOG_MISC(debug, "calling dynamicExtensionInit for extension {} (no configuration)");
+      ENVOY_LOG_MISC(debug, "calling dynamicExtensionInit for extension {} (no configuration)", info_.metadata.id);
       abi_dynamic_extension_init_no_config_(instance);
     } else if (abi_dynamic_extension_init_ != nullptr) {
       return absl::InvalidArgumentError(fmt::format(

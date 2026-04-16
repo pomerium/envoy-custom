@@ -77,6 +77,9 @@ cc_library(
     srcs = ["invalid_version.cc"],
     hdrs = ["invalid_version.h"],
     linkstatic = True,
+    deps = [
+        "//source/common/dynamic_extensions:version_lib",
+    ],
     alwayslink = True,
 )
 
@@ -104,5 +107,17 @@ cc_dynamic_extension(
     name = "test_tls",
     srcs = [
         "test_tls.cc",
+    ],
+)
+
+cc_dynamic_extension(
+    name = "test_http_factory",
+    testonly = 1,
+    srcs = [
+        "test_http_factory.cc",
+    ],
+    host_deps = [
+        "@envoy//source/extensions/filters/http/common:pass_through_filter_lib",
+        "@envoy//test/extensions/filters/http/common:empty_http_filter_config_lib",
     ],
 )

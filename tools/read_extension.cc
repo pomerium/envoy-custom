@@ -185,7 +185,7 @@ std::string_view strtabCStrView(bytes_view view) {
 
 bool flag_demangle;
 
-absl::StatusOr<SymbolTableView> readDynamicSymbols(const MmapFileHandle& f, SymbolKindFilter kind_filter) {
+absl::Status sanityCheck(const MmapFileHandle& f) {
   if (f.info_.st_size < sizeof(Elf64_Ehdr)) {
     return absl::InvalidArgumentError("file is not an ELF binary");
   }
@@ -203,9 +203,15 @@ absl::StatusOr<SymbolTableView> readDynamicSymbols(const MmapFileHandle& f, Symb
     return absl::InvalidArgumentError("ELF binary is not supported");
   }
 
-  // read all section headers
   if (f.info_.st_size < header->e_shoff + header->e_shnum * sizeof(Elf64_Shdr)) {
     return absl::InvalidArgumentError("failed to read section headers");
+  }
+  return absl::OkStatus();
+}
+
+absl::StatusOr<SymbolTableView> readDynamicSymbols(const MmapFileHandle& f, SymbolKindFilter kind_filter) {
+  if (auto stat = sanityCheck(f); !stat.ok()) {
+    return stat;
   }
 
   bool showUndefined = (kind_filter & SymbolKindFilter::Undefined) == SymbolKindFilter::Undefined;
@@ -221,6 +227,8 @@ absl::StatusOr<SymbolTableView> readDynamicSymbols(const MmapFileHandle& f, Symb
   const Elf64_Shdr* sh_gnu_verdef{};  // .gnu.version_d
   const Elf64_Shdr* sh_gnu_verneed{}; // .gnu.version_r
 
+  // read all section headers
+  auto* header = reinterpret_cast<const Elf64_Ehdr*>(f.addr_);
   for (int shIdx = 0; shIdx < header->e_shnum; shIdx++) {
     auto* sectionHeader = reinterpret_cast<const Elf64_Shdr*>(
       extension_data.subspan(header->e_shoff + shIdx * sizeof(Elf64_Shdr), sizeof(Elf64_Shdr)).data());
@@ -371,6 +379,56 @@ absl::StatusOr<SymbolTableView> readDynamicSymbols(const MmapFileHandle& f, Symb
         auto versionId = *reinterpret_cast<const Elf64_Half*>(
           versymTable.subspan(i * sizeof(Elf64_Half), sizeof(Elf64_Half)).data());
         out.items.emplace_back(symName, SymbolInfo{.index = i, .symbol = sym, .version_id = versionId});
+      }
+    }
+  }
+
+  std::sort(out.items.begin(), out.items.end(), [](const auto& a, const auto& b) {
+    return std::get<0>(a) < std::get<0>(b);
+  });
+
+  return std::move(out);
+}
+
+absl::StatusOr<SymbolTableView> readSymbols(const MmapFileHandle& f, SymbolKindFilter kind_filter) {
+  if (auto stat = sanityCheck(f); !stat.ok()) {
+    return stat;
+  }
+
+  bool showUndefined = (kind_filter & SymbolKindFilter::Undefined) == SymbolKindFilter::Undefined;
+  bool showDefined = (kind_filter & SymbolKindFilter::Defined) == SymbolKindFilter::Defined;
+
+  SymbolTableView out;
+
+  auto extension_data = f.view();
+
+  const Elf64_Shdr* sh_symtab{};
+  auto* header = reinterpret_cast<const Elf64_Ehdr*>(f.addr_);
+  for (int shIdx = 0; shIdx < header->e_shnum; shIdx++) {
+    auto* sectionHeader = reinterpret_cast<const Elf64_Shdr*>(
+      extension_data.subspan(header->e_shoff + shIdx * sizeof(Elf64_Shdr), sizeof(Elf64_Shdr)).data());
+    if (sectionHeader->sh_type == SHT_SYMTAB) {
+      sh_symtab = sectionHeader;
+      break;
+    }
+  }
+  if (sh_symtab == nullptr) {
+    return absl::InvalidArgumentError("missing section: .symtab");
+  }
+
+  auto* symbolStrTabHdr = reinterpret_cast<const Elf64_Shdr*>(
+    extension_data.subspan(header->e_shoff + sh_symtab->sh_link * sizeof(Elf64_Shdr), sizeof(Elf64_Shdr)).data());
+  auto symbolStringTable = extension_data.subspan(symbolStrTabHdr->sh_offset, symbolStrTabHdr->sh_size);
+
+  auto symEntries = extension_data.subspan(sh_symtab->sh_offset, sh_symtab->sh_size);
+  out.items.reserve(sh_symtab->sh_size / sizeof(Elf64_Sym));
+  for (size_t i = 0; i < sh_symtab->sh_size / sizeof(Elf64_Sym); i++) {
+    auto* sym = reinterpret_cast<const Elf64_Sym*>(symEntries.subspan(i * sizeof(Elf64_Sym), sizeof(Elf64_Sym)).data());
+    if (sym->st_name != 0) {
+      bool isUndefined = sym->st_shndx == SHN_UNDEF;
+      if ((isUndefined && showUndefined) || (!isUndefined && showDefined)) {
+        auto symName = strtabCStrView(symbolStringTable.subspan(sym->st_name));
+        out.items.emplace_back(symName, SymbolInfo{.index = i, .symbol = sym});
       }
     }
   }
@@ -600,6 +658,63 @@ absl::StatusOr<CompatibilityInfo> checkCompatibility(const MmapFileHandle& host,
   };
 }
 
+struct LintResult {
+  std::string category;
+  std::string msg;
+  std::vector<std::string> notes;
+};
+
+struct LintResults {
+  std::vector<LintResult> results;
+};
+
+absl::StatusOr<LintResults> runLinters(const MmapFileHandle& ext) {
+  // 1. Check for template instantiations of Envoy::Registry::FactoryRegistry for types in an
+  //    Envoy::* namespace
+
+  auto symbols = readSymbols(ext, SymbolKindFilter::Defined);
+  if (!symbols.ok()) {
+    return symbols.status();
+  }
+
+  LintResults out;
+
+  auto search = std::tuple<std::string_view, SymbolInfo>{"_ZN5Envoy8Registry15FactoryRegistryI", {}};
+  auto it = std::lower_bound(symbols->items.begin(), symbols->items.end(), search, [](const auto& a, const auto& b) {
+    return std::get<0>(a) < std::get<0>(b);
+  });
+  std::unordered_set<std::string> seen;
+  while (it != symbols->items.end()) {
+    const auto& [name, sym] = *it;
+    if (!name.starts_with("_ZN5Envoy8Registry15FactoryRegistryI")) {
+      break;
+    }
+    char* demangledName = abi::__cxa_demangle(name.data(), nullptr, nullptr, nullptr); // NOLINT:bugprone-suspicious-stringview-data-usage
+    std::string_view view{demangledName};
+
+    view.remove_prefix("Envoy::Registry::FactoryRegistry<"sv.size());
+    auto idx = view.find('>');
+    if (idx == std::string::npos) {
+      return absl::InvalidArgumentError("malformed input");
+    }
+    std::string type{view.substr(0, idx)};
+    free(demangledName);
+    if (!seen.contains(type)) {
+      seen.insert(type);
+      if (type.starts_with("Envoy::")) {
+        out.results.push_back(LintResult{
+          .category = "envoy-factory-registration",
+          .msg = fmt::format("extension instantiates Envoy::Registry::FactoryRegistry for type '{}'", type),
+          .notes = {fmt::format("declare DYNAMIC_EXTENSION_USE_FACTORY_BASE({}) to fix", type)},
+        });
+      }
+    }
+    it++;
+  }
+
+  return std::move(out);
+}
+
 int main(int argc, char** argv) {
   argparse::ArgumentParser cmd("read-extension");
   auto& modes = cmd.add_mutually_exclusive_group(true);
@@ -616,6 +731,10 @@ int main(int argc, char** argv) {
   modes.add_argument("-c", "--check")
     .help("Check if the extension is compatible with the given binary")
     .nargs(1);
+
+  modes.add_argument("-l", "--lint")
+    .help("Analyze the extension to find common mistakes")
+    .flag();
 
   cmd.add_argument("-d", "--demangle")
     .help("Demangle C++ symbols")
@@ -714,7 +833,7 @@ int main(int argc, char** argv) {
         return host.status();
       }
       for (const auto& ext : filenames) {
-        auto f = mmapFile(filenames[0]);
+        auto f = mmapFile(ext);
         if (!f.ok()) {
           return f.status();
         }
@@ -734,6 +853,25 @@ int main(int argc, char** argv) {
         }
         std::cout.flush();
       }
+    } else if (cmd.is_used("--lint")) {
+      auto f = mmapFile(filenames[0]);
+      if (!f.ok()) {
+        return f.status();
+      }
+      auto info = runLinters(**f);
+      if (!info.ok()) {
+        return info.status();
+      }
+      if (!info->results.empty()) {
+        ok_exit_code = 2;
+      }
+      for (const auto& result : info->results) {
+        std::cout << fmt::format("[{}] {}\n", result.category, result.msg);
+        for (const auto& note : result.notes) {
+          std::cout << fmt::format(" => note: {}\n", note);
+        }
+      }
+      std::cout.flush();
     }
     return absl::OkStatus();
   }();

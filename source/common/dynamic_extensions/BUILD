@@ -31,8 +31,14 @@ cc_library(
 
 cc_library(
     name = "extension_common_lib",
-    srcs = ["extension.h"],
+    srcs = [
+        "extension.h",
+        "factory.h",
+    ],
     visibility = ["//visibility:public"],
+    deps = [
+        "//source/common:common_lib",
+    ],
 )
 
 cc_library(

@@ -12,6 +12,7 @@ def cc_dynamic_extension(
         hdrs = [],
         copts = [],
         host_deps = [],
+        testonly = 0,
         visibility = ["//visibility:public"]):
     _name = "_" + name
     cc_library(
@@ -23,6 +24,7 @@ def cc_dynamic_extension(
             "-fvisibility=hidden",
             "-fPIC",
         ],
+        testonly = testonly,
         features = ["prefer_pic_for_opt_binaries"],
         linkstatic = True,
         deps = host_deps + builtin_host_deps + [
@@ -37,6 +39,7 @@ def cc_dynamic_extension(
             "-fvisibility=hidden",
             "-fPIC",
         ],
+        testonly = testonly,
         deps = ["@pomerium_envoy//source/common/dynamic_extensions:version_ref_lib"],
         linkshared = True,
         linkstatic = False,
