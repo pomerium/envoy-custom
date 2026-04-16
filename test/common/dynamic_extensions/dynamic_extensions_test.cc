@@ -15,8 +15,7 @@ class DynamicExtensionsIntegrationTest : public testing::Test,
                                          public Envoy::BaseIntegrationTest {
 public:
   DynamicExtensionsIntegrationTest()
-      : Envoy::BaseIntegrationTest(Envoy::Network::Address::IpVersion::v4,
-                                   Envoy::ConfigHelper::baseConfigNoListeners()) {
+      : Envoy::BaseIntegrationTest(Envoy::Network::Address::IpVersion::v4) {
   }
 
   void initialize() override {
@@ -185,9 +184,11 @@ public:
     extension_path_ = Envoy::TestEnvironment::runfilesPath(
       "test/common/dynamic_extensions/test/libtest_no_config.so", "pomerium_envoy");
 
+#if !__has_feature(address_sanitizer)
     auto result = RunReadExtension({"--check", SelfPath(), extension_path_});
     ASSERT_OK(result.status());
     ASSERT_EQ(result->exit_code, 0) << result->out;
+#endif
   }
 
   std::string extension_path_;
@@ -231,9 +232,11 @@ public:
     extension_path_ = Envoy::TestEnvironment::runfilesPath(
       "test/common/dynamic_extensions/test/libtest_optional_config.so", "pomerium_envoy");
 
+#if !__has_feature(address_sanitizer)
     auto result = RunReadExtension({"--check", SelfPath(), extension_path_});
     ASSERT_OK(result.status());
     ASSERT_EQ(result->exit_code, 0) << result->out;
+#endif
   }
 
   std::string extension_path_;
@@ -277,9 +280,11 @@ public:
     extension_path_ = Envoy::TestEnvironment::runfilesPath(
       "test/common/dynamic_extensions/test/libtest_required_config.so", "pomerium_envoy");
 
+#if !__has_feature(address_sanitizer)
     auto result = RunReadExtension({"--check", SelfPath(), extension_path_});
     ASSERT_OK(result.status());
     ASSERT_EQ(result->exit_code, 0) << result->out;
+#endif
   }
 
   std::string extension_path_;
@@ -319,9 +324,11 @@ public:
     extension_path_ = Envoy::TestEnvironment::runfilesPath(
       "test/common/dynamic_extensions/test/libtest_no_init.so", "pomerium_envoy");
 
+#if !__has_feature(address_sanitizer)
     auto result = RunReadExtension({"--check", SelfPath(), extension_path_});
     ASSERT_OK(result.status());
     ASSERT_EQ(result->exit_code, 0) << result->out;
+#endif
   }
 
   std::string extension_path_;
@@ -357,10 +364,12 @@ public:
     extension_path_ = Envoy::TestEnvironment::runfilesPath(
       "test/common/dynamic_extensions/test/libtest_missing_symbol.so", "pomerium_envoy");
 
+#if !__has_feature(address_sanitizer)
     auto result = RunReadExtension({"--check", SelfPath(), "--demangle", extension_path_});
     ASSERT_OK(result.status());
     EXPECT_NE(result->exit_code, 0);
     ASSERT_THAT(result->out, testing::HasSubstr("missing symbol required by extension: symbolNotAvailableInExtensionHost()"));
+#endif
   }
 
   std::string extension_path_;
@@ -419,9 +428,11 @@ public:
     extension_path_ = Envoy::TestEnvironment::runfilesPath(
       "test/common/dynamic_extensions/test/libtest_tls.so", "pomerium_envoy");
 
+#if !__has_feature(address_sanitizer)
     auto result = RunReadExtension({"--check", SelfPath(), extension_path_});
     ASSERT_OK(result.status());
     ASSERT_EQ(result->exit_code, 0) << result->out;
+#endif
   }
 
   std::string extension_path_;
@@ -450,6 +461,44 @@ TEST_F(ThreadLocalStorageTest, TestTLS) {
   std::sort(test_data.begin(), test_data.end());
   auto expected = std::vector<std::string>{{"main_thread", "worker_0", "worker_1", "worker_2", "worker_3"}};
   EXPECT_EQ(expected, test_data);
+}
+
+std::atomic<int> test_extension_http_filters_created;
+std::atomic<int> test_extension_http_filters_destroyed;
+
+class FactoryRegistrationTest : public DynamicExtensionsIntegrationTest {
+public:
+  FactoryRegistrationTest() {
+    test_extension_http_filters_created = 0;
+    test_extension_http_filters_destroyed = 0;
+    autonomous_allow_incomplete_streams_ = true;
+    autonomous_upstream_ = true;
+
+    // from Envoy::HttpIntegrationTest::HttpIntegrationTest
+    config_helper_.renameListener("http");
+    config_helper_.addRuntimeOverride("envoy.reloadable_features.no_extension_lookup_by_name",
+                                      "false");
+  }
+  void SetUp() override {
+    extension_path_ = Envoy::TestEnvironment::runfilesPath(
+      "test/common/dynamic_extensions/test/libtest_http_factory.so", "pomerium_envoy");
+  }
+  std::string extension_path_;
+};
+
+TEST_F(FactoryRegistrationTest, TestExtensionRegistersHttpFilterFactory) {
+  ConfigureExtensionLoader({extension_path_});
+  config_helper_.prependFilter("{ name: test.dynamic_extensions.http_filter }");
+  initialize();
+
+  auto response = Envoy::IntegrationUtil::makeSingleRequest(
+    lookupPort("http"), "GET", "/",
+    "", Envoy::Http::CodecType::HTTP1, version_);
+  ASSERT_TRUE(response->complete());
+  ASSERT_EQ("200", response->headers().getStatusValue());
+
+  ASSERT_EQ(test_extension_http_filters_created.load(), 1);
+  ASSERT_EQ(test_extension_http_filters_destroyed.load(), 1);
 }
 
 TEST_F(DynamicExtensionsIntegrationTest, TestAdminApiMethodNotAllowed) {

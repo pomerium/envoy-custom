@@ -44,6 +44,15 @@ void ExtensionLoader::onServerInitialized(Envoy::Server::Instance& server) {
         .err = stat,
       });
       handle.reset();
+    } else {
+      // Set RTLD_NODELETE on the extension, since dynamicExtensionInit may register Envoy
+      // factories, which have no (intended) deregistration mechanism. If the extension is unloaded
+      // after startup (i.e. when the handles are deleted during server teardown) could cause
+      // references to the factory registered in the extension to become garbage.
+      // Note: this still increases the handle's internal refcount. Calling dlclose after this is
+      // a no-op and won't decrease the refcount.
+      auto* h = dlopen(handle->info().path.c_str(), RTLD_NOW | RTLD_NOLOAD | RTLD_NODELETE);
+      RELEASE_ASSERT(h != nullptr, "dlopen on loaded extension failed");
     }
   }
   std::erase_if(handles_, [](auto& entry) { return entry == nullptr; });
