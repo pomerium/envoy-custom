@@ -9,6 +9,10 @@
 
 using namespace std::literals;
 
+#if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer) || __has_feature(memory_sanitizer)
+#define SANITIZER_ENABLED
+#endif
+
 // NOLINTBEGIN(readability-identifier-naming)
 
 class DynamicExtensionsIntegrationTest : public testing::Test,
@@ -184,7 +188,7 @@ public:
     extension_path_ = Envoy::TestEnvironment::runfilesPath(
       "test/common/dynamic_extensions/test/libtest_no_config.so", "pomerium_envoy");
 
-#if !__has_feature(address_sanitizer)
+#ifndef SANITIZER_ENABLED
     auto result = RunReadExtension({"--check", SelfPath(), extension_path_});
     ASSERT_OK(result.status());
     ASSERT_EQ(result->exit_code, 0) << result->out;
@@ -232,7 +236,7 @@ public:
     extension_path_ = Envoy::TestEnvironment::runfilesPath(
       "test/common/dynamic_extensions/test/libtest_optional_config.so", "pomerium_envoy");
 
-#if !__has_feature(address_sanitizer)
+#ifndef SANITIZER_ENABLED
     auto result = RunReadExtension({"--check", SelfPath(), extension_path_});
     ASSERT_OK(result.status());
     ASSERT_EQ(result->exit_code, 0) << result->out;
@@ -280,7 +284,7 @@ public:
     extension_path_ = Envoy::TestEnvironment::runfilesPath(
       "test/common/dynamic_extensions/test/libtest_required_config.so", "pomerium_envoy");
 
-#if !__has_feature(address_sanitizer)
+#ifndef SANITIZER_ENABLED
     auto result = RunReadExtension({"--check", SelfPath(), extension_path_});
     ASSERT_OK(result.status());
     ASSERT_EQ(result->exit_code, 0) << result->out;
@@ -324,7 +328,7 @@ public:
     extension_path_ = Envoy::TestEnvironment::runfilesPath(
       "test/common/dynamic_extensions/test/libtest_no_init.so", "pomerium_envoy");
 
-#if !__has_feature(address_sanitizer)
+#ifndef SANITIZER_ENABLED
     auto result = RunReadExtension({"--check", SelfPath(), extension_path_});
     ASSERT_OK(result.status());
     ASSERT_EQ(result->exit_code, 0) << result->out;
@@ -364,7 +368,7 @@ public:
     extension_path_ = Envoy::TestEnvironment::runfilesPath(
       "test/common/dynamic_extensions/test/libtest_missing_symbol.so", "pomerium_envoy");
 
-#if !__has_feature(address_sanitizer)
+#ifndef SANITIZER_ENABLED
     auto result = RunReadExtension({"--check", SelfPath(), "--demangle", extension_path_});
     ASSERT_OK(result.status());
     EXPECT_NE(result->exit_code, 0);
@@ -428,7 +432,7 @@ public:
     extension_path_ = Envoy::TestEnvironment::runfilesPath(
       "test/common/dynamic_extensions/test/libtest_tls.so", "pomerium_envoy");
 
-#if !__has_feature(address_sanitizer)
+#ifndef SANITIZER_ENABLED
     auto result = RunReadExtension({"--check", SelfPath(), extension_path_});
     ASSERT_OK(result.status());
     ASSERT_EQ(result->exit_code, 0) << result->out;
