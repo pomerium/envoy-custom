@@ -166,6 +166,10 @@ load("//bazel/cxx_libs:load_cxx_cross_libs.bzl", "load_cxx_cross_libs")
 
 load_cxx_cross_libs()
 
+load("//bazel/llvm_extras:load_llvm_extras.bzl", "load_llvm_extras")
+
+load_llvm_extras()
+
 load("@llvm_toolchain//:toolchains.bzl", "llvm_register_toolchains")
 
 llvm_register_toolchains()
