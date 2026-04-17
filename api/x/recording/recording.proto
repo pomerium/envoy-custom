@@ -16,11 +16,12 @@ message RecordingSession {
 }
 
 message RecordingData {
+  string recording_id = 1;
   oneof data {
-    RecordingMetadata  metadata = 1;
-    bytes              chunk    = 2;
-    bytes              checksum = 3;
-    RecordingSignature sig      = 4;
+    RecordingMetadata metadata = 2;
+    bytes             chunk    = 3;
+    bytes             checksum = 4;
+    RecordingTrailer  trailer  = 5;
   }
 }
 
@@ -30,13 +31,13 @@ enum RecordingFormat {
 }
 
 message RecordingMetadata {
-  string              id            = 1;
   RecordingFormat     recordingType = 2;
   google.protobuf.Any metadata      = 3;
 }
 
-message RecordingSignature {
-  //TODO:
+message RecordingTrailer {
+  string              envoy_version = 1;
+  google.protobuf.Any metadata      = 3;
 }
 
 message ChunkManifest {
