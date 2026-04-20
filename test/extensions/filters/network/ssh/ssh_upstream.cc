@@ -45,16 +45,13 @@ absl::Status SshFakeUpstreamHandler::FakeUpstreamConnectionService::handleMessag
       if (!parent_.opts_->on_channel_open_request) {
         PANIC("test bug: on_channel_open_request callback unset but required");
       }
-      auto id = transport_.channelIdManager().allocateNewChannel(local_peer_);
-      RETURN_IF_NOT_OK(id.status());
-      auto stat = transport_.channelIdManager().bindChannelID(*id, PeerLocalID{
-                                                                     .channel_id = msg.sender_channel,
-                                                                     .local_peer = local_peer_,
-                                                                   },
-                                                              false);
-      ASSERT(stat.ok());
+
       auto ch = std::make_unique<FakeUpstreamChannel>(parent_.opts_->on_channel_open_request(msg));
-      RETURN_IF_NOT_OK(startChannel(std::move(ch), *id).status());
+      RETURN_IF_NOT_OK(startChannel(std::move(ch), {
+                                                     .channel_open = msg,
+                                                     .bind_expect_remote = false,
+                                                   })
+                         .status());
       return absl::OkStatus();
     },
     [&](wire::ChannelOpenConfirmationMsg&& msg) {
@@ -69,7 +66,7 @@ absl::Status SshFakeUpstreamHandler::FakeUpstreamConnectionService::handleMessag
         PANIC("test bug: on_channel_accepted callback unset but required");
       }
       auto ch = std::make_unique<FakeUpstreamChannel>(parent_.opts_->on_channel_accepted(msg));
-      RETURN_IF_NOT_OK(startChannel(std::move(ch), id).status());
+      RETURN_IF_NOT_OK(startChannel(std::move(ch), {.allocated_channel_id = id}).status());
       msg.sender_channel = msg.recipient_channel;
       return channels_[id]->readMessage(std::move(msg));
     },
@@ -79,7 +76,7 @@ absl::Status SshFakeUpstreamHandler::FakeUpstreamConnectionService::handleMessag
         PANIC("test bug: on_channel_rejected callback unset but required");
       }
       auto ch = std::make_unique<FakeUpstreamChannel>(parent_.opts_->on_channel_rejected(msg));
-      RETURN_IF_NOT_OK(startChannel(std::move(ch), id).status());
+      RETURN_IF_NOT_OK(startChannel(std::move(ch), {.allocated_channel_id = id}).status());
       return channels_[id]->readMessage(std::move(msg));
     },
     [&](auto&& msg) {
