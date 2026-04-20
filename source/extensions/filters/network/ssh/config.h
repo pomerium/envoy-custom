@@ -1,8 +1,5 @@
 #pragma once
 
-#include <cerrno>
-#include <unistd.h>
-
 #include "source/common/apple.h"
 
 #pragma clang unsafe_buffer_usage begin
@@ -15,6 +12,7 @@
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/stream_tracker.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
+#include "source/extensions/filters/network/ssh/channel_filter.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 class SshCodecFactoryConfig : public CodecFactoryConfig {
@@ -47,6 +45,7 @@ private:
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config_;
   CreateGrpcClientFunc create_grpc_client_;
   StreamTrackerSharedPtr stream_tracker_;
+  ChannelFilterManagerSharedPtr channel_filter_manager_;
 
   std::vector<openssh::SSHKeySharedPtr> host_keys_;
   openssh::SSHKeySharedPtr user_ca_key_;

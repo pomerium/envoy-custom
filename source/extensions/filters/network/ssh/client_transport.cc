@@ -33,8 +33,10 @@ private:
 SshClientTransport::SshClientTransport(
   Envoy::Server::Configuration::ServerFactoryContext& context,
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
+  ChannelFilterManagerSharedPtr channel_filter_manager,
   const SecretsProvider& secrets_provider)
-    : TransportBase(context, std::move(config), secrets_provider) {
+    : TransportBase(context, std::move(config), secrets_provider),
+      channel_filter_manager_(channel_filter_manager) {
   wire::ExtInfoMsg extInfo;
   extInfo.extensions->emplace_back(wire::PingExtension{.version = "0"s});
   outgoing_ext_info_ = std::move(extInfo);

@@ -59,10 +59,12 @@ SshServerTransport::SshServerTransport(Server::Configuration::ServerFactoryConte
                                        std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
                                        CreateGrpcClientFunc create_grpc_client,
                                        StreamTrackerSharedPtr stream_tracker,
+                                       ChannelFilterManagerSharedPtr channel_filter_manager,
                                        const SecretsProvider& secrets_provider)
     : TransportBase(context, std::move(config), secrets_provider),
       DownstreamTransportCallbacks(*this),
-      stream_tracker_(std::move(stream_tracker)) {
+      stream_tracker_(std::move(stream_tracker)),
+      channel_filter_manager_(channel_filter_manager) {
   auto grpcClient = create_grpc_client();
   THROW_IF_NOT_OK_REF(grpcClient.status());
   grpc_client_ = *grpcClient;

@@ -54,6 +54,7 @@ envoy_cc_library(
     ],
     hdrs = [
         "channel.h",
+        "channel_filter.h",
         "client_transport.h",
         "config.h",
         "extension_ping.h",

@@ -2,6 +2,7 @@
 
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "source/common/status.h"
+// #include "source/extensions/filters/network/ssh/channel_filter.h"
 #include "source/extensions/filters/network/ssh/id_manager.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
@@ -48,6 +49,18 @@ absl::StatusOr<uint32_t> ConnectionService::startChannel(std::unique_ptr<Channel
   RELEASE_ASSERT(!channels_.contains(*channelId), fmt::format("bug: channel with ID {} already exists", *channelId));
 
   auto callbacks = std::make_unique<ChannelCallbacksImpl>(*this, *channelId, local_peer_);
+  if (auto& filterMgr = transport_.channelFilterManager(); filterMgr.hasFilters()) {
+    std::vector<ChannelFilterPtr> filters;
+    switch (local_peer_) {
+    case Downstream:
+      filters = filterMgr.createReadFilters(*callbacks);
+      break;
+    case Upstream:
+      filters = filterMgr.createWriteFilters(*callbacks);
+      break;
+    }
+    callbacks->setChannelFilters(std::move(filters));
+  }
 
   channel->setChannelCallbacks(*callbacks);
   // Note: order is important here; if readChannelOpen below fails, the callbacks cleanup routine
@@ -269,6 +282,11 @@ void ConnectionService::ChannelCallbacksImpl::sendMessageLocal(wire::Message&& m
   std::unique_ptr<Channel> deferredDelete;
 
   bool send = msg.visit(
+    [&](wire::ChannelOpenMsg& msg) {
+      ASSERT(!channel_type_.has_value());
+      channel_type_ = msg.channel_type();
+      return true;
+    },
     [&](wire::ChannelCloseMsg& msg) {
       msg.recipient_channel = channel_id_;
       auto sendOk = channel_id_mgr_.processOutgoingChannelMsg(msg, local_peer_);
@@ -339,6 +357,10 @@ absl::Status ConnectionService::ChannelCallbacksImpl::sendMessageRemote(wire::Me
   return msg.visit(
     [&](wire::ChannelOpenMsg& msg) {
       ENVOY_LOG(debug, "sending ChannelOpen message to remote for channel {}", channel_id_);
+
+      ASSERT(!channel_type_.has_value());
+      channel_type_ = msg.channel_type();
+
       msg.sender_channel = channel_id_;
       parent_.transport_.forward(std::move(msg));
       return absl::OkStatus();

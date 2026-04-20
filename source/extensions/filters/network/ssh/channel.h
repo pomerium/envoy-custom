@@ -35,6 +35,10 @@ public:
   // Returns the channel's internal ID.
   virtual uint32_t channelId() const PURE;
 
+  // Returns the channel's type, if available. The type will be available if a ChannelOpen message
+  // was passed to sendMessageRemote or sendMessageLocal via Channel::readChannelOpen.
+  virtual std::optional<std::string_view> channelType() const PURE;
+
   // Base stats scope
   virtual Stats::Scope& scope() const PURE;
 
