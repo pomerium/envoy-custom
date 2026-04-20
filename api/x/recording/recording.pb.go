@@ -114,13 +114,14 @@ func (x *RecordingSession) GetManifest() *ChunkManifest {
 }
 
 type RecordingData struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	RecordingId string                 `protobuf:"bytes,1,opt,name=recording_id,json=recordingId,proto3" json:"recording_id,omitempty"`
 	// Types that are valid to be assigned to Data:
 	//
 	//	*RecordingData_Metadata
 	//	*RecordingData_Chunk
 	//	*RecordingData_Checksum
-	//	*RecordingData_Sig
+	//	*RecordingData_Trailer
 	Data          isRecordingData_Data `protobuf_oneof:"data"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -154,6 +155,13 @@ func (x *RecordingData) ProtoReflect() protoreflect.Message {
 // Deprecated: Use RecordingData.ProtoReflect.Descriptor instead.
 func (*RecordingData) Descriptor() ([]byte, []int) {
 	return file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *RecordingData) GetRecordingId() string {
+	if x != nil {
+		return x.RecordingId
+	}
+	return ""
 }
 
 func (x *RecordingData) GetData() isRecordingData_Data {
@@ -190,10 +198,10 @@ func (x *RecordingData) GetChecksum() []byte {
 	return nil
 }
 
-func (x *RecordingData) GetSig() *RecordingSignature {
+func (x *RecordingData) GetTrailer() *RecordingTrailer {
 	if x != nil {
-		if x, ok := x.Data.(*RecordingData_Sig); ok {
-			return x.Sig
+		if x, ok := x.Data.(*RecordingData_Trailer); ok {
+			return x.Trailer
 		}
 	}
 	return nil
@@ -204,19 +212,19 @@ type isRecordingData_Data interface {
 }
 
 type RecordingData_Metadata struct {
-	Metadata *RecordingMetadata `protobuf:"bytes,1,opt,name=metadata,proto3,oneof"`
+	Metadata *RecordingMetadata `protobuf:"bytes,2,opt,name=metadata,proto3,oneof"`
 }
 
 type RecordingData_Chunk struct {
-	Chunk []byte `protobuf:"bytes,2,opt,name=chunk,proto3,oneof"`
+	Chunk []byte `protobuf:"bytes,3,opt,name=chunk,proto3,oneof"`
 }
 
 type RecordingData_Checksum struct {
-	Checksum []byte `protobuf:"bytes,3,opt,name=checksum,proto3,oneof"`
+	Checksum []byte `protobuf:"bytes,4,opt,name=checksum,proto3,oneof"`
 }
 
-type RecordingData_Sig struct {
-	Sig *RecordingSignature `protobuf:"bytes,4,opt,name=sig,proto3,oneof"`
+type RecordingData_Trailer struct {
+	Trailer *RecordingTrailer `protobuf:"bytes,5,opt,name=trailer,proto3,oneof"`
 }
 
 func (*RecordingData_Metadata) isRecordingData_Data() {}
@@ -225,11 +233,10 @@ func (*RecordingData_Chunk) isRecordingData_Data() {}
 
 func (*RecordingData_Checksum) isRecordingData_Data() {}
 
-func (*RecordingData_Sig) isRecordingData_Data() {}
+func (*RecordingData_Trailer) isRecordingData_Data() {}
 
 type RecordingMetadata struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	RecordingType RecordingFormat        `protobuf:"varint,2,opt,name=recordingType,proto3,enum=pomerium.x.recording.RecordingFormat" json:"recordingType,omitempty"`
 	Metadata      *anypb.Any             `protobuf:"bytes,3,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -266,13 +273,6 @@ func (*RecordingMetadata) Descriptor() ([]byte, []int) {
 	return file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *RecordingMetadata) GetId() string {
-	if x != nil {
-		return x.Id
-	}
-	return ""
-}
-
 func (x *RecordingMetadata) GetRecordingType() RecordingFormat {
 	if x != nil {
 		return x.RecordingType
@@ -287,26 +287,28 @@ func (x *RecordingMetadata) GetMetadata() *anypb.Any {
 	return nil
 }
 
-type RecordingSignature struct {
+type RecordingTrailer struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	EnvoyVersion  string                 `protobuf:"bytes,1,opt,name=envoy_version,json=envoyVersion,proto3" json:"envoy_version,omitempty"`
+	Metadata      *anypb.Any             `protobuf:"bytes,3,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *RecordingSignature) Reset() {
-	*x = RecordingSignature{}
+func (x *RecordingTrailer) Reset() {
+	*x = RecordingTrailer{}
 	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *RecordingSignature) String() string {
+func (x *RecordingTrailer) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*RecordingSignature) ProtoMessage() {}
+func (*RecordingTrailer) ProtoMessage() {}
 
-func (x *RecordingSignature) ProtoReflect() protoreflect.Message {
+func (x *RecordingTrailer) ProtoReflect() protoreflect.Message {
 	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -318,9 +320,23 @@ func (x *RecordingSignature) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use RecordingSignature.ProtoReflect.Descriptor instead.
-func (*RecordingSignature) Descriptor() ([]byte, []int) {
+// Deprecated: Use RecordingTrailer.ProtoReflect.Descriptor instead.
+func (*RecordingTrailer) Descriptor() ([]byte, []int) {
 	return file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *RecordingTrailer) GetEnvoyVersion() string {
+	if x != nil {
+		return x.EnvoyVersion
+	}
+	return ""
+}
+
+func (x *RecordingTrailer) GetMetadata() *anypb.Any {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
 }
 
 type ChunkManifest struct {
@@ -441,18 +457,20 @@ const file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_rawD
 	"\n" +
 	"@github.com/pomerium/envoy-custom/api/x/recording/recording.proto\x12\x14pomerium.x.recording\x1a\x19google/protobuf/any.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"S\n" +
 	"\x10RecordingSession\x12?\n" +
-	"\bmanifest\x18\x01 \x01(\v2#.pomerium.x.recording.ChunkManifestR\bmanifest\"\xd2\x01\n" +
-	"\rRecordingData\x12E\n" +
-	"\bmetadata\x18\x01 \x01(\v2'.pomerium.x.recording.RecordingMetadataH\x00R\bmetadata\x12\x16\n" +
-	"\x05chunk\x18\x02 \x01(\fH\x00R\x05chunk\x12\x1c\n" +
-	"\bchecksum\x18\x03 \x01(\fH\x00R\bchecksum\x12<\n" +
-	"\x03sig\x18\x04 \x01(\v2(.pomerium.x.recording.RecordingSignatureH\x00R\x03sigB\x06\n" +
-	"\x04data\"\xa2\x01\n" +
-	"\x11RecordingMetadata\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12K\n" +
+	"\bmanifest\x18\x01 \x01(\v2#.pomerium.x.recording.ChunkManifestR\bmanifest\"\xfb\x01\n" +
+	"\rRecordingData\x12!\n" +
+	"\frecording_id\x18\x01 \x01(\tR\vrecordingId\x12E\n" +
+	"\bmetadata\x18\x02 \x01(\v2'.pomerium.x.recording.RecordingMetadataH\x00R\bmetadata\x12\x16\n" +
+	"\x05chunk\x18\x03 \x01(\fH\x00R\x05chunk\x12\x1c\n" +
+	"\bchecksum\x18\x04 \x01(\fH\x00R\bchecksum\x12B\n" +
+	"\atrailer\x18\x05 \x01(\v2&.pomerium.x.recording.RecordingTrailerH\x00R\atrailerB\x06\n" +
+	"\x04data\"\x92\x01\n" +
+	"\x11RecordingMetadata\x12K\n" +
 	"\rrecordingType\x18\x02 \x01(\x0e2%.pomerium.x.recording.RecordingFormatR\rrecordingType\x120\n" +
-	"\bmetadata\x18\x03 \x01(\v2\x14.google.protobuf.AnyR\bmetadata\"\x14\n" +
-	"\x12RecordingSignature\"J\n" +
+	"\bmetadata\x18\x03 \x01(\v2\x14.google.protobuf.AnyR\bmetadata\"i\n" +
+	"\x10RecordingTrailer\x12#\n" +
+	"\renvoy_version\x18\x01 \x01(\tR\fenvoyVersion\x120\n" +
+	"\bmetadata\x18\x03 \x01(\v2\x14.google.protobuf.AnyR\bmetadata\"J\n" +
 	"\rChunkManifest\x129\n" +
 	"\x05items\x18\x01 \x03(\v2#.pomerium.x.recording.ChunkMetadataR\x05items\"\xbb\x01\n" +
 	"\rChunkMetadata\x12\x12\n" +
@@ -487,28 +505,29 @@ var file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_goType
 	(*RecordingSession)(nil),      // 1: pomerium.x.recording.RecordingSession
 	(*RecordingData)(nil),         // 2: pomerium.x.recording.RecordingData
 	(*RecordingMetadata)(nil),     // 3: pomerium.x.recording.RecordingMetadata
-	(*RecordingSignature)(nil),    // 4: pomerium.x.recording.RecordingSignature
+	(*RecordingTrailer)(nil),      // 4: pomerium.x.recording.RecordingTrailer
 	(*ChunkManifest)(nil),         // 5: pomerium.x.recording.ChunkManifest
 	(*ChunkMetadata)(nil),         // 6: pomerium.x.recording.ChunkMetadata
 	(*anypb.Any)(nil),             // 7: google.protobuf.Any
 	(*timestamppb.Timestamp)(nil), // 8: google.protobuf.Timestamp
 }
 var file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_depIdxs = []int32{
-	5, // 0: pomerium.x.recording.RecordingSession.manifest:type_name -> pomerium.x.recording.ChunkManifest
-	3, // 1: pomerium.x.recording.RecordingData.metadata:type_name -> pomerium.x.recording.RecordingMetadata
-	4, // 2: pomerium.x.recording.RecordingData.sig:type_name -> pomerium.x.recording.RecordingSignature
-	0, // 3: pomerium.x.recording.RecordingMetadata.recordingType:type_name -> pomerium.x.recording.RecordingFormat
-	7, // 4: pomerium.x.recording.RecordingMetadata.metadata:type_name -> google.protobuf.Any
-	6, // 5: pomerium.x.recording.ChunkManifest.items:type_name -> pomerium.x.recording.ChunkMetadata
-	8, // 6: pomerium.x.recording.ChunkMetadata.start:type_name -> google.protobuf.Timestamp
-	8, // 7: pomerium.x.recording.ChunkMetadata.end:type_name -> google.protobuf.Timestamp
-	2, // 8: pomerium.x.recording.RecordingService.Record:input_type -> pomerium.x.recording.RecordingData
-	1, // 9: pomerium.x.recording.RecordingService.Record:output_type -> pomerium.x.recording.RecordingSession
-	9, // [9:10] is the sub-list for method output_type
-	8, // [8:9] is the sub-list for method input_type
-	8, // [8:8] is the sub-list for extension type_name
-	8, // [8:8] is the sub-list for extension extendee
-	0, // [0:8] is the sub-list for field type_name
+	5,  // 0: pomerium.x.recording.RecordingSession.manifest:type_name -> pomerium.x.recording.ChunkManifest
+	3,  // 1: pomerium.x.recording.RecordingData.metadata:type_name -> pomerium.x.recording.RecordingMetadata
+	4,  // 2: pomerium.x.recording.RecordingData.trailer:type_name -> pomerium.x.recording.RecordingTrailer
+	0,  // 3: pomerium.x.recording.RecordingMetadata.recordingType:type_name -> pomerium.x.recording.RecordingFormat
+	7,  // 4: pomerium.x.recording.RecordingMetadata.metadata:type_name -> google.protobuf.Any
+	7,  // 5: pomerium.x.recording.RecordingTrailer.metadata:type_name -> google.protobuf.Any
+	6,  // 6: pomerium.x.recording.ChunkManifest.items:type_name -> pomerium.x.recording.ChunkMetadata
+	8,  // 7: pomerium.x.recording.ChunkMetadata.start:type_name -> google.protobuf.Timestamp
+	8,  // 8: pomerium.x.recording.ChunkMetadata.end:type_name -> google.protobuf.Timestamp
+	2,  // 9: pomerium.x.recording.RecordingService.Record:input_type -> pomerium.x.recording.RecordingData
+	1,  // 10: pomerium.x.recording.RecordingService.Record:output_type -> pomerium.x.recording.RecordingSession
+	10, // [10:11] is the sub-list for method output_type
+	9,  // [9:10] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_init() }
@@ -520,7 +539,7 @@ func file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_init(
 		(*RecordingData_Metadata)(nil),
 		(*RecordingData_Chunk)(nil),
 		(*RecordingData_Checksum)(nil),
-		(*RecordingData_Sig)(nil),
+		(*RecordingData_Trailer)(nil),
 	}
 	file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_msgTypes[5].OneofWrappers = []any{}
 	type x struct{}
