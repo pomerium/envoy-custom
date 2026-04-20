@@ -1,6 +1,7 @@
 #pragma once
 
 #include "source/extensions/filters/network/ssh/channel.h"
+#include "source/extensions/filters/network/ssh/channel_filter.h"
 #include "source/extensions/filters/network/ssh/stream_tracker.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/service.h"
@@ -52,11 +53,15 @@ public:
     void sendMessageLocal(wire::Message&& msg) override;
     absl::Status sendMessageRemote(wire::Message&& msg) override;
     uint32_t channelId() const override { return channel_id_; }
+    std::optional<std::string_view> channelType() const override { return channel_type_; }
     Stats::Scope& scope() const override { return *scope_; }
     void setStatsProvider(ChannelStatsProvider& stats_provider) override { stats_provider_ = stats_provider; }
     Envoy::OptRef<ChannelStatsProvider> statsProvider() const { return stats_provider_; }
     void terminate(absl::Status err) override {
       parent_.transport_.terminate(err);
+    }
+    void setChannelFilters(std::vector<ChannelFilterPtr> filters) {
+      filters_ = std::move(filters);
     }
 
     [[nodiscard]]
@@ -74,11 +79,13 @@ public:
     ConnectionService& parent_;
     ChannelIDManager& channel_id_mgr_;
     const uint32_t channel_id_;
+    std::optional<std::string> channel_type_;
     const Peer local_peer_;
     Stats::ScopeSharedPtr scope_;
     Envoy::Event::TimerPtr close_timer_;
     Envoy::OptRef<ChannelStatsProvider> stats_provider_;
     std::unique_ptr<Envoy::Common::CallbackManager<void, absl::Status, TransportCallbacks&>> interrupt_callbacks_;
+    std::vector<ChannelFilterPtr> filters_;
   };
 
 protected:

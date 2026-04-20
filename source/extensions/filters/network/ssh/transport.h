@@ -9,6 +9,7 @@
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/common.h"
+#include "source/extensions/filters/network/ssh/channel_filter.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -96,6 +97,7 @@ public:
   virtual Envoy::OptRef<Envoy::Event::Dispatcher> connectionDispatcher() const PURE;
   virtual void terminate(absl::Status status) PURE;
   virtual ChannelIDManager& channelIdManager() PURE;
+  virtual ChannelFilterManager& channelFilterManager() PURE;
   virtual const SecretsProvider& secretsProvider() const PURE;
   virtual Stats::Scope& statsScope() const PURE;
 

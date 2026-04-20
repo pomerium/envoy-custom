@@ -54,6 +54,8 @@ message CodecConfig {
   AlgorithmOptions algorithm_options = 7;
 
   ConnectionServiceOptions connection_service_options = 8;
+
+  repeated string enabled_channel_filters = 9;
 }
 
 message AlgorithmOptions {
@@ -288,11 +290,10 @@ message AllowResponse {
 }
 
 message UpstreamTarget {
-  string                 hostname                 = 1;
-  bool                   allow_mirror_connections = 2;
-  bool                   direct_tcpip             = 3;
-  repeated AllowedMethod allowed_methods          = 4;
-  repeated envoy.config.core.v3.TypedExtensionConfig extensions = 5;
+  string                 hostname        = 1;
+  bool                   direct_tcpip    = 3;
+  repeated AllowedMethod allowed_methods = 4;
+  repeated envoy.config.core.v3.TypedExtensionConfig channel_filters = 5;
 }
 
 message InternalTarget {

@@ -10,6 +10,7 @@
 #include "source/extensions/filters/network/ssh/service.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/transport_base.h"
+#include "source/extensions/filters/network/ssh/channel_filter.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -30,6 +31,7 @@ class SshClientTransport final : public TransportBase<ClientCodec>,
 public:
   SshClientTransport(Envoy::Server::Configuration::ServerFactoryContext& context,
                      std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
+                     ChannelFilterManagerSharedPtr channel_filter_manager,
                      const SecretsProvider& secrets_provider);
   void setCodecCallbacks(GenericProxy::ClientCodecCallbacks& callbacks) override;
 
@@ -53,6 +55,8 @@ public:
     return *channel_id_manager_;
   }
 
+  ChannelFilterManager& channelFilterManager() override { return *channel_filter_manager_; }
+
   void onHandoffComplete() override {
     // handoff is complete, send an empty message to signal the downstream codec
     forwardHeader(wire::IgnoreMsg{}, Sentinel);
@@ -75,6 +79,7 @@ private:
   Envoy::OptRef<Envoy::Event::Dispatcher> connection_dispatcher_;
   std::shared_ptr<ChannelIDManager> channel_id_manager_; // shared with downstream
   std::unique_ptr<PingExtensionHandler> ping_handler_;
+  ChannelFilterManagerSharedPtr channel_filter_manager_;
 
   std::unique_ptr<Envoy::Event::DeferredDeletable> handoff_middleware_;
 
