@@ -47,6 +47,7 @@ public:
   void shutdown(absl::Status err);
 
   class ChannelCallbacksImpl final : public ChannelCallbacks,
+                                     public ChannelFilterCallbacks,
                                      public LinkedObject<ChannelCallbacksImpl> {
   public:
     ChannelCallbacksImpl(ConnectionService& parent, uint32_t channel_id, Peer local_peer);
@@ -73,6 +74,9 @@ public:
       // deleting them becomes a no-op.
       interrupt_callbacks_ = std::make_unique<Envoy::Common::CallbackManager<void, absl::Status, TransportCallbacks&>>();
     }
+
+    // ChannelFilterCallbacks
+    bool interruptChannel(absl::Status err) override;
 
   private:
     void cleanup() override;

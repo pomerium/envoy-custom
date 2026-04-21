@@ -2,7 +2,6 @@
 
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "source/common/status.h"
-// #include "source/extensions/filters/network/ssh/channel_filter.h"
 #include "source/extensions/filters/network/ssh/id_manager.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
@@ -59,7 +58,9 @@ absl::StatusOr<uint32_t> ConnectionService::startChannel(std::unique_ptr<Channel
       filters = filterMgr.createWriteFilters(*callbacks);
       break;
     }
-    callbacks->setChannelFilters(std::move(filters));
+    if (!filters.empty()) {
+      callbacks->setChannelFilters(std::move(filters));
+    }
   }
 
   channel->setChannelCallbacks(*callbacks);
@@ -139,8 +140,9 @@ absl::Status ConnectionService::handleMessage(wire::Message&& msg) {
       ASSERT(channels_.contains(msg.recipient_channel));
       ENVOY_LOG(debug, "internal channel opened successfully: id={}", *msg.recipient_channel);
       // Before passing the message to be handled by the channel, set both IDs to the internal ID
-      // so that if the channel forwards the message, the sender ID will be correctly rewritten
-      // to the ID we just tracked above
+      // so that if the channel forwards the message, the sender ID will be correct. Only the
+      // recipient_channel fields of channel messages are remapped (ChannelOpenConfirmation is
+      // considered a channel message, unlike ChannelOpen)
       msg.sender_channel = msg.recipient_channel;
       if (auto stat = channels_[msg.sender_channel]->readMessage(std::move(msg)); !stat.ok()) {
         return statusf("error opening channel: {}", stat);
@@ -354,41 +356,55 @@ void ConnectionService::ChannelCallbacksImpl::sendMessageLocal(wire::Message&& m
 }
 
 absl::Status ConnectionService::ChannelCallbacksImpl::sendMessageRemote(wire::Message&& msg) {
-  return msg.visit(
-    [&](wire::ChannelOpenMsg& msg) {
-      ENVOY_LOG(debug, "sending ChannelOpen message to remote for channel {}", channel_id_);
-
+  auto sendOk = msg.visit(
+    [&](wire::ChannelOpenMsg& msg) -> absl::StatusOr<bool> {
       ASSERT(!channel_type_.has_value());
       channel_type_ = msg.channel_type();
 
       msg.sender_channel = channel_id_;
-      parent_.transport_.forward(std::move(msg));
-      return absl::OkStatus();
+      return true;
     },
-    [&](wire::ChannelMsg auto& msg) {
+    [&](wire::ChannelMsg auto& msg) -> absl::StatusOr<bool> {
       msg.recipient_channel = channel_id_;
-      auto sendOk = channel_id_mgr_.processOutgoingChannelMsg(msg, local_peer_ == Peer::Downstream
-                                                                     ? Peer::Upstream
-                                                                     : Peer::Downstream);
-      if (!sendOk.ok()) {
-        return sendOk.status();
-      }
-      if (!*sendOk) {
-        ENVOY_LOG(debug, "message for remote channel {} dropped: {}", channel_id_, msg.msg_type());
-        return absl::OkStatus();
-      }
-      ENVOY_LOG(debug, "sending messsage to remote channel {}: {}", channel_id_, msg.msg_type());
-      parent_.transport_.forward(std::move(msg));
-      return absl::OkStatus();
+      return channel_id_mgr_.processOutgoingChannelMsg(msg, local_peer_ == Peer::Downstream
+                                                              ? Peer::Upstream
+                                                              : Peer::Downstream);
     },
-    [&](auto&) -> absl::Status {
+    [](auto&) -> absl::StatusOr<bool> {
       throw Envoy::EnvoyException("bug: invalid message passed to sendMessageRemote()");
     });
+
+  if (!sendOk.ok()) {
+    return sendOk.status();
+  }
+
+  if (!*sendOk) {
+    ENVOY_LOG(debug, "message for remote channel {} dropped: {}", channel_id_, msg.msg_type());
+    return absl::OkStatus();
+  }
+
+  for (auto& filter : filters_) {
+    filter->onMessageForward(std::as_const(msg));
+  }
+
+  ENVOY_LOG(debug, "sending messsage to remote channel {}: {}", channel_id_, msg.msg_type());
+  parent_.transport_.forward(std::move(msg));
+  return absl::OkStatus();
 }
 
 Envoy::Common::CallbackHandlePtr
 ConnectionService::ChannelCallbacksImpl::addInterruptCallback(std::function<void(absl::Status, TransportCallbacks& transport)> cb) {
   return interrupt_callbacks_->add(std::move(cb));
+}
+
+bool ConnectionService::ChannelCallbacksImpl::interruptChannel(absl::Status err) {
+  ENVOY_LOG(debug, "ssh: stream {}: interrupt requested for channel {} by a channel filter",
+            parent_.transport_.streamId(), channel_id_);
+  if (channel_id_mgr_.isPreemptable(channel_id_, local_peer_)) {
+    parent_.preempt(*this, err);
+    return true;
+  }
+  return false;
 }
 
 void ConnectionService::preempt(ChannelCallbacks& ccb, absl::Status err) {

@@ -1,4 +1,5 @@
 
+#include "source/extensions/filters/network/ssh/channel_filter_config.h"
 #include "source/extensions/filters/network/ssh/client_transport.h"
 #include "source/extensions/filters/network/ssh/filter_state_objects.h"
 #include "source/extensions/filters/network/ssh/id_manager.h"
@@ -75,7 +76,8 @@ public:
       : config_(newConfig()),
         server_host_key_(*openssh::SSHKey::generate(KEY_ED25519, 256)),
         secrets_provider_(*config_),
-        transport_(server_factory_context_, config_, secrets_provider_) {}
+        channel_filter_manager_(std::make_shared<ChannelFilterManager>(server_factory_context_, std::vector<std::string>{})),
+        transport_(server_factory_context_, config_, channel_filter_manager_, secrets_provider_) {}
 
   const wire::KexInitMsg kex_init_ = {
     .cookie = {{16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1}},
@@ -512,6 +514,7 @@ public:
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config_;
   openssh::SSHKeyPtr server_host_key_;
   TestSecretsProvider secrets_provider_;
+  ChannelFilterManagerSharedPtr channel_filter_manager_;
   testing::NiceMock<Envoy::Network::MockServerConnection> mock_connection_;
   testing::StrictMock<MockClientCodecCallbacks> client_codec_callbacks_;
   std::shared_ptr<ChannelIDManager> channel_id_manager_;

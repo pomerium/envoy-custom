@@ -1,6 +1,5 @@
 #pragma once
 
-#include "source/extensions/filters/network/ssh/channel_filter.h"
 #pragma clang unsafe_buffer_usage begin
 #include "source/extensions/filters/network/generic_proxy/codec_callbacks.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
@@ -17,6 +16,7 @@
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/transport_base.h"
 #include "source/extensions/filters/network/ssh/service_connection.h"
+#include "source/extensions/filters/network/ssh/channel_filter_config.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 

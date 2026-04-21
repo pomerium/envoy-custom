@@ -1,70 +1,31 @@
 #pragma once
 
-#pragma clang unsafe_buffer_usage begin
-#include "envoy/config/typed_config.h"
-#include "envoy/server/factory_context.h"
-#pragma clang unsafe_buffer_usage end
+#include "source/extensions/filters/network/ssh/channel.h"
+#include "source/extensions/filters/network/ssh/wire/messages.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-class ChannelCallbacks;
-
 class ChannelFilter {
 public:
+  virtual ~ChannelFilter() = default;
+  // Called just before a message is about to be forwarded to the peer.
+  virtual void onMessageForward(const wire::Message& msg) PURE;
 };
+
+class ChannelFilterCallbacks : public ChannelReadOnlyCallbacks {
+public:
+  virtual ~ChannelFilterCallbacks() = default;
+  // Initiate a channel close sequence which will close the channel for all peers. All previously
+  // registered interrupt callbacks (ChannelCallbacks::addInterruptCallback) will be invoked. The
+  // provided error is passed to these callbacks.
+  // Returns true if the connection was successfully interrupted, otherwise false. Some channel
+  // states are not interruptable, for example if the channel is already in the process of being
+  // closed.
+  // This does not necessarily terminate the connection, but the downstream client may disconnect
+  // if this was the last open channel. See ConnectionService::preempt for more details.
+  virtual bool interruptChannel(absl::Status err) PURE;
+};
+
 using ChannelFilterPtr = std::unique_ptr<ChannelFilter>;
-
-class ChannelFilterFactory {
-public:
-  virtual ~ChannelFilterFactory() = default;
-  virtual ChannelFilterPtr createReadFilter(const ChannelCallbacks& channel_callbacks) PURE;
-  virtual ChannelFilterPtr createWriteFilter(const ChannelCallbacks& channel_callbacks) PURE;
-};
-using ChannelFilterFactoryPtr = std::unique_ptr<ChannelFilterFactory>;
-
-class ChannelFilterFactoryConfig : public Config::TypedFactory {
-public:
-  virtual ChannelFilterFactoryPtr createChannelFilterFactory(Envoy::Server::Configuration::ServerFactoryContext& context) PURE;
-
-  std::string category() const override {
-    return "pomerium.ssh.channel_filters";
-  }
-};
-
-class ChannelFilterManager : NonCopyable {
-public:
-  ChannelFilterManager(Envoy::Server::Configuration::ServerFactoryContext& context,
-                       std::vector<std::string> names) {
-    for (const auto& name : names) {
-      auto* factoryConfig = Envoy::Registry::FactoryRegistry<ChannelFilterFactoryConfig>::getFactory(name);
-      if (factoryConfig != nullptr) {
-        factories_.push_back(factoryConfig->createChannelFilterFactory(context));
-      }
-    }
-  }
-
-  bool hasFilters() const { return !factories_.empty(); }
-
-  std::vector<ChannelFilterPtr> createReadFilters(const ChannelCallbacks& channel_callbacks) {
-    std::vector<ChannelFilterPtr> out;
-    for (auto& factory : factories_) {
-      out.push_back(factory->createReadFilter(channel_callbacks));
-    }
-    return out;
-  }
-
-  std::vector<ChannelFilterPtr> createWriteFilters(const ChannelCallbacks& channel_callbacks) {
-    std::vector<ChannelFilterPtr> out;
-    for (auto& factory : factories_) {
-      out.push_back(factory->createWriteFilter(channel_callbacks));
-    }
-    return out;
-  }
-
-private:
-  std::vector<ChannelFilterFactoryPtr> factories_;
-};
-
-using ChannelFilterManagerSharedPtr = std::shared_ptr<ChannelFilterManager>;
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

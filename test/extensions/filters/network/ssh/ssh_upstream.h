@@ -1,5 +1,6 @@
 #pragma once
 
+#include "source/extensions/filters/network/ssh/channel_filter_config.h"
 #include "source/extensions/filters/network/ssh/service_connection.h"
 #include "source/extensions/filters/network/ssh/service_userauth.h"
 #include "source/extensions/filters/network/ssh/transport_base.h"
@@ -140,6 +141,10 @@ protected:
     return channel_id_manager_;
   }
 
+  ChannelFilterManager& channelFilterManager() override {
+    return channel_filter_manager_;
+  }
+
   stream_id_t streamId() const override {
     return 42; // unused, except in logs
   }
@@ -151,6 +156,7 @@ private:
   // order is important here
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config_;
   ChannelIDManager channel_id_manager_{100};
+  ChannelFilterManager channel_filter_manager_{ChannelFilterManager::unused_in_this_test{}};
   MessageDispatcher<wire::Message>* msg_dispatcher_{};
   std::shared_ptr<SshFakeUpstreamHandlerOpts> opts_;
   std::unique_ptr<CodecCallbacks> codec_callbacks_;
