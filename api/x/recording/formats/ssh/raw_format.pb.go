@@ -12,6 +12,7 @@ import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
+	wrapperspb "google.golang.org/protobuf/types/known/wrapperspb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -219,16 +220,15 @@ type UploadConfig struct {
 	// Size of the per-connection recording buffer containing data pending upload to the recording
 	// server
 	DefaultBufferSize uint64 `protobuf:"varint,1,opt,name=default_buffer_size,json=defaultBufferSize,proto3" json:"default_buffer_size,omitempty"`
-	// Types that are valid to be assigned to ConnectionMode:
+	// Types that are valid to be assigned to IpcMode:
 	//
-	//	*UploadConfig_Pipe_
-	//	*UploadConfig_SharedMemory_
-	//	*UploadConfig_GrpcService_
-	ConnectionMode isUploadConfig_ConnectionMode `protobuf_oneof:"connection_mode"`
+	//	*UploadConfig_PipeIpc_
+	//	*UploadConfig_GrpcServiceIpc
+	IpcMode isUploadConfig_IpcMode `protobuf_oneof:"ipc_mode"`
 	// Optional recording compression
-	Compression *v3.TypedExtensionConfig `protobuf:"bytes,6,opt,name=compression,proto3" json:"compression,omitempty"`
+	Compression *v3.TypedExtensionConfig `protobuf:"bytes,5,opt,name=compression,proto3" json:"compression,omitempty"`
 	// Number of worker threads used to process and upload recordings (default 2, minimum 1)
-	Concurrency   *uint32 `protobuf:"varint,7,opt,name=concurrency,proto3,oneof" json:"concurrency,omitempty"`
+	Concurrency   *wrapperspb.UInt32Value `protobuf:"bytes,6,opt,name=concurrency,proto3" json:"concurrency,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -270,35 +270,26 @@ func (x *UploadConfig) GetDefaultBufferSize() uint64 {
 	return 0
 }
 
-func (x *UploadConfig) GetConnectionMode() isUploadConfig_ConnectionMode {
+func (x *UploadConfig) GetIpcMode() isUploadConfig_IpcMode {
 	if x != nil {
-		return x.ConnectionMode
+		return x.IpcMode
 	}
 	return nil
 }
 
-func (x *UploadConfig) GetPipe() *UploadConfig_Pipe {
+func (x *UploadConfig) GetPipeIpc() *UploadConfig_PipeIpc {
 	if x != nil {
-		if x, ok := x.ConnectionMode.(*UploadConfig_Pipe_); ok {
-			return x.Pipe
+		if x, ok := x.IpcMode.(*UploadConfig_PipeIpc_); ok {
+			return x.PipeIpc
 		}
 	}
 	return nil
 }
 
-func (x *UploadConfig) GetSharedMemory() *UploadConfig_SharedMemory {
+func (x *UploadConfig) GetGrpcServiceIpc() *UploadConfig_GrpcService {
 	if x != nil {
-		if x, ok := x.ConnectionMode.(*UploadConfig_SharedMemory_); ok {
-			return x.SharedMemory
-		}
-	}
-	return nil
-}
-
-func (x *UploadConfig) GetGrpcService() *UploadConfig_GrpcService {
-	if x != nil {
-		if x, ok := x.ConnectionMode.(*UploadConfig_GrpcService_); ok {
-			return x.GrpcService
+		if x, ok := x.IpcMode.(*UploadConfig_GrpcServiceIpc); ok {
+			return x.GrpcServiceIpc
 		}
 	}
 	return nil
@@ -311,37 +302,30 @@ func (x *UploadConfig) GetCompression() *v3.TypedExtensionConfig {
 	return nil
 }
 
-func (x *UploadConfig) GetConcurrency() uint32 {
-	if x != nil && x.Concurrency != nil {
-		return *x.Concurrency
+func (x *UploadConfig) GetConcurrency() *wrapperspb.UInt32Value {
+	if x != nil {
+		return x.Concurrency
 	}
-	return 0
+	return nil
 }
 
-type isUploadConfig_ConnectionMode interface {
-	isUploadConfig_ConnectionMode()
+type isUploadConfig_IpcMode interface {
+	isUploadConfig_IpcMode()
 }
 
-type UploadConfig_Pipe_ struct {
+type UploadConfig_PipeIpc_ struct {
 	// Upload recordings via pipe file descriptor managed by the parent process
-	Pipe *UploadConfig_Pipe `protobuf:"bytes,3,opt,name=pipe,proto3,oneof"`
+	PipeIpc *UploadConfig_PipeIpc `protobuf:"bytes,3,opt,name=pipe_ipc,json=pipeIpc,proto3,oneof"`
 }
 
-type UploadConfig_SharedMemory_ struct {
-	// Upload recordings using shared memory
-	SharedMemory *UploadConfig_SharedMemory `protobuf:"bytes,4,opt,name=shared_memory,json=sharedMemory,proto3,oneof"`
-}
-
-type UploadConfig_GrpcService_ struct {
+type UploadConfig_GrpcServiceIpc struct {
 	// Upload to a grpc service
-	GrpcService *UploadConfig_GrpcService `protobuf:"bytes,5,opt,name=grpc_service,json=grpcService,proto3,oneof"`
+	GrpcServiceIpc *UploadConfig_GrpcService `protobuf:"bytes,4,opt,name=grpc_service_ipc,json=grpcServiceIpc,proto3,oneof"`
 }
 
-func (*UploadConfig_Pipe_) isUploadConfig_ConnectionMode() {}
+func (*UploadConfig_PipeIpc_) isUploadConfig_IpcMode() {}
 
-func (*UploadConfig_SharedMemory_) isUploadConfig_ConnectionMode() {}
-
-func (*UploadConfig_GrpcService_) isUploadConfig_ConnectionMode() {}
+func (*UploadConfig_GrpcServiceIpc) isUploadConfig_IpcMode() {}
 
 // This extension is added to [pomerium.extensions.ssh.UpstreamTarget] to enable session recording
 // and configure related options.
@@ -350,7 +334,7 @@ type UpstreamTargetExtensionConfig struct {
 	// What to do if the buffer runs out of space for this connection
 	BufferExhaustMode BufferExhaustMode `protobuf:"varint,1,opt,name=buffer_exhaust_mode,json=bufferExhaustMode,proto3,enum=pomerium.x.recording.formats.ssh.BufferExhaustMode" json:"buffer_exhaust_mode,omitempty"`
 	// Override the default buffer size
-	BufferSize    *uint64 `protobuf:"varint,2,opt,name=buffer_size,json=bufferSize,proto3,oneof" json:"buffer_size,omitempty"`
+	BufferSize    *wrapperspb.UInt64Value `protobuf:"bytes,2,opt,name=buffer_size,json=bufferSize,proto3" json:"buffer_size,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -392,11 +376,11 @@ func (x *UpstreamTargetExtensionConfig) GetBufferExhaustMode() BufferExhaustMode
 	return BufferExhaustMode_Disconnect
 }
 
-func (x *UpstreamTargetExtensionConfig) GetBufferSize() uint64 {
-	if x != nil && x.BufferSize != nil {
-		return *x.BufferSize
+func (x *UpstreamTargetExtensionConfig) GetBufferSize() *wrapperspb.UInt64Value {
+	if x != nil {
+		return x.BufferSize
 	}
-	return 0
+	return nil
 }
 
 type RecordingMetadata struct {
@@ -670,28 +654,27 @@ func (*Packet_ChannelData) isPacket_Payload() {}
 
 func (*Packet_SshMessage) isPacket_Payload() {}
 
-type UploadConfig_Pipe struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	WriteFd       int32                  `protobuf:"varint,1,opt,name=write_fd,json=writeFd,proto3" json:"write_fd,omitempty"`
-	ReadFd        int32                  `protobuf:"varint,2,opt,name=read_fd,json=readFd,proto3" json:"read_fd,omitempty"`
+type UploadConfig_PipeIpc struct {
+	state         protoimpl.MessageState         `protogen:"open.v1"`
+	Pipes         []*UploadConfig_PipeIpc_FdPair `protobuf:"bytes,1,rep,name=pipes,proto3" json:"pipes,omitempty"` // one pipe per thread; size must match the value of `concurrency`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *UploadConfig_Pipe) Reset() {
-	*x = UploadConfig_Pipe{}
+func (x *UploadConfig_PipeIpc) Reset() {
+	*x = UploadConfig_PipeIpc{}
 	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *UploadConfig_Pipe) String() string {
+func (x *UploadConfig_PipeIpc) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*UploadConfig_Pipe) ProtoMessage() {}
+func (*UploadConfig_PipeIpc) ProtoMessage() {}
 
-func (x *UploadConfig_Pipe) ProtoReflect() protoreflect.Message {
+func (x *UploadConfig_PipeIpc) ProtoReflect() protoreflect.Message {
 	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -703,67 +686,16 @@ func (x *UploadConfig_Pipe) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use UploadConfig_Pipe.ProtoReflect.Descriptor instead.
-func (*UploadConfig_Pipe) Descriptor() ([]byte, []int) {
+// Deprecated: Use UploadConfig_PipeIpc.ProtoReflect.Descriptor instead.
+func (*UploadConfig_PipeIpc) Descriptor() ([]byte, []int) {
 	return file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_rawDescGZIP(), []int{1, 0}
 }
 
-func (x *UploadConfig_Pipe) GetWriteFd() int32 {
+func (x *UploadConfig_PipeIpc) GetPipes() []*UploadConfig_PipeIpc_FdPair {
 	if x != nil {
-		return x.WriteFd
+		return x.Pipes
 	}
-	return 0
-}
-
-func (x *UploadConfig_Pipe) GetReadFd() int32 {
-	if x != nil {
-		return x.ReadFd
-	}
-	return 0
-}
-
-type UploadConfig_SharedMemory struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Address       uint64                 `protobuf:"varint,1,opt,name=address,proto3" json:"address,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *UploadConfig_SharedMemory) Reset() {
-	*x = UploadConfig_SharedMemory{}
-	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[7]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *UploadConfig_SharedMemory) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*UploadConfig_SharedMemory) ProtoMessage() {}
-
-func (x *UploadConfig_SharedMemory) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[7]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use UploadConfig_SharedMemory.ProtoReflect.Descriptor instead.
-func (*UploadConfig_SharedMemory) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_rawDescGZIP(), []int{1, 1}
-}
-
-func (x *UploadConfig_SharedMemory) GetAddress() uint64 {
-	if x != nil {
-		return x.Address
-	}
-	return 0
+	return nil
 }
 
 type UploadConfig_GrpcService struct {
@@ -775,7 +707,7 @@ type UploadConfig_GrpcService struct {
 
 func (x *UploadConfig_GrpcService) Reset() {
 	*x = UploadConfig_GrpcService{}
-	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[8]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -787,7 +719,7 @@ func (x *UploadConfig_GrpcService) String() string {
 func (*UploadConfig_GrpcService) ProtoMessage() {}
 
 func (x *UploadConfig_GrpcService) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[8]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -800,7 +732,7 @@ func (x *UploadConfig_GrpcService) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadConfig_GrpcService.ProtoReflect.Descriptor instead.
 func (*UploadConfig_GrpcService) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_rawDescGZIP(), []int{1, 2}
+	return file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_rawDescGZIP(), []int{1, 1}
 }
 
 func (x *UploadConfig_GrpcService) GetService() *v3.GrpcService {
@@ -810,34 +742,84 @@ func (x *UploadConfig_GrpcService) GetService() *v3.GrpcService {
 	return nil
 }
 
+type UploadConfig_PipeIpc_FdPair struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ReadFd        int32                  `protobuf:"varint,1,opt,name=read_fd,json=readFd,proto3" json:"read_fd,omitempty"`
+	WriteFd       int32                  `protobuf:"varint,2,opt,name=write_fd,json=writeFd,proto3" json:"write_fd,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UploadConfig_PipeIpc_FdPair) Reset() {
+	*x = UploadConfig_PipeIpc_FdPair{}
+	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UploadConfig_PipeIpc_FdPair) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UploadConfig_PipeIpc_FdPair) ProtoMessage() {}
+
+func (x *UploadConfig_PipeIpc_FdPair) ProtoReflect() protoreflect.Message {
+	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UploadConfig_PipeIpc_FdPair.ProtoReflect.Descriptor instead.
+func (*UploadConfig_PipeIpc_FdPair) Descriptor() ([]byte, []int) {
+	return file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_rawDescGZIP(), []int{1, 0, 0}
+}
+
+func (x *UploadConfig_PipeIpc_FdPair) GetReadFd() int32 {
+	if x != nil {
+		return x.ReadFd
+	}
+	return 0
+}
+
+func (x *UploadConfig_PipeIpc_FdPair) GetWriteFd() int32 {
+	if x != nil {
+		return x.WriteFd
+	}
+	return 0
+}
+
 var File_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto protoreflect.FileDescriptor
 
 const file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_rawDesc = "" +
 	"\n" +
-	"Mgithub.com/pomerium/envoy-custom/api/x/recording/formats/ssh/raw_format.proto\x12 pomerium.x.recording.formats.ssh\x1aMgithub.com/pomerium/envoy-custom/api/extensions/filters/network/ssh/ssh.proto\x1a$envoy/config/core/v3/extension.proto\x1a'envoy/config/core/v3/grpc_service.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"]\n" +
+	"Mgithub.com/pomerium/envoy-custom/api/x/recording/formats/ssh/raw_format.proto\x12 pomerium.x.recording.formats.ssh\x1aMgithub.com/pomerium/envoy-custom/api/extensions/filters/network/ssh/ssh.proto\x1a$envoy/config/core/v3/extension.proto\x1a'envoy/config/core/v3/grpc_service.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\"]\n" +
 	"\x06Config\x12S\n" +
-	"\rupload_config\x18\x01 \x01(\v2..pomerium.x.recording.formats.ssh.UploadConfigR\fuploadConfig\"\x98\x05\n" +
+	"\rupload_config\x18\x01 \x01(\v2..pomerium.x.recording.formats.ssh.UploadConfigR\fuploadConfig\"\x80\x05\n" +
 	"\fUploadConfig\x12.\n" +
-	"\x13default_buffer_size\x18\x01 \x01(\x04R\x11defaultBufferSize\x12I\n" +
-	"\x04pipe\x18\x03 \x01(\v23.pomerium.x.recording.formats.ssh.UploadConfig.PipeH\x00R\x04pipe\x12b\n" +
-	"\rshared_memory\x18\x04 \x01(\v2;.pomerium.x.recording.formats.ssh.UploadConfig.SharedMemoryH\x00R\fsharedMemory\x12_\n" +
-	"\fgrpc_service\x18\x05 \x01(\v2:.pomerium.x.recording.formats.ssh.UploadConfig.GrpcServiceH\x00R\vgrpcService\x12L\n" +
-	"\vcompression\x18\x06 \x01(\v2*.envoy.config.core.v3.TypedExtensionConfigR\vcompression\x12%\n" +
-	"\vconcurrency\x18\a \x01(\rH\x01R\vconcurrency\x88\x01\x01\x1a:\n" +
-	"\x04Pipe\x12\x19\n" +
-	"\bwrite_fd\x18\x01 \x01(\x05R\awriteFd\x12\x17\n" +
-	"\aread_fd\x18\x02 \x01(\x05R\x06readFd\x1a(\n" +
-	"\fSharedMemory\x12\x18\n" +
-	"\aaddress\x18\x01 \x01(\x04R\aaddress\x1aJ\n" +
+	"\x13default_buffer_size\x18\x01 \x01(\x04R\x11defaultBufferSize\x12S\n" +
+	"\bpipe_ipc\x18\x03 \x01(\v26.pomerium.x.recording.formats.ssh.UploadConfig.PipeIpcH\x00R\apipeIpc\x12f\n" +
+	"\x10grpc_service_ipc\x18\x04 \x01(\v2:.pomerium.x.recording.formats.ssh.UploadConfig.GrpcServiceH\x00R\x0egrpcServiceIpc\x12L\n" +
+	"\vcompression\x18\x05 \x01(\v2*.envoy.config.core.v3.TypedExtensionConfigR\vcompression\x12>\n" +
+	"\vconcurrency\x18\x06 \x01(\v2\x1c.google.protobuf.UInt32ValueR\vconcurrency\x1a\x9c\x01\n" +
+	"\aPipeIpc\x12S\n" +
+	"\x05pipes\x18\x01 \x03(\v2=.pomerium.x.recording.formats.ssh.UploadConfig.PipeIpc.FdPairR\x05pipes\x1a<\n" +
+	"\x06FdPair\x12\x17\n" +
+	"\aread_fd\x18\x01 \x01(\x05R\x06readFd\x12\x19\n" +
+	"\bwrite_fd\x18\x02 \x01(\x05R\awriteFd\x1aJ\n" +
 	"\vGrpcService\x12;\n" +
-	"\aservice\x18\x01 \x01(\v2!.envoy.config.core.v3.GrpcServiceR\aserviceB\x11\n" +
-	"\x0fconnection_modeB\x0e\n" +
-	"\f_concurrency\"\xba\x01\n" +
+	"\aservice\x18\x01 \x01(\v2!.envoy.config.core.v3.GrpcServiceR\aserviceB\n" +
+	"\n" +
+	"\bipc_mode\"\xc3\x01\n" +
 	"\x1dUpstreamTargetExtensionConfig\x12c\n" +
-	"\x13buffer_exhaust_mode\x18\x01 \x01(\x0e23.pomerium.x.recording.formats.ssh.BufferExhaustModeR\x11bufferExhaustMode\x12$\n" +
-	"\vbuffer_size\x18\x02 \x01(\x04H\x00R\n" +
-	"bufferSize\x88\x01\x01B\x0e\n" +
-	"\f_buffer_size\"\xc8\x03\n" +
+	"\x13buffer_exhaust_mode\x18\x01 \x01(\x0e23.pomerium.x.recording.formats.ssh.BufferExhaustModeR\x11bufferExhaustMode\x12=\n" +
+	"\vbuffer_size\x18\x02 \x01(\v2\x1c.google.protobuf.UInt64ValueR\n" +
+	"bufferSize\"\xc8\x03\n" +
 	"\x11RecordingMetadata\x12)\n" +
 	"\x10protocol_version\x18\x01 \x01(\rR\x0fprotocolVersion\x12+\n" +
 	"\x11uncompressed_size\x18\x04 \x01(\x04R\x10uncompressedSize\x129\n" +
@@ -901,34 +883,38 @@ var file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format
 	(*RecordingMetadata)(nil),              // 6: pomerium.x.recording.formats.ssh.RecordingMetadata
 	(*RecordingTrailer)(nil),               // 7: pomerium.x.recording.formats.ssh.RecordingTrailer
 	(*Packet)(nil),                         // 8: pomerium.x.recording.formats.ssh.Packet
-	(*UploadConfig_Pipe)(nil),              // 9: pomerium.x.recording.formats.ssh.UploadConfig.Pipe
-	(*UploadConfig_SharedMemory)(nil),      // 10: pomerium.x.recording.formats.ssh.UploadConfig.SharedMemory
-	(*UploadConfig_GrpcService)(nil),       // 11: pomerium.x.recording.formats.ssh.UploadConfig.GrpcService
+	(*UploadConfig_PipeIpc)(nil),           // 9: pomerium.x.recording.formats.ssh.UploadConfig.PipeIpc
+	(*UploadConfig_GrpcService)(nil),       // 10: pomerium.x.recording.formats.ssh.UploadConfig.GrpcService
+	(*UploadConfig_PipeIpc_FdPair)(nil),    // 11: pomerium.x.recording.formats.ssh.UploadConfig.PipeIpc.FdPair
 	(*v3.TypedExtensionConfig)(nil),        // 12: envoy.config.core.v3.TypedExtensionConfig
-	(*timestamppb.Timestamp)(nil),          // 13: google.protobuf.Timestamp
-	(*ssh.UpstreamTarget)(nil),             // 14: pomerium.extensions.ssh.UpstreamTarget
-	(*ssh.SSHDownstreamPTYInfo)(nil),       // 15: pomerium.extensions.ssh.SSHDownstreamPTYInfo
-	(*v3.GrpcService)(nil),                 // 16: envoy.config.core.v3.GrpcService
+	(*wrapperspb.UInt32Value)(nil),         // 13: google.protobuf.UInt32Value
+	(*wrapperspb.UInt64Value)(nil),         // 14: google.protobuf.UInt64Value
+	(*timestamppb.Timestamp)(nil),          // 15: google.protobuf.Timestamp
+	(*ssh.UpstreamTarget)(nil),             // 16: pomerium.extensions.ssh.UpstreamTarget
+	(*ssh.SSHDownstreamPTYInfo)(nil),       // 17: pomerium.extensions.ssh.SSHDownstreamPTYInfo
+	(*v3.GrpcService)(nil),                 // 18: envoy.config.core.v3.GrpcService
 }
 var file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_depIdxs = []int32{
 	4,  // 0: pomerium.x.recording.formats.ssh.Config.upload_config:type_name -> pomerium.x.recording.formats.ssh.UploadConfig
-	9,  // 1: pomerium.x.recording.formats.ssh.UploadConfig.pipe:type_name -> pomerium.x.recording.formats.ssh.UploadConfig.Pipe
-	10, // 2: pomerium.x.recording.formats.ssh.UploadConfig.shared_memory:type_name -> pomerium.x.recording.formats.ssh.UploadConfig.SharedMemory
-	11, // 3: pomerium.x.recording.formats.ssh.UploadConfig.grpc_service:type_name -> pomerium.x.recording.formats.ssh.UploadConfig.GrpcService
-	12, // 4: pomerium.x.recording.formats.ssh.UploadConfig.compression:type_name -> envoy.config.core.v3.TypedExtensionConfig
+	9,  // 1: pomerium.x.recording.formats.ssh.UploadConfig.pipe_ipc:type_name -> pomerium.x.recording.formats.ssh.UploadConfig.PipeIpc
+	10, // 2: pomerium.x.recording.formats.ssh.UploadConfig.grpc_service_ipc:type_name -> pomerium.x.recording.formats.ssh.UploadConfig.GrpcService
+	12, // 3: pomerium.x.recording.formats.ssh.UploadConfig.compression:type_name -> envoy.config.core.v3.TypedExtensionConfig
+	13, // 4: pomerium.x.recording.formats.ssh.UploadConfig.concurrency:type_name -> google.protobuf.UInt32Value
 	0,  // 5: pomerium.x.recording.formats.ssh.UpstreamTargetExtensionConfig.buffer_exhaust_mode:type_name -> pomerium.x.recording.formats.ssh.BufferExhaustMode
-	13, // 6: pomerium.x.recording.formats.ssh.RecordingMetadata.start_time:type_name -> google.protobuf.Timestamp
-	14, // 7: pomerium.x.recording.formats.ssh.RecordingMetadata.upstream:type_name -> pomerium.extensions.ssh.UpstreamTarget
-	15, // 8: pomerium.x.recording.formats.ssh.RecordingMetadata.pty_info:type_name -> pomerium.extensions.ssh.SSHDownstreamPTYInfo
-	13, // 9: pomerium.x.recording.formats.ssh.RecordingTrailer.end_time:type_name -> google.protobuf.Timestamp
-	2,  // 10: pomerium.x.recording.formats.ssh.RecordingTrailer.disconnect_reason:type_name -> pomerium.x.recording.formats.ssh.RecordingTrailer.DisconnectReason
-	1,  // 11: pomerium.x.recording.formats.ssh.Packet.direction:type_name -> pomerium.x.recording.formats.ssh.PacketDirection
-	16, // 12: pomerium.x.recording.formats.ssh.UploadConfig.GrpcService.service:type_name -> envoy.config.core.v3.GrpcService
-	13, // [13:13] is the sub-list for method output_type
-	13, // [13:13] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	14, // 6: pomerium.x.recording.formats.ssh.UpstreamTargetExtensionConfig.buffer_size:type_name -> google.protobuf.UInt64Value
+	15, // 7: pomerium.x.recording.formats.ssh.RecordingMetadata.start_time:type_name -> google.protobuf.Timestamp
+	16, // 8: pomerium.x.recording.formats.ssh.RecordingMetadata.upstream:type_name -> pomerium.extensions.ssh.UpstreamTarget
+	17, // 9: pomerium.x.recording.formats.ssh.RecordingMetadata.pty_info:type_name -> pomerium.extensions.ssh.SSHDownstreamPTYInfo
+	15, // 10: pomerium.x.recording.formats.ssh.RecordingTrailer.end_time:type_name -> google.protobuf.Timestamp
+	2,  // 11: pomerium.x.recording.formats.ssh.RecordingTrailer.disconnect_reason:type_name -> pomerium.x.recording.formats.ssh.RecordingTrailer.DisconnectReason
+	1,  // 12: pomerium.x.recording.formats.ssh.Packet.direction:type_name -> pomerium.x.recording.formats.ssh.PacketDirection
+	11, // 13: pomerium.x.recording.formats.ssh.UploadConfig.PipeIpc.pipes:type_name -> pomerium.x.recording.formats.ssh.UploadConfig.PipeIpc.FdPair
+	18, // 14: pomerium.x.recording.formats.ssh.UploadConfig.GrpcService.service:type_name -> envoy.config.core.v3.GrpcService
+	15, // [15:15] is the sub-list for method output_type
+	15, // [15:15] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() {
@@ -939,11 +925,9 @@ func file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_forma
 		return
 	}
 	file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[1].OneofWrappers = []any{
-		(*UploadConfig_Pipe_)(nil),
-		(*UploadConfig_SharedMemory_)(nil),
-		(*UploadConfig_GrpcService_)(nil),
+		(*UploadConfig_PipeIpc_)(nil),
+		(*UploadConfig_GrpcServiceIpc)(nil),
 	}
-	file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[2].OneofWrappers = []any{}
 	file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[5].OneofWrappers = []any{
 		(*Packet_ChannelData)(nil),
 		(*Packet_SshMessage)(nil),
