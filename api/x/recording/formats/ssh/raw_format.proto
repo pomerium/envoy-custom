@@ -6,6 +6,7 @@ import "api/extensions/filters/network/ssh/ssh.proto";
 import "envoy/config/core/v3/extension.proto";
 import "envoy/config/core/v3/grpc_service.proto";
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
 
 option go_package = "github.com/pomerium/envoy-custom/api/x/recording/formats/ssh";
 
@@ -25,31 +26,29 @@ message UploadConfig {
   // server
   uint64 default_buffer_size = 1;
 
-  message Pipe {
-    int32 write_fd = 1;
-    int32 read_fd  = 2;
-  }
-  message SharedMemory {
-    uint64 address = 1;
+  message PipeIpc {
+    message FdPair {
+      int32 read_fd  = 1;
+      int32 write_fd = 2;
+    }
+    repeated FdPair pipes = 1; // one pipe per thread; size must match the value of `concurrency`
   }
   message GrpcService {
     envoy.config.core.v3.GrpcService service = 1;
   }
 
-  oneof connection_mode {
+  oneof ipc_mode {
     // Upload recordings via pipe file descriptor managed by the parent process
-    Pipe pipe = 3;
-    // Upload recordings using shared memory
-    SharedMemory shared_memory = 4;
+    PipeIpc pipe_ipc = 3;
     // Upload to a grpc service
-    GrpcService grpc_service = 5;
+    GrpcService grpc_service_ipc = 4;
   }
 
   // Optional recording compression
-  envoy.config.core.v3.TypedExtensionConfig compression = 6;
+  envoy.config.core.v3.TypedExtensionConfig compression = 5;
 
   // Number of worker threads used to process and upload recordings (default 2, minimum 1)
-  optional uint32 concurrency = 7;
+  google.protobuf.UInt32Value concurrency = 6;
 }
 
 // This extension is added to [pomerium.extensions.ssh.UpstreamTarget] to enable session recording
@@ -58,7 +57,7 @@ message UpstreamTargetExtensionConfig {
   // What to do if the buffer runs out of space for this connection
   BufferExhaustMode buffer_exhaust_mode = 1;
   // Override the default buffer size
-  optional uint64 buffer_size = 2;
+  google.protobuf.UInt64Value buffer_size = 2;
 }
 
 message RecordingMetadata {

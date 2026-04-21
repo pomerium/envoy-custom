@@ -12,7 +12,8 @@ service RecordingService {
 }
 
 message RecordingSession {
-  ChunkManifest manifest = 1;
+  string        recording_id = 1;
+  ChunkManifest manifest     = 2;
 }
 
 message RecordingData {
@@ -45,8 +46,8 @@ message ChunkManifest {
 }
 
 message ChunkMetadata {
-  uint32                             size     = 1;
-  bytes                              checksum = 2;
-  optional google.protobuf.Timestamp start    = 3;
-  optional google.protobuf.Timestamp end      = 4;
+  uint32                    size     = 1;
+  bytes                     checksum = 2;
+  google.protobuf.Timestamp start    = 3;
+  google.protobuf.Timestamp end      = 4;
 }
