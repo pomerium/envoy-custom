@@ -171,6 +171,10 @@ protected:
     PANIC("unused");
   }
 
+  ChannelFilterManager& channelFilterManager() override {
+    return channel_filter_manager_;
+  }
+
   stream_id_t streamId() const override {
     return 42; // unused, except in logs
   }
@@ -238,6 +242,7 @@ protected:
 
   Envoy::Network::ReadFilterCallbacks* read_filter_callbacks_{nullptr};
   Network::ClientConnectionPtr client_connection_;
+  ChannelFilterManager channel_filter_manager_{ChannelFilterManager::unused_in_this_test{}};
 
   absl::Notification on_kex_completed_;
   std::shared_ptr<KexResult> kex_result_;

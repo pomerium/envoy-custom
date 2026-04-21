@@ -4,6 +4,7 @@
 #include <cstdlib>
 
 #include "source/extensions/filters/network/ssh/channel.h"
+#include "source/extensions/filters/network/ssh/channel_filter_config.h"
 #include "source/extensions/filters/network/ssh/id_manager.h"
 #include "source/extensions/filters/network/ssh/service_connection.h"
 #include "source/extensions/filters/network/ssh/stream_tracker.h"
@@ -12,6 +13,7 @@
 #include "test/extensions/filters/network/ssh/wire/test_field_reflect.h"
 #include "test/mocks/server/server_factory_context.h"
 #include "test/test_common/test_common.h"
+#include "test/test_common/registry.h"
 
 // Note: these tests are separate from the regular ConnectionService tests, due to the dependency
 // on MockServerFactoryContext which triples compile time
@@ -30,11 +32,34 @@ public:
   UpstreamConnectionServiceTest() {
     transport_ = std::make_unique<testing::StrictMock<MockUpstreamTransportCallbacks>>();
     service_ = std::make_unique<UpstreamConnectionService>(ConnectionServiceOptions{}, *transport_);
+    channel_filter_manager_ = std::make_unique<ChannelFilterManager>(context_, std::vector<std::string>{});
     service_->registerMessageHandlers(msg_dispatcher_);
+    EXPECT_CALL(*transport_, streamId)
+      .WillRepeatedly(Return(1));
+    EXPECT_CALL(*transport_, channelIdManager)
+      .WillRepeatedly(ReturnRef(channel_id_manager_));
+    EXPECT_CALL(*transport_, secretsProvider)
+      .WillRepeatedly(ReturnRef(secrets_provider_));
+    EXPECT_CALL(*transport_, statsScope)
+      .Times(AnyNumber());
+    EXPECT_CALL(*transport_, connectionDispatcher)
+      .WillRepeatedly([this] -> Envoy::OptRef<Envoy::Event::Dispatcher> {
+        return mock_dispatcher_;
+      });
+    EXPECT_CALL(*transport_, channelFilterManager)
+      .Times(AnyNumber())
+      .WillRepeatedly([this] -> ChannelFilterManager& {
+        return *channel_filter_manager_;
+      });
   }
 
 protected:
+  NiceMock<Envoy::Event::MockDispatcher> mock_dispatcher_; // field order is important
+  ChannelIDManager channel_id_manager_{100, 100};
+  TestSecretsProvider secrets_provider_;
   TestSshMessageDispatcher msg_dispatcher_;
+  testing::NiceMock<Server::Configuration::MockServerFactoryContext> context_;
+  std::unique_ptr<ChannelFilterManager> channel_filter_manager_;
   std::unique_ptr<testing::StrictMock<MockUpstreamTransportCallbacks>> transport_;
   std::unique_ptr<UpstreamConnectionService> service_;
 };
@@ -64,8 +89,8 @@ public:
   DownstreamConnectionServiceTest() {
     transport_ = std::make_unique<testing::StrictMock<MockDownstreamTransportCallbacks>>();
     service_ = std::make_unique<DownstreamConnectionService>(ConnectionServiceOptions{}, *transport_, std::make_shared<StreamTracker>(context_));
+    channel_filter_manager_ = std::make_unique<ChannelFilterManager>(context_, std::vector<std::string>{});
     service_->registerMessageHandlers(msg_dispatcher_);
-
     EXPECT_CALL(*transport_, streamId)
       .WillRepeatedly(Return(1));
     EXPECT_CALL(*transport_, channelIdManager)
@@ -78,6 +103,11 @@ public:
       .WillRepeatedly([this] -> Envoy::OptRef<Envoy::Event::Dispatcher> {
         return mock_dispatcher_;
       });
+    EXPECT_CALL(*transport_, channelFilterManager)
+      .Times(AnyNumber())
+      .WillRepeatedly([this] -> ChannelFilterManager& {
+        return *channel_filter_manager_;
+      });
   }
 
 protected:
@@ -86,6 +116,7 @@ protected:
   TestSecretsProvider secrets_provider_;
   TestSshMessageDispatcher msg_dispatcher_;
   testing::NiceMock<Server::Configuration::MockServerFactoryContext> context_;
+  std::unique_ptr<ChannelFilterManager> channel_filter_manager_;
   std::unique_ptr<testing::StrictMock<MockDownstreamTransportCallbacks>> transport_;
   std::unique_ptr<DownstreamConnectionService> service_;
 };
@@ -185,6 +216,247 @@ TEST_F(DownstreamConnectionServiceTest, TestStatsTimer) {
   EXPECT_EQ(101, stats2.channel_id());
   EXPECT_EQ(2, stats2.rx_bytes_total());
   EXPECT_EQ(2, stats2.tx_bytes_total());
+}
+
+TEST_F(DownstreamConnectionServiceTest, TestChannelReadFilters) {
+  testing::NiceMock<MockChannelFilterFactoryConfig> cfg;
+  ON_CALL(cfg, createEmptyConfigProto).WillByDefault([] {
+    return std::make_unique<Envoy::Protobuf::StringValue>();
+  });
+  ON_CALL(cfg, name).WillByDefault(Return("test_channel_filter"));
+
+  IN_SEQUENCE;
+
+  auto factory = std::make_unique<testing::StrictMock<MockChannelFilterFactory>>();
+  auto filter = std::make_unique<testing::StrictMock<MockChannelFilter>>();
+  EXPECT_CALL(cfg, createChannelFilterFactory)
+    .WillOnce([&] {
+      return std::move(factory);
+    });
+
+  auto ch1 = std::make_unique<testing::StrictMock<MockChannel>>();
+  ChannelFilterCallbacks* channelFilterCallbacks{};
+  ChannelCallbacks* ch1Callbacks{};
+  auto channelId = *channel_id_manager_.allocateNewChannel(Peer::Downstream);
+
+  EXPECT_CALL(*factory, createReadFilter)
+    .WillOnce([&](ChannelFilterCallbacks& filter_callbacks) {
+      channelFilterCallbacks = &filter_callbacks;
+      EXPECT_EQ(channelId, filter_callbacks.channelId());
+      // no channel open message has been received yet, so channelType should return nullopt
+      EXPECT_EQ(std::nullopt, filter_callbacks.channelType());
+      return std::move(filter);
+    });
+  EXPECT_CALL(*ch1, setChannelCallbacks)
+    .WillOnce([ch1 = ch1.get(), &ch1Callbacks](ChannelCallbacks& cb) {
+      ch1->Channel::setChannelCallbacks(cb);
+      ch1Callbacks = &cb;
+    });
+
+  Registry::InjectFactory<ChannelFilterFactoryConfig> inject(cfg);
+  channel_filter_manager_.reset(new ChannelFilterManager(context_, {"test_channel_filter"}));
+
+  // 1) receive channel open
+  EXPECT_CALL(*ch1, readChannelOpen)
+    .WillOnce([&ch1Callbacks](wire::ChannelOpenMsg&& msg) {
+      EXPECT_EQ(1u, *msg.sender_channel);
+      EXPECT_EQ("session", msg.channel_type());
+      return ch1Callbacks->sendMessageRemote(std::move(msg));
+    });
+  EXPECT_CALL(*filter, onMessageForward(MSG(wire::ChannelOpenMsg,
+                                            FIELD_EQ(sender_channel, channelId),
+                                            FIELD(request, SUB_MSG(wire::SessionChannelOpenMsg, _)))))
+    .WillOnce(InvokeWithoutArgs([&ch1Callbacks] {
+      EXPECT_EQ("session", ch1Callbacks->channelType());
+    }));
+  EXPECT_CALL(*transport_, forward(MSG(wire::ChannelOpenMsg,
+                                       FIELD_EQ(sender_channel, channelId),
+                                       FIELD(request, SUB_MSG(wire::SessionChannelOpenMsg, _))),
+                                   _));
+
+  // 2) receive channel data
+  EXPECT_CALL(*ch1, readMessage(MSG(wire::ChannelDataMsg,
+                                    FIELD_EQ(recipient_channel, channelId),
+                                    FIELD(data, "hello world"_bytes))))
+    .WillOnce([&ch1Callbacks](wire::Message&& msg) {
+      return ch1Callbacks->sendMessageRemote(std::move(msg));
+    });
+  EXPECT_CALL(*filter, onMessageForward(MSG(wire::ChannelDataMsg,
+                                            FIELD_EQ(recipient_channel, 2u),
+                                            FIELD(data, "hello world"_bytes))));
+  EXPECT_CALL(*transport_, forward(MSG(wire::ChannelDataMsg,
+                                       FIELD_EQ(recipient_channel, 2u),
+                                       FIELD(data, "hello world"_bytes)),
+                                   _));
+
+  // 3) interrupt
+  EXPECT_CALL(*transport_, sendMessageToConnection(MSG(wire::ChannelCloseMsg,
+                                                       FIELD_EQ(recipient_channel, 1u))))
+    .WillOnce(Return(0uz));
+
+  EXPECT_CALL(*ch1, readMessage(MSG(wire::ChannelCloseMsg,
+                                    FIELD_EQ(recipient_channel, channelId))))
+    .WillOnce([&ch1Callbacks](wire::Message&& msg) {
+      return ch1Callbacks->sendMessageRemote(std::move(msg));
+    });
+  EXPECT_CALL(*filter, onMessageForward(MSG(wire::ChannelCloseMsg,
+                                            FIELD_EQ(recipient_channel, 2u))));
+  EXPECT_CALL(*transport_, forward(MSG(wire::ChannelCloseMsg,
+                                       FIELD_EQ(recipient_channel, 2u)),
+                                   _));
+  EXPECT_CALL(*ch1, Die);
+
+  //
+
+  ASSERT_OK(service_->startChannel(std::move(ch1),
+                                   {
+                                     .allocated_channel_id = channelId,
+                                     .channel_open = wire::ChannelOpenMsg{
+                                       .sender_channel = 1,
+                                       .request = wire::SessionChannelOpenMsg{},
+                                     },
+                                   }));
+  ASSERT_OK(channel_id_manager_.bindChannelID(channelId, PeerLocalID{
+                                                           .channel_id = 2,
+                                                           .local_peer = Upstream,
+                                                         }));
+
+  ASSERT_OK(service_->handleMessage(wire::ChannelDataMsg{
+    .recipient_channel = channelId,
+    .data = "hello world"_bytes,
+  }));
+
+  bool called{};
+  auto cbHandle = ch1Callbacks->addInterruptCallback([&called](absl::Status err, TransportCallbacks&) {
+    EXPECT_EQ(absl::InternalError("test error"), err);
+    called = true;
+  });
+  channelFilterCallbacks->interruptChannel(absl::InternalError("test error"));
+  EXPECT_TRUE(called);
+  ASSERT_OK(service_->handleMessage(wire::ChannelCloseMsg{
+    .recipient_channel = channelId,
+  }));
+}
+
+TEST_F(UpstreamConnectionServiceTest, TestChannelWriteFilters) {
+  testing::NiceMock<MockChannelFilterFactoryConfig> cfg;
+  ON_CALL(cfg, createEmptyConfigProto).WillByDefault([] {
+    return std::make_unique<Envoy::Protobuf::StringValue>();
+  });
+  ON_CALL(cfg, name).WillByDefault(Return("test_channel_filter"));
+
+  IN_SEQUENCE;
+
+  auto factory = std::make_unique<testing::StrictMock<MockChannelFilterFactory>>();
+  auto filter = std::make_unique<testing::StrictMock<MockChannelFilter>>();
+  EXPECT_CALL(cfg, createChannelFilterFactory)
+    .WillOnce([&] {
+      return std::move(factory);
+    });
+
+  auto ch1 = std::make_unique<testing::StrictMock<MockChannel>>();
+  ChannelFilterCallbacks* channelFilterCallbacks{};
+  ChannelCallbacks* ch1Callbacks{};
+  auto channelId = *channel_id_manager_.allocateNewChannel(Peer::Downstream);
+
+  EXPECT_CALL(*factory, createWriteFilter)
+    .WillOnce([&](ChannelFilterCallbacks& filter_callbacks) {
+      channelFilterCallbacks = &filter_callbacks;
+      EXPECT_EQ(channelId, filter_callbacks.channelId());
+      return std::move(filter);
+    });
+  EXPECT_CALL(*ch1, setChannelCallbacks)
+    .WillOnce([ch1 = ch1.get(), &ch1Callbacks](ChannelCallbacks& cb) {
+      ch1->Channel::setChannelCallbacks(cb);
+      ch1Callbacks = &cb;
+    });
+
+  Registry::InjectFactory<ChannelFilterFactoryConfig> inject(cfg);
+
+  channel_filter_manager_.reset(new ChannelFilterManager(context_, {"test_channel_filter"}));
+
+  ASSERT_OK(channel_id_manager_.bindChannelID(channelId, PeerLocalID{
+                                                           .channel_id = 1,
+                                                           .local_peer = Downstream,
+                                                         }));
+
+  // 1) receive channel open confirmation
+  EXPECT_CALL(*ch1, readMessage(MSG(wire::ChannelOpenConfirmationMsg,
+                                    FIELD_EQ(recipient_channel, channelId),
+                                    FIELD_EQ(sender_channel, channelId))))
+    .WillOnce([&ch1Callbacks](wire::Message&& msg) {
+      return ch1Callbacks->sendMessageRemote(std::move(msg));
+    });
+  EXPECT_CALL(*filter, onMessageForward(MSG(wire::ChannelOpenConfirmationMsg,
+                                            FIELD_EQ(sender_channel, channelId),
+                                            FIELD_EQ(recipient_channel, 1u))))
+    .WillOnce(InvokeWithoutArgs([&ch1Callbacks] {
+      // the write filter won't have the channel type
+      EXPECT_EQ(std::nullopt, ch1Callbacks->channelType());
+    }));
+  EXPECT_CALL(*transport_, forward(MSG(wire::ChannelOpenConfirmationMsg,
+                                       FIELD_EQ(sender_channel, channelId),
+                                       FIELD_EQ(recipient_channel, 1u)),
+                                   _));
+
+  // 2) receive channel data
+  EXPECT_CALL(*ch1, readMessage(MSG(wire::ChannelDataMsg,
+                                    FIELD_EQ(recipient_channel, channelId),
+                                    FIELD_EQ(data, "hello world"_bytes))))
+    .WillOnce([&ch1Callbacks](wire::Message&& msg) {
+      return ch1Callbacks->sendMessageRemote(std::move(msg));
+    });
+  EXPECT_CALL(*filter, onMessageForward(MSG(wire::ChannelDataMsg,
+                                            FIELD_EQ(recipient_channel, 1u),
+                                            FIELD(data, "hello world"_bytes))));
+  EXPECT_CALL(*transport_, forward(MSG(wire::ChannelDataMsg,
+                                       FIELD_EQ(recipient_channel, 1u),
+                                       FIELD_EQ(data, "hello world"_bytes)),
+                                   _));
+
+  // 3) interrupt
+  EXPECT_CALL(*transport_, sendMessageToConnection(MSG(wire::ChannelCloseMsg,
+                                                       FIELD_EQ(recipient_channel, 2u))))
+    .WillOnce(Return(0uz));
+
+  EXPECT_CALL(*ch1, readMessage(MSG(wire::ChannelCloseMsg,
+                                    FIELD_EQ(recipient_channel, channelId))))
+    .WillOnce([&ch1Callbacks](wire::Message&& msg) {
+      return ch1Callbacks->sendMessageRemote(std::move(msg));
+    });
+  EXPECT_CALL(*filter, onMessageForward(MSG(wire::ChannelCloseMsg,
+                                            FIELD_EQ(recipient_channel, 1u))));
+  EXPECT_CALL(*transport_, forward(MSG(wire::ChannelCloseMsg,
+                                       FIELD_EQ(recipient_channel, 1u)),
+                                   _));
+  EXPECT_CALL(*ch1, Die);
+
+  //
+
+  ASSERT_OK(service_->startChannel(std::move(ch1), {.allocated_channel_id = channelId}));
+  ASSERT_OK(service_->handleMessage(wire::ChannelOpenConfirmationMsg{
+    .recipient_channel = channelId,
+    .sender_channel = 2,
+  }));
+  ASSERT_OK(service_->handleMessage(wire::ChannelDataMsg{
+    .recipient_channel = channelId,
+    .data = "hello world"_bytes,
+  }));
+
+  bool called{};
+  auto cbHandle = ch1Callbacks->addInterruptCallback([&called](absl::Status err, TransportCallbacks&) {
+    EXPECT_EQ(absl::InternalError("test error"), err);
+    called = true;
+  });
+  ASSERT_TRUE(channelFilterCallbacks->interruptChannel(absl::InternalError("test error")));
+  EXPECT_TRUE(called);
+  ASSERT_OK(service_->handleMessage(wire::ChannelCloseMsg{
+    .recipient_channel = channelId,
+  }));
+
+  // interruptChannel should return false if called a second time, since the channel is no longer
+  // preemptible
+  ASSERT_FALSE(channelFilterCallbacks->interruptChannel(absl::InternalError("test error")));
 }
 
 } // namespace test

@@ -10,7 +10,7 @@
 #include "source/extensions/filters/network/ssh/service.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/transport_base.h"
-#include "source/extensions/filters/network/ssh/channel_filter.h"
+#include "source/extensions/filters/network/ssh/channel_filter_config.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 

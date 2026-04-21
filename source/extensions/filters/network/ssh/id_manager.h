@@ -197,7 +197,7 @@ private:
   IDAllocator<uint32_t> id_alloc_;
   bool draining_{false};
   std::shared_ptr<Envoy::Common::ThreadSafeCallbackManager> drain_cb_ =
-    Common::ThreadSafeCallbackManager::create();
+    Envoy::Common::ThreadSafeCallbackManager::create();
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

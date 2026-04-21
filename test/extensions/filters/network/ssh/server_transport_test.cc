@@ -34,6 +34,7 @@ public:
       : server_config_(newConfig()),
         client_host_key_(*openssh::SSHKey::generate(KEY_ED25519, 256)),
         secrets_provider_(*server_config_),
+        channel_filter_manager_(std::make_shared<ChannelFilterManager>(server_factory_context_, std::vector<std::string>{})),
         transport_([this] {
           ON_CALL(server_factory_context_.drain_manager_, addOnDrainCloseCb)
             .WillByDefault([this](Network::DrainDirection, Network::DrainDecision::DrainCloseCb cb) {
@@ -70,6 +71,7 @@ public:
               return client;
             },
             StreamTracker::fromContext(server_factory_context_),
+            channel_filter_manager_,
             secrets_provider_);
         }()) {}
 
@@ -335,6 +337,7 @@ public:
   Envoy::Buffer::OwnedImpl output_buffer_;
   openssh::SSHKeyPtr client_host_key_;
   TestSecretsProvider secrets_provider_;
+  ChannelFilterManagerSharedPtr channel_filter_manager_;
   testing::StrictMock<MockServerCodecCallbacks> server_codec_callbacks_;
   testing::NiceMock<Envoy::Network::MockServerConnection> mock_connection_;
   Envoy::Grpc::AsyncStreamCallbacks<ServerMessage>* manage_stream_callbacks_{};

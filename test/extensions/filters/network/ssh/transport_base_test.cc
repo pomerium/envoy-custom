@@ -22,7 +22,8 @@ public:
                     std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
                     const SecretsProvider& secrets_provider)
       : TransportBase<T>(context, config, secrets_provider),
-        dispatcher_(context.api().allocateDispatcher(std::string(codec_traits<T>::name))) {
+        dispatcher_(context.api().allocateDispatcher(std::string(codec_traits<T>::name))),
+        channel_filter_manager_(context, {}) {
     SetVersion(fmt::format("SSH-2.0-{}", codec_traits<T>::name));
   }
 
@@ -66,6 +67,8 @@ public:
       });
     ON_CALL(*this, channelIdManager())
       .WillByDefault(ReturnRef(channel_id_manager_));
+    ON_CALL(*this, channelFilterManager())
+      .WillByDefault(ReturnRef(channel_filter_manager_));
     ON_CALL(*this, updatePeerExtInfo(_))
       .WillByDefault([this](std::optional<wire::ExtInfoMsg> msg) {
         return this->TransportBase<T>::updatePeerExtInfo(std::move(msg));
@@ -113,6 +116,7 @@ public:
   MOCK_METHOD(void, registerMessageHandlers, (SshMessageDispatcher&));                              // mocked
   MOCK_METHOD(Envoy::OptRef<Envoy::Event::Dispatcher>, connectionDispatcher, (), (const override)); // mocked
   MOCK_METHOD(ChannelIDManager&, channelIdManager, (), (override));                                 // mocked
+  MOCK_METHOD(ChannelFilterManager&, channelFilterManager, (), (override));                         // mocked, not tested here
 
   MOCK_METHOD(void, forward, (wire::Message&&, FrameTags));                   // pure virtual, not tested here
   MOCK_METHOD(absl::StatusOr<bytes>, signWithHostKey, (bytes_view), (const)); // pure virtual, not tested here
@@ -205,6 +209,7 @@ private:
   std::atomic_bool closed_{false};
   ::Envoy::Event::DispatcherPtr dispatcher_;
   ChannelIDManager channel_id_manager_;
+  ChannelFilterManager channel_filter_manager_;
 };
 
 inline absl::Duration defaultTimeout() {

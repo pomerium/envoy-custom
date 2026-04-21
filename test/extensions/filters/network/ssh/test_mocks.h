@@ -59,6 +59,7 @@ public:
   MOCK_METHOD(void, terminate, (absl::Status), (override));
   MOCK_METHOD(Envoy::OptRef<Envoy::Event::Dispatcher>, connectionDispatcher, (), (const override));
   MOCK_METHOD(ChannelIDManager&, channelIdManager, (), (override));
+  MOCK_METHOD(ChannelFilterManager&, channelFilterManager, (), (override));
   MOCK_METHOD(const SecretsProvider&, secretsProvider, (), (const override));
   MOCK_METHOD(Stats::Scope&, statsScope, (), (const));
 
@@ -109,6 +110,41 @@ public:
   MockChannelStatsProvider();
   virtual ~MockChannelStatsProvider();
   MOCK_METHOD(void, populateChannelStats, (pomerium::extensions::ssh::ChannelStats&), (const));
+};
+
+class MockChannelFilterCallbacks : public ChannelFilterCallbacks {
+public:
+  MockChannelFilterCallbacks();
+  virtual ~MockChannelFilterCallbacks();
+  MOCK_METHOD(uint32_t, channelId, (), (const));
+  MOCK_METHOD(std::optional<std::string_view>, channelType, (), (const));
+  MOCK_METHOD(Stats::Scope&, scope, (), (const));
+  MOCK_METHOD(bool, interruptChannel, (absl::Status));
+};
+
+class MockChannelFilter : public ChannelFilter {
+public:
+  MockChannelFilter();
+  virtual ~MockChannelFilter();
+  MOCK_METHOD(void, onMessageForward, (const wire::Message&));
+};
+
+class MockChannelFilterFactory : public ChannelFilterFactory {
+public:
+  MockChannelFilterFactory();
+  virtual ~MockChannelFilterFactory();
+  MOCK_METHOD(ChannelFilterPtr, createReadFilter, (ChannelFilterCallbacks&));
+  MOCK_METHOD(ChannelFilterPtr, createWriteFilter, (ChannelFilterCallbacks&));
+};
+
+class MockChannelFilterFactoryConfig : public ChannelFilterFactoryConfig {
+public:
+  MockChannelFilterFactoryConfig();
+  virtual ~MockChannelFilterFactoryConfig();
+
+  MOCK_METHOD(ProtobufTypes::MessagePtr, createEmptyConfigProto, ()); // returns empty StringValue by default
+  MOCK_METHOD(ChannelFilterFactoryPtr, createChannelFilterFactory, (Envoy::Server::Configuration::ServerFactoryContext&));
+  MOCK_METHOD(std::string, name, (), (const));
 };
 
 class MockHijackedChannelCallbacks : public HijackedChannelCallbacks {

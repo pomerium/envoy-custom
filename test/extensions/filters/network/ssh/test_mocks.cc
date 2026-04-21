@@ -50,5 +50,17 @@ MockChannel::~MockChannel() {
 MockChannelStatsProvider::MockChannelStatsProvider() {}
 MockChannelStatsProvider::~MockChannelStatsProvider() {}
 
+MockChannelFilterCallbacks::MockChannelFilterCallbacks() {}
+MockChannelFilterCallbacks::~MockChannelFilterCallbacks() {}
+
+MockChannelFilter::MockChannelFilter() {}
+MockChannelFilter::~MockChannelFilter() {}
+
+MockChannelFilterFactory::MockChannelFilterFactory() {}
+MockChannelFilterFactory::~MockChannelFilterFactory() {}
+
+MockChannelFilterFactoryConfig::MockChannelFilterFactoryConfig() {}
+MockChannelFilterFactoryConfig::~MockChannelFilterFactoryConfig() {}
+
 } // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
