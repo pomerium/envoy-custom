@@ -16,7 +16,28 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 class StreamCallbacks {
 public:
   virtual ~StreamCallbacks() = default;
-  virtual absl::StatusOr<uint32_t> startChannel(std::unique_ptr<Channel> channel, std::optional<uint32_t> channel_id = std::nullopt) PURE;
+
+  struct StartChannelOpts {
+    // Optional previously allocated internal channel ID to use for this channel, instead of
+    // allocating a new one.
+    std::optional<uint32_t> allocated_channel_id;
+
+    // If set, startChannel will call Channel::readChannelOpen with this message after
+    // Channel::setChannelCallbacks is called, and after binding the sender_channel in this message
+    // to the local peer (if requested).
+    std::optional<wire::ChannelOpenMsg> channel_open;
+
+    // If true, startChannel will not bind the sender_channel of the ChannelOpenMsg set in the
+    // channel_open option. This has no effect if channel_open is unset.
+    bool skip_auto_bind{};
+
+    // If channel_open is set, and skip_auto_bind is false, this value will be used as the
+    // 'expect_remote' argument to ChannelIDManager::bindChannelID() (default true if unset)
+    std::optional<bool> bind_expect_remote;
+  };
+
+  virtual absl::StatusOr<uint32_t> startChannel(std::unique_ptr<Channel> channel, StartChannelOpts opts) PURE;
+
   [[nodiscard]]
   virtual Envoy::Common::CallbackHandlePtr onServerDraining(std::chrono::milliseconds delay, Envoy::Event::Dispatcher& dispatcher, std::function<void()> complete_cb) PURE;
 };

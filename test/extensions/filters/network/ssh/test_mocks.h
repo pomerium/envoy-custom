@@ -97,8 +97,9 @@ class MockChannel : public Channel {
 public:
   MockChannel();
   virtual ~MockChannel();
-  MOCK_METHOD(void, Die, ());                                          // NOLINT
-  MOCK_METHOD(absl::Status, setChannelCallbacks, (ChannelCallbacks&)); // has a default implementation
+  MOCK_METHOD(void, Die, ());                                  // NOLINT
+  MOCK_METHOD(void, setChannelCallbacks, (ChannelCallbacks&)); // has a default implementation
+  MOCK_METHOD(absl::Status, readChannelOpen, (wire::ChannelOpenMsg&&));
   MOCK_METHOD(absl::Status, readMessage, (wire::ChannelMessage&&));
   MOCK_METHOD(void, terminate, (absl::Status));
 };

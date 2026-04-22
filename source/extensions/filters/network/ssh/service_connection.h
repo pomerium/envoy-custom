@@ -37,11 +37,11 @@ public:
   // ChannelClose message by replying with their own ChannelClose message on the channel if they
   // have not done so already (i.e. if the ChannelClose was received as an expected response to
   // one sent previously).
-  absl::StatusOr<uint32_t> startChannel(std::unique_ptr<Channel> channel, std::optional<uint32_t> channel_id = std::nullopt) final;
+  absl::StatusOr<uint32_t> startChannel(std::unique_ptr<Channel> channel, StartChannelOpts opts = {}) final;
   Envoy::Common::CallbackHandlePtr onServerDraining(std::chrono::milliseconds delay, Envoy::Event::Dispatcher& dispatcher, std::function<void()> complete_cb) final;
 
   absl::Status handleMessage(wire::Message&& ssh_msg) override;
-  absl::Status maybeStartPassthroughChannel(uint32_t internal_id);
+  absl::Status maybeStartNonOwningPassthroughChannel(uint32_t internal_id);
   void registerMessageHandlers(SshMessageDispatcher& dispatcher) override;
   void shutdown(absl::Status err);
 
@@ -149,6 +149,7 @@ protected:
 
   ConnectionServiceOptions options_;
   TransportCallbacks& transport_;
+
   const Peer local_peer_;
   Envoy::OptRef<MessageDispatcher<wire::Message>> msg_dispatcher_;
 

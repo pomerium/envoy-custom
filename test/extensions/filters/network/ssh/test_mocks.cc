@@ -40,7 +40,7 @@ MockHijackedChannelCallbacks::~MockHijackedChannelCallbacks() {}
 MockChannel::MockChannel() {
   ON_CALL(*this, setChannelCallbacks)
     .WillByDefault([this](ChannelCallbacks& cb) {
-      return this->Channel::setChannelCallbacks(cb);
+      this->Channel::setChannelCallbacks(cb);
     });
 }
 MockChannel::~MockChannel() {

@@ -137,9 +137,8 @@ TEST_F(DownstreamConnectionServiceTest, TestStatsTimer) {
   MockChannelStatsProvider ch1Stats;
   EXPECT_CALL(*ch1, setChannelCallbacks)
     .WillOnce([ch1 = ch1.get(), &ch1Stats](ChannelCallbacks& cb) {
-      ch1->Channel::setChannelCallbacks(cb).IgnoreError();
+      ch1->Channel::setChannelCallbacks(cb);
       cb.setStatsProvider(ch1Stats);
-      return absl::OkStatus();
     });
   EXPECT_CALL(ch1Stats, populateChannelStats)
     .WillRepeatedly(Invoke([](pomerium::extensions::ssh::ChannelStats& stats) {
@@ -151,9 +150,8 @@ TEST_F(DownstreamConnectionServiceTest, TestStatsTimer) {
   MockChannelStatsProvider ch2Stats;
   EXPECT_CALL(*ch2, setChannelCallbacks)
     .WillOnce([ch2 = ch2.get(), &ch2Stats](ChannelCallbacks& cb) {
-      ch2->Channel::setChannelCallbacks(cb).IgnoreError();
+      ch2->Channel::setChannelCallbacks(cb);
       cb.setStatsProvider(ch2Stats);
-      return absl::OkStatus();
     });
   EXPECT_CALL(ch2Stats, populateChannelStats)
     .WillRepeatedly(Invoke([](pomerium::extensions::ssh::ChannelStats& stats) {

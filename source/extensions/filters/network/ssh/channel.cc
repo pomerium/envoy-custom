@@ -8,13 +8,20 @@ Channel::~Channel() {
   }
 };
 
-absl::Status Channel::setChannelCallbacks(ChannelCallbacks& callbacks) {
+void Channel::setChannelCallbacks(ChannelCallbacks& callbacks) {
   callbacks_ = &callbacks;
-  return absl::OkStatus();
+}
+
+absl::Status PassthroughChannel::readChannelOpen(wire::ChannelOpenMsg&& msg) {
+  return callbacks_->sendMessageRemote(std::move(msg));
 }
 
 absl::Status PassthroughChannel::readMessage(wire::ChannelMessage&& msg) {
   return callbacks_->sendMessageRemote(std::move(msg));
+}
+
+absl::Status ForceCloseChannel::readChannelOpen(wire::ChannelOpenMsg&&) {
+  throw Envoy::EnvoyException("bug: invalid call to ForceCloseChannel::readChannelOpen()");
 }
 
 absl::Status ForceCloseChannel::readMessage(wire::ChannelMessage&& msg) {

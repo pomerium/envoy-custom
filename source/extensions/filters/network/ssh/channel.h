@@ -83,10 +83,14 @@ public:
 class Channel {
 public:
   virtual ~Channel();
-  virtual absl::Status setChannelCallbacks(ChannelCallbacks& callbacks);
+  virtual void setChannelCallbacks(ChannelCallbacks& callbacks);
 
-  // Handles a channel message (see concept ChannelMsg) read from the local peer, to be sent to
-  // the remote peer.
+  // Handles a channel open message from the local peer.
+  // Note: if this returns an error, the connection service will assume that this message will not
+  // have been forwarded to the remote peer.
+  virtual absl::Status readChannelOpen(wire::ChannelOpenMsg&& msg) PURE;
+
+  // Handles a channel message read from the local peer, to be sent to the remote peer.
   virtual absl::Status readMessage(wire::ChannelMessage&& msg) PURE;
 
 protected:
@@ -97,6 +101,7 @@ class PassthroughChannel : public Channel {
 public:
   PassthroughChannel() = default;
 
+  absl::Status readChannelOpen(wire::ChannelOpenMsg&& msg) override;
   absl::Status readMessage(wire::ChannelMessage&& msg) override;
 };
 
@@ -104,6 +109,7 @@ class ForceCloseChannel : public Channel, public Logger::Loggable<Logger::Id::fi
 public:
   ForceCloseChannel() = default;
 
+  absl::Status readChannelOpen(wire::ChannelOpenMsg&&) override;
   absl::Status readMessage(wire::ChannelMessage&& msg) override;
 };
 

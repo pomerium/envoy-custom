@@ -42,17 +42,17 @@ public:
   FakeUpstreamChannel(ChannelMsgHandlerFunc msg_handler)
       : msg_handler_(std::move(msg_handler)) {}
 
-  absl::Status setChannelCallbacks(ChannelCallbacks& callbacks) override {
-    RETURN_IF_NOT_OK(Channel::setChannelCallbacks(callbacks));
+  absl::Status readChannelOpen(wire::ChannelOpenMsg&& msg) override {
     callbacks_->sendMessageLocal(
       wire::ChannelOpenConfirmationMsg{
-        .recipient_channel = callbacks_->channelId(),
+        .recipient_channel = msg.sender_channel,
         .sender_channel = callbacks_->channelId(),
-        .initial_window_size = wire::ChannelWindowSize,
-        .max_packet_size = wire::ChannelMaxPacketSize,
+        .initial_window_size = msg.initial_window_size,
+        .max_packet_size = msg.max_packet_size,
       });
     return absl::OkStatus();
   }
+
   absl::Status readMessage(wire::ChannelMessage&& msg) override {
     return msg_handler_(std::move(msg), *callbacks_);
   }

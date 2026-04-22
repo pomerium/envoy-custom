@@ -783,19 +783,14 @@ public:
     }
   }
 
-  // Local thread
-  absl::Status setChannelCallbacks(ChannelCallbacks& callbacks) override {
-    auto stat = Channel::setChannelCallbacks(callbacks);
-    ASSERT(stat.ok()); // default implementation always succeeds
+  void setChannelCallbacks(ChannelCallbacks& callbacks) override {
+    Channel::setChannelCallbacks(callbacks);
 
     channel_id_ = callbacks_->channelId();
+    callbacks_->setStatsProvider(*this);
+  }
 
-    callbacks.setStatsProvider(*this);
-
-    // Build and send the ChannelOpen message to the downstream.
-    // Normally channels don't send their own ChannelOpen messages, but this is somewhat of a
-    // special case, because the channel is owned internally.
-
+  absl::Status readChannelOpen(wire::ChannelOpenMsg&&) override {
     wire::ForwardedTcpipChannelOpenMsg req;
     if (metadata_.matched_permission().requested_host().empty()) {
       // wildcard mode
@@ -821,7 +816,7 @@ public:
     };
     ENVOY_LOG(debug, "channel {}: flow control: local window initialized to {}", channel_id_, wire::ChannelWindowSize);
 
-    callbacks.sendMessageLocal(std::move(open));
+    callbacks_->sendMessageLocal(std::move(open));
     return absl::OkStatus();
   }
 
@@ -884,7 +879,6 @@ public:
     RemoteError error_;
   };
 
-  // Local thread
   absl::Status readMessage(wire::ChannelMessage&& msg) override {
     return msg.visit(
       [&](const wire::ChannelDataMsg& msg) {
@@ -928,7 +922,6 @@ public:
   }
 
 private:
-  // Local thread
   void onChannelOpened(const wire::ChannelOpenConfirmationMsg& confirm) {
     if (host_draining_) {
       // See comment in onHostDraining() for details
@@ -1272,7 +1265,17 @@ public:
                                                              upstreamAddr,
                                                              hostContext->clusterContext(),
                                                              passthroughState);
-        auto id = ctx->streamCallbacks().startChannel(std::move(c), std::nullopt);
+
+        // It's simpler for the channel to construct its own ChannelOpenMsg, otherwise we would have
+        // to duplicate obtaining metadata and downstream address here, which the channel already
+        // needs for other things. Setting channel_open below triggers the readChannelOpen callback.
+        auto id = ctx->streamCallbacks().startChannel(
+          std::move(c),
+          {
+            .channel_open = wire::ChannelOpenMsg{},
+            .skip_auto_bind = true,
+          });
+
         if (!id.ok()) {
           ENVOY_LOG(warn, "failed to start channel: {}", statusToString(id.status()));
         } else {

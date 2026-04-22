@@ -858,12 +858,19 @@ TEST_P(StaticPortForwardTest, UpstreamPacketEmpty) {
 }
 
 TEST_P(StaticPortForwardTest, UpstreamSendsInvalidWindowAdjust) {
+  Tasks::Channel channel;
   auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
-              .then(driver->createTask<Tasks::SendWindowAdjust>(std::numeric_limits<uint32_t>::max())
-                      .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>()))
+              .saveOutput(&channel)
               .start();
+
   auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
   ASSERT_TRUE(driver->wait(th));
+
+  auto th2 = driver->createTask<Tasks::SendWindowAdjust>(std::numeric_limits<uint32_t>::max())
+               .then(driver->createTask<Tasks::WaitForChannelCloseByPeer>())
+               .start(channel);
+
+  ASSERT_TRUE(driver->wait(th2));
 
   downstream->close();
 }

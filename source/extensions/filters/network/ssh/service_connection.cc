@@ -34,25 +34,51 @@ void ConnectionService::registerMessageHandlers(SshMessageDispatcher& dispatcher
   dispatcher.registerHandler(wire::SshMessageType::ChannelFailure, this);
 }
 
-absl::StatusOr<uint32_t> ConnectionService::startChannel(std::unique_ptr<Channel> channel, std::optional<uint32_t> channel_id) {
-  if (!channel_id.has_value()) {
+absl::StatusOr<uint32_t> ConnectionService::startChannel(std::unique_ptr<Channel> channel, StartChannelOpts opts) {
+  auto channelId = opts.allocated_channel_id;
+  if (!channelId.has_value()) {
     auto internalId = transport_.channelIdManager().allocateNewChannel(local_peer_);
     if (!internalId.ok()) {
       return internalId.status();
     }
-    channel_id = *internalId;
+    channelId = *internalId;
   }
-  auto callbacks = std::make_unique<ChannelCallbacksImpl>(*this, *channel_id, local_peer_);
-  if (auto stat = channel->setChannelCallbacks(*callbacks); !stat.ok()) {
-    return stat;
-  }
+
+  ENVOY_LOG(debug, "starting new internal channel: {}", *channelId);
+  RELEASE_ASSERT(!channels_.contains(*channelId), fmt::format("bug: channel with ID {} already exists", *channelId));
+
+  auto callbacks = std::make_unique<ChannelCallbacksImpl>(*this, *channelId, local_peer_);
+
+  channel->setChannelCallbacks(*callbacks);
+  // Note: order is important here; if readChannelOpen below fails, the callbacks cleanup routine
+  // is invoked when the channel is destroyed, which will unlink it from channel_callbacks_.
   LinkedList::moveIntoList(std::move(callbacks), channel_callbacks_);
 
-  ENVOY_LOG(debug, "starting new internal channel: {}", *channel_id);
-  RELEASE_ASSERT(!channels_.contains(*channel_id), fmt::format("bug: channel with ID {} already exists", *channel_id));
-  channels_[*channel_id] = std::move(channel);
+  if (opts.channel_open.has_value()) {
+    if (!opts.skip_auto_bind) {
+      auto stat = transport_.channelIdManager().bindChannelID(
+        *channelId, PeerLocalID{
+                      .channel_id = opts.channel_open->sender_channel,
+                      .local_peer = local_peer_,
+                    },
+        opts.bind_expect_remote.value_or(true));
+      ASSERT(stat.ok());
+    }
 
-  return *channel_id;
+    if (auto stat = channel->readChannelOpen(std::move(opts.channel_open).value()); !stat.ok()) {
+      // If sending the channel open message fails, the peer's ID may still be in the Pending state,
+      // but it will never have received the channel open, so the ID will not be released.
+      if (!opts.skip_auto_bind && opts.bind_expect_remote.value_or(true)) {
+
+        transport_.channelIdManager().releaseChannelID(*channelId,
+                                                       local_peer_ == Downstream ? Upstream : Downstream);
+      }
+      return stat;
+    }
+  }
+
+  channels_[*channelId] = std::move(channel);
+  return *channelId;
 }
 
 absl::Status ConnectionService::handleMessage(wire::Message&& msg) {
@@ -60,21 +86,10 @@ absl::Status ConnectionService::handleMessage(wire::Message&& msg) {
     [&](wire::ChannelOpenMsg& msg) {
       ENVOY_LOG(debug, "starting new passthrough channel");
       auto passthrough = std::make_unique<PassthroughChannel>();
-      auto id = startChannel(std::move(passthrough));
+      auto id = startChannel(std::move(passthrough), {.channel_open{std::move(msg)}});
       if (!id.ok()) {
         return statusf("error starting passthrough channel: {}", id.status());
       }
-      auto stat = transport_.channelIdManager().bindChannelID(*id, PeerLocalID{
-                                                                     .channel_id = msg.sender_channel,
-                                                                     .local_peer = local_peer_,
-                                                                   });
-      ASSERT(stat.ok());
-      // replace the sender channel id with the internal channel id
-      msg.sender_channel = *id;
-      // forward the message
-      ENVOY_LOG(debug, "forwarding ChannelOpen message for passthrough channel: {}", *msg.sender_channel);
-      transport_.forward(std::move(msg));
-
       return absl::OkStatus();
     },
     [&](wire::ChannelOpenConfirmationMsg& msg) {
@@ -104,7 +119,7 @@ absl::Status ConnectionService::handleMessage(wire::Message&& msg) {
       // by the opposite peer, a passthrough channel is initialized for this ID.
       // Note: even if the channel is owned by the opposite peer, a local channel for that ID
       // can still be started ahead of time and will be used instead of a passthrough channel.
-      if (auto stat = maybeStartPassthroughChannel(msg.recipient_channel); !stat.ok()) {
+      if (auto stat = maybeStartNonOwningPassthroughChannel(msg.recipient_channel); !stat.ok()) {
         return stat;
       }
 
@@ -123,7 +138,7 @@ absl::Status ConnectionService::handleMessage(wire::Message&& msg) {
     [&](wire::ChannelOpenFailureMsg& msg) {
       // the channel will be immediately deleted after this, but the PassthroughChannel contains
       // the logic to forward the message, and this keeps things consistent
-      if (auto stat = maybeStartPassthroughChannel(msg.recipient_channel); !stat.ok()) {
+      if (auto stat = maybeStartNonOwningPassthroughChannel(msg.recipient_channel); !stat.ok()) {
         return statusf("received invalid ChannelOpenFailure message: {}", stat);
       }
 
@@ -164,7 +179,7 @@ absl::Status ConnectionService::handleMessage(wire::Message&& msg) {
     });
 }
 
-absl::Status ConnectionService::maybeStartPassthroughChannel(uint32_t internal_id) {
+absl::Status ConnectionService::maybeStartNonOwningPassthroughChannel(uint32_t internal_id) {
   if (channels_.contains(internal_id)) {
     return absl::OkStatus();
   }
@@ -205,10 +220,10 @@ absl::Status ConnectionService::maybeStartPassthroughChannel(uint32_t internal_i
     // PassthroughChannel, use a special channel type called ForceCloseChannel which will, upon
     // being started, simply attempt to close itself. Once it is closed, then the channel ID will
     // be released and freed (since at this point, the downstream channel will be bereft).
-    return startChannel(std::make_unique<ForceCloseChannel>(), internal_id).status();
+    return startChannel(std::make_unique<ForceCloseChannel>(), {.allocated_channel_id = internal_id}).status();
   }
   auto passthrough = std::make_unique<PassthroughChannel>();
-  return startChannel(std::move(passthrough), internal_id).status();
+  return startChannel(std::move(passthrough), {.allocated_channel_id = internal_id}).status();
 }
 
 Envoy::Common::CallbackHandlePtr ConnectionService::onServerDraining(std::chrono::milliseconds delay, Envoy::Event::Dispatcher& dispatcher, std::function<void()> complete_cb) {
@@ -322,6 +337,12 @@ void ConnectionService::ChannelCallbacksImpl::sendMessageLocal(wire::Message&& m
 
 absl::Status ConnectionService::ChannelCallbacksImpl::sendMessageRemote(wire::Message&& msg) {
   return msg.visit(
+    [&](wire::ChannelOpenMsg& msg) {
+      ENVOY_LOG(debug, "sending ChannelOpen message to remote for channel {}", channel_id_);
+      msg.sender_channel = channel_id_;
+      parent_.transport_.forward(std::move(msg));
+      return absl::OkStatus();
+    },
     [&](wire::ChannelMsg auto& msg) {
       msg.recipient_channel = channel_id_;
       auto sendOk = channel_id_mgr_.processOutgoingChannelMsg(msg, local_peer_ == Peer::Downstream
@@ -390,12 +411,10 @@ class HijackedChannel : public Channel,
 public:
   HijackedChannel(HijackedChannelCallbacks& hijack_callbacks,
                   std::unique_ptr<ChannelStreamServiceClient> channel_client,
-                  const pomerium::extensions::ssh::InternalTarget& config,
-                  const wire::ChannelOpenMsg& channel_open)
+                  const pomerium::extensions::ssh::InternalTarget& config)
       : hijack_callbacks_(hijack_callbacks),
         channel_client_(std::move(channel_client)),
-        config_(config),
-        channel_open_(channel_open) {}
+        config_(config) {}
 
   void onStreamClosed(absl::Status err) override {
     // In some cases the stream is expected to be closed: after handoff starts, or if a channel
@@ -454,14 +473,7 @@ public:
     });
   }
 
-  absl::Status setChannelCallbacks(ChannelCallbacks& callbacks) override {
-    auto stat = Channel::setChannelCallbacks(callbacks);
-    ASSERT(stat.ok()); // default implementation always succeeds
-
-    // Note: we're still inside of ConnectionService::startChannel() here, so the downstream ID has
-    // not been bound yet. This callback doesn't send anything to the downstream currently, but if
-    // it ever needs to then the ID will need to be bound earlier.
-
+  absl::Status readChannelOpen(wire::ChannelOpenMsg&& msg) override {
     // Start the stream and send the downstream's saved ChannelOpen message. The stream expects
     // the first message to be ChannelOpen (after the metadata is sent). It will respond with a
     // success or failure message.
@@ -487,7 +499,7 @@ public:
     typedMetadata["com.pomerium.ssh"].PackFrom(sshMetadata);
     channel_client_->start(this, std::move(metadata));
 
-    sendMessageToStream(std::move(channel_open_)); // clear channel_open_
+    sendMessageToStream(std::move(msg));
     return absl::OkStatus();
   }
 
@@ -669,7 +681,6 @@ private:
   HijackedChannelCallbacks& hijack_callbacks_;
   std::unique_ptr<ChannelStreamServiceClient> channel_client_;
   pomerium::extensions::ssh::InternalTarget config_;
-  wire::ChannelOpenMsg channel_open_;
   Common::CallbackHandlePtr interrupt_callback_handle_;
 };
 
@@ -699,26 +710,14 @@ absl::StatusOr<MiddlewareResult> OpenHijackedChannelMiddleware::interceptMessage
     [&](wire::ChannelOpenMsg& msg) -> absl::StatusOr<MiddlewareResult> {
       auto client = std::make_unique<ChannelStreamServiceClient>(grpc_client_);
 
-      auto channel = std::make_unique<HijackedChannel>(hijack_callbacks_, std::move(client), config_, msg);
-
-      auto internalId = parent_.startChannel(std::move(channel), std::nullopt);
+      auto channel = std::make_unique<HijackedChannel>(hijack_callbacks_, std::move(client), config_);
+      auto internalId = parent_.startChannel(std::move(channel), {
+                                                                   .channel_open{std::move(msg)},
+                                                                   .bind_expect_remote = false,
+                                                                 });
       if (!internalId.ok()) {
         return statusf("error starting channel: {}", internalId.status());
       }
-
-      // This normally happens when ConnectionService::handleMessage processes an outgoing
-      // ChannelOpenMsg, but we are going to drop the message here, and have it be handled by
-      // the grpc server instead (the ConnectionService would otherwise create a PassthroughChannel
-      // and forward the message).
-      auto stat = parent_.transport_.channelIdManager().bindChannelID(
-        *internalId,
-        PeerLocalID{
-          .channel_id = msg.sender_channel,
-          .local_peer = Peer::Downstream,
-        },
-        false); // <- Important: set mark_remote_pending=false
-      // this can't fail, we allocated the internal ID just now
-      THROW_IF_NOT_OK(stat);
 
       return MiddlewareResult::Break;
     },
