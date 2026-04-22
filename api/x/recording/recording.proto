@@ -8,10 +8,10 @@ import "google/protobuf/timestamp.proto";
 option go_package = "github.com/pomerium/envoy-custom/api/x/recording";
 
 service RecordingService {
-  rpc Record(stream RecordingData) returns (stream RecordingSession);
+  rpc Record(stream RecordingData) returns (stream RecordingCheckpoint);
 }
 
-message RecordingSession {
+message RecordingCheckpoint {
   string        recording_id = 1;
   ChunkManifest manifest     = 2;
 }

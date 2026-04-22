@@ -69,7 +69,7 @@ func (RecordingFormat) EnumDescriptor() ([]byte, []int) {
 	return file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_rawDescGZIP(), []int{0}
 }
 
-type RecordingSession struct {
+type RecordingCheckpoint struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RecordingId   string                 `protobuf:"bytes,1,opt,name=recording_id,json=recordingId,proto3" json:"recording_id,omitempty"`
 	Manifest      *ChunkManifest         `protobuf:"bytes,2,opt,name=manifest,proto3" json:"manifest,omitempty"`
@@ -77,20 +77,20 @@ type RecordingSession struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *RecordingSession) Reset() {
-	*x = RecordingSession{}
+func (x *RecordingCheckpoint) Reset() {
+	*x = RecordingCheckpoint{}
 	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *RecordingSession) String() string {
+func (x *RecordingCheckpoint) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*RecordingSession) ProtoMessage() {}
+func (*RecordingCheckpoint) ProtoMessage() {}
 
-func (x *RecordingSession) ProtoReflect() protoreflect.Message {
+func (x *RecordingCheckpoint) ProtoReflect() protoreflect.Message {
 	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -102,19 +102,19 @@ func (x *RecordingSession) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use RecordingSession.ProtoReflect.Descriptor instead.
-func (*RecordingSession) Descriptor() ([]byte, []int) {
+// Deprecated: Use RecordingCheckpoint.ProtoReflect.Descriptor instead.
+func (*RecordingCheckpoint) Descriptor() ([]byte, []int) {
 	return file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *RecordingSession) GetRecordingId() string {
+func (x *RecordingCheckpoint) GetRecordingId() string {
 	if x != nil {
 		return x.RecordingId
 	}
 	return ""
 }
 
-func (x *RecordingSession) GetManifest() *ChunkManifest {
+func (x *RecordingCheckpoint) GetManifest() *ChunkManifest {
 	if x != nil {
 		return x.Manifest
 	}
@@ -463,8 +463,8 @@ var File_github_com_pomerium_envoy_custom_api_x_recording_recording_proto protor
 
 const file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_rawDesc = "" +
 	"\n" +
-	"@github.com/pomerium/envoy-custom/api/x/recording/recording.proto\x12\x14pomerium.x.recording\x1a\x19google/protobuf/any.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"v\n" +
-	"\x10RecordingSession\x12!\n" +
+	"@github.com/pomerium/envoy-custom/api/x/recording/recording.proto\x12\x14pomerium.x.recording\x1a\x19google/protobuf/any.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"y\n" +
+	"\x13RecordingCheckpoint\x12!\n" +
 	"\frecording_id\x18\x01 \x01(\tR\vrecordingId\x12?\n" +
 	"\bmanifest\x18\x02 \x01(\v2#.pomerium.x.recording.ChunkManifestR\bmanifest\"\xfb\x01\n" +
 	"\rRecordingData\x12!\n" +
@@ -489,9 +489,9 @@ const file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_rawD
 	"\x03end\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x03end*E\n" +
 	"\x0fRecordingFormat\x12\x1a\n" +
 	"\x16RecordingFormatUnknown\x10\x00\x12\x16\n" +
-	"\x12RecordingFormatSSH\x10\x012m\n" +
-	"\x10RecordingService\x12Y\n" +
-	"\x06Record\x12#.pomerium.x.recording.RecordingData\x1a&.pomerium.x.recording.RecordingSession(\x010\x01B2Z0github.com/pomerium/envoy-custom/api/x/recordingb\x06proto3"
+	"\x12RecordingFormatSSH\x10\x012p\n" +
+	"\x10RecordingService\x12\\\n" +
+	"\x06Record\x12#.pomerium.x.recording.RecordingData\x1a).pomerium.x.recording.RecordingCheckpoint(\x010\x01B2Z0github.com/pomerium/envoy-custom/api/x/recordingb\x06proto3"
 
 var (
 	file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_rawDescOnce sync.Once
@@ -509,7 +509,7 @@ var file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_enumTy
 var file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_goTypes = []any{
 	(RecordingFormat)(0),          // 0: pomerium.x.recording.RecordingFormat
-	(*RecordingSession)(nil),      // 1: pomerium.x.recording.RecordingSession
+	(*RecordingCheckpoint)(nil),   // 1: pomerium.x.recording.RecordingCheckpoint
 	(*RecordingData)(nil),         // 2: pomerium.x.recording.RecordingData
 	(*RecordingMetadata)(nil),     // 3: pomerium.x.recording.RecordingMetadata
 	(*RecordingTrailer)(nil),      // 4: pomerium.x.recording.RecordingTrailer
@@ -519,7 +519,7 @@ var file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_goType
 	(*timestamppb.Timestamp)(nil), // 8: google.protobuf.Timestamp
 }
 var file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_depIdxs = []int32{
-	5,  // 0: pomerium.x.recording.RecordingSession.manifest:type_name -> pomerium.x.recording.ChunkManifest
+	5,  // 0: pomerium.x.recording.RecordingCheckpoint.manifest:type_name -> pomerium.x.recording.ChunkManifest
 	3,  // 1: pomerium.x.recording.RecordingData.metadata:type_name -> pomerium.x.recording.RecordingMetadata
 	4,  // 2: pomerium.x.recording.RecordingData.trailer:type_name -> pomerium.x.recording.RecordingTrailer
 	0,  // 3: pomerium.x.recording.RecordingMetadata.recordingType:type_name -> pomerium.x.recording.RecordingFormat
@@ -529,7 +529,7 @@ var file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_depIdx
 	8,  // 7: pomerium.x.recording.ChunkMetadata.start:type_name -> google.protobuf.Timestamp
 	8,  // 8: pomerium.x.recording.ChunkMetadata.end:type_name -> google.protobuf.Timestamp
 	2,  // 9: pomerium.x.recording.RecordingService.Record:input_type -> pomerium.x.recording.RecordingData
-	1,  // 10: pomerium.x.recording.RecordingService.Record:output_type -> pomerium.x.recording.RecordingSession
+	1,  // 10: pomerium.x.recording.RecordingService.Record:output_type -> pomerium.x.recording.RecordingCheckpoint
 	10, // [10:11] is the sub-list for method output_type
 	9,  // [9:10] is the sub-list for method input_type
 	9,  // [9:9] is the sub-list for extension type_name
