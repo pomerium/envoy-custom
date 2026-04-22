@@ -245,12 +245,12 @@ type RecordingMetadata struct {
 	UncompressedSize uint64                    `protobuf:"varint,3,opt,name=uncompressed_size,json=uncompressedSize,proto3" json:"uncompressed_size,omitempty"`
 	StartTime        *timestamppb.Timestamp    `protobuf:"bytes,4,opt,name=start_time,json=startTime,proto3" json:"start_time,omitempty"`
 	EndTime          *timestamppb.Timestamp    `protobuf:"bytes,5,opt,name=end_time,json=endTime,proto3" json:"end_time,omitempty"`
-	LoginName        string                    `protobuf:"bytes,7,opt,name=login_name,json=loginName,proto3" json:"login_name,omitempty"`
-	Upstream         *ssh.UpstreamTarget       `protobuf:"bytes,8,opt,name=upstream,proto3" json:"upstream,omitempty"`
-	SessionId        string                    `protobuf:"bytes,9,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	StreamId         uint64                    `protobuf:"varint,10,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
-	RouteName        string                    `protobuf:"bytes,11,opt,name=route_name,json=routeName,proto3" json:"route_name,omitempty"`
-	PtyInfo          *ssh.SSHDownstreamPTYInfo `protobuf:"bytes,12,opt,name=pty_info,json=ptyInfo,proto3" json:"pty_info,omitempty"`
+	LoginName        string                    `protobuf:"bytes,6,opt,name=login_name,json=loginName,proto3" json:"login_name,omitempty"`
+	SessionId        string                    `protobuf:"bytes,7,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	StreamId         uint64                    `protobuf:"varint,8,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
+	RouteName        string                    `protobuf:"bytes,9,opt,name=route_name,json=routeName,proto3" json:"route_name,omitempty"`
+	Upstream         *ssh.UpstreamTarget       `protobuf:"bytes,10,opt,name=upstream,proto3" json:"upstream,omitempty"`
+	PtyInfo          *ssh.SSHDownstreamPTYInfo `protobuf:"bytes,11,opt,name=pty_info,json=ptyInfo,proto3" json:"pty_info,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -327,13 +327,6 @@ func (x *RecordingMetadata) GetLoginName() string {
 	return ""
 }
 
-func (x *RecordingMetadata) GetUpstream() *ssh.UpstreamTarget {
-	if x != nil {
-		return x.Upstream
-	}
-	return nil
-}
-
 func (x *RecordingMetadata) GetSessionId() string {
 	if x != nil {
 		return x.SessionId
@@ -353,6 +346,13 @@ func (x *RecordingMetadata) GetRouteName() string {
 		return x.RouteName
 	}
 	return ""
+}
+
+func (x *RecordingMetadata) GetUpstream() *ssh.UpstreamTarget {
+	if x != nil {
+		return x.Upstream
+	}
+	return nil
 }
 
 func (x *RecordingMetadata) GetPtyInfo() *ssh.SSHDownstreamPTYInfo {
@@ -554,15 +554,15 @@ const file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_form
 	"start_time\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tstartTime\x125\n" +
 	"\bend_time\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\aendTime\x12\x1d\n" +
 	"\n" +
-	"login_name\x18\a \x01(\tR\tloginName\x12C\n" +
-	"\bupstream\x18\b \x01(\v2'.pomerium.extensions.ssh.UpstreamTargetR\bupstream\x12\x1d\n" +
+	"login_name\x18\x06 \x01(\tR\tloginName\x12\x1d\n" +
 	"\n" +
-	"session_id\x18\t \x01(\tR\tsessionId\x12\x1b\n" +
-	"\tstream_id\x18\n" +
-	" \x01(\x04R\bstreamId\x12\x1d\n" +
+	"session_id\x18\a \x01(\tR\tsessionId\x12\x1b\n" +
+	"\tstream_id\x18\b \x01(\x04R\bstreamId\x12\x1d\n" +
 	"\n" +
-	"route_name\x18\v \x01(\tR\trouteName\x12H\n" +
-	"\bpty_info\x18\f \x01(\v2-.pomerium.extensions.ssh.SSHDownstreamPTYInfoR\aptyInfo\"\xa0\x02\n" +
+	"route_name\x18\t \x01(\tR\trouteName\x12C\n" +
+	"\bupstream\x18\n" +
+	" \x01(\v2'.pomerium.extensions.ssh.UpstreamTargetR\bupstream\x12H\n" +
+	"\bpty_info\x18\v \x01(\v2-.pomerium.extensions.ssh.SSHDownstreamPTYInfoR\aptyInfo\"\xa0\x02\n" +
 	"\x06Header\x12\x1d\n" +
 	"\n" +
 	"start_time\x18\x01 \x01(\x03R\tstartTime\x12H\n" +
