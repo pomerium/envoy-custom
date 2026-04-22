@@ -48,9 +48,8 @@ SshCodecFactory::SshCodecFactory(Envoy::Server::Configuration::ServerFactoryCont
   }
   host_keys_ = std::move(hostKeys).value();
 
-  std::vector<std::string> channelFilters{config_->enabled_channel_filters().begin(),
-                                          config_->enabled_channel_filters().end()};
-  channel_filter_manager_ = std::make_shared<ChannelFilterManager>(context, channelFilters);
+  channel_filter_manager_ = std::make_shared<ChannelFilterManager>(
+    config->enabled_channel_filters(), context);
 }
 
 ServerCodecPtr SshCodecFactory::createServerCodec() const {

@@ -134,8 +134,10 @@ class MockChannelFilterFactory : public ChannelFilterFactory {
 public:
   MockChannelFilterFactory();
   virtual ~MockChannelFilterFactory();
-  MOCK_METHOD(ChannelFilterPtr, createReadFilter, (ChannelFilterCallbacks&));
-  MOCK_METHOD(ChannelFilterPtr, createWriteFilter, (ChannelFilterCallbacks&));
+
+  MOCK_METHOD(ProtobufTypes::MessagePtr, createEmptyConfigProto, ());
+  MOCK_METHOD(ChannelFilterPtr, createReadFilter, (const google::protobuf::Message&, ChannelFilterCallbacks&));
+  MOCK_METHOD(ChannelFilterPtr, createWriteFilter, (const google::protobuf::Message&, ChannelFilterCallbacks&));
 };
 
 class MockChannelFilterFactoryConfig : public ChannelFilterFactoryConfig {
@@ -144,7 +146,7 @@ public:
   virtual ~MockChannelFilterFactoryConfig();
 
   MOCK_METHOD(ProtobufTypes::MessagePtr, createEmptyConfigProto, ()); // returns empty StringValue by default
-  MOCK_METHOD(ChannelFilterFactoryPtr, createChannelFilterFactory, (Envoy::Server::Configuration::ServerFactoryContext&));
+  MOCK_METHOD(ChannelFilterFactoryPtr, createChannelFilterFactory, (const google::protobuf::Message&, Envoy::Server::Configuration::ServerFactoryContext&));
   MOCK_METHOD(std::string, name, (), (const));
 };
 

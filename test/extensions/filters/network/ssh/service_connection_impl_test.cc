@@ -32,7 +32,7 @@ public:
   UpstreamConnectionServiceTest() {
     transport_ = std::make_unique<testing::StrictMock<MockUpstreamTransportCallbacks>>();
     service_ = std::make_unique<UpstreamConnectionService>(ConnectionServiceOptions{}, *transport_);
-    channel_filter_manager_ = std::make_unique<ChannelFilterManager>(context_, std::vector<std::string>{});
+    channel_filter_manager_ = std::make_unique<ChannelFilterManager>(ExtensionConfigList{}, context_);
     service_->registerMessageHandlers(msg_dispatcher_);
     EXPECT_CALL(*transport_, streamId)
       .WillRepeatedly(Return(1));
@@ -89,7 +89,7 @@ public:
   DownstreamConnectionServiceTest() {
     transport_ = std::make_unique<testing::StrictMock<MockDownstreamTransportCallbacks>>();
     service_ = std::make_unique<DownstreamConnectionService>(ConnectionServiceOptions{}, *transport_, std::make_shared<StreamTracker>(context_));
-    channel_filter_manager_ = std::make_unique<ChannelFilterManager>(context_, std::vector<std::string>{});
+    channel_filter_manager_ = std::make_unique<ChannelFilterManager>(ExtensionConfigList{}, context_);
     service_->registerMessageHandlers(msg_dispatcher_);
     EXPECT_CALL(*transport_, streamId)
       .WillRepeatedly(Return(1));
@@ -239,8 +239,13 @@ TEST_F(DownstreamConnectionServiceTest, TestChannelReadFilters) {
   ChannelCallbacks* ch1Callbacks{};
   auto channelId = *channel_id_manager_.allocateNewChannel(Peer::Downstream);
 
+  EXPECT_CALL(*factory, createEmptyConfigProto)
+    .WillOnce([] {
+      return std::make_unique<Envoy::Protobuf::StringValue>();
+    });
   EXPECT_CALL(*factory, createReadFilter)
-    .WillOnce([&](ChannelFilterCallbacks& filter_callbacks) {
+    .WillOnce([&](const google::protobuf::Message& config, ChannelFilterCallbacks& filter_callbacks) {
+      EXPECT_EQ("filter_config", dynamic_cast<const Envoy::Protobuf::StringValue&>(config).value());
       channelFilterCallbacks = &filter_callbacks;
       EXPECT_EQ(channelId, filter_callbacks.channelId());
       // no channel open message has been received yet, so channelType should return nullopt
@@ -254,7 +259,25 @@ TEST_F(DownstreamConnectionServiceTest, TestChannelReadFilters) {
     });
 
   Registry::InjectFactory<ChannelFilterFactoryConfig> inject(cfg);
-  channel_filter_manager_.reset(new ChannelFilterManager(context_, {"test_channel_filter"}));
+  ExtensionConfigList enabledChannelFilters;
+  {
+    auto* cfg = enabledChannelFilters.Add();
+    cfg->set_name("test_channel_filter");
+    Envoy::Protobuf::StringValue v;
+    v.set_value("factory_config");
+    cfg->mutable_typed_config()->PackFrom(v);
+  }
+  ExtensionConfigList filterConfigs;
+  {
+    auto* cfg = filterConfigs.Add();
+    cfg->set_name("test_channel_filter");
+    Envoy::Protobuf::StringValue v;
+    v.set_value("filter_config");
+    cfg->mutable_typed_config()->PackFrom(v);
+  }
+
+  channel_filter_manager_.reset(new ChannelFilterManager(enabledChannelFilters, context_));
+  ASSERT_OK(channel_filter_manager_->configureFilters(filterConfigs));
 
   // 1) receive channel open
   EXPECT_CALL(*ch1, readChannelOpen)
@@ -359,8 +382,13 @@ TEST_F(UpstreamConnectionServiceTest, TestChannelWriteFilters) {
   ChannelCallbacks* ch1Callbacks{};
   auto channelId = *channel_id_manager_.allocateNewChannel(Peer::Downstream);
 
+  EXPECT_CALL(*factory, createEmptyConfigProto)
+    .WillOnce([] {
+      return std::make_unique<Envoy::Protobuf::StringValue>();
+    });
   EXPECT_CALL(*factory, createWriteFilter)
-    .WillOnce([&](ChannelFilterCallbacks& filter_callbacks) {
+    .WillOnce([&](const google::protobuf::Message& config, ChannelFilterCallbacks& filter_callbacks) {
+      EXPECT_EQ("filter_config", dynamic_cast<const Envoy::Protobuf::StringValue&>(config).value());
       channelFilterCallbacks = &filter_callbacks;
       EXPECT_EQ(channelId, filter_callbacks.channelId());
       return std::move(filter);
@@ -373,7 +401,25 @@ TEST_F(UpstreamConnectionServiceTest, TestChannelWriteFilters) {
 
   Registry::InjectFactory<ChannelFilterFactoryConfig> inject(cfg);
 
-  channel_filter_manager_.reset(new ChannelFilterManager(context_, {"test_channel_filter"}));
+  ExtensionConfigList enabledChannelFilters;
+  {
+    auto* cfg = enabledChannelFilters.Add();
+    cfg->set_name("test_channel_filter");
+    Envoy::Protobuf::StringValue v;
+    v.set_value("factory_config");
+    cfg->mutable_typed_config()->PackFrom(v);
+  }
+  ExtensionConfigList filterConfigs;
+  {
+    auto* cfg = filterConfigs.Add();
+    cfg->set_name("test_channel_filter");
+    Envoy::Protobuf::StringValue v;
+    v.set_value("filter_config");
+    cfg->mutable_typed_config()->PackFrom(v);
+  }
+
+  channel_filter_manager_.reset(new ChannelFilterManager(enabledChannelFilters, context_));
+  ASSERT_OK(channel_filter_manager_->configureFilters(filterConfigs));
 
   ASSERT_OK(channel_id_manager_.bindChannelID(channelId, PeerLocalID{
                                                            .channel_id = 1,

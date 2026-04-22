@@ -13,6 +13,7 @@
 #include "test/mocks/server/server_factory_context.h"
 #include "test/test_common/proto_equal.h"
 #include "test/test_common/test_common.h"
+#include "test/test_common/registry.h"
 #include "source/extensions/filters/network/ssh/service_connection.h" // IWYU pragma: keep
 #include "source/extensions/filters/network/ssh/service_userauth.h"   // IWYU pragma: keep
 #include "gmock/gmock.h"
@@ -34,7 +35,7 @@ public:
       : server_config_(newConfig()),
         client_host_key_(*openssh::SSHKey::generate(KEY_ED25519, 256)),
         secrets_provider_(*server_config_),
-        channel_filter_manager_(std::make_shared<ChannelFilterManager>(server_factory_context_, std::vector<std::string>{})),
+        channel_filter_manager_(std::make_shared<ChannelFilterManager>(ExtensionConfigList{}, server_factory_context_)),
         transport_([this] {
           ON_CALL(server_factory_context_.drain_manager_, addOnDrainCloseCb)
             .WillByDefault([this](Network::DrainDirection, Network::DrainDecision::DrainCloseCb cb) {
@@ -325,6 +326,30 @@ public:
     serve_channel_callbacks_[stream_index]->onReceiveMessage(std::move(ptr));
   }
 
+  void SetupChannelFilterManager() {
+    ON_CALL(channel_filter_factory_config_, createEmptyConfigProto)
+      .WillByDefault([] {
+        return std::make_unique<Envoy::Protobuf::StringValue>();
+      });
+    ON_CALL(channel_filter_factory_config_, name)
+      .WillByDefault(Return("test_channel_filter"));
+
+    ExtensionConfigList enabledChannelFilters;
+    {
+      auto* factoryConfig = enabledChannelFilters.Add();
+      factoryConfig->set_name("test_channel_filter");
+      Envoy::Protobuf::StringValue v;
+      v.set_value("factory_config");
+      factoryConfig->mutable_typed_config()->PackFrom(v);
+    }
+
+    inject_ = std::make_unique<Registry::InjectFactory<ChannelFilterFactoryConfig>>(channel_filter_factory_config_);
+
+    auto* channelFilterMgr = channel_filter_manager_.get();
+    channelFilterMgr->~ChannelFilterManager();
+    new (channelFilterMgr) ChannelFilterManager(enabledChannelFilters, server_factory_context_);
+  }
+
   testing::NiceMock<Server::Configuration::MockServerFactoryContext> server_factory_context_;
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> server_config_;
   Envoy::Common::CallbackManager<absl::Status, std::chrono::milliseconds> drain_close_callbacks_;
@@ -338,6 +363,8 @@ public:
   openssh::SSHKeyPtr client_host_key_;
   TestSecretsProvider secrets_provider_;
   ChannelFilterManagerSharedPtr channel_filter_manager_;
+  testing::NiceMock<MockChannelFilterFactoryConfig> channel_filter_factory_config_;
+  std::unique_ptr<Registry::InjectFactory<ChannelFilterFactoryConfig>> inject_;
   testing::StrictMock<MockServerCodecCallbacks> server_codec_callbacks_;
   testing::NiceMock<Envoy::Network::MockServerConnection> mock_connection_;
   Envoy::Grpc::AsyncStreamCallbacks<ServerMessage>* manage_stream_callbacks_{};
@@ -697,6 +724,130 @@ TEST_F(ServerTransportTest, ForwardGlobalRequests) {
 
   ASSERT_OK(WriteMsg(auto(tcpipForwardMsg)));
   ASSERT_OK(WriteMsg(auto(cancelTcpipForwardMsg)));
+}
+
+// NOLINTBEGIN(readability-identifier-naming)
+class ChannelFilterConfigTest : public ServerTransportTest {
+public:
+  void SetUp() override {
+    ServerTransportTest::SetUp();
+
+    ON_CALL(channel_filter_factory_config_, createChannelFilterFactory)
+      .WillByDefault([&](const google::protobuf::Message& config, const Envoy::Server::Configuration::ServerFactoryContext&) {
+        EXPECT_EQ("factory_config", dynamic_cast<const Envoy::Protobuf::StringValue&>(config).value());
+
+        auto factory = std::make_unique<testing::NiceMock<MockChannelFilterFactory>>();
+        ON_CALL(*factory, createEmptyConfigProto)
+          .WillByDefault([] {
+            return std::make_unique<Envoy::Protobuf::StringValue>();
+          });
+        return factory;
+      });
+    SetupChannelFilterManager();
+  }
+};
+// NOLINTEND(readability-identifier-naming)
+
+TEST_F(ChannelFilterConfigTest, ConfigureChannelFilters) {
+  ASSERT_OK(ReadExtInfo());
+
+  auto clientKey = *openssh::SSHKey::generate(KEY_ED25519, 256);
+
+  ASSERT_OK(RequestUserAuthService());
+  auto [authReq, clientMsg] = BuildUserAuthMessages(*clientKey);
+
+  EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(clientMsg), false))
+    .WillOnce([this](Buffer::InstancePtr&, bool) {
+      auto response = std::make_unique<ServerMessage>();
+      auto* allow = response->mutable_auth_response()->mutable_allow();
+      allow->set_username("test");
+      auto* upstream = allow->mutable_upstream();
+      upstream->set_hostname("example");
+      *upstream->add_allowed_methods()->mutable_method() = "publickey";
+
+      // configure channel filters
+      auto* filter = upstream->add_channel_filters();
+      filter->set_name("test_channel_filter");
+      Envoy::Protobuf::StringValue filterConfig;
+      filterConfig.set_value("filter_config");
+      filter->mutable_typed_config()->PackFrom(filterConfig);
+
+      manage_stream_callbacks_->onReceiveMessage(std::move(response));
+    });
+  ExpectDecodingSuccess();
+  ExpectUpstreamConnectEvent();
+
+  ASSERT_OK(WriteMsg(std::move(authReq)));
+
+  EXPECT_EQ(1, channel_filter_manager_->numConfiguredFilters());
+}
+
+TEST_F(ChannelFilterConfigTest, ConfigureChannelFilters_InvalidChannelFilterConfig) {
+  ASSERT_OK(ReadExtInfo());
+
+  auto clientKey = *openssh::SSHKey::generate(KEY_ED25519, 256);
+
+  ASSERT_OK(RequestUserAuthService());
+  auto [authReq, clientMsg] = BuildUserAuthMessages(*clientKey);
+
+  EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(clientMsg), false))
+    .WillOnce([this](Buffer::InstancePtr&, bool) {
+      auto response = std::make_unique<ServerMessage>();
+      auto* allow = response->mutable_auth_response()->mutable_allow();
+      allow->set_username("test");
+      auto* upstream = allow->mutable_upstream();
+      upstream->set_hostname("example");
+      *upstream->add_allowed_methods()->mutable_method() = "publickey";
+
+      auto* filter = upstream->add_channel_filters();
+      filter->set_name("test_channel_filter");
+      Envoy::Protobuf::Int64Value filterConfig;
+      filterConfig.set_value(1234);
+      filter->mutable_typed_config()->PackFrom(filterConfig);
+
+      manage_stream_callbacks_->onReceiveMessage(std::move(response));
+    });
+
+  EXPECT_CALL(server_codec_callbacks_, onDecodingFailure(HasSubstr("invalid channel filter config")));
+  ASSERT_OK(WriteMsg(std::move(authReq)));
+
+  EXPECT_EQ(0, channel_filter_manager_->numConfiguredFilters());
+}
+
+TEST_F(ChannelFilterConfigTest, ConfigureChannelFilters_ChannelFilterNotFound) {
+  ASSERT_OK(ReadExtInfo());
+
+  auto clientKey = *openssh::SSHKey::generate(KEY_ED25519, 256);
+
+  ASSERT_OK(RequestUserAuthService());
+  auto [authReq, clientMsg] = BuildUserAuthMessages(*clientKey);
+
+  EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(clientMsg), false))
+    .WillOnce([this](Buffer::InstancePtr&, bool) {
+      auto response = std::make_unique<ServerMessage>();
+      auto* allow = response->mutable_auth_response()->mutable_allow();
+      allow->set_username("test");
+      auto* upstream = allow->mutable_upstream();
+      upstream->set_hostname("example");
+      *upstream->add_allowed_methods()->mutable_method() = "publickey";
+
+      auto* filter = upstream->add_channel_filters();
+      filter->set_name("test_channel_filter");
+      Envoy::Protobuf::StringValue filterConfig;
+      filterConfig.set_value("filter_config");
+      filter->mutable_typed_config()->PackFrom(filterConfig);
+
+      // add another filter that doesn't exist
+      upstream->add_channel_filters()
+        ->set_name("nonexistent");
+
+      manage_stream_callbacks_->onReceiveMessage(std::move(response));
+    });
+
+  EXPECT_CALL(server_codec_callbacks_, onDecodingFailure(HasSubstr("channel filter not found: nonexistent")));
+  ASSERT_OK(WriteMsg(std::move(authReq)));
+
+  EXPECT_EQ(0, channel_filter_manager_->numConfiguredFilters());
 }
 
 // NOLINTBEGIN(readability-identifier-naming)
@@ -1676,6 +1827,76 @@ TEST_F(HandoffTest, HandoffMode_HandoffMsgMissingDownstreamChannelInfo) {
 
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("received invalid handoff message: missing downstream channel info"));
   ReceiveOnServeChannelStream(ctrl);
+}
+
+TEST_F(HandoffTest, HandoffMode_ConfigureChannelFilters) {
+  EXPECT_CALL(channel_filter_factory_config_, createChannelFilterFactory)
+    .WillOnce([&](const google::protobuf::Message& config, const Envoy::Server::Configuration::ServerFactoryContext&) {
+      EXPECT_EQ("factory_config", dynamic_cast<const Envoy::Protobuf::StringValue&>(config).value());
+
+      auto factory = std::make_unique<testing::NiceMock<MockChannelFilterFactory>>();
+      EXPECT_CALL(*factory, createEmptyConfigProto)
+        .WillOnce([] {
+          return std::make_unique<Envoy::Protobuf::StringValue>();
+        });
+      return factory;
+    });
+  SetupChannelFilterManager();
+
+  ASSERT_OK(PrepareHandoff());
+  SendChannelOpenConfirmation();
+  ExpectUpstreamConnectEvent();
+  EXPECT_CALL(mock_connection_, readDisable(true));
+  ExpectDecodingSuccess();
+
+  auto msg = BuildHandOffChannelMessage();
+  SSHChannelControlAction action;
+  msg.mutable_channel_control()->mutable_control_action()->UnpackTo(&action);
+  auto* filter = action.mutable_hand_off()->mutable_upstream_auth()->mutable_upstream()->add_channel_filters();
+  filter->set_name("test_channel_filter");
+  Envoy::Protobuf::StringValue v;
+  v.set_value("filter_config");
+  filter->mutable_typed_config()->PackFrom(v);
+  msg.mutable_channel_control()->mutable_control_action()->PackFrom(action);
+
+  ReceiveOnServeChannelStream(msg);
+  serve_channel_callbacks_[0]->onRemoteClose(Envoy::Grpc::Status::Canceled, "handoff");
+
+  EXPECT_EQ(1, channel_filter_manager_->numConfiguredFilters());
+}
+
+TEST_F(HandoffTest, HandoffMode_ConfigureChannelFiltersError) {
+  EXPECT_CALL(channel_filter_factory_config_, createChannelFilterFactory)
+    .WillOnce([&](const google::protobuf::Message& config, const Envoy::Server::Configuration::ServerFactoryContext&) {
+      EXPECT_EQ("factory_config", dynamic_cast<const Envoy::Protobuf::StringValue&>(config).value());
+
+      auto factory = std::make_unique<testing::NiceMock<MockChannelFilterFactory>>();
+      EXPECT_CALL(*factory, createEmptyConfigProto)
+        .WillOnce([] {
+          return std::make_unique<Envoy::Protobuf::StringValue>();
+        });
+      return factory;
+    });
+  SetupChannelFilterManager();
+
+  ASSERT_OK(PrepareHandoff());
+  SendChannelOpenConfirmation();
+  // Upstream connect event, readDisable(true), and decoding success should not occur
+
+  auto msg = BuildHandOffChannelMessage();
+  SSHChannelControlAction action;
+  msg.mutable_channel_control()->mutable_control_action()->UnpackTo(&action);
+  auto* filter = action.mutable_hand_off()->mutable_upstream_auth()->mutable_upstream()->add_channel_filters();
+  filter->set_name("test_channel_filter");
+  Envoy::Protobuf::Int64Value v;
+  v.set_value(1234);
+  filter->mutable_typed_config()->PackFrom(v);
+  msg.mutable_channel_control()->mutable_control_action()->PackFrom(action);
+
+  EXPECT_CALL(server_codec_callbacks_, onDecodingFailure(HasSubstr("invalid channel filter config")));
+  ReceiveOnServeChannelStream(msg);
+
+  EXPECT_EQ(0, channel_filter_manager_->numConfiguredFilters());
 }
 
 TEST_F(ServerTransportTest, SuccessfulUserAuth_MirrorMode) {

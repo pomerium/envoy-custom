@@ -76,7 +76,7 @@ public:
       : config_(newConfig()),
         server_host_key_(*openssh::SSHKey::generate(KEY_ED25519, 256)),
         secrets_provider_(*config_),
-        channel_filter_manager_(std::make_shared<ChannelFilterManager>(server_factory_context_, std::vector<std::string>{})),
+        channel_filter_manager_(std::make_shared<ChannelFilterManager>(ExtensionConfigList{}, server_factory_context_)),
         transport_(server_factory_context_, config_, channel_filter_manager_, secrets_provider_) {}
 
   const wire::KexInitMsg kex_init_ = {

@@ -380,6 +380,13 @@ void SshServerTransport::initUpstream(AuthInfoSharedPtr auth_info) {
     setRequestedServerName(filterState, hostname);
     setDownstreamSourceAddress(filterState, callbacks_->connection()->streamInfo().downstreamAddressProvider().remoteAddress());
 
+    if (auto stat = channel_filter_manager_->configureFilters(
+          auth_info_->allow_response->upstream().channel_filters());
+        !stat.ok()) {
+      terminate(stat);
+      return;
+    }
+
     auto frame = std::make_unique<SSHRequestHeaderFrame>(hostname, stream_id_);
     callbacks_->onDecodingSuccess(std::move(frame));
     if (respond_called_) {
@@ -406,6 +413,13 @@ void SshServerTransport::initUpstream(AuthInfoSharedPtr auth_info) {
     auto hostname = auth_info_->allow_response->upstream().hostname();
     setRequestedServerName(filterState, hostname);
     setDownstreamSourceAddress(filterState, callbacks_->connection()->streamInfo().downstreamAddressProvider().remoteAddress());
+
+    if (auto stat = channel_filter_manager_->configureFilters(
+          auth_info_->allow_response->upstream().channel_filters());
+        !stat.ok()) {
+      terminate(stat);
+      return;
+    }
 
     auto frame = std::make_unique<SSHRequestHeaderFrame>(hostname, stream_id_);
     ENVOY_LOG(debug, "disabling reads on downstream connection for handoff");
