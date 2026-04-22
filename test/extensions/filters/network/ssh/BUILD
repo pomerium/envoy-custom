@@ -328,6 +328,7 @@ envoy_cc_test(
         "@envoy//test/mocks/grpc:grpc_mocks",
         "@envoy//test/mocks/network:connection_mocks",
         "@envoy//test/mocks/server:factory_context_mocks",
+        "@envoy//test/test_common:registry_lib",
     ],
 )
 

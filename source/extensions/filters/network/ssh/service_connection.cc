@@ -48,7 +48,7 @@ absl::StatusOr<uint32_t> ConnectionService::startChannel(std::unique_ptr<Channel
   RELEASE_ASSERT(!channels_.contains(*channelId), fmt::format("bug: channel with ID {} already exists", *channelId));
 
   auto callbacks = std::make_unique<ChannelCallbacksImpl>(*this, *channelId, local_peer_);
-  if (auto& filterMgr = transport_.channelFilterManager(); filterMgr.hasFilters()) {
+  if (auto& filterMgr = transport_.channelFilterManager(); filterMgr.numConfiguredFilters() > 0) {
     std::vector<ChannelFilterPtr> filters;
     switch (local_peer_) {
     case Downstream:

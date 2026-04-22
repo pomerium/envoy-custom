@@ -23,7 +23,7 @@ public:
                     const SecretsProvider& secrets_provider)
       : TransportBase<T>(context, config, secrets_provider),
         dispatcher_(context.api().allocateDispatcher(std::string(codec_traits<T>::name))),
-        channel_filter_manager_(context, {}) {
+        channel_filter_manager_({}, context) {
     SetVersion(fmt::format("SSH-2.0-{}", codec_traits<T>::name));
   }
 

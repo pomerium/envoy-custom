@@ -55,7 +55,7 @@ message CodecConfig {
 
   ConnectionServiceOptions connection_service_options = 8;
 
-  repeated string enabled_channel_filters = 9;
+  repeated envoy.config.core.v3.TypedExtensionConfig enabled_channel_filters = 9;
 }
 
 message AlgorithmOptions {
