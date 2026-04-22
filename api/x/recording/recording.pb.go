@@ -7,6 +7,7 @@
 package recording
 
 import (
+	status "google.golang.org/genproto/googleapis/rpc/status"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	anypb "google.golang.org/protobuf/types/known/anypb"
@@ -73,6 +74,7 @@ type RecordingCheckpoint struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RecordingId   string                 `protobuf:"bytes,1,opt,name=recording_id,json=recordingId,proto3" json:"recording_id,omitempty"`
 	Manifest      *ChunkManifest         `protobuf:"bytes,2,opt,name=manifest,proto3" json:"manifest,omitempty"`
+	Status        *status.Status         `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -117,6 +119,13 @@ func (x *RecordingCheckpoint) GetRecordingId() string {
 func (x *RecordingCheckpoint) GetManifest() *ChunkManifest {
 	if x != nil {
 		return x.Manifest
+	}
+	return nil
+}
+
+func (x *RecordingCheckpoint) GetStatus() *status.Status {
+	if x != nil {
+		return x.Status
 	}
 	return nil
 }
@@ -463,10 +472,11 @@ var File_github_com_pomerium_envoy_custom_api_x_recording_recording_proto protor
 
 const file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_rawDesc = "" +
 	"\n" +
-	"@github.com/pomerium/envoy-custom/api/x/recording/recording.proto\x12\x14pomerium.x.recording\x1a\x19google/protobuf/any.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"y\n" +
+	"@github.com/pomerium/envoy-custom/api/x/recording/recording.proto\x12\x14pomerium.x.recording\x1a\x19google/protobuf/any.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17google/rpc/status.proto\"\xa5\x01\n" +
 	"\x13RecordingCheckpoint\x12!\n" +
 	"\frecording_id\x18\x01 \x01(\tR\vrecordingId\x12?\n" +
-	"\bmanifest\x18\x02 \x01(\v2#.pomerium.x.recording.ChunkManifestR\bmanifest\"\xfb\x01\n" +
+	"\bmanifest\x18\x02 \x01(\v2#.pomerium.x.recording.ChunkManifestR\bmanifest\x12*\n" +
+	"\x06status\x18\x03 \x01(\v2\x12.google.rpc.StatusR\x06status\"\xfb\x01\n" +
 	"\rRecordingData\x12!\n" +
 	"\frecording_id\x18\x01 \x01(\tR\vrecordingId\x12E\n" +
 	"\bmetadata\x18\x02 \x01(\v2'.pomerium.x.recording.RecordingMetadataH\x00R\bmetadata\x12\x16\n" +
@@ -515,26 +525,28 @@ var file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_goType
 	(*RecordingTrailer)(nil),      // 4: pomerium.x.recording.RecordingTrailer
 	(*ChunkManifest)(nil),         // 5: pomerium.x.recording.ChunkManifest
 	(*ChunkMetadata)(nil),         // 6: pomerium.x.recording.ChunkMetadata
-	(*anypb.Any)(nil),             // 7: google.protobuf.Any
-	(*timestamppb.Timestamp)(nil), // 8: google.protobuf.Timestamp
+	(*status.Status)(nil),         // 7: google.rpc.Status
+	(*anypb.Any)(nil),             // 8: google.protobuf.Any
+	(*timestamppb.Timestamp)(nil), // 9: google.protobuf.Timestamp
 }
 var file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_depIdxs = []int32{
 	5,  // 0: pomerium.x.recording.RecordingCheckpoint.manifest:type_name -> pomerium.x.recording.ChunkManifest
-	3,  // 1: pomerium.x.recording.RecordingData.metadata:type_name -> pomerium.x.recording.RecordingMetadata
-	4,  // 2: pomerium.x.recording.RecordingData.trailer:type_name -> pomerium.x.recording.RecordingTrailer
-	0,  // 3: pomerium.x.recording.RecordingMetadata.recordingType:type_name -> pomerium.x.recording.RecordingFormat
-	7,  // 4: pomerium.x.recording.RecordingMetadata.metadata:type_name -> google.protobuf.Any
-	7,  // 5: pomerium.x.recording.RecordingTrailer.metadata:type_name -> google.protobuf.Any
-	6,  // 6: pomerium.x.recording.ChunkManifest.items:type_name -> pomerium.x.recording.ChunkMetadata
-	8,  // 7: pomerium.x.recording.ChunkMetadata.start:type_name -> google.protobuf.Timestamp
-	8,  // 8: pomerium.x.recording.ChunkMetadata.end:type_name -> google.protobuf.Timestamp
-	2,  // 9: pomerium.x.recording.RecordingService.Record:input_type -> pomerium.x.recording.RecordingData
-	1,  // 10: pomerium.x.recording.RecordingService.Record:output_type -> pomerium.x.recording.RecordingCheckpoint
-	10, // [10:11] is the sub-list for method output_type
-	9,  // [9:10] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	7,  // 1: pomerium.x.recording.RecordingCheckpoint.status:type_name -> google.rpc.Status
+	3,  // 2: pomerium.x.recording.RecordingData.metadata:type_name -> pomerium.x.recording.RecordingMetadata
+	4,  // 3: pomerium.x.recording.RecordingData.trailer:type_name -> pomerium.x.recording.RecordingTrailer
+	0,  // 4: pomerium.x.recording.RecordingMetadata.recordingType:type_name -> pomerium.x.recording.RecordingFormat
+	8,  // 5: pomerium.x.recording.RecordingMetadata.metadata:type_name -> google.protobuf.Any
+	8,  // 6: pomerium.x.recording.RecordingTrailer.metadata:type_name -> google.protobuf.Any
+	6,  // 7: pomerium.x.recording.ChunkManifest.items:type_name -> pomerium.x.recording.ChunkMetadata
+	9,  // 8: pomerium.x.recording.ChunkMetadata.start:type_name -> google.protobuf.Timestamp
+	9,  // 9: pomerium.x.recording.ChunkMetadata.end:type_name -> google.protobuf.Timestamp
+	2,  // 10: pomerium.x.recording.RecordingService.Record:input_type -> pomerium.x.recording.RecordingData
+	1,  // 11: pomerium.x.recording.RecordingService.Record:output_type -> pomerium.x.recording.RecordingCheckpoint
+	11, // [11:12] is the sub-list for method output_type
+	10, // [10:11] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_init() }

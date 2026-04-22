@@ -4,6 +4,7 @@ package pomerium.x.recording;
 
 import "google/protobuf/any.proto";
 import "google/protobuf/timestamp.proto";
+import "google/rpc/status.proto";
 
 option go_package = "github.com/pomerium/envoy-custom/api/x/recording";
 
@@ -12,8 +13,9 @@ service RecordingService {
 }
 
 message RecordingCheckpoint {
-  string        recording_id = 1;
-  ChunkManifest manifest     = 2;
+  string            recording_id = 1;
+  ChunkManifest     manifest     = 2;
+  google.rpc.Status status       = 3;
 }
 
 message RecordingData {
