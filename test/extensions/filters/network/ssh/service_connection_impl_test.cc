@@ -450,13 +450,16 @@ TEST_F(UpstreamConnectionServiceTest, TestChannelWriteFilters) {
   });
   ASSERT_TRUE(channelFilterCallbacks->interruptChannel(absl::InternalError("test error")));
   EXPECT_TRUE(called);
+
+  // interruptChannel should return false if called a second time, since the channel is no longer
+  // preemptible.
+  // Order is important wrt receiving the ChannelClose message below. After receiving the close
+  // message the channel will be destroyed and channelFilterCallbacks will point to garbage.
+  ASSERT_FALSE(channelFilterCallbacks->interruptChannel(absl::InternalError("test error")));
+
   ASSERT_OK(service_->handleMessage(wire::ChannelCloseMsg{
     .recipient_channel = channelId,
   }));
-
-  // interruptChannel should return false if called a second time, since the channel is no longer
-  // preemptible
-  ASSERT_FALSE(channelFilterCallbacks->interruptChannel(absl::InternalError("test error")));
 }
 
 } // namespace test
