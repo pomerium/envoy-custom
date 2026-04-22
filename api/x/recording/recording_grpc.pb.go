@@ -26,7 +26,7 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RecordingServiceClient interface {
-	Record(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[RecordingData, RecordingSession], error)
+	Record(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[RecordingData, RecordingCheckpoint], error)
 }
 
 type recordingServiceClient struct {
@@ -37,24 +37,24 @@ func NewRecordingServiceClient(cc grpc.ClientConnInterface) RecordingServiceClie
 	return &recordingServiceClient{cc}
 }
 
-func (c *recordingServiceClient) Record(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[RecordingData, RecordingSession], error) {
+func (c *recordingServiceClient) Record(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[RecordingData, RecordingCheckpoint], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &RecordingService_ServiceDesc.Streams[0], RecordingService_Record_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[RecordingData, RecordingSession]{ClientStream: stream}
+	x := &grpc.GenericClientStream[RecordingData, RecordingCheckpoint]{ClientStream: stream}
 	return x, nil
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type RecordingService_RecordClient = grpc.BidiStreamingClient[RecordingData, RecordingSession]
+type RecordingService_RecordClient = grpc.BidiStreamingClient[RecordingData, RecordingCheckpoint]
 
 // RecordingServiceServer is the server API for RecordingService service.
 // All implementations should embed UnimplementedRecordingServiceServer
 // for forward compatibility.
 type RecordingServiceServer interface {
-	Record(grpc.BidiStreamingServer[RecordingData, RecordingSession]) error
+	Record(grpc.BidiStreamingServer[RecordingData, RecordingCheckpoint]) error
 }
 
 // UnimplementedRecordingServiceServer should be embedded to have
@@ -64,7 +64,7 @@ type RecordingServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedRecordingServiceServer struct{}
 
-func (UnimplementedRecordingServiceServer) Record(grpc.BidiStreamingServer[RecordingData, RecordingSession]) error {
+func (UnimplementedRecordingServiceServer) Record(grpc.BidiStreamingServer[RecordingData, RecordingCheckpoint]) error {
 	return status.Error(codes.Unimplemented, "method Record not implemented")
 }
 func (UnimplementedRecordingServiceServer) testEmbeddedByValue() {}
@@ -88,11 +88,11 @@ func RegisterRecordingServiceServer(s grpc.ServiceRegistrar, srv RecordingServic
 }
 
 func _RecordingService_Record_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(RecordingServiceServer).Record(&grpc.GenericServerStream[RecordingData, RecordingSession]{ServerStream: stream})
+	return srv.(RecordingServiceServer).Record(&grpc.GenericServerStream[RecordingData, RecordingCheckpoint]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type RecordingService_RecordServer = grpc.BidiStreamingServer[RecordingData, RecordingSession]
+type RecordingService_RecordServer = grpc.BidiStreamingServer[RecordingData, RecordingCheckpoint]
 
 // RecordingService_ServiceDesc is the grpc.ServiceDesc for RecordingService service.
 // It's only intended for direct use with grpc.RegisterService,

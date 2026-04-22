@@ -24,14 +24,8 @@ const (
 
 type Config struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Path on disk to load extensions.
-	Path string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
-	// List of PEM-encoded public keys which can validate signed extensions loaded from 'path'.
-	// If multiple keys are set, each will be attempted in order.
-	VerifierKeys [][]byte `protobuf:"bytes,2,rep,name=verifier_keys,json=verifierKeys,proto3" json:"verifier_keys,omitempty"`
-	// By default, any extensions loaded from 'path' must be validated before
-	// they are loaded. This can be skipped for development or testing purposes.
-	InsecureSkipValidation bool `protobuf:"varint,3,opt,name=insecure_skip_validation,json=insecureSkipValidation,proto3" json:"insecure_skip_validation,omitempty"`
+	// List of paths on disk to load extensions.
+	Paths []string `protobuf:"bytes,1,rep,name=paths,proto3" json:"paths,omitempty"`
 	// Opaque configuration by extension ID
 	ExtensionConfigs map[string]*anypb.Any `protobuf:"bytes,4,rep,name=extension_configs,json=extensionConfigs,proto3" json:"extension_configs,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields    protoimpl.UnknownFields
@@ -68,25 +62,11 @@ func (*Config) Descriptor() ([]byte, []int) {
 	return file_github_com_pomerium_envoy_custom_api_extensions_bootstrap_dynamic_extension_loader_dynamic_extension_loader_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *Config) GetPath() string {
+func (x *Config) GetPaths() []string {
 	if x != nil {
-		return x.Path
-	}
-	return ""
-}
-
-func (x *Config) GetVerifierKeys() [][]byte {
-	if x != nil {
-		return x.VerifierKeys
+		return x.Paths
 	}
 	return nil
-}
-
-func (x *Config) GetInsecureSkipValidation() bool {
-	if x != nil {
-		return x.InsecureSkipValidation
-	}
-	return false
 }
 
 func (x *Config) GetExtensionConfigs() map[string]*anypb.Any {
@@ -100,11 +80,9 @@ var File_github_com_pomerium_envoy_custom_api_extensions_bootstrap_dynamic_exten
 
 const file_github_com_pomerium_envoy_custom_api_extensions_bootstrap_dynamic_extension_loader_dynamic_extension_loader_proto_rawDesc = "" +
 	"\n" +
-	"qgithub.com/pomerium/envoy-custom/api/extensions/bootstrap/dynamic_extension_loader/dynamic_extension_loader.proto\x12,pomerium.extensions.dynamic_extension_loader\x1a\x19google/protobuf/any.proto\"\xcf\x02\n" +
-	"\x06Config\x12\x12\n" +
-	"\x04path\x18\x01 \x01(\tR\x04path\x12#\n" +
-	"\rverifier_keys\x18\x02 \x03(\fR\fverifierKeys\x128\n" +
-	"\x18insecure_skip_validation\x18\x03 \x01(\bR\x16insecureSkipValidation\x12w\n" +
+	"qgithub.com/pomerium/envoy-custom/api/extensions/bootstrap/dynamic_extension_loader/dynamic_extension_loader.proto\x12,pomerium.extensions.dynamic_extension_loader\x1a\x19google/protobuf/any.proto\"\xf2\x01\n" +
+	"\x06Config\x12\x14\n" +
+	"\x05paths\x18\x01 \x03(\tR\x05paths\x12w\n" +
 	"\x11extension_configs\x18\x04 \x03(\v2J.pomerium.extensions.dynamic_extension_loader.Config.ExtensionConfigsEntryR\x10extensionConfigs\x1aY\n" +
 	"\x15ExtensionConfigsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12*\n" +

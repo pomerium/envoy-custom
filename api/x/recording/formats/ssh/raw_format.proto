@@ -6,51 +6,83 @@ import "api/extensions/filters/network/ssh/ssh.proto";
 import "envoy/config/core/v3/extension.proto";
 import "envoy/config/core/v3/grpc_service.proto";
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
 
 option go_package = "github.com/pomerium/envoy-custom/api/x/recording/formats/ssh";
 
 message Config {
-  string storage_dir = 1;
+  UploadConfig upload_config = 1;
+}
 
-  envoy.config.core.v3.GrpcService          grpc_service       = 3;
-  envoy.config.core.v3.TypedExtensionConfig compressor_library = 4;
+enum BufferExhaustMode {
+  // If the per-connection buffer is exhausted, disconnect
+  Disconnect = 0;
+  // If the per-connection buffer is exhausted, block and wait until space becomes available
+  Block = 1;
+}
+
+message UploadConfig {
+  // Size of the per-connection recording buffer containing data pending upload to the recording
+  // server
+  uint64 default_buffer_size = 1;
+
+  message PipeIpc {
+    message FdPair {
+      int32 read_fd  = 1;
+      int32 write_fd = 2;
+    }
+    repeated FdPair pipes = 1; // one pipe per thread; size must match the value of `concurrency`
+  }
+  message GrpcService {
+    envoy.config.core.v3.GrpcService service = 1;
+  }
+
+  oneof ipc_mode {
+    // Upload recordings via pipe file descriptor managed by the parent process
+    PipeIpc pipe_ipc = 3;
+    // Upload to a grpc service
+    GrpcService grpc_service_ipc = 4;
+  }
+
+  // Optional recording compression
+  envoy.config.core.v3.TypedExtensionConfig compression = 5;
+
+  // Number of worker threads used to process and upload recordings (default 2, minimum 1)
+  google.protobuf.UInt32Value concurrency = 6;
 }
 
 // This extension is added to [pomerium.extensions.ssh.UpstreamTarget] to enable session recording
 // and configure related options.
 message UpstreamTargetExtensionConfig {
-  // File basename for the recording, relative to the configured storage_dir.
-  string recording_name = 1;
-  // Recording format
-  Format format = 2;
-}
-
-enum Format {
-  UNKNOWN_FORMAT       = 0;
-  RAW_FORMAT           = 1;
-  ASCIICAST_FORMAT     = 2;
-  RAW_ENCRYPTED_FORMAT = 3;
+  // What to do if the buffer runs out of space for this connection
+  BufferExhaustMode buffer_exhaust_mode = 1;
+  // Override the default buffer size
+  google.protobuf.UInt64Value buffer_size = 2;
 }
 
 message RecordingMetadata {
-  string                    recording_name    = 1;
-  Format                    format            = 2;
-  uint64                    uncompressed_size = 3;
-  google.protobuf.Timestamp start_time        = 4;
-  google.protobuf.Timestamp end_time          = 5;
+  uint32                    protocol_version  = 1;
+  uint64                    uncompressed_size = 4;
+  google.protobuf.Timestamp start_time        = 5;
   string                    login_name        = 6;
   string                    session_id        = 7;
-  uint64                    stream_id         = 8;
-  string                    route_name        = 9;
-  pomerium.extensions.ssh.UpstreamTarget       upstream = 10;
-  pomerium.extensions.ssh.SSHDownstreamPTYInfo pty_info = 11;
+  string                    user_id           = 8;
+  uint64                    stream_id         = 9;
+  string                    route_name        = 10;
+  pomerium.extensions.ssh.UpstreamTarget       upstream = 11;
+  pomerium.extensions.ssh.SSHDownstreamPTYInfo pty_info = 12;
 }
 
-message Header {
-  int64 start_time = 1; // unix milliseconds
-  pomerium.extensions.ssh.SSHDownstreamPTYInfo pty_info = 2;
-  bool                encrypted = 3;
-  map<string, string> metadata  = 4;
+message RecordingTrailer {
+  google.protobuf.Timestamp end_time = 1;
+
+  enum DisconnectReason {
+    Unknown                = 0;
+    DownstreamDisconnected = 1;
+    UpstreamDisconnected   = 2;
+    SessionExpired         = 3;
+  }
+  DisconnectReason disconnect_reason = 2;
 }
 
 enum PacketDirection {

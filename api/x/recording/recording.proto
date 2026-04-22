@@ -4,23 +4,27 @@ package pomerium.x.recording;
 
 import "google/protobuf/any.proto";
 import "google/protobuf/timestamp.proto";
+import "google/rpc/status.proto";
 
 option go_package = "github.com/pomerium/envoy-custom/api/x/recording";
 
 service RecordingService {
-  rpc Record(stream RecordingData) returns (stream RecordingSession);
+  rpc Record(stream RecordingData) returns (stream RecordingCheckpoint);
 }
 
-message RecordingSession {
-  ChunkManifest manifest = 1;
+message RecordingCheckpoint {
+  string            recording_id = 1;
+  ChunkManifest     manifest     = 2;
+  google.rpc.Status status       = 3;
 }
 
 message RecordingData {
+  string recording_id = 1;
   oneof data {
-    RecordingMetadata  metadata = 1;
-    bytes              chunk    = 2;
-    bytes              checksum = 3;
-    RecordingSignature sig      = 4;
+    RecordingMetadata metadata = 2;
+    bytes             chunk    = 3;
+    bytes             checksum = 4;
+    RecordingTrailer  trailer  = 5;
   }
 }
 
@@ -30,13 +34,13 @@ enum RecordingFormat {
 }
 
 message RecordingMetadata {
-  string              id            = 1;
   RecordingFormat     recordingType = 2;
   google.protobuf.Any metadata      = 3;
 }
 
-message RecordingSignature {
-  //TODO:
+message RecordingTrailer {
+  string              envoy_version = 1;
+  google.protobuf.Any metadata      = 3;
 }
 
 message ChunkManifest {
@@ -44,8 +48,8 @@ message ChunkManifest {
 }
 
 message ChunkMetadata {
-  uint32                             size     = 1;
-  bytes                              checksum = 2;
-  optional google.protobuf.Timestamp start    = 3;
-  optional google.protobuf.Timestamp end      = 4;
+  uint32                    size     = 1;
+  bytes                     checksum = 2;
+  google.protobuf.Timestamp start    = 3;
+  google.protobuf.Timestamp end      = 4;
 }
