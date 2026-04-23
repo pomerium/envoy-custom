@@ -246,6 +246,7 @@ TEST_F(DownstreamConnectionServiceTest, TestChannelReadFilters) {
   EXPECT_CALL(*factory, createReadFilter)
     .WillOnce([&](const google::protobuf::Message& config, ChannelFilterCallbacks& filter_callbacks) {
       EXPECT_EQ("filter_config", dynamic_cast<const Envoy::Protobuf::StringValue&>(config).value());
+      EXPECT_EQ(static_cast<stream_id_t>(1), filter_callbacks.streamId());
       channelFilterCallbacks = &filter_callbacks;
       EXPECT_EQ(channelId, filter_callbacks.channelId());
       // no channel open message has been received yet, so channelType should return nullopt
@@ -389,6 +390,7 @@ TEST_F(UpstreamConnectionServiceTest, TestChannelWriteFilters) {
   EXPECT_CALL(*factory, createWriteFilter)
     .WillOnce([&](const google::protobuf::Message& config, ChannelFilterCallbacks& filter_callbacks) {
       EXPECT_EQ("filter_config", dynamic_cast<const Envoy::Protobuf::StringValue&>(config).value());
+      EXPECT_EQ(static_cast<stream_id_t>(1), filter_callbacks.streamId());
       channelFilterCallbacks = &filter_callbacks;
       EXPECT_EQ(channelId, filter_callbacks.channelId());
       return std::move(filter);

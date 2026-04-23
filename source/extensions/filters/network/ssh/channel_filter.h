@@ -1,6 +1,7 @@
 #pragma once
 
 #include "source/extensions/filters/network/ssh/channel.h"
+#include "source/extensions/filters/network/ssh/common.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
@@ -24,6 +25,9 @@ public:
   // This does not necessarily terminate the connection, but the downstream client may disconnect
   // if this was the last open channel. See ConnectionService::preempt for more details.
   virtual bool interruptChannel(absl::Status err) PURE;
+
+  // Returns this channel's stream ID.
+  virtual stream_id_t streamId() const PURE;
 };
 
 using ChannelFilterPtr = std::unique_ptr<ChannelFilter>;
