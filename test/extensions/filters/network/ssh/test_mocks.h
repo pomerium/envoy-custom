@@ -119,6 +119,7 @@ public:
   MOCK_METHOD(uint32_t, channelId, (), (const));
   MOCK_METHOD(std::optional<std::string_view>, channelType, (), (const));
   MOCK_METHOD(Stats::Scope&, scope, (), (const));
+  MOCK_METHOD(stream_id_t, streamId, (), (const));
   MOCK_METHOD(bool, interruptChannel, (absl::Status));
 };
 
