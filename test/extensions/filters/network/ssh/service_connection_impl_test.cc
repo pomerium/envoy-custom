@@ -397,6 +397,7 @@ TEST_F(UpstreamConnectionServiceTest, TestChannelWriteFilters) {
       EXPECT_EQ("filter_config", dynamic_cast<const Envoy::Protobuf::StringValue&>(config).value());
       EXPECT_EQ(static_cast<stream_id_t>(1), filter_callbacks.streamId());
       EXPECT_EQ(&std::as_const(fake_auth_info_), &filter_callbacks.authInfo());
+      EXPECT_EQ(&mock_dispatcher_, &filter_callbacks.connectionDispatcher());
       channelFilterCallbacks = &filter_callbacks;
       EXPECT_EQ(channelId, filter_callbacks.channelId());
       return std::move(filter);

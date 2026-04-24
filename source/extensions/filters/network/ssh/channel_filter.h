@@ -3,6 +3,9 @@
 #include "source/extensions/filters/network/ssh/channel.h"
 #include "source/extensions/filters/network/ssh/filter_state_objects.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
+#pragma clang unsafe_buffer_usage begin
+#include "envoy/event/dispatcher.h"
+#pragma clang unsafe_buffer_usage end
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -31,6 +34,11 @@ public:
 
   // Returns this connection's auth info.
   virtual const AuthInfo& authInfo() const PURE;
+
+  // Returns this connection's dispatcher. The dispatcher may be obtained from either the upstream
+  // or downstream connection depending on the direction of this channel, but both dispatchers
+  // will be for the same thread.
+  virtual Envoy::Event::Dispatcher& connectionDispatcher() const PURE;
 };
 
 using ChannelFilterPtr = std::unique_ptr<ChannelFilter>;
