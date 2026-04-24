@@ -398,6 +398,7 @@ ConnectionService::ChannelCallbacksImpl::addInterruptCallback(std::function<void
 }
 
 bool ConnectionService::ChannelCallbacksImpl::interruptChannel(absl::Status err) {
+  ASSERT(parent_.transport_.connectionDispatcher()->isThreadSafe());
   ENVOY_LOG(debug, "ssh: stream {}: interrupt requested for channel {} by a channel filter",
             parent_.transport_.streamId(), channel_id_);
   if (channel_id_mgr_.isPreemptable(channel_id_, local_peer_)) {
