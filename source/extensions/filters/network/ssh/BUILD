@@ -82,6 +82,7 @@ envoy_cc_library(
         "stream_tracker.h",
         "transport.h",
         "transport_base.h",
+        "transport_common.h",
         "version_exchange.h",
     ],
     copts = [

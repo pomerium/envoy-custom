@@ -77,9 +77,8 @@ public:
 
     // ChannelFilterCallbacks
     bool interruptChannel(absl::Status err) override;
-    stream_id_t streamId() const override {
-      return parent_.transport_.streamId();
-    }
+    stream_id_t streamId() const override { return parent_.transport_.streamId(); }
+    const AuthInfo& authInfo() const override { return parent_.transport_.authInfo(); }
 
   private:
     void cleanup() override;

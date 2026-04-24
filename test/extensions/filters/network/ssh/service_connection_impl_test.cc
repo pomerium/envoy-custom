@@ -51,6 +51,10 @@ public:
       .WillRepeatedly([this] -> ChannelFilterManager& {
         return *channel_filter_manager_;
       });
+    fake_auth_info_.stream_id = 1;
+    EXPECT_CALL(*transport_, authInfo)
+      .Times(AnyNumber())
+      .WillRepeatedly(ReturnRef(fake_auth_info_));
   }
 
 protected:
@@ -58,6 +62,7 @@ protected:
   ChannelIDManager channel_id_manager_{100, 100};
   TestSecretsProvider secrets_provider_;
   TestSshMessageDispatcher msg_dispatcher_;
+  AuthInfo fake_auth_info_;
   testing::NiceMock<Server::Configuration::MockServerFactoryContext> context_;
   std::unique_ptr<ChannelFilterManager> channel_filter_manager_;
   std::unique_ptr<testing::StrictMock<MockUpstreamTransportCallbacks>> transport_;
@@ -391,6 +396,7 @@ TEST_F(UpstreamConnectionServiceTest, TestChannelWriteFilters) {
     .WillOnce([&](const google::protobuf::Message& config, ChannelFilterCallbacks& filter_callbacks) {
       EXPECT_EQ("filter_config", dynamic_cast<const Envoy::Protobuf::StringValue&>(config).value());
       EXPECT_EQ(static_cast<stream_id_t>(1), filter_callbacks.streamId());
+      EXPECT_EQ(&std::as_const(fake_auth_info_), &filter_callbacks.authInfo());
       channelFilterCallbacks = &filter_callbacks;
       EXPECT_EQ(channelId, filter_callbacks.channelId());
       return std::move(filter);
