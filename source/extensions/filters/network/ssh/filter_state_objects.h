@@ -4,6 +4,9 @@
 #include "source/common/network/filter_state_dst_address.h"
 #pragma clang unsafe_buffer_usage end
 
+#include "source/extensions/filters/network/ssh/transport_common.h"
+#include "source/extensions/filters/network/ssh/wire/messages.h"
+
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 class DownstreamSourceAddressFilterStateFactory : public Network::BaseAddressObjectFactory {
@@ -51,6 +54,18 @@ public:
     return std::make_unique<RequestedPath>(data);
   }
 };
+
+struct AuthInfo : public StreamInfo::FilterState::Object {
+  std::string server_version;
+  stream_id_t stream_id{}; // unique stream id for both connections
+  ChannelMode channel_mode{};
+  HandoffInfo handoff_info;
+  std::optional<wire::ExtInfoMsg> downstream_ext_info;
+  std::optional<wire::ExtInfoMsg> upstream_ext_info;
+  std::unique_ptr<pomerium::extensions::ssh::AllowResponse> allow_response;
+};
+
+using AuthInfoSharedPtr = std::shared_ptr<AuthInfo>;
 
 constexpr std::string_view ChannelIDManagerFilterStateKey = "pomerium.extensions.ssh.channel_id_manager";
 constexpr std::string_view AuthInfoFilterStateKey = "pomerium.extensions.ssh.auth_info";

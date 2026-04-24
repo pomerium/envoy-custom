@@ -1,7 +1,7 @@
 #pragma once
 
 #include "source/extensions/filters/network/ssh/channel.h"
-#include "source/extensions/filters/network/ssh/common.h"
+#include "source/extensions/filters/network/ssh/filter_state_objects.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
@@ -28,6 +28,9 @@ public:
 
   // Returns this channel's stream ID.
   virtual stream_id_t streamId() const PURE;
+
+  // Returns this connection's auth info.
+  virtual const AuthInfo& authInfo() const PURE;
 };
 
 using ChannelFilterPtr = std::unique_ptr<ChannelFilter>;
