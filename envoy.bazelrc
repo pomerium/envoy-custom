@@ -100,6 +100,10 @@ build:macos --define tcmalloc=disabled
 build:macos --cxxopt=-Wno-nullability-completeness
 build:macos --@toolchains_llvm//toolchain/config:compiler-rt=false
 build:macos --@toolchains_llvm//toolchain/config:libunwind=false
+build:macos --copt=-DEVENT__HAVE_KQUEUE=1
+build:macos --copt=-DEVENT__HAVE_WORKING_KQUEUE=1
+build:macos --copt=-DHAVE_KQUEUE=1
+build:macos --copt=-DHAVE_WORKING_KQUEUE=1
 
 
 #############################################################################
