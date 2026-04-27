@@ -27,7 +27,7 @@ common:coverage --action_env=LDFLAGS="-stdlib=libc++ -fuse-ld=lld -rtlib=compile
 # which causes fPIC mismatch errors.
 build --@io_bazel_rules_go//go/config:pure=True
 
-build --macos_minimum_os=15.5
+build --macos_minimum_os=14.5
 build:linux --features=-libtool
 
 common:buildbarn --remote_executor=grpc://frontend.buildbarn.svc.cluster.local:8980
