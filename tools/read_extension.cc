@@ -669,9 +669,6 @@ struct LintResults {
 };
 
 absl::StatusOr<LintResults> runLinters(const MmapFileHandle& ext) {
-  // 1. Check for template instantiations of Envoy::Registry::FactoryRegistry for types in an
-  //    Envoy::* namespace
-
   auto symbols = readSymbols(ext, SymbolKindFilter::Defined);
   if (!symbols.ok()) {
     return symbols.status();
@@ -679,39 +676,129 @@ absl::StatusOr<LintResults> runLinters(const MmapFileHandle& ext) {
 
   LintResults out;
 
-  auto search = std::tuple<std::string_view, SymbolInfo>{"_ZN5Envoy8Registry15FactoryRegistryI", {}};
-  auto it = std::lower_bound(symbols->items.begin(), symbols->items.end(), search, [](const auto& a, const auto& b) {
-    return std::get<0>(a) < std::get<0>(b);
-  });
-  std::unordered_set<std::string> seen;
-  while (it != symbols->items.end()) {
-    const auto& [name, sym] = *it;
-    if (!name.starts_with("_ZN5Envoy8Registry15FactoryRegistryI")) {
-      break;
-    }
-    char* demangledName = abi::__cxa_demangle(name.data(), nullptr, nullptr, nullptr); // NOLINT:bugprone-suspicious-stringview-data-usage
-    std::string_view view{demangledName};
+  {
+    // 1. Check for template instantiations of Envoy::Registry::FactoryRegistry for types in an
+    //    Envoy::* namespace
 
-    view.remove_prefix("Envoy::Registry::FactoryRegistry<"sv.size());
-    auto idx = view.find('>');
-    if (idx == std::string::npos) {
-      return absl::InvalidArgumentError("malformed input");
-    }
-    std::string type{view.substr(0, idx)};
-    free(demangledName);
-    if (!seen.contains(type)) {
-      seen.insert(type);
-      if (type.starts_with("Envoy::")) {
-        out.results.push_back(LintResult{
-          .category = "envoy-factory-registration",
-          .msg = fmt::format("extension instantiates Envoy::Registry::FactoryRegistry for type '{}'", type),
-          .notes = {fmt::format("declare DYNAMIC_EXTENSION_USE_FACTORY_BASE({}) to fix", type)},
-        });
+    auto search = std::tuple<std::string_view, SymbolInfo>{"_ZN5Envoy8Registry15FactoryRegistryI", {}};
+    auto it = std::lower_bound(symbols->items.begin(), symbols->items.end(), search, [](const auto& a, const auto& b) {
+      return std::get<0>(a) < std::get<0>(b);
+    });
+    std::unordered_set<std::string> seen;
+    while (it != symbols->items.end()) {
+      const auto& [name, sym] = *it;
+      if (!name.starts_with("_ZN5Envoy8Registry15FactoryRegistryI")) {
+        break;
       }
+      char* demangledName = abi::__cxa_demangle(name.data(), nullptr, nullptr, nullptr); // NOLINT:bugprone-suspicious-stringview-data-usage
+      std::string_view view{demangledName};
+
+      view.remove_prefix("Envoy::Registry::FactoryRegistry<"sv.size());
+      auto idx = view.find('>');
+      if (idx == std::string::npos) {
+        return absl::InvalidArgumentError("malformed input");
+      }
+      std::string type{view.substr(0, idx)};
+      free(demangledName);
+      if (!seen.contains(type)) {
+        seen.insert(type);
+        if (type.starts_with("Envoy::")) {
+          out.results.push_back(LintResult{
+            .category = "envoy-factory-registration",
+            .msg = fmt::format("extension instantiates Envoy::Registry::FactoryRegistry for type '{}'", type),
+            .notes = {fmt::format("declare DYNAMIC_EXTENSION_USE_FACTORY_BASE({}) to fix", type)},
+          });
+        }
+      }
+      it++;
     }
-    it++;
   }
 
+  {
+    // 2. Check for DT_NEEDED entries other than libc and libm, and any rpath or runpath set
+
+    auto* header = reinterpret_cast<const Elf64_Ehdr*>(ext.addr_);
+    auto extension_data = ext.view();
+    const Elf64_Shdr* sh_dynamic{};
+    for (int shIdx = 0; shIdx < header->e_shnum; shIdx++) {
+      auto* sectionHeader = reinterpret_cast<const Elf64_Shdr*>(
+        extension_data.subspan(header->e_shoff + shIdx * sizeof(Elf64_Shdr), sizeof(Elf64_Shdr)).data());
+
+      switch (sectionHeader->sh_type) {
+      case SHT_DYNAMIC:
+        sh_dynamic = sectionHeader;
+        goto found;
+      default:
+        continue;
+      }
+    }
+  found:
+    if (sh_dynamic == nullptr) {
+      return absl::InvalidArgumentError("missing section: .dynamic");
+    }
+
+    std::vector<std::string_view> unexpectedDtNeeded;
+    std::vector<std::string_view> unexpectedRunpaths;
+    std::vector<std::string_view> unexpectedRpaths;
+    auto* dynamicStrTabHdr = reinterpret_cast<const Elf64_Shdr*>(
+      extension_data.subspan(header->e_shoff + sh_dynamic->sh_link * sizeof(Elf64_Shdr), sizeof(Elf64_Shdr)).data());
+    auto dynamicStrTable = extension_data.subspan(dynamicStrTabHdr->sh_offset, dynamicStrTabHdr->sh_size);
+
+    auto dynamicEntries = extension_data.subspan(sh_dynamic->sh_offset, sh_dynamic->sh_size);
+    while (!dynamicEntries.empty()) {
+      auto* entry = reinterpret_cast<const Elf64_Dyn*>(dynamicEntries.data());
+      switch (entry->d_tag) {
+      case DT_NEEDED:
+        if (auto name = strtabCStrView(dynamicStrTable.subspan(entry->d_un.d_ptr));
+            !name.starts_with("libm.so.6") && !name.starts_with("libc.so.6") && !name.starts_with("ld-linux")) {
+          unexpectedDtNeeded.push_back(name);
+        }
+        break;
+      case DT_RUNPATH:
+        unexpectedRunpaths.push_back(strtabCStrView(dynamicStrTable.subspan(entry->d_un.d_ptr)));
+        break;
+      case DT_RPATH:
+        unexpectedRpaths.push_back(strtabCStrView(dynamicStrTable.subspan(entry->d_un.d_ptr)));
+        break;
+      default:
+        break;
+      }
+      dynamicEntries = dynamicEntries.subspan(sizeof(Elf64_Dyn));
+    }
+
+    if (!unexpectedDtNeeded.empty()) {
+      std::string msg = "extension has unexpected shared library dependencies:\n";
+      for (const auto& name : unexpectedDtNeeded) {
+        msg += fmt::format("  - {}\n", name.substr(0, name.size() - 1));
+      }
+      out.results.push_back(LintResult{
+        .category = "unexpected-dt-needed",
+        .msg = msg,
+      });
+    }
+
+    if (!unexpectedRunpaths.empty()) {
+      std::string msg = "extension has unexpected RUNPATH entries:\n";
+      for (const auto& name : unexpectedRunpaths) {
+        msg += fmt::format("  - {}\n", name.substr(0, name.size() - 1));
+      }
+      out.results.push_back(LintResult{
+        .category = "unexpected-runpath",
+        .msg = msg,
+      });
+    }
+
+    if (!unexpectedRpaths.empty()) {
+      std::string msg = "extension has unexpected RPATH entries:\n";
+      for (const auto& name : unexpectedRpaths) {
+        msg += fmt::format("  - {}\n", name.substr(0, name.size() - 1));
+      }
+      out.results.push_back(LintResult{
+        .category = "unexpected-runpath",
+        .msg = msg,
+      });
+    }
+  }
   return std::move(out);
 }
 
