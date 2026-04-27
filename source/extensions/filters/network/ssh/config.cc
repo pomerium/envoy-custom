@@ -47,15 +47,18 @@ SshCodecFactory::SshCodecFactory(Envoy::Server::Configuration::ServerFactoryCont
     throw Envoy::EnvoyException(statusToString(hostKeys.status()));
   }
   host_keys_ = std::move(hostKeys).value();
+
+  channel_filter_manager_ = std::make_shared<ChannelFilterManager>(
+    config->enabled_channel_filters(), context);
 }
 
 ServerCodecPtr SshCodecFactory::createServerCodec() const {
   return std::make_unique<SshServerTransport>(context_, config_, create_grpc_client_,
-                                              stream_tracker_, *this);
+                                              stream_tracker_, channel_filter_manager_, *this);
 }
 
 ClientCodecPtr SshCodecFactory::createClientCodec() const {
-  return std::make_unique<SshClientTransport>(context_, config_, *this);
+  return std::make_unique<SshClientTransport>(context_, config_, channel_filter_manager_, *this);
 }
 
 ProtobufTypes::MessagePtr SshCodecFactoryConfig::createEmptyConfigProto() {

@@ -31,6 +31,7 @@ envoy_cc_library(
     name = "pomerium_ssh",
     srcs = [
         "channel.cc",
+        "channel_filter_config.cc",
         "client_transport.cc",
         "config.cc",
         "extension_ping.cc",
@@ -54,6 +55,8 @@ envoy_cc_library(
     ],
     hdrs = [
         "channel.h",
+        "channel_filter.h",
+        "channel_filter_config.h",
         "client_transport.h",
         "config.h",
         "extension_ping.h",
@@ -79,6 +82,7 @@ envoy_cc_library(
         "stream_tracker.h",
         "transport.h",
         "transport_base.h",
+        "transport_common.h",
         "version_exchange.h",
     ],
     copts = [

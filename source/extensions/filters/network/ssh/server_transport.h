@@ -16,6 +16,7 @@
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/transport_base.h"
 #include "source/extensions/filters/network/ssh/service_connection.h"
+#include "source/extensions/filters/network/ssh/channel_filter_config.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -31,6 +32,7 @@ public:
                      std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
                      CreateGrpcClientFunc create_grpc_client,
                      StreamTrackerSharedPtr active_stream_tracker,
+                     ChannelFilterManagerSharedPtr channel_filter_manager,
                      const SecretsProvider& secrets_provider);
 
   void onConnected() override;
@@ -53,6 +55,7 @@ public:
   stream_id_t streamId() const override { return stream_id_; }
 
   ChannelIDManager& channelIdManager() override { return *channel_id_manager_; }
+  ChannelFilterManager& channelFilterManager() override { return *channel_filter_manager_; }
 
   // Network::ConnectionCallbacks
   void onEvent(Network::ConnectionEvent event) override;
@@ -84,6 +87,7 @@ private:
   std::shared_ptr<ChannelIDManager> channel_id_manager_;
   std::unique_ptr<PingExtensionHandler> ping_handler_;
   StreamTrackerSharedPtr stream_tracker_;
+  ChannelFilterManagerSharedPtr channel_filter_manager_;
 
   std::unique_ptr<StreamManagementServiceClient> mgmt_client_;
   std::shared_ptr<ChannelStreamServiceClient> channel_client_;

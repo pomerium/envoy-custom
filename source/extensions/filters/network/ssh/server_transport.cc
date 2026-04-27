@@ -59,10 +59,12 @@ SshServerTransport::SshServerTransport(Server::Configuration::ServerFactoryConte
                                        std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
                                        CreateGrpcClientFunc create_grpc_client,
                                        StreamTrackerSharedPtr stream_tracker,
+                                       ChannelFilterManagerSharedPtr channel_filter_manager,
                                        const SecretsProvider& secrets_provider)
     : TransportBase(context, std::move(config), secrets_provider),
       DownstreamTransportCallbacks(*this),
-      stream_tracker_(std::move(stream_tracker)) {
+      stream_tracker_(std::move(stream_tracker)),
+      channel_filter_manager_(channel_filter_manager) {
   auto grpcClient = create_grpc_client();
   THROW_IF_NOT_OK_REF(grpcClient.status());
   grpc_client_ = *grpcClient;
@@ -378,6 +380,13 @@ void SshServerTransport::initUpstream(AuthInfoSharedPtr auth_info) {
     setRequestedServerName(filterState, hostname);
     setDownstreamSourceAddress(filterState, callbacks_->connection()->streamInfo().downstreamAddressProvider().remoteAddress());
 
+    if (auto stat = channel_filter_manager_->configureFilters(
+          auth_info_->allow_response->upstream().channel_filters());
+        !stat.ok()) {
+      terminate(stat);
+      return;
+    }
+
     auto frame = std::make_unique<SSHRequestHeaderFrame>(hostname, stream_id_);
     callbacks_->onDecodingSuccess(std::move(frame));
     if (respond_called_) {
@@ -404,6 +413,13 @@ void SshServerTransport::initUpstream(AuthInfoSharedPtr auth_info) {
     auto hostname = auth_info_->allow_response->upstream().hostname();
     setRequestedServerName(filterState, hostname);
     setDownstreamSourceAddress(filterState, callbacks_->connection()->streamInfo().downstreamAddressProvider().remoteAddress());
+
+    if (auto stat = channel_filter_manager_->configureFilters(
+          auth_info_->allow_response->upstream().channel_filters());
+        !stat.ok()) {
+      terminate(stat);
+      return;
+    }
 
     auto frame = std::make_unique<SSHRequestHeaderFrame>(hostname, stream_id_);
     ENVOY_LOG(debug, "disabling reads on downstream connection for handoff");
