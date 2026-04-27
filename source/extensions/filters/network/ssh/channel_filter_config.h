@@ -52,3 +52,6 @@ private:
 using ChannelFilterManagerSharedPtr = std::shared_ptr<ChannelFilterManager>;
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
+
+extern template class Envoy::Registry::FactoryRegistry<Envoy::Extensions::NetworkFilters::GenericProxy::Codec::ChannelFilterFactoryConfig>;
+extern template class Envoy::Registry::FactoryRegistryProxyImpl<Envoy::Extensions::NetworkFilters::GenericProxy::Codec::ChannelFilterFactoryConfig>;
