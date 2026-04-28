@@ -1,0 +1,19 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 89f0ca32..2241ffba 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -665,13 +665,7 @@ CHECK_TYPE_SIZE("time_t" EVENT__SIZEOF_TIME_T)
+ 
+ # Verify kqueue works with pipes.
+ if (EVENT__HAVE_KQUEUE)
+-    if ((CMAKE_CROSSCOMPILING OR APPLE) AND NOT EVENT__FORCE_KQUEUE_CHECK)
+-        message(WARNING "Cannot check if kqueue works with pipes when crosscompiling, use EVENT__FORCE_KQUEUE_CHECK to be sure (this requires manually running a test program on the cross compilation target)")
+-        set(EVENT__HAVE_WORKING_KQUEUE 1)
+-    else()
+-        message(STATUS "Checking if kqueue works with pipes...")
+-        include(CheckWorkingKqueue)
+-    endif()
++    set(EVENT__HAVE_WORKING_KQUEUE 1)
+ endif()
+ 
+ if(EVENT__HAVE_NETDB_H)

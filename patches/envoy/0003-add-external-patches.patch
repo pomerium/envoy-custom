@@ -11,3 +11,16 @@ index c93daba62e..55f77d7b7d 100644
          repo_mapping = {"@com_google_absl": "@abseil-cpp"},
      )
      external_http_archive(
+diff --git a/bazel/repositories.bzl b/bazel/repositories.bzl
+index ad51ee705e..19b6a3eebd 100644
+--- a/bazel/repositories.bzl
++++ b/bazel/repositories.bzl
+@@ -478,6 +478,8 @@ def _libevent():
+     external_http_archive(
+         name = "libevent",
+         build_file_content = LIBEVENT_BUILD_CONTENT,
++        patches = ["@pomerium_envoy//patches/libevent:0001-macos-skip-kqueue-check.patch"],
++        patch_args = ["-p1"],
+     )
+ 
+ def _colm():

@@ -47,7 +47,7 @@ http_archive(
     patches = [
         "//patches/envoy:0001-revert-deps-drop-BoringSSL-linkstatic-patch-38621.patch",
         "//patches/envoy:0002-envoy-copts.patch",
-        "//patches/envoy:0003-protoc-gen-validate.patch",
+        "//patches/envoy:0003-add-external-patches.patch",
         "//patches/envoy:0004-suppress-duplicate-wip-warnings.patch",
         "//patches/envoy:0005-user-space-io-handle.patch",
         "//patches/envoy:0006-fake-upstream.patch",
