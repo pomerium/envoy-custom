@@ -6,11 +6,22 @@ builtin_host_deps = [
     "@envoy//source/common/common:logger_lib",
 ]
 
+def _internal_api_deps_targets(targets):
+    out = []
+    for target in targets:
+        out += [
+            target + ":pkg_cc_proto_cc_proto",
+            target + ":pkg_cc_proto_validate",
+        ]
+    return out
+
 def cc_dynamic_extension(
         name,
         srcs = [],
         hdrs = [],
         copts = [],
+        header_only_deps = [],
+        internal_api_deps = [],
         host_deps = [],
         testonly = 0,
         visibility = ["//visibility:public"]):
@@ -18,7 +29,7 @@ def cc_dynamic_extension(
     cc_library(
         name = _name,
         visibility = visibility,
-        srcs = srcs,
+        srcs = srcs + _internal_api_deps_targets(internal_api_deps),
         hdrs = hdrs,
         copts = copts + [
             "-fvisibility=hidden",
@@ -27,7 +38,7 @@ def cc_dynamic_extension(
         testonly = testonly,
         features = ["prefer_pic_for_opt_binaries"],
         linkstatic = True,
-        deps = host_deps + builtin_host_deps + [
+        deps = host_deps + builtin_host_deps + header_only_deps + [
             "@pomerium_envoy//source/common/dynamic_extensions:cc_dynamic_extension_lib",
         ],
         alwayslink = True,
