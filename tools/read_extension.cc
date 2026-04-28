@@ -9,8 +9,10 @@
 #include <unordered_map>
 
 #include "fmt/format.h"
+#include "fmt/ranges.h"
 #include "argparse/argparse.hpp"
 
+#include "source/common/dynamic_extensions/extension.h"
 #include "source/common/dynamic_extensions/metadata.h"
 #include "source/common/status.h"
 #include "source/common/types.h"
@@ -668,6 +670,16 @@ struct LintResults {
   std::vector<LintResult> results;
 };
 
+std::vector<std::string> validDynamicExtensionInitSignatures() {
+  std::vector<std::string> out;
+  for (const char* mangled : {dynamic_extension_init_sym, dynamic_extension_init_no_config_sym}) {
+    char* demangledName = abi::__cxa_demangle(mangled, nullptr, nullptr, nullptr);
+    out.emplace_back(demangledName);
+    free(demangledName);
+  }
+  return out;
+}
+
 absl::StatusOr<LintResults> runLinters(const MmapFileHandle& ext) {
   auto symbols = readSymbols(ext, SymbolKindFilter::Defined);
   if (!symbols.ok()) {
@@ -797,6 +809,32 @@ absl::StatusOr<LintResults> runLinters(const MmapFileHandle& ext) {
         .category = "unexpected-runpath",
         .msg = msg,
       });
+    }
+  }
+
+  {
+    // 3. Check for incorrect dynamicExtensionInit signatures
+    auto search = std::tuple<std::string_view, SymbolInfo>{"_Z20dynamicExtensionInit", {}};
+    auto it = std::lower_bound(symbols->items.begin(), symbols->items.end(), search, [](const auto& a, const auto& b) {
+      return std::get<0>(a) < std::get<0>(b);
+    });
+    while (it != symbols->items.end()) {
+      const auto& [name, sym] = *it;
+      if (!name.starts_with("_Z20dynamicExtensionInit")) {
+        break;
+      }
+      if (auto nameSubstr = name.substr(0, name.size() - 1);
+          nameSubstr != dynamic_extension_init_sym &&
+          nameSubstr != dynamic_extension_init_no_config_sym) {
+        char* demangledName = abi::__cxa_demangle(name.data(), nullptr, nullptr, nullptr); // NOLINT:bugprone-suspicious-stringview-data-usage
+        out.results.push_back(LintResult{
+          .category = "invalid-hook-signature",
+          .msg = fmt::format("extension has an exported dynamicExtensionInit function with an unrecognized signature: {}", demangledName),
+          .notes = {fmt::format("valid signatures: {}", validDynamicExtensionInitSignatures())},
+        });
+        free(demangledName);
+      }
+      it++;
     }
   }
   return std::move(out);
