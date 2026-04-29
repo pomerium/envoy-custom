@@ -19,17 +19,18 @@ if ! /usr/bin/nm -gU "${binary}" >/dev/null 2>&1; then
 fi
 
 bad_symbols="$(
-  /usr/bin/nm -gU "${binary}" | /usr/bin/c++filt | grep "tcmalloc::" || true
+  /usr/bin/nm -gU "${binary}" | /usr/bin/c++filt | \
+    grep -E "tcmalloc::| operator (new|delete)( |\[)" || true
 )"
 
 if [[ -n "${bad_symbols}" ]]; then
   cat >&2 <<'EOF'
 Darwin Envoy exports tcmalloc internal symbols.
 
-The macOS crash tracked in ENG-3965 reproduced when the public :envoy
-artifact exported tcmalloc internals that stayed local in the known-good
-and :envoy.static artifacts. These symbols must either be absent or remain
-local in the Darwin binary.
+When tcmalloc internals leak as globally-exported symbols on Darwin,
+dyld's load-time fixup pass corrupts allocator state and the binary
+crashes inside tcmalloc on startup or exit. These symbols must either
+be absent or remain local in the Darwin binary.
 EOF
   echo "${bad_symbols}" >&2
   exit 1
