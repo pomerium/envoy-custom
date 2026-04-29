@@ -47,7 +47,7 @@ index 05ea3ea3cc..7880068a78 100644
  
  config_setting(
 diff --git a/bazel/envoy_internal.bzl b/bazel/envoy_internal.bzl
-index 8282fb3e4f..8b260fa15a 100644
+index 8282fb3e4f..579d5aaf4e 100644
 --- a/bazel/envoy_internal.bzl
 +++ b/bazel/envoy_internal.bzl
 @@ -89,14 +89,10 @@ def envoy_copts(repository, test = False):
@@ -67,3 +67,25 @@ index 8282fb3e4f..8b260fa15a 100644
             }) + select({
                 _repo("//bazel:disable_object_dump_on_signal_trace"): [],
                 "//conditions:default": ["-DENVOY_OBJECT_TRACE_ON_DUMP"],
+@@ -192,7 +188,7 @@ def envoy_dbg_linkopts():
+ def tcmalloc_external_dep(repository):
+     _repo = repo_label(repository)
+     return selects.with_or({
+-        (_repo("//bazel:disable_tcmalloc")): None,
++        (_repo("//bazel:tcmalloc_disabled")): None,
+         (
+             _repo("//bazel:debug_tcmalloc"),
+             _repo("//bazel:gperftools_tcmalloc"),
+diff --git a/bazel/envoy_library.bzl b/bazel/envoy_library.bzl
+index 59f59e49e1..b6c7336f90 100644
+--- a/bazel/envoy_library.bzl
++++ b/bazel/envoy_library.bzl
+@@ -25,7 +25,7 @@ load(":sanitizers.bzl", "sanitizer_deps")
+ def tcmalloc_external_deps(repository):
+     _repo = repo_label(repository)
+     return selects.with_or({
+-        _repo("//bazel:disable_tcmalloc"): [],
++        _repo("//bazel:tcmalloc_disabled"): [],
+         (
+             _repo("//bazel:debug_tcmalloc"),
+             _repo("//bazel:gperftools_tcmalloc"),
