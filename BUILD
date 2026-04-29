@@ -24,6 +24,9 @@ envoy_cc_binary(
             "-Wl,-framework,CoreFoundation",
             # https://github.com/bazelbuild/bazel/pull/16414
             "-Wl,-undefined,error",
+            # Custom linkopts bypass Envoy's default Darwin export list. Keep
+            # that list here so C++ runtime and allocator internals stay local.
+            "-Wl,-exported_symbols_list,$(location @envoy//bazel:exported_symbols_apple.txt)",
         ],
         "//conditions:default": [
             "-fPIE",
@@ -81,6 +84,17 @@ image(
     name = "envoy.static.stripped.image",
     srcs = [":envoy.static.stripped"],
     repository = "ghcr.io/pomerium/envoy-custom-static",
+)
+
+sh_test(
+    name = "macos_envoy_tcmalloc_symbols_test",
+    srcs = ["//tools:check_macos_tcmalloc_symbols.sh"],
+    args = ["$(location :envoy)"],
+    data = [":envoy"],
+    target_compatible_with = select({
+        "@platforms//os:macos": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
 )
 
 configure_make(
