@@ -186,7 +186,7 @@ public:
     test_no_config_dynamic_extension_init_called = 0;
 
     extension_path_ = Envoy::TestEnvironment::runfilesPath(
-      "test/common/dynamic_extensions/test/libtest_no_config.so", "pomerium_envoy");
+      "test/common/dynamic_extensions/test/test_no_config.so", "pomerium_envoy");
 
 #ifndef SANITIZER_ENABLED
     auto result = RunReadExtension({"--check", SelfPath(), extension_path_});
@@ -234,7 +234,7 @@ public:
     test_optional_config_dynamic_extension_init_called = 0;
 
     extension_path_ = Envoy::TestEnvironment::runfilesPath(
-      "test/common/dynamic_extensions/test/libtest_optional_config.so", "pomerium_envoy");
+      "test/common/dynamic_extensions/test/test_optional_config.so", "pomerium_envoy");
 
 #ifndef SANITIZER_ENABLED
     auto result = RunReadExtension({"--check", SelfPath(), extension_path_});
@@ -282,7 +282,7 @@ public:
     test_required_config_dynamic_extension_init_called = 0;
 
     extension_path_ = Envoy::TestEnvironment::runfilesPath(
-      "test/common/dynamic_extensions/test/libtest_required_config.so", "pomerium_envoy");
+      "test/common/dynamic_extensions/test/test_required_config.so", "pomerium_envoy");
 
 #ifndef SANITIZER_ENABLED
     auto result = RunReadExtension({"--check", SelfPath(), extension_path_});
@@ -326,7 +326,7 @@ public:
 
   void SetUp() override {
     extension_path_ = Envoy::TestEnvironment::runfilesPath(
-      "test/common/dynamic_extensions/test/libtest_no_init.so", "pomerium_envoy");
+      "test/common/dynamic_extensions/test/test_no_init.so", "pomerium_envoy");
 
 #ifndef SANITIZER_ENABLED
     auto result = RunReadExtension({"--check", SelfPath(), extension_path_});
@@ -366,7 +366,7 @@ public:
 
   void SetUp() override {
     extension_path_ = Envoy::TestEnvironment::runfilesPath(
-      "test/common/dynamic_extensions/test/libtest_missing_symbol.so", "pomerium_envoy");
+      "test/common/dynamic_extensions/test/test_missing_symbol.so", "pomerium_envoy");
 
 #ifndef SANITIZER_ENABLED
     auto result = RunReadExtension({"--check", SelfPath(), "--demangle", extension_path_});
@@ -390,7 +390,7 @@ TEST_F(MissingWeakDependencyTest, TestMissingWeakDependency) {
 
 TEST_F(DynamicExtensionsIntegrationTest, TestVersionMismatch) {
   auto extension_path = Envoy::TestEnvironment::runfilesPath(
-    "test/common/dynamic_extensions/test/libtest_version_mismatch.so", "pomerium_envoy");
+    "test/common/dynamic_extensions/test/test_version_mismatch.so", "pomerium_envoy");
 
   ConfigureExtensionLoader({extension_path});
 
@@ -403,7 +403,7 @@ TEST_F(DynamicExtensionsIntegrationTest, TestVersionMismatch) {
 
 TEST_F(DynamicExtensionsIntegrationTest, TestMetadataUnknownKeys) {
   auto extension_path = Envoy::TestEnvironment::runfilesPath(
-    "test/common/dynamic_extensions/test/libtest_md_unknown_keys.so", "pomerium_envoy");
+    "test/common/dynamic_extensions/test/test_md_unknown_keys.so", "pomerium_envoy");
 
   ConfigureExtensionLoader({extension_path});
 
@@ -430,7 +430,7 @@ public:
 
   void SetUp() override {
     extension_path_ = Envoy::TestEnvironment::runfilesPath(
-      "test/common/dynamic_extensions/test/libtest_tls.so", "pomerium_envoy");
+      "test/common/dynamic_extensions/test/test_tls.so", "pomerium_envoy");
 
 #ifndef SANITIZER_ENABLED
     auto result = RunReadExtension({"--check", SelfPath(), extension_path_});
@@ -485,7 +485,7 @@ public:
   }
   void SetUp() override {
     extension_path_ = Envoy::TestEnvironment::runfilesPath(
-      "test/common/dynamic_extensions/test/libtest_http_factory.so", "pomerium_envoy");
+      "test/common/dynamic_extensions/test/test_http_factory.so", "pomerium_envoy");
   }
   std::string extension_path_;
 };
@@ -519,7 +519,7 @@ TEST_F(DynamicExtensionsIntegrationTest, TestAdminApiMethodNotAllowed) {
 
 TEST_F(DynamicExtensionsIntegrationTest, TestLoadDuplicatePaths) {
   auto extension_path = Envoy::TestEnvironment::runfilesPath(
-    "test/common/dynamic_extensions/test/libtest_no_config.so", "pomerium_envoy");
+    "test/common/dynamic_extensions/test/test_no_config.so", "pomerium_envoy");
   ConfigureExtensionLoader({extension_path, extension_path, extension_path});
 
   initialize();
@@ -532,9 +532,9 @@ TEST_F(DynamicExtensionsIntegrationTest, TestLoadDuplicatePaths) {
 
 TEST_F(DynamicExtensionsIntegrationTest, TestLoadDuplicateIds) {
   auto path1 = Envoy::TestEnvironment::runfilesPath(
-    "test/common/dynamic_extensions/test/libtest_no_config.so", "pomerium_envoy");
+    "test/common/dynamic_extensions/test/test_no_config.so", "pomerium_envoy");
   auto path2 = Envoy::TestEnvironment::runfilesPath(
-    "test/common/dynamic_extensions/test/libtest_no_config_2.so", "pomerium_envoy");
+    "test/common/dynamic_extensions/test/test_no_config_2.so", "pomerium_envoy");
 
   ConfigureExtensionLoader({path1, path2});
 
@@ -550,7 +550,7 @@ TEST_F(DynamicExtensionsIntegrationTest, TestLoadDuplicateIds) {
 
 TEST_F(DynamicExtensionsIntegrationTest, TestNoMetadata) {
   auto extension_path = Envoy::TestEnvironment::runfilesPath(
-    "test/common/dynamic_extensions/test/libtest_no_metadata.so", "pomerium_envoy");
+    "test/common/dynamic_extensions/test/test_no_metadata.so", "pomerium_envoy");
 
   ConfigureExtensionLoader({extension_path});
 
@@ -564,7 +564,7 @@ TEST_F(DynamicExtensionsIntegrationTest, TestNoMetadata) {
 
 TEST_F(DynamicExtensionsIntegrationTest, TestNoID) {
   auto extension_path = Envoy::TestEnvironment::runfilesPath(
-    "test/common/dynamic_extensions/test/libtest_no_id.so", "pomerium_envoy");
+    "test/common/dynamic_extensions/test/test_no_id.so", "pomerium_envoy");
 
   ConfigureExtensionLoader({extension_path});
 
@@ -578,7 +578,7 @@ TEST_F(DynamicExtensionsIntegrationTest, TestNoID) {
 
 TEST_F(DynamicExtensionsIntegrationTest, TestInvalidID) {
   auto extension_path = Envoy::TestEnvironment::runfilesPath(
-    "test/common/dynamic_extensions/test/libtest_invalid_id.so", "pomerium_envoy");
+    "test/common/dynamic_extensions/test/test_invalid_id.so", "pomerium_envoy");
 
   ConfigureExtensionLoader({extension_path});
 
