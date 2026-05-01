@@ -11,6 +11,10 @@ DynamicExtensionHandle::DynamicExtensionHandle(void* raw_handle, ExtensionInfo i
 }
 
 DynamicExtensionHandle::~DynamicExtensionHandle() {
+  if (abi_dynamic_extension_exit_ != nullptr) {
+    ENVOY_LOG_MISC(debug, "calling dynamicExtensionExit for extension {}", info_.metadata.id);
+    abi_dynamic_extension_exit_();
+  }
   // best-effort only, this is not guaranteed to always work.
   dlclose(raw_handle_);
 }
@@ -50,6 +54,9 @@ void DynamicExtensionHandle::loadAbiSymbols() {
   }
   if (auto* sp = dlsym(raw_handle_, dynamic_extension_init_no_config_sym); sp != nullptr) {
     abi_dynamic_extension_init_no_config_ = reinterpret_cast<DynamicExtensionInitNoConfigFunc>(sp);
+  }
+  if (auto* sp = dlsym(raw_handle_, dynamic_extension_exit_sym); sp != nullptr) {
+    abi_dynamic_extension_exit_ = reinterpret_cast<DynamicExtensionExitFunc>(sp);
   }
 }
 

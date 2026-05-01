@@ -15,3 +15,4 @@
 
 constexpr const char* dynamic_extension_init_sym = "_Z20dynamicExtensionInitRKN6google8protobuf3AnyERN5Envoy6Server8InstanceE";
 constexpr const char* dynamic_extension_init_no_config_sym = "_Z20dynamicExtensionInitRN5Envoy6Server8InstanceE";
+constexpr const char* dynamic_extension_exit_sym = "_Z20dynamicExtensionExitv";
