@@ -1,7 +1,7 @@
 load("@bazel_skylib//lib:selects.bzl", "selects")
 load("@bazel_skylib//rules:common_settings.bzl", "string_setting")
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
-load("@pomerium_envoy//bazel/foreign_cc:luajit.bzl", "lj_cc_binary", "lj_cc_library")
+load("@pomerium_envoy//bazel/foreign_cc:luajit.bzl", "lj_cc_binary", "lj_cc_library", "luajit_host_bin_env")
 
 string_setting(
     name = "luajit_target",
@@ -127,7 +127,7 @@ genrule(
     outs = [
         "src/luajit.h",
     ],
-    cmd = "$(location :minilua) " +
+    cmd = luajit_host_bin_env() + "$(location :minilua) " +
           "$(location src/host/genversion.lua) " +
           "$(location src/luajit_rolling.h) " +
           "$(location :luajit_relver_h) " +
@@ -148,7 +148,7 @@ genrule(
         "dynasm/*.lua",
     ]),
     outs = ["src/host/buildvm_arch.h"],
-    cmd = "$(location :minilua) " +
+    cmd = luajit_host_bin_env() + "$(location :minilua) " +
           "$(location dynasm/dynasm.lua) " +
           "-D ENDIAN_LE " +
           "-D P64 " +
@@ -171,7 +171,7 @@ genrule(
     name = "lj_vm_s",
     srcs = [":host_buildvm"],
     outs = ["src/lj_vm.S"],
-    cmd = "$(location :host_buildvm) -m " +
+    cmd = luajit_host_bin_env() + "$(location :host_buildvm) -m " +
           select({
               ":luajit_target_linux": "elfasm ",
               ":luajit_target_macos": "machasm ",
@@ -198,7 +198,7 @@ genrule(
     name = "lj_bcdef_h",
     srcs = [":host_buildvm"] + ljlib_c_srcs,
     outs = ["src/lj_bcdef.h"],
-    cmd = "$(location :host_buildvm) " +
+    cmd = luajit_host_bin_env() + "$(location :host_buildvm) " +
           "-m bcdef " +
           "-o $@ " +
           " ".join(["$(location %s)" % src for src in ljlib_c_srcs]),
@@ -208,7 +208,7 @@ genrule(
     name = "lj_ffdef_h",
     srcs = [":host_buildvm"] + ljlib_c_srcs,
     outs = ["src/lj_ffdef.h"],
-    cmd = "$(location :host_buildvm) " +
+    cmd = luajit_host_bin_env() + "$(location :host_buildvm) " +
           "-m ffdef " +
           "-o $@ " +
           " ".join(["$(location %s)" % src for src in ljlib_c_srcs]),
@@ -218,7 +218,7 @@ genrule(
     name = "lj_libdef_h",
     srcs = [":host_buildvm"] + ljlib_c_srcs,
     outs = ["src/lj_libdef.h"],
-    cmd = "$(location :host_buildvm) " +
+    cmd = luajit_host_bin_env() + "$(location :host_buildvm) " +
           "-m libdef " +
           "-o $@ " +
           " ".join(["$(location %s)" % src for src in ljlib_c_srcs]),
@@ -228,7 +228,7 @@ genrule(
     name = "lj_recdef_h",
     srcs = [":host_buildvm"] + ljlib_c_srcs,
     outs = ["src/lj_recdef.h"],
-    cmd = "$(location :host_buildvm) " +
+    cmd = luajit_host_bin_env() + "$(location :host_buildvm) " +
           "-m recdef " +
           "-o $@ " +
           " ".join(["$(location %s)" % src for src in ljlib_c_srcs]),
@@ -238,7 +238,7 @@ genrule(
     name = "jit_vmdef_lua",
     srcs = [":host_buildvm"] + ljlib_c_srcs,
     outs = ["jit/vmdef.lua"],
-    cmd = "$(location :host_buildvm) " +
+    cmd = luajit_host_bin_env() + "$(location :host_buildvm) " +
           "-m vmdef " +
           "-o $@ " +
           " ".join(["$(location %s)" % src for src in ljlib_c_srcs]),
@@ -248,7 +248,7 @@ genrule(
     name = "lj_folddef_h",
     srcs = [":host_buildvm"] + ["src/lj_opt_fold.c"],
     outs = ["src/lj_folddef.h"],
-    cmd = "$(location :host_buildvm) " +
+    cmd = luajit_host_bin_env() + "$(location :host_buildvm) " +
           "-m folddef " +
           "-o $@ " +
           "$(location src/lj_opt_fold.c)",

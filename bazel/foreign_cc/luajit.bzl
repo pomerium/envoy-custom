@@ -29,6 +29,12 @@ def luajit_copts():
                          "*******************************",
     )
 
+def luajit_host_bin_env():
+    return select({
+        "@envoy//bazel:asan_build": "ASAN_OPTIONS=detect_leaks=0 ",
+        "//conditions:default": "",
+    })
+
 def _get_host_platform():
     if "@platforms//os:linux" in HOST_CONSTRAINTS:
         host_os = "linux"
