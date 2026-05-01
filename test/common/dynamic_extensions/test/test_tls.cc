@@ -51,8 +51,9 @@ DYNAMIC_EXTENSION_EXPORT void dynamicExtensionInit(Envoy::Server::Instance& serv
     Envoy::Server::ServerLifecycleNotifier::Stage::ShutdownExit,
     []() {
       test_thread_local_slot_.reset();
-      // also delete the handle itself, as it too would outlive the server instance
-      // (deleting the handle inside the callback is allowed)
-      test_shutdown_callback_handle_.reset();
     });
+}
+
+DYNAMIC_EXTENSION_EXPORT void dynamicExtensionExit() {
+  test_shutdown_callback_handle_.reset();
 }

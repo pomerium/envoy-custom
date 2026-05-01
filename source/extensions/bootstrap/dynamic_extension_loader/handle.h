@@ -7,6 +7,7 @@ namespace Envoy::Extensions::Bootstrap::DynamicExtensionLoader {
 
 using DynamicExtensionInitFunc = void (*)(const google::protobuf::Any&, Envoy::Server::Instance&);
 using DynamicExtensionInitNoConfigFunc = void (*)(Envoy::Server::Instance&);
+using DynamicExtensionExitFunc = void (*)();
 
 class DynamicExtensionHandle {
 public:
@@ -25,6 +26,7 @@ private:
 
   DynamicExtensionInitFunc abi_dynamic_extension_init_{};
   DynamicExtensionInitNoConfigFunc abi_dynamic_extension_init_no_config_{};
+  DynamicExtensionExitFunc abi_dynamic_extension_exit_{};
 };
 
 using DynamicExtensionHandlePtr = std::unique_ptr<DynamicExtensionHandle>;
