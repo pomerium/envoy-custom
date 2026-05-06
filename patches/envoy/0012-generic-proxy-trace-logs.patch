@@ -1,7 +1,16 @@
 diff --git a/source/extensions/filters/network/generic_proxy/proxy.cc b/source/extensions/filters/network/generic_proxy/proxy.cc
-index ab8de6c41b..4bcad808df 100644
+index ab8de6c41b..c759e2d3ad 100644
 --- a/source/extensions/filters/network/generic_proxy/proxy.cc
 +++ b/source/extensions/filters/network/generic_proxy/proxy.cc
+@@ -141,7 +141,7 @@ bool ActiveStream::sendFrameToDownstream(const StreamFrame& frame, bool header_f
+     return false;
+   }
+ 
+-  ENVOY_LOG(debug, "Generic proxy: send {} bytes to client, complete: {}", result.value(),
++  ENVOY_LOG(trace, "Generic proxy: send {} bytes to client, complete: {}", result.value(),
+             end_stream);
+ 
+   if (header_frame) {
 @@ -263,7 +263,7 @@ void ActiveStream::processRequestCommonFrame() {
      const auto status =
          (*decoder_filter_iter_common_)->filter_->decodeCommonFrame(*request_common_frame_);
