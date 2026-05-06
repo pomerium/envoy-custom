@@ -1,0 +1,53 @@
+diff --git a/source/extensions/filters/network/generic_proxy/proxy.cc b/source/extensions/filters/network/generic_proxy/proxy.cc
+index ab8de6c41b..4bcad808df 100644
+--- a/source/extensions/filters/network/generic_proxy/proxy.cc
++++ b/source/extensions/filters/network/generic_proxy/proxy.cc
+@@ -263,7 +263,7 @@ void ActiveStream::processRequestCommonFrame() {
+     const auto status =
+         (*decoder_filter_iter_common_)->filter_->decodeCommonFrame(*request_common_frame_);
+ 
+-    ENVOY_LOG(debug, "Generic proxy: decode common frame (filter: {} status: {} stream: {}).",
++    ENVOY_LOG(trace, "Generic proxy: decode common frame (filter: {} status: {} stream: {}).",
+               (*decoder_filter_iter_common_)->filterConfigName(), static_cast<size_t>(status),
+               stream_reset_or_complete_);
+ 
+@@ -288,7 +288,7 @@ void ActiveStream::processRequestCommonFrame() {
+     return;
+   }
+ 
+-  ENVOY_LOG(debug, "Generic proxy: complete decoder filters for common frame (end_stream: {})",
++  ENVOY_LOG(trace, "Generic proxy: complete decoder filters for common frame (end_stream: {})",
+             request_common_frame_->frameFlags().endStream());
+ 
+   RequestCommonFramePtr local_common_frame = std::move(request_common_frame_);
+@@ -367,7 +367,7 @@ void ActiveStream::processResponseCommonFrame() {
+   ASSERT(response_common_frame_ != nullptr);
+ 
+   auto on_common_complete = [this]() {
+-    ENVOY_LOG(debug, "Generic proxy: complete encoder filters for common frame (end_stream: {})",
++    ENVOY_LOG(trace, "Generic proxy: complete encoder filters for common frame (end_stream: {})",
+               response_common_frame_->frameFlags().endStream());
+ 
+     auto local_common_frame = std::move(response_common_frame_);
+@@ -398,7 +398,7 @@ void ActiveStream::processResponseCommonFrame() {
+     const auto status =
+         (*encoder_filter_iter_common_)->filter_->encodeCommonFrame(*response_common_frame_);
+ 
+-    ENVOY_LOG(debug, "Generic proxy: encode common frame (filter: {} status: {} stream: {}).",
++    ENVOY_LOG(trace, "Generic proxy: encode common frame (filter: {} status: {} stream: {}).",
+               (*encoder_filter_iter_common_)->filterConfigName(), static_cast<size_t>(status),
+               stream_reset_or_complete_);
+ 
+diff --git a/source/extensions/filters/network/generic_proxy/router/router.cc b/source/extensions/filters/network/generic_proxy/router/router.cc
+index 31be1270c6..8856f00ad0 100644
+--- a/source/extensions/filters/network/generic_proxy/router/router.cc
++++ b/source/extensions/filters/network/generic_proxy/router/router.cc
+@@ -159,7 +159,7 @@ bool UpstreamRequest::sendFrameToUpstream(const StreamFrame& frame, bool header_
+     return false;
+   }
+ 
+-  ENVOY_LOG(debug, "Generic proxy: send {} bytes to server, complete: {}", result.value(),
++  ENVOY_LOG(trace, "Generic proxy: send {} bytes to server, complete: {}", result.value(),
+             end_stream);
+ 
+   if (header_frame) {
