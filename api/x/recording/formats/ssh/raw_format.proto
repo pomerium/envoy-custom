@@ -15,30 +15,29 @@ message Config {
 }
 
 enum BufferExhaustMode {
-  // If the per-connection buffer is exhausted, disconnect
-  Disconnect = 0;
-  // If the per-connection buffer is exhausted, block and wait until space becomes available
-  Block = 1;
+  // If the per-connection buffer is exhausted, force the channel to close.
+  Close = 0;
+  // If the per-connection buffer is exhausted, temporarily stop reads at the connection level until
+  // the server can catch up.
+  Suspend = 1;
 }
 
 message UploadConfig {
   // Size of the per-connection recording buffer containing data pending upload to the recording
-  // server
+  // server.
   uint64 default_buffer_size = 1;
 
-  message PipeIpc {
-    message FdPair {
-      int32 read_fd  = 1;
-      int32 write_fd = 2;
-    }
-    repeated FdPair pipes = 1; // one pipe per thread; size must match the value of `concurrency`
-  }
+  message PipeIpc {}
+
   message GrpcService {
     envoy.config.core.v3.GrpcService service = 1;
   }
 
   oneof ipc_mode {
-    // Upload recordings via pipe file descriptor managed by the parent process
+    // Upload recordings via pipe file descriptor managed by the parent process.
+    // A total of 2*concurrency pipes are provided to Envoy, in pairs of [read, write] with file
+    // descriptors starting at 3. For example, with concurrency=2 the file descriptor pairs will
+    // be {[3, 4], [5, 6]}, one pair for each thread.
     PipeIpc pipe_ipc = 3;
     // Upload to a grpc service
     GrpcService grpc_service_ipc = 4;
@@ -81,6 +80,8 @@ message RecordingTrailer {
     DownstreamDisconnected = 1;
     UpstreamDisconnected   = 2;
     SessionExpired         = 3;
+    RecordingError         = 4;
+    ServerShutdown         = 5;
   }
   DisconnectReason disconnect_reason = 2;
 }

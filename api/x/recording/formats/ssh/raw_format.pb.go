@@ -28,21 +28,22 @@ const (
 type BufferExhaustMode int32
 
 const (
-	// If the per-connection buffer is exhausted, disconnect
-	BufferExhaustMode_Disconnect BufferExhaustMode = 0
-	// If the per-connection buffer is exhausted, block and wait until space becomes available
-	BufferExhaustMode_Block BufferExhaustMode = 1
+	// If the per-connection buffer is exhausted, force the channel to close.
+	BufferExhaustMode_Close BufferExhaustMode = 0
+	// If the per-connection buffer is exhausted, temporarily stop reads at the connection level until
+	// the server can catch up.
+	BufferExhaustMode_Suspend BufferExhaustMode = 1
 )
 
 // Enum value maps for BufferExhaustMode.
 var (
 	BufferExhaustMode_name = map[int32]string{
-		0: "Disconnect",
-		1: "Block",
+		0: "Close",
+		1: "Suspend",
 	}
 	BufferExhaustMode_value = map[string]int32{
-		"Disconnect": 0,
-		"Block":      1,
+		"Close":   0,
+		"Suspend": 1,
 	}
 )
 
@@ -126,6 +127,8 @@ const (
 	RecordingTrailer_DownstreamDisconnected RecordingTrailer_DisconnectReason = 1
 	RecordingTrailer_UpstreamDisconnected   RecordingTrailer_DisconnectReason = 2
 	RecordingTrailer_SessionExpired         RecordingTrailer_DisconnectReason = 3
+	RecordingTrailer_RecordingError         RecordingTrailer_DisconnectReason = 4
+	RecordingTrailer_ServerShutdown         RecordingTrailer_DisconnectReason = 5
 )
 
 // Enum value maps for RecordingTrailer_DisconnectReason.
@@ -135,12 +138,16 @@ var (
 		1: "DownstreamDisconnected",
 		2: "UpstreamDisconnected",
 		3: "SessionExpired",
+		4: "RecordingError",
+		5: "ServerShutdown",
 	}
 	RecordingTrailer_DisconnectReason_value = map[string]int32{
 		"Unknown":                0,
 		"DownstreamDisconnected": 1,
 		"UpstreamDisconnected":   2,
 		"SessionExpired":         3,
+		"RecordingError":         4,
+		"ServerShutdown":         5,
 	}
 )
 
@@ -218,7 +225,7 @@ func (x *Config) GetUploadConfig() *UploadConfig {
 type UploadConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Size of the per-connection recording buffer containing data pending upload to the recording
-	// server
+	// server.
 	DefaultBufferSize uint64 `protobuf:"varint,1,opt,name=default_buffer_size,json=defaultBufferSize,proto3" json:"default_buffer_size,omitempty"`
 	// Types that are valid to be assigned to IpcMode:
 	//
@@ -314,7 +321,10 @@ type isUploadConfig_IpcMode interface {
 }
 
 type UploadConfig_PipeIpc_ struct {
-	// Upload recordings via pipe file descriptor managed by the parent process
+	// Upload recordings via pipe file descriptor managed by the parent process.
+	// A total of 2*concurrency pipes are provided to Envoy, in pairs of [read, write] with file
+	// descriptors starting at 3. For example, with concurrency=2 the file descriptor pairs will
+	// be {[3, 4], [5, 6]}, one pair for each thread.
 	PipeIpc *UploadConfig_PipeIpc `protobuf:"bytes,3,opt,name=pipe_ipc,json=pipeIpc,proto3,oneof"`
 }
 
@@ -373,7 +383,7 @@ func (x *UpstreamTargetExtensionConfig) GetBufferExhaustMode() BufferExhaustMode
 	if x != nil {
 		return x.BufferExhaustMode
 	}
-	return BufferExhaustMode_Disconnect
+	return BufferExhaustMode_Close
 }
 
 func (x *UpstreamTargetExtensionConfig) GetBufferSize() *wrapperspb.UInt64Value {
@@ -655,8 +665,7 @@ func (*Packet_ChannelData) isPacket_Payload() {}
 func (*Packet_SshMessage) isPacket_Payload() {}
 
 type UploadConfig_PipeIpc struct {
-	state         protoimpl.MessageState         `protogen:"open.v1"`
-	Pipes         []*UploadConfig_PipeIpc_FdPair `protobuf:"bytes,1,rep,name=pipes,proto3" json:"pipes,omitempty"` // one pipe per thread; size must match the value of `concurrency`
+	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -689,13 +698,6 @@ func (x *UploadConfig_PipeIpc) ProtoReflect() protoreflect.Message {
 // Deprecated: Use UploadConfig_PipeIpc.ProtoReflect.Descriptor instead.
 func (*UploadConfig_PipeIpc) Descriptor() ([]byte, []int) {
 	return file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_rawDescGZIP(), []int{1, 0}
-}
-
-func (x *UploadConfig_PipeIpc) GetPipes() []*UploadConfig_PipeIpc_FdPair {
-	if x != nil {
-		return x.Pipes
-	}
-	return nil
 }
 
 type UploadConfig_GrpcService struct {
@@ -742,76 +744,20 @@ func (x *UploadConfig_GrpcService) GetService() *v3.GrpcService {
 	return nil
 }
 
-type UploadConfig_PipeIpc_FdPair struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ReadFd        int32                  `protobuf:"varint,1,opt,name=read_fd,json=readFd,proto3" json:"read_fd,omitempty"`
-	WriteFd       int32                  `protobuf:"varint,2,opt,name=write_fd,json=writeFd,proto3" json:"write_fd,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *UploadConfig_PipeIpc_FdPair) Reset() {
-	*x = UploadConfig_PipeIpc_FdPair{}
-	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[8]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *UploadConfig_PipeIpc_FdPair) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*UploadConfig_PipeIpc_FdPair) ProtoMessage() {}
-
-func (x *UploadConfig_PipeIpc_FdPair) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[8]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use UploadConfig_PipeIpc_FdPair.ProtoReflect.Descriptor instead.
-func (*UploadConfig_PipeIpc_FdPair) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_rawDescGZIP(), []int{1, 0, 0}
-}
-
-func (x *UploadConfig_PipeIpc_FdPair) GetReadFd() int32 {
-	if x != nil {
-		return x.ReadFd
-	}
-	return 0
-}
-
-func (x *UploadConfig_PipeIpc_FdPair) GetWriteFd() int32 {
-	if x != nil {
-		return x.WriteFd
-	}
-	return 0
-}
-
 var File_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto protoreflect.FileDescriptor
 
 const file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_rawDesc = "" +
 	"\n" +
 	"Mgithub.com/pomerium/envoy-custom/api/x/recording/formats/ssh/raw_format.proto\x12 pomerium.x.recording.formats.ssh\x1aMgithub.com/pomerium/envoy-custom/api/extensions/filters/network/ssh/ssh.proto\x1a$envoy/config/core/v3/extension.proto\x1a'envoy/config/core/v3/grpc_service.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\"]\n" +
 	"\x06Config\x12S\n" +
-	"\rupload_config\x18\x01 \x01(\v2..pomerium.x.recording.formats.ssh.UploadConfigR\fuploadConfig\"\x80\x05\n" +
+	"\rupload_config\x18\x01 \x01(\v2..pomerium.x.recording.formats.ssh.UploadConfigR\fuploadConfig\"\xec\x03\n" +
 	"\fUploadConfig\x12.\n" +
 	"\x13default_buffer_size\x18\x01 \x01(\x04R\x11defaultBufferSize\x12S\n" +
 	"\bpipe_ipc\x18\x03 \x01(\v26.pomerium.x.recording.formats.ssh.UploadConfig.PipeIpcH\x00R\apipeIpc\x12f\n" +
 	"\x10grpc_service_ipc\x18\x04 \x01(\v2:.pomerium.x.recording.formats.ssh.UploadConfig.GrpcServiceH\x00R\x0egrpcServiceIpc\x12L\n" +
 	"\vcompression\x18\x05 \x01(\v2*.envoy.config.core.v3.TypedExtensionConfigR\vcompression\x12>\n" +
-	"\vconcurrency\x18\x06 \x01(\v2\x1c.google.protobuf.UInt32ValueR\vconcurrency\x1a\x9c\x01\n" +
-	"\aPipeIpc\x12S\n" +
-	"\x05pipes\x18\x01 \x03(\v2=.pomerium.x.recording.formats.ssh.UploadConfig.PipeIpc.FdPairR\x05pipes\x1a<\n" +
-	"\x06FdPair\x12\x17\n" +
-	"\aread_fd\x18\x01 \x01(\x05R\x06readFd\x12\x19\n" +
-	"\bwrite_fd\x18\x02 \x01(\x05R\awriteFd\x1aJ\n" +
+	"\vconcurrency\x18\x06 \x01(\v2\x1c.google.protobuf.UInt32ValueR\vconcurrency\x1a\t\n" +
+	"\aPipeIpc\x1aJ\n" +
 	"\vGrpcService\x12;\n" +
 	"\aservice\x18\x01 \x01(\v2!.envoy.config.core.v3.GrpcServiceR\aserviceB\n" +
 	"\n" +
@@ -835,26 +781,27 @@ const file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_form
 	"route_name\x18\n" +
 	" \x01(\tR\trouteName\x12C\n" +
 	"\bupstream\x18\v \x01(\v2'.pomerium.extensions.ssh.UpstreamTargetR\bupstream\x12H\n" +
-	"\bpty_info\x18\f \x01(\v2-.pomerium.extensions.ssh.SSHDownstreamPTYInfoR\aptyInfo\"\xa6\x02\n" +
+	"\bpty_info\x18\f \x01(\v2-.pomerium.extensions.ssh.SSHDownstreamPTYInfoR\aptyInfo\"\xcf\x02\n" +
 	"\x10RecordingTrailer\x125\n" +
 	"\bend_time\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\aendTime\x12p\n" +
-	"\x11disconnect_reason\x18\x02 \x01(\x0e2C.pomerium.x.recording.formats.ssh.RecordingTrailer.DisconnectReasonR\x10disconnectReason\"i\n" +
+	"\x11disconnect_reason\x18\x02 \x01(\x0e2C.pomerium.x.recording.formats.ssh.RecordingTrailer.DisconnectReasonR\x10disconnectReason\"\x91\x01\n" +
 	"\x10DisconnectReason\x12\v\n" +
 	"\aUnknown\x10\x00\x12\x1a\n" +
 	"\x16DownstreamDisconnected\x10\x01\x12\x18\n" +
 	"\x14UpstreamDisconnected\x10\x02\x12\x12\n" +
-	"\x0eSessionExpired\x10\x03\"\xd0\x01\n" +
+	"\x0eSessionExpired\x10\x03\x12\x12\n" +
+	"\x0eRecordingError\x10\x04\x12\x12\n" +
+	"\x0eServerShutdown\x10\x05\"\xd0\x01\n" +
 	"\x06Packet\x12\"\n" +
 	"\rtime_delta_ms\x18\x01 \x01(\x03R\vtimeDeltaMs\x12O\n" +
 	"\tdirection\x18\x02 \x01(\x0e21.pomerium.x.recording.formats.ssh.PacketDirectionR\tdirection\x12#\n" +
 	"\fchannel_data\x18\x03 \x01(\fH\x00R\vchannelData\x12!\n" +
 	"\vssh_message\x18\x04 \x01(\fH\x00R\n" +
 	"sshMessageB\t\n" +
-	"\apayload*.\n" +
-	"\x11BufferExhaustMode\x12\x0e\n" +
-	"\n" +
-	"Disconnect\x10\x00\x12\t\n" +
-	"\x05Block\x10\x01*I\n" +
+	"\apayload*+\n" +
+	"\x11BufferExhaustMode\x12\t\n" +
+	"\x05Close\x10\x00\x12\v\n" +
+	"\aSuspend\x10\x01*I\n" +
 	"\x0fPacketDirection\x12\x1a\n" +
 	"\x16UPSTREAM_TO_DOWNSTREAM\x10\x00\x12\x1a\n" +
 	"\x16DOWNSTREAM_TO_UPSTREAM\x10\x01B>Z<github.com/pomerium/envoy-custom/api/x/recording/formats/sshb\x06proto3"
@@ -872,7 +819,7 @@ func file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_forma
 }
 
 var file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_goTypes = []any{
 	(BufferExhaustMode)(0),                 // 0: pomerium.x.recording.formats.ssh.BufferExhaustMode
 	(PacketDirection)(0),                   // 1: pomerium.x.recording.formats.ssh.PacketDirection
@@ -885,36 +832,34 @@ var file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format
 	(*Packet)(nil),                         // 8: pomerium.x.recording.formats.ssh.Packet
 	(*UploadConfig_PipeIpc)(nil),           // 9: pomerium.x.recording.formats.ssh.UploadConfig.PipeIpc
 	(*UploadConfig_GrpcService)(nil),       // 10: pomerium.x.recording.formats.ssh.UploadConfig.GrpcService
-	(*UploadConfig_PipeIpc_FdPair)(nil),    // 11: pomerium.x.recording.formats.ssh.UploadConfig.PipeIpc.FdPair
-	(*v3.TypedExtensionConfig)(nil),        // 12: envoy.config.core.v3.TypedExtensionConfig
-	(*wrapperspb.UInt32Value)(nil),         // 13: google.protobuf.UInt32Value
-	(*wrapperspb.UInt64Value)(nil),         // 14: google.protobuf.UInt64Value
-	(*timestamppb.Timestamp)(nil),          // 15: google.protobuf.Timestamp
-	(*ssh.UpstreamTarget)(nil),             // 16: pomerium.extensions.ssh.UpstreamTarget
-	(*ssh.SSHDownstreamPTYInfo)(nil),       // 17: pomerium.extensions.ssh.SSHDownstreamPTYInfo
-	(*v3.GrpcService)(nil),                 // 18: envoy.config.core.v3.GrpcService
+	(*v3.TypedExtensionConfig)(nil),        // 11: envoy.config.core.v3.TypedExtensionConfig
+	(*wrapperspb.UInt32Value)(nil),         // 12: google.protobuf.UInt32Value
+	(*wrapperspb.UInt64Value)(nil),         // 13: google.protobuf.UInt64Value
+	(*timestamppb.Timestamp)(nil),          // 14: google.protobuf.Timestamp
+	(*ssh.UpstreamTarget)(nil),             // 15: pomerium.extensions.ssh.UpstreamTarget
+	(*ssh.SSHDownstreamPTYInfo)(nil),       // 16: pomerium.extensions.ssh.SSHDownstreamPTYInfo
+	(*v3.GrpcService)(nil),                 // 17: envoy.config.core.v3.GrpcService
 }
 var file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_depIdxs = []int32{
 	4,  // 0: pomerium.x.recording.formats.ssh.Config.upload_config:type_name -> pomerium.x.recording.formats.ssh.UploadConfig
 	9,  // 1: pomerium.x.recording.formats.ssh.UploadConfig.pipe_ipc:type_name -> pomerium.x.recording.formats.ssh.UploadConfig.PipeIpc
 	10, // 2: pomerium.x.recording.formats.ssh.UploadConfig.grpc_service_ipc:type_name -> pomerium.x.recording.formats.ssh.UploadConfig.GrpcService
-	12, // 3: pomerium.x.recording.formats.ssh.UploadConfig.compression:type_name -> envoy.config.core.v3.TypedExtensionConfig
-	13, // 4: pomerium.x.recording.formats.ssh.UploadConfig.concurrency:type_name -> google.protobuf.UInt32Value
+	11, // 3: pomerium.x.recording.formats.ssh.UploadConfig.compression:type_name -> envoy.config.core.v3.TypedExtensionConfig
+	12, // 4: pomerium.x.recording.formats.ssh.UploadConfig.concurrency:type_name -> google.protobuf.UInt32Value
 	0,  // 5: pomerium.x.recording.formats.ssh.UpstreamTargetExtensionConfig.buffer_exhaust_mode:type_name -> pomerium.x.recording.formats.ssh.BufferExhaustMode
-	14, // 6: pomerium.x.recording.formats.ssh.UpstreamTargetExtensionConfig.buffer_size:type_name -> google.protobuf.UInt64Value
-	15, // 7: pomerium.x.recording.formats.ssh.RecordingMetadata.start_time:type_name -> google.protobuf.Timestamp
-	16, // 8: pomerium.x.recording.formats.ssh.RecordingMetadata.upstream:type_name -> pomerium.extensions.ssh.UpstreamTarget
-	17, // 9: pomerium.x.recording.formats.ssh.RecordingMetadata.pty_info:type_name -> pomerium.extensions.ssh.SSHDownstreamPTYInfo
-	15, // 10: pomerium.x.recording.formats.ssh.RecordingTrailer.end_time:type_name -> google.protobuf.Timestamp
+	13, // 6: pomerium.x.recording.formats.ssh.UpstreamTargetExtensionConfig.buffer_size:type_name -> google.protobuf.UInt64Value
+	14, // 7: pomerium.x.recording.formats.ssh.RecordingMetadata.start_time:type_name -> google.protobuf.Timestamp
+	15, // 8: pomerium.x.recording.formats.ssh.RecordingMetadata.upstream:type_name -> pomerium.extensions.ssh.UpstreamTarget
+	16, // 9: pomerium.x.recording.formats.ssh.RecordingMetadata.pty_info:type_name -> pomerium.extensions.ssh.SSHDownstreamPTYInfo
+	14, // 10: pomerium.x.recording.formats.ssh.RecordingTrailer.end_time:type_name -> google.protobuf.Timestamp
 	2,  // 11: pomerium.x.recording.formats.ssh.RecordingTrailer.disconnect_reason:type_name -> pomerium.x.recording.formats.ssh.RecordingTrailer.DisconnectReason
 	1,  // 12: pomerium.x.recording.formats.ssh.Packet.direction:type_name -> pomerium.x.recording.formats.ssh.PacketDirection
-	11, // 13: pomerium.x.recording.formats.ssh.UploadConfig.PipeIpc.pipes:type_name -> pomerium.x.recording.formats.ssh.UploadConfig.PipeIpc.FdPair
-	18, // 14: pomerium.x.recording.formats.ssh.UploadConfig.GrpcService.service:type_name -> envoy.config.core.v3.GrpcService
-	15, // [15:15] is the sub-list for method output_type
-	15, // [15:15] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	17, // 13: pomerium.x.recording.formats.ssh.UploadConfig.GrpcService.service:type_name -> envoy.config.core.v3.GrpcService
+	14, // [14:14] is the sub-list for method output_type
+	14, // [14:14] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() {
@@ -938,7 +883,7 @@ func file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_forma
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_rawDesc), len(file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   9,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
