@@ -21,10 +21,10 @@ message RecordingCheckpoint {
 message RecordingData {
   string recording_id = 1;
   oneof data {
-    RecordingMetadata metadata = 2;
-    bytes             chunk    = 3;
-    bytes             checksum = 4;
-    RecordingTrailer  trailer  = 5;
+    RecordingMetadata metadata       = 2;
+    bytes             chunk          = 3;
+    ChunkMetadata     chunk_metadata = 4;
+    RecordingTrailer  trailer        = 5;
   }
 }
 
@@ -34,8 +34,8 @@ enum RecordingFormat {
 }
 
 message RecordingMetadata {
-  RecordingFormat     recordingType = 2;
-  google.protobuf.Any metadata      = 3;
+  RecordingFormat     recording_type = 2;
+  google.protobuf.Any metadata       = 3;
 }
 
 message RecordingTrailer {
@@ -51,5 +51,4 @@ message ChunkMetadata {
   uint32                    size     = 1;
   bytes                     checksum = 2;
   google.protobuf.Timestamp start    = 3;
-  google.protobuf.Timestamp end      = 4;
 }

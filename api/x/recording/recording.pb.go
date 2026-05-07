@@ -137,7 +137,7 @@ type RecordingData struct {
 	//
 	//	*RecordingData_Metadata
 	//	*RecordingData_Chunk
-	//	*RecordingData_Checksum
+	//	*RecordingData_ChunkMetadata
 	//	*RecordingData_Trailer
 	Data          isRecordingData_Data `protobuf_oneof:"data"`
 	unknownFields protoimpl.UnknownFields
@@ -206,10 +206,10 @@ func (x *RecordingData) GetChunk() []byte {
 	return nil
 }
 
-func (x *RecordingData) GetChecksum() []byte {
+func (x *RecordingData) GetChunkMetadata() *ChunkMetadata {
 	if x != nil {
-		if x, ok := x.Data.(*RecordingData_Checksum); ok {
-			return x.Checksum
+		if x, ok := x.Data.(*RecordingData_ChunkMetadata); ok {
+			return x.ChunkMetadata
 		}
 	}
 	return nil
@@ -236,8 +236,8 @@ type RecordingData_Chunk struct {
 	Chunk []byte `protobuf:"bytes,3,opt,name=chunk,proto3,oneof"`
 }
 
-type RecordingData_Checksum struct {
-	Checksum []byte `protobuf:"bytes,4,opt,name=checksum,proto3,oneof"`
+type RecordingData_ChunkMetadata struct {
+	ChunkMetadata *ChunkMetadata `protobuf:"bytes,4,opt,name=chunk_metadata,json=chunkMetadata,proto3,oneof"`
 }
 
 type RecordingData_Trailer struct {
@@ -248,13 +248,13 @@ func (*RecordingData_Metadata) isRecordingData_Data() {}
 
 func (*RecordingData_Chunk) isRecordingData_Data() {}
 
-func (*RecordingData_Checksum) isRecordingData_Data() {}
+func (*RecordingData_ChunkMetadata) isRecordingData_Data() {}
 
 func (*RecordingData_Trailer) isRecordingData_Data() {}
 
 type RecordingMetadata struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	RecordingType RecordingFormat        `protobuf:"varint,2,opt,name=recordingType,proto3,enum=pomerium.x.recording.RecordingFormat" json:"recordingType,omitempty"`
+	RecordingType RecordingFormat        `protobuf:"varint,2,opt,name=recording_type,json=recordingType,proto3,enum=pomerium.x.recording.RecordingFormat" json:"recording_type,omitempty"`
 	Metadata      *anypb.Any             `protobuf:"bytes,3,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -405,7 +405,6 @@ type ChunkMetadata struct {
 	Size          uint32                 `protobuf:"varint,1,opt,name=size,proto3" json:"size,omitempty"`
 	Checksum      []byte                 `protobuf:"bytes,2,opt,name=checksum,proto3" json:"checksum,omitempty"`
 	Start         *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=start,proto3" json:"start,omitempty"`
-	End           *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=end,proto3" json:"end,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -461,13 +460,6 @@ func (x *ChunkMetadata) GetStart() *timestamppb.Timestamp {
 	return nil
 }
 
-func (x *ChunkMetadata) GetEnd() *timestamppb.Timestamp {
-	if x != nil {
-		return x.End
-	}
-	return nil
-}
-
 var File_github_com_pomerium_envoy_custom_api_x_recording_recording_proto protoreflect.FileDescriptor
 
 const file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_rawDesc = "" +
@@ -476,27 +468,26 @@ const file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_rawD
 	"\x13RecordingCheckpoint\x12!\n" +
 	"\frecording_id\x18\x01 \x01(\tR\vrecordingId\x12?\n" +
 	"\bmanifest\x18\x02 \x01(\v2#.pomerium.x.recording.ChunkManifestR\bmanifest\x12*\n" +
-	"\x06status\x18\x03 \x01(\v2\x12.google.rpc.StatusR\x06status\"\xfb\x01\n" +
+	"\x06status\x18\x03 \x01(\v2\x12.google.rpc.StatusR\x06status\"\xab\x02\n" +
 	"\rRecordingData\x12!\n" +
 	"\frecording_id\x18\x01 \x01(\tR\vrecordingId\x12E\n" +
 	"\bmetadata\x18\x02 \x01(\v2'.pomerium.x.recording.RecordingMetadataH\x00R\bmetadata\x12\x16\n" +
-	"\x05chunk\x18\x03 \x01(\fH\x00R\x05chunk\x12\x1c\n" +
-	"\bchecksum\x18\x04 \x01(\fH\x00R\bchecksum\x12B\n" +
+	"\x05chunk\x18\x03 \x01(\fH\x00R\x05chunk\x12L\n" +
+	"\x0echunk_metadata\x18\x04 \x01(\v2#.pomerium.x.recording.ChunkMetadataH\x00R\rchunkMetadata\x12B\n" +
 	"\atrailer\x18\x05 \x01(\v2&.pomerium.x.recording.RecordingTrailerH\x00R\atrailerB\x06\n" +
-	"\x04data\"\x92\x01\n" +
-	"\x11RecordingMetadata\x12K\n" +
-	"\rrecordingType\x18\x02 \x01(\x0e2%.pomerium.x.recording.RecordingFormatR\rrecordingType\x120\n" +
+	"\x04data\"\x93\x01\n" +
+	"\x11RecordingMetadata\x12L\n" +
+	"\x0erecording_type\x18\x02 \x01(\x0e2%.pomerium.x.recording.RecordingFormatR\rrecordingType\x120\n" +
 	"\bmetadata\x18\x03 \x01(\v2\x14.google.protobuf.AnyR\bmetadata\"i\n" +
 	"\x10RecordingTrailer\x12#\n" +
 	"\renvoy_version\x18\x01 \x01(\tR\fenvoyVersion\x120\n" +
 	"\bmetadata\x18\x03 \x01(\v2\x14.google.protobuf.AnyR\bmetadata\"J\n" +
 	"\rChunkManifest\x129\n" +
-	"\x05items\x18\x01 \x03(\v2#.pomerium.x.recording.ChunkMetadataR\x05items\"\x9f\x01\n" +
+	"\x05items\x18\x01 \x03(\v2#.pomerium.x.recording.ChunkMetadataR\x05items\"q\n" +
 	"\rChunkMetadata\x12\x12\n" +
 	"\x04size\x18\x01 \x01(\rR\x04size\x12\x1a\n" +
 	"\bchecksum\x18\x02 \x01(\fR\bchecksum\x120\n" +
-	"\x05start\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x05start\x12,\n" +
-	"\x03end\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x03end*E\n" +
+	"\x05start\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x05start*E\n" +
 	"\x0fRecordingFormat\x12\x1a\n" +
 	"\x16RecordingFormatUnknown\x10\x00\x12\x16\n" +
 	"\x12RecordingFormatSSH\x10\x012p\n" +
@@ -533,13 +524,13 @@ var file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_depIdx
 	5,  // 0: pomerium.x.recording.RecordingCheckpoint.manifest:type_name -> pomerium.x.recording.ChunkManifest
 	7,  // 1: pomerium.x.recording.RecordingCheckpoint.status:type_name -> google.rpc.Status
 	3,  // 2: pomerium.x.recording.RecordingData.metadata:type_name -> pomerium.x.recording.RecordingMetadata
-	4,  // 3: pomerium.x.recording.RecordingData.trailer:type_name -> pomerium.x.recording.RecordingTrailer
-	0,  // 4: pomerium.x.recording.RecordingMetadata.recordingType:type_name -> pomerium.x.recording.RecordingFormat
-	8,  // 5: pomerium.x.recording.RecordingMetadata.metadata:type_name -> google.protobuf.Any
-	8,  // 6: pomerium.x.recording.RecordingTrailer.metadata:type_name -> google.protobuf.Any
-	6,  // 7: pomerium.x.recording.ChunkManifest.items:type_name -> pomerium.x.recording.ChunkMetadata
-	9,  // 8: pomerium.x.recording.ChunkMetadata.start:type_name -> google.protobuf.Timestamp
-	9,  // 9: pomerium.x.recording.ChunkMetadata.end:type_name -> google.protobuf.Timestamp
+	6,  // 3: pomerium.x.recording.RecordingData.chunk_metadata:type_name -> pomerium.x.recording.ChunkMetadata
+	4,  // 4: pomerium.x.recording.RecordingData.trailer:type_name -> pomerium.x.recording.RecordingTrailer
+	0,  // 5: pomerium.x.recording.RecordingMetadata.recording_type:type_name -> pomerium.x.recording.RecordingFormat
+	8,  // 6: pomerium.x.recording.RecordingMetadata.metadata:type_name -> google.protobuf.Any
+	8,  // 7: pomerium.x.recording.RecordingTrailer.metadata:type_name -> google.protobuf.Any
+	6,  // 8: pomerium.x.recording.ChunkManifest.items:type_name -> pomerium.x.recording.ChunkMetadata
+	9,  // 9: pomerium.x.recording.ChunkMetadata.start:type_name -> google.protobuf.Timestamp
 	2,  // 10: pomerium.x.recording.RecordingService.Record:input_type -> pomerium.x.recording.RecordingData
 	1,  // 11: pomerium.x.recording.RecordingService.Record:output_type -> pomerium.x.recording.RecordingCheckpoint
 	11, // [11:12] is the sub-list for method output_type
@@ -557,7 +548,7 @@ func file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_init(
 	file_github_com_pomerium_envoy_custom_api_x_recording_recording_proto_msgTypes[1].OneofWrappers = []any{
 		(*RecordingData_Metadata)(nil),
 		(*RecordingData_Chunk)(nil),
-		(*RecordingData_Checksum)(nil),
+		(*RecordingData_ChunkMetadata)(nil),
 		(*RecordingData_Trailer)(nil),
 	}
 	type x struct{}
