@@ -36,6 +36,7 @@ public:
   virtual stream_id_t streamId() const PURE;
   virtual void updatePeerExtInfo(std::optional<wire::ExtInfoMsg> msg) PURE;
   virtual Envoy::OptRef<Envoy::Event::Dispatcher> connectionDispatcher() const PURE;
+  virtual void connectionReadDisable(bool disable) PURE;
   virtual void terminate(absl::Status status) PURE;
   virtual ChannelIDManager& channelIdManager() PURE;
   virtual ChannelFilterManager& channelFilterManager() PURE;

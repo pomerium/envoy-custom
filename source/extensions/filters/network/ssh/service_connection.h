@@ -46,6 +46,24 @@ public:
   void registerMessageHandlers(SshMessageDispatcher& dispatcher) override;
   void shutdown(absl::Status err);
 
+  class ReadDisableHandleImpl : public ReadDisableHandle {
+  public:
+    ReadDisableHandleImpl(Envoy::Event::Dispatcher& dispatcher, absl::AnyInvocable<void()> do_read_enable)
+        : dispatcher_(dispatcher),
+          do_read_enable_(std::move(do_read_enable)) {
+      ASSERT(dispatcher_.isThreadSafe());
+    }
+
+    ~ReadDisableHandleImpl() {
+      ASSERT(dispatcher_.isThreadSafe());
+      std::invoke(std::exchange(do_read_enable_, nullptr));
+    }
+
+  private:
+    Envoy::Event::Dispatcher& dispatcher_;
+    absl::AnyInvocable<void()> do_read_enable_;
+  };
+
   class ChannelCallbacksImpl final : public ChannelCallbacks,
                                      public ChannelFilterCallbacks,
                                      public LinkedObject<ChannelCallbacksImpl> {
@@ -81,6 +99,12 @@ public:
     const AuthInfo& authInfo() const override { return parent_.transport_.authInfo(); }
     Envoy::Event::Dispatcher& connectionDispatcher() const override {
       return *parent_.transport_.connectionDispatcher();
+    }
+    ReadDisableHandlePtr connectionReadDisable() override {
+      parent_.transport_.connectionReadDisable(true);
+      return std::make_unique<ReadDisableHandleImpl>(connectionDispatcher(), [this] {
+        parent_.transport_.connectionReadDisable(false);
+      });
     }
 
   private:

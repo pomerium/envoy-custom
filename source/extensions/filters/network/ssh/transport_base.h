@@ -279,6 +279,10 @@ public:
     callbacks_->onDecodingFailure(err.message());
   }
 
+  void connectionReadDisable(bool disable) override {
+    callbacks_->connection()->readDisable(disable);
+  }
+
   const bytes& sessionId() const final { return kex_result_->session_id; }
   const SecretsProvider& secretsProvider() const final { return secrets_provider_; }
   Stats::Scope& statsScope() const override { return *scope_; }

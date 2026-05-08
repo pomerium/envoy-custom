@@ -16,6 +16,13 @@ public:
   virtual void onMessageForward(const wire::Message& msg) PURE;
 };
 
+class ReadDisableHandle {
+public:
+  virtual ~ReadDisableHandle() = default;
+};
+
+using ReadDisableHandlePtr = std::unique_ptr<ReadDisableHandle>;
+
 class ChannelFilterCallbacks : public ChannelReadOnlyCallbacks {
 public:
   virtual ~ChannelFilterCallbacks() = default;
@@ -39,6 +46,17 @@ public:
   // or downstream connection depending on the direction of this channel, but both dispatchers
   // will be for the same thread.
   virtual Envoy::Event::Dispatcher& connectionDispatcher() const PURE;
+
+  // Temporarily disable reads for the connection until the returned handle is destroyed. This can
+  // be used to apply backpressure if the filter can't keep up, to avoid blocking the worker thread.
+  // It is strongly recommended to accompany this with a separate timer to avoid keeping the
+  // connection disabled for too long.
+  //
+  // TODO: this is a bit of a hack. The proper way to support this would be to suppress channel
+  // window updates (the way it is handled for reverse tunnels), but we currently don't manage flow
+  // control ourselves for normal channels.
+  [[nodiscard]]
+  virtual ReadDisableHandlePtr connectionReadDisable() PURE;
 };
 
 using ChannelFilterPtr = std::unique_ptr<ChannelFilter>;

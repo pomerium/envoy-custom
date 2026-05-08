@@ -59,6 +59,7 @@ public:
   MOCK_METHOD(std::optional<wire::ExtInfoMsg>, peerExtInfo, (), (const));
   MOCK_METHOD(void, terminate, (absl::Status), (override));
   MOCK_METHOD(Envoy::OptRef<Envoy::Event::Dispatcher>, connectionDispatcher, (), (const override));
+  MOCK_METHOD(void, connectionReadDisable, (bool), (override));
   MOCK_METHOD(ChannelIDManager&, channelIdManager, (), (override));
   MOCK_METHOD(ChannelFilterManager&, channelFilterManager, (), (override));
   MOCK_METHOD(const SecretsProvider&, secretsProvider, (), (const override));
@@ -123,6 +124,8 @@ public:
   MOCK_METHOD(stream_id_t, streamId, (), (const));
   MOCK_METHOD(const AuthInfo&, authInfo, (), (const));
   MOCK_METHOD(bool, interruptChannel, (absl::Status));
+  MOCK_METHOD(Envoy::Event::Dispatcher&, connectionDispatcher, (), (const));
+  MOCK_METHOD(ReadDisableHandlePtr, connectionReadDisable, ());
 };
 
 class MockChannelFilter : public ChannelFilter {

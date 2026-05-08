@@ -19,6 +19,7 @@ public:
   virtual ~SshFakeUpstreamHandlerCodecCallbacks() = default;
   virtual void onDecodingFailure(absl::string_view reason = {}) PURE;
   virtual void writeToConnection(Buffer::Instance& buffer) PURE;
+  virtual Envoy::OptRef<Envoy::Network::Connection> connection() PURE;
 };
 
 class SshFakeUpstreamHandlerCodec {
@@ -75,6 +76,7 @@ public:
     explicit CodecCallbacks(Network::Connection& connection);
     void onDecodingFailure(absl::string_view reason = {}) override;
     void writeToConnection(Buffer::Instance& buffer) override;
+    Envoy::OptRef<Envoy::Network::Connection> connection() override;
 
     Network::Connection& connection_;
   };

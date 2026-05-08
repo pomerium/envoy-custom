@@ -20,6 +20,7 @@ public:
   virtual ~SshConnectionDriverCodecCallbacks() = default;
   virtual void onDecodingFailure(absl::string_view reason = {}) PURE;
   virtual void writeToConnection(Buffer::Instance& buffer) PURE;
+  virtual Envoy::OptRef<Envoy::Network::Connection> connection() PURE;
 };
 
 class SshConnectionDriverCodec {
@@ -239,6 +240,7 @@ protected:
         : client_connection_(client_connection) {}
     void onDecodingFailure(absl::string_view reason = {}) override;
     void writeToConnection(Buffer::Instance& buffer) override;
+    Envoy::OptRef<Envoy::Network::Connection> connection() override;
 
     bool expect_decoding_failure_{};
     Network::ClientConnection& client_connection_;
