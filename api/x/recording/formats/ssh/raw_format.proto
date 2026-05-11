@@ -57,6 +57,10 @@ message UpstreamTargetExtensionConfig {
   BufferExhaustMode buffer_exhaust_mode = 1;
   // Override the default buffer size
   google.protobuf.UInt64Value buffer_size = 2;
+
+  // Used to populate fields in RecordingMetadata
+  string session_id = 3;
+  string user_id    = 4;
 }
 
 message RecordingMetadata {

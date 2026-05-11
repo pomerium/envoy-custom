@@ -344,7 +344,10 @@ type UpstreamTargetExtensionConfig struct {
 	// What to do if the buffer runs out of space for this connection
 	BufferExhaustMode BufferExhaustMode `protobuf:"varint,1,opt,name=buffer_exhaust_mode,json=bufferExhaustMode,proto3,enum=pomerium.x.recording.formats.ssh.BufferExhaustMode" json:"buffer_exhaust_mode,omitempty"`
 	// Override the default buffer size
-	BufferSize    *wrapperspb.UInt64Value `protobuf:"bytes,2,opt,name=buffer_size,json=bufferSize,proto3" json:"buffer_size,omitempty"`
+	BufferSize *wrapperspb.UInt64Value `protobuf:"bytes,2,opt,name=buffer_size,json=bufferSize,proto3" json:"buffer_size,omitempty"`
+	// Used to populate fields in RecordingMetadata
+	SessionId     string `protobuf:"bytes,3,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	UserId        string `protobuf:"bytes,4,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -391,6 +394,20 @@ func (x *UpstreamTargetExtensionConfig) GetBufferSize() *wrapperspb.UInt64Value 
 		return x.BufferSize
 	}
 	return nil
+}
+
+func (x *UpstreamTargetExtensionConfig) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *UpstreamTargetExtensionConfig) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
 }
 
 type RecordingMetadata struct {
@@ -761,11 +778,14 @@ const file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_form
 	"\vGrpcService\x12;\n" +
 	"\aservice\x18\x01 \x01(\v2!.envoy.config.core.v3.GrpcServiceR\aserviceB\n" +
 	"\n" +
-	"\bipc_mode\"\xc3\x01\n" +
+	"\bipc_mode\"\xfb\x01\n" +
 	"\x1dUpstreamTargetExtensionConfig\x12c\n" +
 	"\x13buffer_exhaust_mode\x18\x01 \x01(\x0e23.pomerium.x.recording.formats.ssh.BufferExhaustModeR\x11bufferExhaustMode\x12=\n" +
 	"\vbuffer_size\x18\x02 \x01(\v2\x1c.google.protobuf.UInt64ValueR\n" +
-	"bufferSize\"\xc8\x03\n" +
+	"bufferSize\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x03 \x01(\tR\tsessionId\x12\x17\n" +
+	"\auser_id\x18\x04 \x01(\tR\x06userId\"\xc8\x03\n" +
 	"\x11RecordingMetadata\x12)\n" +
 	"\x10protocol_version\x18\x01 \x01(\rR\x0fprotocolVersion\x12+\n" +
 	"\x11uncompressed_size\x18\x04 \x01(\x04R\x10uncompressedSize\x129\n" +
