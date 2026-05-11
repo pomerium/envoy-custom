@@ -193,12 +193,12 @@ type CodecConfig struct {
 	// Max number of concurrent open channels. Default (and max) is 32768
 	MaxConcurrentChannels uint32 `protobuf:"varint,5,opt,name=max_concurrent_channels,json=maxConcurrentChannels,proto3" json:"max_concurrent_channels,omitempty"`
 	// Starting value for internal channel IDs. Defaults to 0. Can be set > 0 for easier debugging.
-	InternalChannelIdStart   uint32                     `protobuf:"varint,6,opt,name=internal_channel_id_start,json=internalChannelIdStart,proto3" json:"internal_channel_id_start,omitempty"`
-	AlgorithmOptions         *AlgorithmOptions          `protobuf:"bytes,7,opt,name=algorithm_options,json=algorithmOptions,proto3" json:"algorithm_options,omitempty"`
-	ConnectionServiceOptions *ConnectionServiceOptions  `protobuf:"bytes,8,opt,name=connection_service_options,json=connectionServiceOptions,proto3" json:"connection_service_options,omitempty"`
-	EnabledChannelFilters    []*v3.TypedExtensionConfig `protobuf:"bytes,9,rep,name=enabled_channel_filters,json=enabledChannelFilters,proto3" json:"enabled_channel_filters,omitempty"`
-	unknownFields            protoimpl.UnknownFields
-	sizeCache                protoimpl.SizeCache
+	InternalChannelIdStart        uint32                     `protobuf:"varint,6,opt,name=internal_channel_id_start,json=internalChannelIdStart,proto3" json:"internal_channel_id_start,omitempty"`
+	AlgorithmOptions              *AlgorithmOptions          `protobuf:"bytes,7,opt,name=algorithm_options,json=algorithmOptions,proto3" json:"algorithm_options,omitempty"`
+	ConnectionServiceOptions      *ConnectionServiceOptions  `protobuf:"bytes,8,opt,name=connection_service_options,json=connectionServiceOptions,proto3" json:"connection_service_options,omitempty"`
+	EnabledChannelFilterFactories []*v3.TypedExtensionConfig `protobuf:"bytes,9,rep,name=enabled_channel_filter_factories,json=enabledChannelFilterFactories,proto3" json:"enabled_channel_filter_factories,omitempty"`
+	unknownFields                 protoimpl.UnknownFields
+	sizeCache                     protoimpl.SizeCache
 }
 
 func (x *CodecConfig) Reset() {
@@ -287,9 +287,9 @@ func (x *CodecConfig) GetConnectionServiceOptions() *ConnectionServiceOptions {
 	return nil
 }
 
-func (x *CodecConfig) GetEnabledChannelFilters() []*v3.TypedExtensionConfig {
+func (x *CodecConfig) GetEnabledChannelFilterFactories() []*v3.TypedExtensionConfig {
 	if x != nil {
-		return x.EnabledChannelFilters
+		return x.EnabledChannelFilterFactories
 	}
 	return nil
 }
@@ -3689,7 +3689,7 @@ var File_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh
 
 const file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDesc = "" +
 	"\n" +
-	"Mgithub.com/pomerium/envoy-custom/api/extensions/filters/network/ssh/ssh.proto\x12\x17pomerium.extensions.ssh\x1a\"envoy/config/core/v3/address.proto\x1a\x1fenvoy/config/core/v3/base.proto\x1a(envoy/config/core/v3/config_source.proto\x1a$envoy/config/core/v3/extension.proto\x1a'envoy/config/core/v3/grpc_service.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1aAgithub.com/envoyproxy/protoc-gen-validate/validate/validate.proto\"\xfb\x05\n" +
+	"Mgithub.com/pomerium/envoy-custom/api/extensions/filters/network/ssh/ssh.proto\x12\x17pomerium.extensions.ssh\x1a\"envoy/config/core/v3/address.proto\x1a\x1fenvoy/config/core/v3/base.proto\x1a(envoy/config/core/v3/config_source.proto\x1a$envoy/config/core/v3/extension.proto\x1a'envoy/config/core/v3/grpc_service.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1aAgithub.com/envoyproxy/protoc-gen-validate/validate/validate.proto\"\x8c\x06\n" +
 	"\vCodecConfig\x12N\n" +
 	"\thost_keys\x18\x01 \x03(\v2 .envoy.config.core.v3.DataSourceB\x0f\xfaB\f\x92\x01\t\b\x01\"\x05\x8a\x01\x02\x10\x01R\bhostKeys\x12J\n" +
 	"\vuser_ca_key\x18\x02 \x01(\v2 .envoy.config.core.v3.DataSourceB\b\xfaB\x05\x8a\x01\x02\x10\x01R\tuserCaKey\x12U\n" +
@@ -3698,8 +3698,8 @@ const file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_s
 	"\x17max_concurrent_channels\x18\x05 \x01(\rB\t\xfaB\x06*\x04\x18\x80\x80\x02R\x15maxConcurrentChannels\x129\n" +
 	"\x19internal_channel_id_start\x18\x06 \x01(\rR\x16internalChannelIdStart\x12V\n" +
 	"\x11algorithm_options\x18\a \x01(\v2).pomerium.extensions.ssh.AlgorithmOptionsR\x10algorithmOptions\x12o\n" +
-	"\x1aconnection_service_options\x18\b \x01(\v21.pomerium.extensions.ssh.ConnectionServiceOptionsR\x18connectionServiceOptions\x12b\n" +
-	"\x17enabled_channel_filters\x18\t \x03(\v2*.envoy.config.core.v3.TypedExtensionConfigR\x15enabledChannelFilters\"\x91\x01\n" +
+	"\x1aconnection_service_options\x18\b \x01(\v21.pomerium.extensions.ssh.ConnectionServiceOptionsR\x18connectionServiceOptions\x12s\n" +
+	" enabled_channel_filter_factories\x18\t \x03(\v2*.envoy.config.core.v3.TypedExtensionConfigR\x1denabledChannelFilterFactories\"\x91\x01\n" +
 	"\x10AlgorithmOptions\x124\n" +
 	"\x16disable_kex_algorithms\x18\x01 \x03(\tR\x14disableKexAlgorithms\x12G\n" +
 	" disable_packet_cipher_algorithms\x18\x02 \x03(\tR\x1ddisablePacketCipherAlgorithms\"\x83\x01\n" +
@@ -4046,7 +4046,7 @@ var file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh
 	59, // 3: pomerium.extensions.ssh.CodecConfig.grpc_service:type_name -> envoy.config.core.v3.GrpcService
 	4,  // 4: pomerium.extensions.ssh.CodecConfig.algorithm_options:type_name -> pomerium.extensions.ssh.AlgorithmOptions
 	5,  // 5: pomerium.extensions.ssh.CodecConfig.connection_service_options:type_name -> pomerium.extensions.ssh.ConnectionServiceOptions
-	60, // 6: pomerium.extensions.ssh.CodecConfig.enabled_channel_filters:type_name -> envoy.config.core.v3.TypedExtensionConfig
+	60, // 6: pomerium.extensions.ssh.CodecConfig.enabled_channel_filter_factories:type_name -> envoy.config.core.v3.TypedExtensionConfig
 	61, // 7: pomerium.extensions.ssh.ConnectionServiceOptions.channel_close_response_grace_period:type_name -> google.protobuf.Duration
 	62, // 8: pomerium.extensions.ssh.ReverseTunnelCluster.eds_config:type_name -> envoy.config.core.v3.ConfigSource
 	63, // 9: pomerium.extensions.ssh.ChannelMessage.metadata:type_name -> envoy.config.core.v3.Metadata
