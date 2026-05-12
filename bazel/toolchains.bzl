@@ -25,6 +25,11 @@ TOOLCHAIN_INTEGRITY = struct(
         "linux-x86_64": "f2c7d1d00e1e2dd128bbd943152dab331d60a5dfd066eeaa59d9b87958e6492f",
         "linux-aarch64": "13e1622bafc902508e56b7ac2252b61046e27f04a378cf43aa63bbd42351950e",
     },
+    macos_utils = {
+        "linux-x86_64": "c9e32a2308ac1f0f00772c7f4f54217ae22da10a42daa2a46c239420ceb6c4ea",
+        "linux-aarch64": "6820317c1bb5a1d6f881ecde69c4857597146f1276dee9c266a889af0e151427",
+        "darwin-aarch64": "9e315b52d3b8c74baee7bd957ccabae50793e74514e9fd920f98ada46fc21908",
+    },
     sysroot = {
         "linux-x86_64": "60d503a72a3728a0e3fee8c8bda0f9dab23251f0225c7f0c6aafd8993d4122cb",
         "linux-aarch64": "b9b7e53597c6b7b3289960ad16d6dd01763b9d6ab6122e7c74b72c6823a355b3",
