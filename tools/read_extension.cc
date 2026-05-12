@@ -762,7 +762,13 @@ absl::StatusOr<LintResults> runLinters(const MmapFileHandle& ext) {
       switch (entry->d_tag) {
       case DT_NEEDED:
         if (auto name = strtabCStrView(dynamicStrTable.subspan(entry->d_un.d_ptr));
-            !name.starts_with("libm.so.6") && !name.starts_with("libc.so.6") && !name.starts_with("ld-linux")) {
+            !name.starts_with("libm.so.6") &&
+            !name.starts_with("libc.so.6") &&
+            !name.starts_with("libpthread.so") &&
+            !name.starts_with("libdl.so") &&
+            !name.starts_with("librt.so") &&
+            !name.starts_with("libresolv.so") &&
+            !name.starts_with("ld-linux")) {
           unexpectedDtNeeded.push_back(name);
         }
         break;
