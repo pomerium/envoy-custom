@@ -11,6 +11,7 @@ envoy_cc_library(
     name = "common_lib",
     srcs = [],
     hdrs = [
+        "apple.h",
         "concepts.h",
         "factory.h",
         "fixed_string.h",
