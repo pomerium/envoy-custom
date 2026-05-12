@@ -1,5 +1,5 @@
 diff --git a/toolchain/cc_toolchain_config.bzl b/toolchain/cc_toolchain_config.bzl
-index 6e80a11..6f22842 100644
+index 6e80a11..093596c 100644
 --- a/toolchain/cc_toolchain_config.bzl
 +++ b/toolchain/cc_toolchain_config.bzl
 @@ -224,6 +224,8 @@ def cc_toolchain_config(
@@ -25,20 +25,24 @@ index 6e80a11..6f22842 100644
          else:
              # For single-platform builds, we can statically link the bundled
              # libraries.
-@@ -294,9 +303,10 @@ def cc_toolchain_config(
+@@ -294,10 +303,12 @@ def cc_toolchain_config(
              "-stdlib=libc++",
          ]
  
-+        compiler_rt_link_flags = ["-rtlib=compiler-rt"]
-         link_libs.extend([
+-        link_libs.extend([
 -            "-l:libc++.a",
 -            "-l:libc++abi.a",
-+            "-l:libc++.a" if target_os != "darwin" else "-lc++",
-+            "-l:libc++abi.a" if target_os != "darwin" else "-lc++abi",
-         ])
+-        ])
++        compiler_rt_link_flags = ["-rtlib=compiler-rt"]
++        if target_os != "darwin":
++            link_libs.extend([
++                "-l:libc++.a",
++                "-l:libc++abi.a",
++            ])
      elif stdlib == "dynamic-stdc++":
          cxx_flags = [
-@@ -320,12 +330,14 @@ def cc_toolchain_config(
+             "-std=" + cxx_standard,
+@@ -320,12 +331,14 @@ def cc_toolchain_config(
          cxx_flags = [
              "-std=" + cxx_standard,
          ]
