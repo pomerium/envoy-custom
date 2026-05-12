@@ -3,6 +3,8 @@
 #include <cerrno>
 #include <unistd.h>
 
+#include "source/common/apple.h"
+
 #pragma clang unsafe_buffer_usage begin
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.validate.h"
