@@ -101,6 +101,7 @@ cc_library(
         exclude = [
             "openbsd-compat/readpassphrase.c",
             "openbsd-compat/setproctitle.c",
+            "openbsd-compat/xcrypt.c",
         ],
     ),
     hdrs = glob([
@@ -132,7 +133,10 @@ cc_library(
     ],
     linkopts = select({
         "@platforms//os:osx": ["-lresolv.9"],
-        "//conditions:default": ["-lcrypt"],
+        "//conditions:default": [
+            "-lcrypt",
+            "-lresolv",
+        ],
     }),
     linkstatic = True,
     visibility = ["//visibility:public"],
@@ -145,6 +149,6 @@ cc_library(
 
 filegroup(
     name = "all_sources",
-    srcs = ["**"],
+    srcs = glob(["**"]),
     visibility = ["//visibility:public"],
 )

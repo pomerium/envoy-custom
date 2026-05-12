@@ -1,7 +1,7 @@
 load("@envoy_repo//:compiler.bzl", "LLVM_PATH")
 load("@toolchains_llvm//toolchain:rules.bzl", "llvm_toolchain")
 
-LLVM_VERSION = "22.1.3"
+LLVM_VERSION = "22.1.4"
 LLVM_MAJOR_VERSION = LLVM_VERSION.split(".")[0]
 
 TOOLCHAIN_INFO = {
@@ -13,22 +13,22 @@ TOOLCHAIN_INFO = {
 
 TOOLCHAIN_INTEGRITY = struct(
     cxx_cross_libs = {
-        "linux-aarch64": "c187edb7412a5ee79bdcabab936d367c43db2ce41e0e449f2d08a13efb24880c",
-        "darwin-aarch64": "7284418b0331f86482788547818819148775c779e6bb53ec4914d7ebb36d1bab",
+        "linux-aarch64": "1266df9af6ed4feb75d02abf05279f3c140cde9ff377f50ab5cecbc3b04e4006",
+        "darwin-aarch64": "e11482ca4b7d5a782152cd86a4c881a2c836d541568c997f81dab0ad81f90417",
     },
     toolchain = {
-        "linux-x86_64": "f3a7549729f7c05df11c5b7f7eafba227ea3c6ca498af6e1cd8bda6132a56d78",
-        "linux-aarch64": "917a3a7e744f2d911ff371e465aae86d9af6f434f0d942238c17212f3fd4d3a4",
-        "darwin-aarch64": "d5fbdf180c58e54b69c09ccb78b4576465b6b8740920154c9944113b887bac73",
+        "linux-x86_64": "758d0302e51c93e2882d45dfc10c2d4b9731ce5a03f8d565d03cca6ad33060db",
+        "linux-aarch64": "9b4de299282bdbe1faefd0d7e7daebee6d8bfded365c28942c7aced752876035",
+        "darwin-aarch64": "f37d164e6d792ba49cf616fd9bb2b1bf2ca9a11b300b752cc4a43a37c7f0cf58",
     },
     extras = {
-        "linux-x86_64": "2b03539ef789e12b9d77a3e76d497562f1df7847167e13744e13ad7592770c46",
-        "linux-aarch64": "2b2aaa348047c10d1cdcdbc189b8934188009355e1decd90de5608d102c98548",
+        "linux-x86_64": "f2c7d1d00e1e2dd128bbd943152dab331d60a5dfd066eeaa59d9b87958e6492f",
+        "linux-aarch64": "13e1622bafc902508e56b7ac2252b61046e27f04a378cf43aa63bbd42351950e",
     },
     sysroot = {
-        "linux-x86_64": "34b391fa4e41e2f9e8cecc91ee9b645014b91ffcc0ab638f5276eef4cba1bdf9",
-        "linux-aarch64": "e2944bc3600a26ca9890817408d9023583e4d876837e13ce6fc774fe8a65e252",
-        "darwin-aarch64": "97aa7d2af83e8e12e153dd4ef12d65e02ad30cf9ae94f195db67ec9bbb7c8051",
+        "linux-x86_64": "60d503a72a3728a0e3fee8c8bda0f9dab23251f0225c7f0c6aafd8993d4122cb",
+        "linux-aarch64": "b9b7e53597c6b7b3289960ad16d6dd01763b9d6ab6122e7c74b72c6823a355b3",
+        "darwin-aarch64": "66d832c60d90af0248abff0c6c4ea95a52795ce367608f199e24262676ee6b93",
     },
 )
 

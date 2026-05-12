@@ -197,16 +197,16 @@
 #define HAVE_ADDR_V6_IN_UTMPX 1
 
 /* Define to 1 if you have the `arc4random' function. */
-#define HAVE_ARC4RANDOM 1
+/* #undef HAVE_ARC4RANDOM */
 
 /* Define to 1 if you have the `arc4random_buf' function. */
-#define HAVE_ARC4RANDOM_BUF 1
+/* #undef HAVE_ARC4RANDOM_BUF */
 
 /* Define to 1 if you have the `arc4random_stir' function. */
 /* #undef HAVE_ARC4RANDOM_STIR */
 
 /* Define to 1 if you have the `arc4random_uniform' function. */
-#define HAVE_ARC4RANDOM_UNIFORM 1
+/* #undef HAVE_ARC4RANDOM_UNIFORM */
 
 /* Define to 1 if you have the `asprintf' function. */
 #define HAVE_ASPRINTF 1
@@ -302,10 +302,10 @@
 #define HAVE_CLOCK_T 1
 
 /* Define to 1 if you have the `closefrom' function. */
-#define HAVE_CLOSEFROM 1
+/* #undef HAVE_CLOSEFROM */
 
 /* Define to 1 if you have the `close_range' function. */
-#define HAVE_CLOSE_RANGE 1
+/* #undef HAVE_CLOSE_RANGE */
 
 /* Define if gai_strerror() returns const char * */
 #define HAVE_CONST_GAI_STRERROR_PROTO 1
@@ -1157,7 +1157,7 @@
 #define HAVE_RLIMIT_NPROC /**/
 
 /* Define to 1 if you have the <rpc/types.h> header file. */
-/* #undef HAVE_RPC_TYPES_H */
+#define HAVE_RPC_TYPES_H 1
 
 /* Define to 1 if you have the `rresvport_af' function. */
 #define HAVE_RRESVPORT_AF 1
@@ -1352,10 +1352,10 @@
 #define HAVE_STRING_H 1
 
 /* Define to 1 if you have the `strlcat' function. */
-#define HAVE_STRLCAT 1
+/* #undef HAVE_STRLCAT */
 
 /* Define to 1 if you have the `strlcpy' function. */
-#define HAVE_STRLCPY 1
+/* #undef HAVE_STRLCPY */
 
 /* Define to 1 if you have the `strmode' function. */
 /* #undef HAVE_STRMODE */
@@ -1472,7 +1472,7 @@
 #define HAVE_SYS_DIR_H 1
 
 /* Define if your system defines sys_errlist[] */
-/* #undef HAVE_SYS_ERRLIST */
+#define HAVE_SYS_ERRLIST 1
 
 /* Define to 1 if you have the <sys/file.h> header file. */
 #define HAVE_SYS_FILE_H 1
@@ -1490,7 +1490,7 @@
 /* #undef HAVE_SYS_NDIR_H */
 
 /* Define if your system defines sys_nerr */
-/* #undef HAVE_SYS_NERR */
+#define HAVE_SYS_NERR 1
 
 /* Define to 1 if you have the <sys/param.h> header file. */
 #define HAVE_SYS_PARAM_H 1
@@ -1535,7 +1535,7 @@
 /* #undef HAVE_SYS_STRTIO_H */
 
 /* Define to 1 if you have the <sys/sysctl.h> header file. */
-/* #undef HAVE_SYS_SYSCTL_H */
+#define HAVE_SYS_SYSCTL_H 1
 
 /* Force use of sys/syslog.h on Ultrix */
 /* #undef HAVE_SYS_SYSLOG_H */
@@ -1700,13 +1700,13 @@
 #define HAVE_WCWIDTH 1
 
 /* Define to 1 if you have the `_getlong' function. */
-/* #undef HAVE__GETLONG */
+#define HAVE__GETLONG 1
 
 /* Define to 1 if you have the `_getpty' function. */
 /* #undef HAVE__GETPTY */
 
 /* Define to 1 if you have the `_getshort' function. */
-/* #undef HAVE__GETSHORT */
+#define HAVE__GETSHORT 1
 
 /* Define if you have struct __res_state _res as an extern */
 #define HAVE__RES_EXTERN 1
