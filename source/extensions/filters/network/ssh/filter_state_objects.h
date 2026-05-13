@@ -68,6 +68,7 @@ struct AuthInfo : public StreamInfo::FilterState::Object {
 using AuthInfoSharedPtr = std::shared_ptr<AuthInfo>;
 
 constexpr std::string_view ChannelIDManagerFilterStateKey = "pomerium.extensions.ssh.channel_id_manager";
+constexpr std::string_view ChannelFilterManagerFilterStateKey = "pomerium.extensions.ssh.channel_filter_manager";
 constexpr std::string_view AuthInfoFilterStateKey = "pomerium.extensions.ssh.auth_info";
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

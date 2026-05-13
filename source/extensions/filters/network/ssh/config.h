@@ -45,7 +45,6 @@ private:
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config_;
   CreateGrpcClientFunc create_grpc_client_;
   StreamTrackerSharedPtr stream_tracker_;
-  ChannelFilterManagerSharedPtr channel_filter_manager_;
 
   std::vector<openssh::SSHKeySharedPtr> host_keys_;
   openssh::SSHKeySharedPtr user_ca_key_;

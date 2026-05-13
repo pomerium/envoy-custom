@@ -35,7 +35,6 @@ public:
       : server_config_(newConfig()),
         client_host_key_(*openssh::SSHKey::generate(KEY_ED25519, 256)),
         secrets_provider_(*server_config_),
-        channel_filter_manager_(std::make_shared<ChannelFilterManager>(ExtensionConfigList{}, server_factory_context_)),
         transport_([this] {
           ON_CALL(server_factory_context_.drain_manager_, addOnDrainCloseCb)
             .WillByDefault([this](Network::DrainDirection, Network::DrainDecision::DrainCloseCb cb) {
@@ -72,7 +71,6 @@ public:
               return client;
             },
             StreamTracker::fromContext(server_factory_context_),
-            channel_filter_manager_,
             secrets_provider_);
         }()) {}
 
@@ -345,7 +343,7 @@ public:
 
     inject_ = std::make_unique<Registry::InjectFactory<ChannelFilterFactoryConfig>>(channel_filter_factory_config_);
 
-    auto* channelFilterMgr = channel_filter_manager_.get();
+    auto* channelFilterMgr = &transport_.channelFilterManager();
     channelFilterMgr->~ChannelFilterManager();
     new (channelFilterMgr) ChannelFilterManager(enabledChannelFilters, server_factory_context_);
   }
@@ -362,7 +360,6 @@ public:
   Envoy::Buffer::OwnedImpl output_buffer_;
   openssh::SSHKeyPtr client_host_key_;
   TestSecretsProvider secrets_provider_;
-  ChannelFilterManagerSharedPtr channel_filter_manager_;
   testing::NiceMock<MockChannelFilterFactoryConfig> channel_filter_factory_config_;
   std::unique_ptr<Registry::InjectFactory<ChannelFilterFactoryConfig>> inject_;
   testing::StrictMock<MockServerCodecCallbacks> server_codec_callbacks_;
@@ -779,7 +776,7 @@ TEST_F(ChannelFilterConfigTest, ConfigureChannelFilters) {
 
   ASSERT_OK(WriteMsg(std::move(authReq)));
 
-  EXPECT_EQ(1, channel_filter_manager_->numConfiguredFilters());
+  EXPECT_EQ(1, transport_.channelFilterManager().numConfiguredFilters());
 }
 
 TEST_F(ChannelFilterConfigTest, ConfigureChannelFilters_InvalidChannelFilterConfig) {
@@ -811,7 +808,7 @@ TEST_F(ChannelFilterConfigTest, ConfigureChannelFilters_InvalidChannelFilterConf
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure(HasSubstr("invalid channel filter config")));
   ASSERT_OK(WriteMsg(std::move(authReq)));
 
-  EXPECT_EQ(0, channel_filter_manager_->numConfiguredFilters());
+  EXPECT_EQ(0, transport_.channelFilterManager().numConfiguredFilters());
 }
 
 TEST_F(ChannelFilterConfigTest, ConfigureChannelFilters_ChannelFilterNotFound) {
@@ -847,7 +844,7 @@ TEST_F(ChannelFilterConfigTest, ConfigureChannelFilters_ChannelFilterNotFound) {
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure(HasSubstr("channel filter not found: nonexistent")));
   ASSERT_OK(WriteMsg(std::move(authReq)));
 
-  EXPECT_EQ(0, channel_filter_manager_->numConfiguredFilters());
+  EXPECT_EQ(0, transport_.channelFilterManager().numConfiguredFilters());
 }
 
 // NOLINTBEGIN(readability-identifier-naming)
@@ -1862,7 +1859,7 @@ TEST_F(HandoffTest, HandoffMode_ConfigureChannelFilters) {
   ReceiveOnServeChannelStream(msg);
   serve_channel_callbacks_[0]->onRemoteClose(Envoy::Grpc::Status::Canceled, "handoff");
 
-  EXPECT_EQ(1, channel_filter_manager_->numConfiguredFilters());
+  EXPECT_EQ(1, transport_.channelFilterManager().numConfiguredFilters());
 }
 
 TEST_F(HandoffTest, HandoffMode_ConfigureChannelFiltersError) {
@@ -1896,7 +1893,7 @@ TEST_F(HandoffTest, HandoffMode_ConfigureChannelFiltersError) {
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure(HasSubstr("invalid channel filter config")));
   ReceiveOnServeChannelStream(msg);
 
-  EXPECT_EQ(0, channel_filter_manager_->numConfiguredFilters());
+  EXPECT_EQ(0, transport_.channelFilterManager().numConfiguredFilters());
 }
 
 TEST_F(ServerTransportTest, SuccessfulUserAuth_MirrorMode) {

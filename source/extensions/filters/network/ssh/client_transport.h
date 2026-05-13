@@ -31,7 +31,6 @@ class SshClientTransport final : public TransportBase<ClientCodec>,
 public:
   SshClientTransport(Envoy::Server::Configuration::ServerFactoryContext& context,
                      std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                     ChannelFilterManagerSharedPtr channel_filter_manager,
                      const SecretsProvider& secrets_provider);
   void setCodecCallbacks(GenericProxy::ClientCodecCallbacks& callbacks) override;
 
@@ -55,7 +54,10 @@ public:
     return *channel_id_manager_;
   }
 
-  ChannelFilterManager& channelFilterManager() override { return *channel_filter_manager_; }
+  ChannelFilterManager& channelFilterManager() override {
+    ASSERT(channel_filter_manager_ != nullptr);
+    return *channel_filter_manager_;
+  }
 
   void onHandoffComplete() override {
     // handoff is complete, send an empty message to signal the downstream codec
@@ -79,7 +81,7 @@ private:
   Envoy::OptRef<Envoy::Event::Dispatcher> connection_dispatcher_;
   std::shared_ptr<ChannelIDManager> channel_id_manager_; // shared with downstream
   std::unique_ptr<PingExtensionHandler> ping_handler_;
-  ChannelFilterManagerSharedPtr channel_filter_manager_;
+  ChannelFilterManagerSharedPtr channel_filter_manager_; // shared with downstream
 
   std::unique_ptr<Envoy::Event::DeferredDeletable> handoff_middleware_;
 

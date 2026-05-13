@@ -76,8 +76,7 @@ public:
       : config_(newConfig()),
         server_host_key_(*openssh::SSHKey::generate(KEY_ED25519, 256)),
         secrets_provider_(*config_),
-        channel_filter_manager_(std::make_shared<ChannelFilterManager>(ExtensionConfigList{}, server_factory_context_)),
-        transport_(server_factory_context_, config_, channel_filter_manager_, secrets_provider_) {}
+        transport_(server_factory_context_, config_, secrets_provider_) {}
 
   const wire::KexInitMsg kex_init_ = {
     .cookie = {{16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1}},
@@ -105,9 +104,17 @@ public:
     // Inject a new channel id manager into the mock filter state. This would normally be created
     // by the server transport
     channel_id_manager_ = std::make_shared<ChannelIDManager>(1000, 100);
+    channel_filter_manager_ = std::make_shared<ChannelFilterManager>(ExtensionConfigList{}, server_factory_context_);
     mock_connection_.streamInfo().filterState()->setData(
       ChannelIDManagerFilterStateKey,
       channel_id_manager_,
+      StreamInfo::FilterState::StateType::Mutable,
+      StreamInfo::FilterState::LifeSpan::Connection,
+      StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
+    // same with channel filter manager
+    mock_connection_.streamInfo().filterState()->setData(
+      ChannelFilterManagerFilterStateKey,
+      channel_filter_manager_,
       StreamInfo::FilterState::StateType::Mutable,
       StreamInfo::FilterState::LifeSpan::Connection,
       StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
@@ -514,10 +521,10 @@ public:
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config_;
   openssh::SSHKeyPtr server_host_key_;
   TestSecretsProvider secrets_provider_;
-  ChannelFilterManagerSharedPtr channel_filter_manager_;
   testing::NiceMock<Envoy::Network::MockServerConnection> mock_connection_;
   testing::StrictMock<MockClientCodecCallbacks> client_codec_callbacks_;
   std::shared_ptr<ChannelIDManager> channel_id_manager_;
+  ChannelFilterManagerSharedPtr channel_filter_manager_;
   SshClientTransport transport_;
 
 private:

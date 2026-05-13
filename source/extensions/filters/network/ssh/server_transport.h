@@ -32,7 +32,6 @@ public:
                      std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
                      CreateGrpcClientFunc create_grpc_client,
                      StreamTrackerSharedPtr active_stream_tracker,
-                     ChannelFilterManagerSharedPtr channel_filter_manager,
                      const SecretsProvider& secrets_provider);
 
   void onConnected() override;

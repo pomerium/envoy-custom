@@ -349,7 +349,7 @@ void ConnectionService::ChannelCallbacksImpl::sendMessageLocal(wire::Message&& m
   // this channel via ChannelCloseMsg, so defer to the transport for error handling and cleanup.
   // The channel calling this function wouldn't be able to do much else about an error at this
   // level either (this is not necessarily the case for sendMessageRemote, though).
-  ENVOY_LOG(debug, "sending message to local channel {}: {}", channel_id_, msg.msg_type());
+  ENVOY_LOG(trace, "sending message to local channel {}: {}", channel_id_, msg.msg_type());
   if (auto stat = parent_.transport_.sendMessageToConnection(std::move(msg)); !stat.ok()) {
     parent_.transport_.terminate(stat.status());
   }
@@ -387,7 +387,7 @@ absl::Status ConnectionService::ChannelCallbacksImpl::sendMessageRemote(wire::Me
     filter->onMessageForward(std::as_const(msg));
   }
 
-  ENVOY_LOG(debug, "sending messsage to remote channel {}: {}", channel_id_, msg.msg_type());
+  ENVOY_LOG(trace, "sending messsage to remote channel {}: {}", channel_id_, msg.msg_type());
   parent_.transport_.forward(std::move(msg));
   return absl::OkStatus();
 }

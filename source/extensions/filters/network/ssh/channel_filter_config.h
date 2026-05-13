@@ -29,7 +29,8 @@ public:
 
 using ExtensionConfigList = google::protobuf::RepeatedPtrField<envoy::config::core::v3::TypedExtensionConfig>;
 
-class ChannelFilterManager : NonCopyable {
+class ChannelFilterManager : NonCopyable,
+                             public StreamInfo::FilterState::Object {
 public:
   ChannelFilterManager(const ExtensionConfigList& enabled_channel_filters,
                        Envoy::Server::Configuration::ServerFactoryContext& context);

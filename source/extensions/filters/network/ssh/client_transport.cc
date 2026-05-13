@@ -33,10 +33,8 @@ private:
 SshClientTransport::SshClientTransport(
   Envoy::Server::Configuration::ServerFactoryContext& context,
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-  ChannelFilterManagerSharedPtr channel_filter_manager,
   const SecretsProvider& secrets_provider)
-    : TransportBase(context, std::move(config), secrets_provider),
-      channel_filter_manager_(channel_filter_manager) {
+    : TransportBase(context, std::move(config), secrets_provider) {
   wire::ExtInfoMsg extInfo;
   extInfo.extensions->emplace_back(wire::PingExtension{.version = "0"s});
   outgoing_ext_info_ = std::move(extInfo);
@@ -93,6 +91,7 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
     connection_dispatcher_ = callbacks_->connection()->dispatcher();
 
     ASSERT(filterState->hasDataWithName(ChannelIDManagerFilterStateKey));
+    ASSERT(filterState->hasDataWithName(ChannelFilterManagerFilterStateKey));
     ASSERT(filterState->hasDataWithName(AuthInfoFilterStateKey));
     ASSERT(filterState->hasDataWithName(RequestedServerName::key()));
     ASSERT(filterState->hasDataWithName(DownstreamSourceAddressFilterStateFactory::key()));
@@ -101,6 +100,8 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
       filterState->getDataSharedMutableGeneric(AuthInfoFilterStateKey));
     channel_id_manager_ = std::dynamic_pointer_cast<ChannelIDManager>(
       filterState->getDataSharedMutableGeneric(ChannelIDManagerFilterStateKey));
+    channel_filter_manager_ = std::dynamic_pointer_cast<ChannelFilterManager>(
+      filterState->getDataSharedMutableGeneric(ChannelFilterManagerFilterStateKey));
     if (auth_info_->channel_mode == ChannelMode::Handoff) {
       if (auth_info_->allow_response->has_upstream()) {
         ASSERT(auth_info_->handoff_info.handoff_in_progress);

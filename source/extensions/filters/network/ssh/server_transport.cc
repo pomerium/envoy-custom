@@ -11,6 +11,7 @@
 #include "source/common/network/utility.h"
 
 #include "source/common/status.h"
+#include "source/extensions/filters/network/ssh/channel_filter_config.h"
 #include "source/extensions/filters/network/ssh/common.h"
 #include "source/extensions/filters/network/ssh/filter_state_objects.h"
 #include "source/extensions/filters/network/ssh/frame.h"
@@ -53,18 +54,26 @@ void setChannelIdManager(const StreamInfo::FilterStateSharedPtr& filter_state, s
                         StreamInfo::FilterState::LifeSpan::Request,
                         StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
 }
+
+void setChannelFilterManager(const StreamInfo::FilterStateSharedPtr& filter_state, ChannelFilterManagerSharedPtr channel_filter_mgr) {
+  filter_state->setData(ChannelFilterManagerFilterStateKey,
+                        channel_filter_mgr,
+                        StreamInfo::FilterState::StateType::Mutable,
+                        StreamInfo::FilterState::LifeSpan::Request,
+                        StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
+}
 } // namespace
 
 SshServerTransport::SshServerTransport(Server::Configuration::ServerFactoryContext& context,
                                        std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
                                        CreateGrpcClientFunc create_grpc_client,
                                        StreamTrackerSharedPtr stream_tracker,
-                                       ChannelFilterManagerSharedPtr channel_filter_manager,
                                        const SecretsProvider& secrets_provider)
     : TransportBase(context, std::move(config), secrets_provider),
       DownstreamTransportCallbacks(*this),
       stream_tracker_(std::move(stream_tracker)),
-      channel_filter_manager_(channel_filter_manager) {
+      channel_filter_manager_(std::make_shared<ChannelFilterManager>(
+        config_->enabled_channel_filter_factories(), context)) {
   auto grpcClient = create_grpc_client();
   THROW_IF_NOT_OK_REF(grpcClient.status());
   grpc_client_ = *grpcClient;
@@ -109,6 +118,7 @@ void SshServerTransport::onConnected() {
   }
   channel_id_manager_ = std::make_shared<ChannelIDManager>(config_->internal_channel_id_start(), maxConcurrentChannels);
   setChannelIdManager(conn.streamInfo().filterState(), channel_id_manager_);
+  setChannelFilterManager(conn.streamInfo().filterState(), channel_filter_manager_);
   initServices();
   mgmt_client_->setOnRemoteCloseCallback([this](Grpc::Status::GrpcStatus status, std::string message) {
     if (status != Grpc::Status::PermissionDenied) {
