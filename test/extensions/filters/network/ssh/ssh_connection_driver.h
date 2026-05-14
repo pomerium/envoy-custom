@@ -77,8 +77,8 @@ public:
                                                          std::chrono::milliseconds timeout) PURE;
 
   [[nodiscard]]
-  virtual testing::AssertionResult configureSshUpstream(std::shared_ptr<SshFakeUpstreamHandlerOpts> opts,
-                                                        Server::Configuration::ServerFactoryContext& ctx) PURE;
+  virtual testing::AssertionResult listenForSshConnection(std::shared_ptr<SshFakeUpstreamHandlerOpts> opts,
+                                                          Server::Configuration::ServerFactoryContext& ctx) PURE;
 
   virtual void cleanup() PURE;
 };
@@ -103,6 +103,9 @@ public:
 
   AssertionResult disconnect();
   void close();
+  bool closed() const {
+    return closed_;
+  }
 
   void sendMessage(wire::Message&& msg);
 
@@ -110,7 +113,8 @@ public:
   AssertionResult waitForDiagnostic(const std::string& message);
   void waitForManagementRequest(Protobuf::Message& req);
   void sendManagementResponse(const Protobuf::Message& resp);
-  AssertionResult waitForUserAuth(std::string username = "user", std::string hostname = ""); // empty hostname = internal
+  AssertionResult waitForUserAuth(std::string username = "user", std::string hostname = "",
+                                  std::function<void(pomerium::extensions::ssh::AllowResponse&)> modify_allow_response = nullptr); // empty hostname = internal
   AssertionResult requestReversePortForward(const std::string& address, uint32_t port, uint32_t server_port);
   AssertionResult waitForStatsEvent(pomerium::extensions::ssh::ChannelStatsList* out);
   AssertionResult waitForStatsOnChannelClose(pomerium::extensions::ssh::ChannelStats* out);
@@ -190,7 +194,7 @@ protected:
     // TaskCallbacks
     void taskSuccess(std::any output, std::function<void(const std::any&, void*)> apply_fn) override;
     void taskFailure(absl::Status stat) override;
-    void setTimeout(std::chrono::milliseconds timeout, const std::string& name) override;
+    void setTimeout(std::chrono::milliseconds timeout, std::optional<std::string> name = {}) override;
     void setTimeout(std::chrono::milliseconds timeout, std::function<void()> cb) override;
 
     void sendMessage(wire::Message&& msg) override;

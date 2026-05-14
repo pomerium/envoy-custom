@@ -176,7 +176,8 @@ void SshConnectionDriver::sendManagementResponse(const Protobuf::Message& resp) 
   mgmt_stream_->sendGrpcMessage(resp);
 }
 
-AssertionResult SshConnectionDriver::waitForUserAuth(std::string username, std::string hostname) {
+AssertionResult SshConnectionDriver::waitForUserAuth(std::string username, std::string hostname,
+                                                     std::function<void(pomerium::extensions::ssh::AllowResponse&)> modify_allow_response) {
   if (auto res = wait(createTask<Tasks::RequestUserAuthService>().start()); !res) {
     return res;
   }
@@ -221,12 +222,14 @@ AssertionResult SshConnectionDriver::waitForUserAuth(std::string username, std::
     // Only the stream id is set here, not channel id.
     // TODO: maybe refactor this api to be less confusing
     ServerMessage serverMsg;
-    (*serverMsg.mutable_auth_response()
-        ->mutable_allow()
-        ->mutable_internal()
+    auto* allow = serverMsg.mutable_auth_response()->mutable_allow();
+    (*allow->mutable_internal()
         ->mutable_set_metadata()
         ->mutable_typed_filter_metadata())["com.pomerium.ssh"]
       .PackFrom(filterMetadata);
+    if (modify_allow_response != nullptr) {
+      modify_allow_response(*allow);
+    }
     sendManagementResponse(serverMsg);
   } else {
     ServerMessage serverMsg;
@@ -248,6 +251,9 @@ AssertionResult SshConnectionDriver::waitForUserAuth(std::string username, std::
       absl::ToUnixNanos(absl::Now() + absl::Hours(1)));
     *publicKeyMethodData.mutable_permissions() = std::move(permissions);
     publicKeyMethod->mutable_method_data()->PackFrom(publicKeyMethodData);
+    if (modify_allow_response != nullptr) {
+      modify_allow_response(*allow);
+    }
     sendManagementResponse(serverMsg);
   }
 
@@ -426,11 +432,11 @@ openssh::SSHKey& SshConnectionDriver::clientKey() {
   return *host_key_;
 }
 
-void SshConnectionDriver::TaskCallbacksImpl::setTimeout(std::chrono::milliseconds timeout, const std::string& name) {
+void SshConnectionDriver::TaskCallbacksImpl::setTimeout(std::chrono::milliseconds timeout, std::optional<std::string> name) {
   if (timeout_timer_ != nullptr) {
     timeout_timer_->disableTimer();
   }
-  timeout_timer_ = parent_.connectionDispatcher()->createTimer([this, name] {
+  timeout_timer_ = parent_.connectionDispatcher()->createTimer([this, name = name.value_or(task_->name())] {
     taskFailure(absl::DeadlineExceededError(fmt::format("task timed out: {} ()", name, task_->errorDetails())));
   });
   timeout_timer_->enableTimer(timeout);
