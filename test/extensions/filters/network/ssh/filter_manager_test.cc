@@ -17,15 +17,11 @@ enum Direction {
 };
 
 using on_channel_filter_created_fn_t = testing::StrictMock<testing::MockFunction<void(uint32_t, uint32_t, std::string, Direction)>>;
-using on_channel_filter_destroyed_fn_t = testing::StrictMock<testing::MockFunction<void(uint32_t, uint32_t, std::string, Direction)>>;
 using on_channel_filter_factory_created_fn_t = testing::StrictMock<testing::MockFunction<void(uint32_t)>>;
-using on_channel_filter_factory_destroyed_fn_t = testing::StrictMock<testing::MockFunction<void(uint32_t)>>;
 using on_message_forward_fn_t = testing::StrictMock<testing::MockFunction<void(uint32_t, uint32_t, std::string, Direction, const wire::Message&)>>;
 
 static Envoy::OptRef<on_channel_filter_created_fn_t> on_channel_filter_created;
-static Envoy::OptRef<on_channel_filter_destroyed_fn_t> on_channel_filter_destroyed;
 static Envoy::OptRef<on_channel_filter_factory_created_fn_t> on_channel_filter_factory_created;
-static Envoy::OptRef<on_channel_filter_factory_destroyed_fn_t> on_channel_filter_factory_destroyed;
 static Envoy::OptRef<on_message_forward_fn_t> on_message_forward;
 
 class TestChannelFilter : public ChannelFilter {
@@ -36,9 +32,6 @@ public:
         name_(name),
         direction_(direction) {
     on_channel_filter_created->Call(instance_num_, filter_instance_num_, name_, direction_);
-  }
-  ~TestChannelFilter() {
-    on_channel_filter_destroyed->Call(instance_num_, filter_instance_num_, name_, direction_);
   }
 
   void onMessageForward(const wire::Message& msg) override {
@@ -57,9 +50,6 @@ public:
   TestChannelFilterFactory(uint32_t instance_num)
       : instance_num_(instance_num) {
     on_channel_filter_factory_created->Call(instance_num_);
-  }
-  ~TestChannelFilterFactory() {
-    on_channel_filter_factory_destroyed->Call(instance_num_);
   }
 
   Envoy::ProtobufTypes::MessagePtr createEmptyConfigProto() override {
@@ -146,16 +136,21 @@ public:
     });
   }
 
+  ~ChannelFilterManagerIntegrationTest() {
+    EXPECT_TRUE(testing::Mock::VerifyAndClearExpectations(on_channel_filter_created.ptr()));
+    EXPECT_TRUE(testing::Mock::VerifyAndClearExpectations(on_channel_filter_factory_created.ptr()));
+    EXPECT_TRUE(testing::Mock::VerifyAndClearExpectations(on_message_forward.ptr()));
+    on_channel_filter_created.reset();
+    on_channel_filter_factory_created.reset();
+    on_message_forward.reset();
+  }
+
   void SetUp() override {
     ASSERT_FALSE(on_channel_filter_created.has_value());
-    ASSERT_FALSE(on_channel_filter_destroyed.has_value());
     ASSERT_FALSE(on_channel_filter_factory_created.has_value());
-    ASSERT_FALSE(on_channel_filter_factory_destroyed.has_value());
     ASSERT_FALSE(on_message_forward.has_value());
     on_channel_filter_created.emplace(on_channel_filter_created_fn_);
-    on_channel_filter_destroyed.emplace(on_channel_filter_destroyed_fn_);
     on_channel_filter_factory_created.emplace(on_channel_filter_factory_created_fn_);
-    on_channel_filter_factory_destroyed.emplace(on_channel_filter_factory_destroyed_fn_);
     on_message_forward.emplace(on_message_forward_fn_);
     initialize();
   }
@@ -164,11 +159,6 @@ public:
     EXPECT_TRUE(driver1_->closed());
     EXPECT_TRUE(driver2_->closed());
     cleanup();
-    on_channel_filter_created.reset();
-    on_channel_filter_destroyed.reset();
-    on_channel_filter_factory_created.reset();
-    on_channel_filter_factory_destroyed.reset();
-    on_message_forward.reset();
   }
 
   void StartListeningForNewSshConnection() {
@@ -197,9 +187,7 @@ public:
     }));
   }
   on_channel_filter_created_fn_t on_channel_filter_created_fn_;
-  on_channel_filter_created_fn_t on_channel_filter_destroyed_fn_;
   on_channel_filter_factory_created_fn_t on_channel_filter_factory_created_fn_;
-  on_channel_filter_factory_destroyed_fn_t on_channel_filter_factory_destroyed_fn_;
   on_message_forward_fn_t on_message_forward_fn_;
 
   std::shared_ptr<SshConnectionDriver> driver1_;
@@ -310,17 +298,13 @@ TEST_F(ChannelFilterManagerIntegrationTest, TestChannelFilterManagerPerConnectio
     IN_SEQUENCE;
 
     EXPECT_CALL(on_message_forward_fn_, Call(0, 0, "driver1", Read, MSG(wire::ChannelCloseMsg, FIELD_EQ(recipient_channel, driver1Channel1.remote_id))));
-    EXPECT_CALL(on_channel_filter_destroyed_fn_, Call(0, 0, "driver1", Read));
     EXPECT_CALL(on_message_forward_fn_, Call(0, 0, "driver1", Write, MSG(wire::ChannelCloseMsg, FIELD_EQ(recipient_channel, driver1Channel1.local_id))));
-    EXPECT_CALL(on_channel_filter_destroyed_fn_, Call(0, 0, "driver1", Write));
     ASSERT_TRUE(driver1_->wait(
       driver1_->createTask<Tasks::SendChannelCloseAndWait>()
         .start(driver1Channel1)));
 
     EXPECT_CALL(on_message_forward_fn_, Call(0, 1, "driver1", Read, MSG(wire::ChannelCloseMsg, FIELD_EQ(recipient_channel, driver1Channel2.remote_id))));
-    EXPECT_CALL(on_channel_filter_destroyed_fn_, Call(0, 1, "driver1", Read));
     EXPECT_CALL(on_message_forward_fn_, Call(0, 1, "driver1", Write, MSG(wire::ChannelCloseMsg, FIELD_EQ(recipient_channel, driver1Channel2.local_id))));
-    EXPECT_CALL(on_channel_filter_destroyed_fn_, Call(0, 1, "driver1", Write));
     ASSERT_TRUE(driver1_->wait(
       driver1_->createTask<Tasks::SendChannelCloseAndWait>()
         .start(driver1Channel2)));
@@ -330,25 +314,19 @@ TEST_F(ChannelFilterManagerIntegrationTest, TestChannelFilterManagerPerConnectio
     IN_SEQUENCE;
 
     EXPECT_CALL(on_message_forward_fn_, Call(1, 0, "driver2", Read, MSG(wire::ChannelCloseMsg, FIELD_EQ(recipient_channel, driver2Channel1.remote_id))));
-    EXPECT_CALL(on_channel_filter_destroyed_fn_, Call(1, 0, "driver2", Read));
     EXPECT_CALL(on_message_forward_fn_, Call(1, 0, "driver2", Write, MSG(wire::ChannelCloseMsg, FIELD_EQ(recipient_channel, driver2Channel1.local_id))));
-    EXPECT_CALL(on_channel_filter_destroyed_fn_, Call(1, 0, "driver2", Write));
     ASSERT_TRUE(driver2_->wait(
       driver2_->createTask<Tasks::SendChannelCloseAndWait>()
         .start(driver2Channel1)));
 
     EXPECT_CALL(on_message_forward_fn_, Call(1, 1, "driver2", Read, MSG(wire::ChannelCloseMsg, FIELD_EQ(recipient_channel, driver2Channel2.remote_id))));
-    EXPECT_CALL(on_channel_filter_destroyed_fn_, Call(1, 1, "driver2", Read));
     EXPECT_CALL(on_message_forward_fn_, Call(1, 1, "driver2", Write, MSG(wire::ChannelCloseMsg, FIELD_EQ(recipient_channel, driver2Channel2.local_id))));
-    EXPECT_CALL(on_channel_filter_destroyed_fn_, Call(1, 1, "driver2", Write));
     ASSERT_TRUE(driver2_->wait(
       driver2_->createTask<Tasks::SendChannelCloseAndWait>()
         .start(driver2Channel2)));
   }
 
-  EXPECT_CALL(on_channel_filter_factory_destroyed_fn_, Call(0));
   ASSERT_TRUE(driver1_->disconnect());
-  EXPECT_CALL(on_channel_filter_factory_destroyed_fn_, Call(1));
   ASSERT_TRUE(driver2_->disconnect());
 }
 

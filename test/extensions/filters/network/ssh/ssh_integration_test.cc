@@ -71,18 +71,16 @@ void SshIntegrationTest::cleanup() {
 void FakeUpstreamShimImpl::cleanup() {
   absl::MutexLock lock(listeners_mu_);
   for (auto& listener : listeners_) {
-    listener->mu.lock();
-    if (listener->handler != nullptr) {
-      absl::Notification done;
-      fake_upstream_->dispatcher()->post([handler = std::move(listener->handler), &done] mutable {
-        handler.reset();
-        done.Notify();
-      });
+    absl::Notification done;
+    fake_upstream_->dispatcher()->post([listener = listener.get(), &done] mutable {
+      listener->mu.lock();
+      listener->timer->disableTimer();
+      listener->handler.reset();
       listener->mu.unlock();
-      done.WaitForNotification();
-    } else {
-      listener->mu.unlock();
-    }
+
+      done.Notify();
+    });
+    done.WaitForNotification();
   }
   fake_upstream_->cleanUp();
 }
@@ -190,7 +188,7 @@ AssertionResult FakeUpstreamShimImpl::listenForSshConnection(std::shared_ptr<Ssh
         listener->timer->enableTimer(std::chrono::milliseconds(10));
         return;
       }
-      listener->timer = nullptr;
+      listener->timer->disableTimer();
       auto& sc = fake_upstream_->consumeConnection();
       lock2.Release();
       listener->handler->onNewConnection(sc.connection());

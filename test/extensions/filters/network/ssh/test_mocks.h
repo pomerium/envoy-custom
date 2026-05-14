@@ -161,7 +161,7 @@ public:
   virtual ~MockHijackedChannelCallbacks();
 
   MOCK_METHOD(void, initHandoff, (pomerium::extensions::ssh::SSHChannelControlAction_HandOffUpstream*));
-  MOCK_METHOD(void, hijackedChannelFailed, (absl::Status));
+  MOCK_METHOD(pomerium::extensions::ssh::InternalCLIModeHint, modeHint, (), (const));
 };
 
 class MockKexCallbacks : public KexCallbacks {
