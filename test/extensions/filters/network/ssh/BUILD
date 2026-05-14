@@ -422,6 +422,17 @@ envoy_cc_test(
     ],
 )
 
+envoy_cc_test(
+    name = "filter_manager_test",
+    srcs = [
+        "filter_manager_test.cc",
+    ],
+    repository = "@envoy",
+    deps = [
+        ":integration_lib",
+    ],
+)
+
 envoy_cc_test_library(
     name = "integration_lib",
     srcs = [
