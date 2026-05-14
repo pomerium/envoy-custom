@@ -9,6 +9,7 @@
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/kex.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
+#include "test/extensions/filters/network/ssh/wire/test_field_reflect.h" // IWYU pragma: keep
 #include "test/mocks/stats/mocks.h"
 #pragma clang unsafe_buffer_usage begin
 #include "envoy/buffer/buffer.h"
@@ -179,40 +180,3 @@ public:
 
 } // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
-
-namespace wire {
-template <typename T, typename... Opts>
-constexpr bool holds_alternative(const BasicMessage<Opts...>& msg) {
-  return msg.message.template holds_alternative<T>();
-}
-template <typename T, typename... Opts>
-constexpr bool holds_alternative(BasicMessage<Opts...>&& msg) {
-  return std::move(msg).message.template holds_alternative<T>();
-}
-template <typename T, typename... Opts>
-constexpr decltype(auto) get(const BasicMessage<Opts...>& msg) {
-  return msg.message.template get<T>();
-}
-template <typename T, typename... Opts>
-constexpr decltype(auto) get(BasicMessage<Opts...>&& msg) {
-  return std::move(msg).message.template get<T>();
-}
-
-template <typename T, typename... Opts>
-constexpr bool holds_alternative(const sub_message<Opts...>& msg) {
-  return msg.template holds_alternative<T>();
-}
-template <typename T, typename... Opts>
-constexpr bool holds_alternative(sub_message<Opts...>&& msg) {
-  return std::move(msg).template holds_alternative<T>();
-}
-template <typename T, typename... Opts>
-constexpr decltype(auto) get(const sub_message<Opts...>& msg) {
-  return msg.template get<T>();
-}
-template <typename T, typename... Opts>
-constexpr decltype(auto) get(sub_message<Opts...>&& msg) {
-  return std::move(msg).template get<T>();
-}
-
-} // namespace wire

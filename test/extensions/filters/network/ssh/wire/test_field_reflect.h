@@ -430,3 +430,99 @@ struct detail::random_value_impl<UserAuthInfoPrompt> {
 };
 
 } // namespace wire::test
+
+namespace wire {
+template <typename T, typename... Opts>
+constexpr bool holds_alternative(const BasicMessage<Opts...>& msg) {
+  return msg.message.template holds_alternative<T>();
+}
+template <typename T, typename... Opts>
+constexpr bool holds_alternative(BasicMessage<Opts...>&& msg) {
+  return std::move(msg).message.template holds_alternative<T>();
+}
+template <typename T, typename... Opts>
+constexpr decltype(auto) get(const BasicMessage<Opts...>& msg) {
+  return msg.message.template get<T>();
+}
+template <typename T, typename... Opts>
+constexpr decltype(auto) get(BasicMessage<Opts...>&& msg) {
+  return std::move(msg).message.template get<T>();
+}
+
+template <typename T, typename... Opts>
+constexpr bool holds_alternative(const sub_message<Opts...>& msg) {
+  return msg.template holds_alternative<T>();
+}
+template <typename T, typename... Opts>
+constexpr bool holds_alternative(sub_message<Opts...>&& msg) {
+  return std::move(msg).template holds_alternative<T>();
+}
+template <typename T, typename... Opts>
+constexpr decltype(auto) get(const sub_message<Opts...>& msg) {
+  return msg.template get<T>();
+}
+template <typename T, typename... Opts>
+constexpr decltype(auto) get(sub_message<Opts...>&& msg) {
+  return std::move(msg).template get<T>();
+}
+} // namespace wire
+
+// NOLINTBEGIN(readability-identifier-naming)
+template <typename T>
+class WhenResolvedAsMatcher {
+public:
+  explicit WhenResolvedAsMatcher(const testing::Matcher<T>& matcher)
+      : matcher_(matcher) {}
+
+  void DescribeTo(::std::ostream* os) const {
+    *os << "when resolved as " << ::type_name<T>() << ",";
+    matcher_.DescribeTo(os);
+  }
+
+  void DescribeNegationTo(::std::ostream* os) const {
+    *os << "when resolved as " << ::type_name<T>() << ",";
+    matcher_.DescribeNegationTo(os);
+  }
+
+  template <typename Overloaded>
+  bool MatchAndExplain(Overloaded ov, testing::MatchResultListener* listener) const {
+    opt_ref<T> t = ov.template resolve<T>();
+    if (!t.has_value()) {
+      *listener << "which did not resolve";
+      return false;
+    }
+    return MatchPrintAndExplain(t.value().get(), this->matcher_, listener);
+  }
+
+protected:
+  const testing::Matcher<T> matcher_;
+};
+
+template <typename T>
+inline testing::PolymorphicMatcher<WhenResolvedAsMatcher<T>>
+WhenResolvedAs(const testing::Matcher<T>& inner_matcher) {
+  return testing::MakePolymorphicMatcher(WhenResolvedAsMatcher<T>{inner_matcher});
+}
+
+#define MSG(msg_type, ...)                                                                                                               \
+  [&] {                                                                                                                                  \
+    using MsgType_ = msg_type;                                                                                                           \
+    if constexpr (wire::detail::is_overloaded_message<std::decay_t<MsgType_>>) {                                                         \
+      return VariantWith<wire::detail::overload_set_for_t<std::remove_const_t<MsgType_>>>(WhenResolvedAs<MsgType_>(AllOf(__VA_ARGS__))); \
+    } else {                                                                                                                             \
+      return VariantWith<MsgType_>(AllOf(__VA_ARGS__));                                                                                  \
+    }                                                                                                                                    \
+  }()
+
+#define SUB_MSG(submsg_type, ...) \
+  VariantWith<submsg_type>(AllOf(__VA_ARGS__))
+
+// NOLINTEND(readability-identifier-naming)
+
+#define FIELD_EQ(name, ...) FIELD_EQ_IMPL_(name, (__VA_ARGS__))
+
+#define FIELD_EQ_IMPL_(name, ...) \
+  Field(#name, &MsgType_::name, Eq(__VA_ARGS__))
+
+#define FIELD(name, ...) \
+  Field(#name, &MsgType_::name, (__VA_ARGS__))

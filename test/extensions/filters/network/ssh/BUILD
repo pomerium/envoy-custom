@@ -18,6 +18,7 @@ envoy_cc_mock(
     repository = "@envoy",
     deps = [
         "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "//test/extensions/filters/network/ssh/wire:wire_test_util",
         "@envoy//test/mocks/stats:stats_mocks",
         "@openssh_portable//:libssh",
     ],
@@ -37,6 +38,16 @@ envoy_cc_test_library(
     ],
 )
 
+envoy_cc_test_library(
+    name = "ssh_test_common_lib",
+    repository = "@envoy",
+    deps = [
+        "//source/extensions/filters/network/ssh:pomerium_ssh",
+        "//test/extensions/filters/network/ssh/wire:wire_test_util",
+        "//test/test_common:test_common_lib",
+    ],
+)
+
 envoy_cc_test(
     name = "extension_ping_test",
     srcs = [
@@ -44,9 +55,8 @@ envoy_cc_test(
     ],
     repository = "@envoy",
     deps = [
+        ":ssh_test_common_lib",
         ":test_mocks",
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
-        "//test/test_common:test_common_lib",
     ],
 )
 
@@ -61,9 +71,8 @@ envoy_cc_test(
     repository = "@envoy",
     shard_count = 8,
     deps = [
+        ":ssh_test_common_lib",
         ":test_env_util_lib",
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
-        "//test/extensions/filters/network/ssh/wire:wire_test_util",
     ],
 )
 
@@ -74,9 +83,8 @@ envoy_cc_test(
     ],
     repository = "@envoy",
     deps = [
+        ":ssh_test_common_lib",
         ":test_mocks",
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
-        "//test/extensions/filters/network/ssh/wire:wire_test_util",
     ],
 )
 
@@ -90,8 +98,7 @@ envoy_cc_test(
     ],
     repository = "@envoy",
     deps = [
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
-        "//test/extensions/filters/network/ssh/wire:wire_test_util",
+        ":ssh_test_common_lib",
         "@envoy//test/test_common:environment_lib",
         "@openssh_portable//:libssh",
     ],
@@ -104,9 +111,8 @@ envoy_cc_test(
     ],
     repository = "@envoy",
     deps = [
+        ":ssh_test_common_lib",
         ":test_mocks",
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
-        "//test/test_common:test_common_lib",
     ],
 )
 
@@ -117,10 +123,8 @@ envoy_cc_test(
     ],
     repository = "@envoy",
     deps = [
+        ":ssh_test_common_lib",
         ":test_mocks",
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
-        "//test/extensions/filters/network/ssh/wire:wire_test_util",
-        "//test/test_common:test_common_lib",
         "@envoy//test/mocks/grpc:grpc_mocks",
     ],
 )
@@ -132,9 +136,7 @@ envoy_cc_test(
     ],
     repository = "@envoy",
     deps = [
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
-        "//test/extensions/filters/network/ssh/wire:wire_test_util",
-        "//test/test_common:test_common_lib",
+        ":ssh_test_common_lib",
     ],
 )
 
@@ -158,8 +160,7 @@ envoy_cc_test(
     ],
     repository = "@envoy",
     deps = [
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
-        "//test/extensions/filters/network/ssh/wire:wire_test_util",
+        ":ssh_test_common_lib",
         "@envoy//test/test_common:environment_lib",
         "@openssh_portable//:libssh",
     ],
@@ -172,8 +173,7 @@ envoy_cc_test(
     ],
     repository = "@envoy",
     deps = [
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
-        "//test/extensions/filters/network/ssh/wire:wire_test_util",
+        ":ssh_test_common_lib",
         "@envoy//test/test_common:environment_lib",
         "@openssh_portable//:libssh",
     ],
@@ -186,9 +186,7 @@ envoy_cc_test(
     ],
     repository = "@envoy",
     deps = [
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
-        "//test/extensions/filters/network/ssh/wire:wire_test_util",
-        "//test/test_common:test_common_lib",
+        ":ssh_test_common_lib",
     ],
 )
 
@@ -199,11 +197,8 @@ envoy_cc_test(
     ],
     repository = "@envoy",
     deps = [
+        ":ssh_test_common_lib",
         ":test_mocks",
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
-        "//source/extensions/filters/network/ssh/wire:wire_lib",
-        "//test/extensions/filters/network/ssh/wire:wire_test_util",
-        "//test/test_common:test_common_lib",
         "@envoy//test/mocks/event:event_mocks",
         "@envoy//test/mocks/grpc:grpc_mocks",
         "@envoy//test/test_common:utility_lib",
@@ -217,11 +212,8 @@ envoy_cc_test(
     ],
     repository = "@envoy",
     deps = [
+        ":ssh_test_common_lib",
         ":test_mocks",
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
-        "//source/extensions/filters/network/ssh/wire:wire_lib",
-        "//test/extensions/filters/network/ssh/wire:wire_test_util",
-        "//test/test_common:test_common_lib",
         "@envoy//test/mocks/event:event_mocks",
         "@envoy//test/mocks/grpc:grpc_mocks",
         "@envoy//test/mocks/server:factory_context_mocks",
@@ -236,11 +228,9 @@ envoy_cc_test(
     ],
     repository = "@envoy",
     deps = [
+        ":ssh_test_common_lib",
         ":test_env_util_lib",
         ":test_mocks",
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
-        "//test/extensions/filters/network/ssh/wire:wire_test_util",
-        "//test/test_common:test_common_lib",
         "@envoy//test/mocks/api:api_mocks",
         "@envoy//test/test_common:utility_lib",
     ],
@@ -253,10 +243,8 @@ envoy_cc_test(
     ],
     repository = "@envoy",
     deps = [
+        ":ssh_test_common_lib",
         ":test_mocks",
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
-        "//test/extensions/filters/network/ssh/wire:wire_test_util",
-        "//test/test_common:test_common_lib",
     ],
 )
 
@@ -268,10 +256,8 @@ envoy_cc_test(
     repository = "@envoy",
     shard_count = 16,
     deps = [
+        ":ssh_test_common_lib",
         ":test_mocks",
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
-        "//test/extensions/filters/network/ssh/wire:wire_test_util",
-        "//test/test_common:test_common_lib",
         "@envoy//test/mocks/buffer:buffer_mocks",
     ],
 )
@@ -284,9 +270,8 @@ envoy_cc_test(
     repository = "@envoy",
     shard_count = 16,
     deps = [
+        ":ssh_test_common_lib",
         ":test_mocks",
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
-        "//test/extensions/filters/network/ssh/wire:wire_test_util",
         "@envoy//test/extensions/filters/network/generic_proxy/mocks:codec_mocks",
     ],
 )
@@ -298,11 +283,9 @@ envoy_cc_test(
     ],
     repository = "@envoy",
     deps = [
+        ":ssh_test_common_lib",
         ":test_env_util_lib",
         ":test_mocks",
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
-        "//test/extensions/filters/network/ssh/wire:wire_test_util",
-        "//test/test_common:test_common_lib",
         "@envoy//test/extensions/filters/network/generic_proxy/mocks:codec_mocks",
         "@envoy//test/mocks/buffer:buffer_mocks",
         "@envoy//test/mocks/server:factory_context_mocks",
@@ -317,11 +300,9 @@ envoy_cc_test(
     repository = "@envoy",
     shard_count = 8,
     deps = [
+        ":ssh_test_common_lib",
         ":test_env_util_lib",
         ":test_mocks",
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
-        "//test/extensions/filters/network/ssh/wire:wire_test_util",
-        "//test/test_common:test_common_lib",
         "@envoy//test/extensions/filters/network/generic_proxy/mocks:codec_mocks",
         "@envoy//test/mocks/buffer:buffer_mocks",
         "@envoy//test/mocks/grpc:grpc_mocks",
@@ -338,11 +319,9 @@ envoy_cc_test(
     repository = "@envoy",
     shard_count = 2,
     deps = [
+        ":ssh_test_common_lib",
         ":test_env_util_lib",
         ":test_mocks",
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
-        "//test/extensions/filters/network/ssh/wire:wire_test_util",
-        "//test/test_common:test_common_lib",
         "@envoy//test/extensions/filters/network/generic_proxy/mocks:codec_mocks",
         "@envoy//test/mocks/buffer:buffer_mocks",
         "@envoy//test/mocks/network:connection_mocks",
@@ -357,10 +336,9 @@ envoy_cc_test(
     ],
     repository = "@envoy",
     deps = [
+        ":ssh_test_common_lib",
         ":test_env_util_lib",
         ":test_mocks",
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
-        "//test/test_common:test_common_lib",
         "@envoy//test/extensions/filters/network/generic_proxy/mocks:codec_mocks",
         "@envoy//test/mocks/server:factory_context_mocks",
     ],
@@ -373,9 +351,8 @@ envoy_cc_test(
     ],
     repository = "@envoy",
     deps = [
+        ":ssh_test_common_lib",
         ":test_mocks",
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
-        "//test/test_common:test_common_lib",
         "@envoy//test/mocks/server:factory_context_mocks",
         "@envoy//test/test_common:real_threads_test_helper_lib",
     ],
@@ -388,9 +365,8 @@ envoy_cc_test(
     ],
     repository = "@envoy",
     deps = [
+        ":ssh_test_common_lib",
         ":test_mocks",
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
-        "//test/test_common:test_common_lib",
         "@envoy//test/mocks/event:event_mocks",
     ],
 )
@@ -402,8 +378,7 @@ envoy_cc_test(
     ],
     repository = "@envoy",
     deps = [
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
-        "//test/test_common:test_common_lib",
+        ":ssh_test_common_lib",
     ],
 )
 
@@ -414,8 +389,7 @@ envoy_cc_test(
     ],
     repository = "@envoy",
     deps = [
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
-        "//test/test_common:test_common_lib",
+        ":ssh_test_common_lib",
     ],
 )
 
@@ -426,8 +400,7 @@ envoy_cc_test(
     ],
     repository = "@envoy",
     deps = [
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
-        "//test/test_common:test_common_lib",
+        ":ssh_test_common_lib",
         "@envoy//test/mocks/event:event_mocks",
     ],
 )
@@ -448,9 +421,7 @@ envoy_cc_test_library(
     ],
     repository = "@envoy",
     deps = [
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
-        "//test/extensions/filters/network/ssh/wire:wire_test_util",
-        "//test/test_common:test_common_lib",
+        ":ssh_test_common_lib",
         "@envoy//source/extensions/filters/http/set_filter_state:config",
         "@envoy//source/extensions/filters/network/generic_proxy:config",
         "@envoy//source/extensions/filters/network/generic_proxy/router:config",
@@ -491,8 +462,7 @@ envoy_cc_benchmark_binary(
     srcs = ["packet_cipher_bench_test.cc"],
     repository = "@envoy",
     deps = [
-        "//source/extensions/filters/network/ssh:pomerium_ssh",
-        "//test/test_common:test_common_lib",
+        ":ssh_test_common_lib",
         "@benchmark",
     ],
 )
