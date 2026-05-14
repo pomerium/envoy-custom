@@ -21,7 +21,7 @@ public:
     initialize();
 
     EXPECT_CALL(channel_recv_, Call(MSG(wire::ChannelDataMsg, _)));
-    ASSERT_TRUE(configureSshUpstream(SshFakeUpstreamHandlerOpts{
+    ASSERT_TRUE(listenForSshConnection(SshFakeUpstreamHandlerOpts{
       .on_channel_open_request = [this](wire::ChannelOpenMsg&) -> ChannelMsgHandlerFunc {
         return [&](wire::ChannelMessage&& msg, ChannelCallbacks& callbacks) -> absl::Status {
           channel_recv_.Call(auto(msg));
@@ -144,7 +144,7 @@ TEST_P(GracefulShutdownIntegrationTest, ServerDrainThenShutdown) {
   ASSERT_FALSE(drainComplete.WaitForNotificationWithTimeout(absl::FromChrono(TestUtility::DefaultTimeout)));
 }
 
-class WaitForChannelCloseAndDoNotReply : public Task<Tasks::Channel, Tasks::Channel> {
+class WaitForChannelCloseAndDoNotReply : public Task<WaitForChannelCloseAndDoNotReply, Tasks::Channel, Tasks::Channel> {
 public:
   void start(Tasks::Channel channel) override {
     channel_ = channel;

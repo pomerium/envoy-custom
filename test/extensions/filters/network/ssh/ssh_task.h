@@ -28,7 +28,7 @@ namespace test {
   [&](const auto&) { return MiddlewareResult::Continue; }
 
 class TaskCallbacks {
-  template <typename, typename>
+  template <typename, typename, typename>
   friend class Task;
   template <typename>
   friend class TaskSuccess;
@@ -39,7 +39,7 @@ public:
   virtual void sendMessage(wire::Message&&) PURE;
   // Starts a timer that will call taskFailure() after the timeout, unless taskSuccess() has been
   // called before the timer elapses.
-  virtual void setTimeout(std::chrono::milliseconds timeout, const std::string& name) PURE;
+  virtual void setTimeout(std::chrono::milliseconds timeout, std::optional<std::string> name = {}) PURE;
   // Starts a timer that will invoke the given callback after the timeout, unless taskSuccess() or
   // taskFailure() have been called before the timer elapses.
   virtual void setTimeout(std::chrono::milliseconds timeout, std::function<void()> cb) PURE;
@@ -123,7 +123,7 @@ public:
 
 class UntypedTask : public SshMessageMiddleware {
   friend class SshConnectionDriver;
-  template <typename, typename>
+  template <typename, typename, typename>
   friend class Task;
 
 public:
@@ -158,6 +158,14 @@ protected:
     channel_filter_ = c;
   }
 
+  void setName(const std::string& name) {
+    name_ = name;
+  }
+
+  std::string name() const {
+    return name_;
+  }
+
 private:
   void startInternalUntyped(std::any input) {
     startUntyped(std::move(input));
@@ -190,6 +198,7 @@ private:
     return res;
   }
 
+  std::string name_;
   std::optional<Tasks::Channel> channel_filter_;
 };
 
@@ -251,16 +260,21 @@ protected:
   }
 };
 
-template <typename Input = void, typename Output = void>
+template <typename CRTP, typename Input = void, typename Output = void>
 class Task : public virtual UntypedTask,
              public TaskStart<Input>,
              public TaskSuccess<Output> {
   friend class SshConnectionDriver;
+  friend CRTP;
 
 public:
   using input_type = Input;
   using output_type = Output;
-  Task() = default;
+
+private:
+  Task() {
+    setName(std::string(type_name<CRTP>()));
+  }
 };
 
 template <typename Input = void, typename Output = void>
@@ -268,7 +282,7 @@ using TaskPtr = std::unique_ptr<Task<Input, Output>>;
 
 namespace Tasks {
 
-class RequestUserAuthService : public Task<> {
+class RequestUserAuthService : public Task<RequestUserAuthService> {
 public:
   void start() override {
     callbacks_->sendMessage(wire::ServiceRequestMsg{
@@ -289,10 +303,10 @@ public:
   }
 };
 
-class WaitForUserAuthSuccess : public Task<> {
+class WaitForUserAuthSuccess : public Task<WaitForUserAuthSuccess> {
 public:
   void start() override {
-    callbacks_->setTimeout(default_timeout_, "WaitForUserAuthSuccess");
+    callbacks_->setTimeout(default_timeout_);
   };
 
   MiddlewareResult onMessageReceived(wire::Message& msg) override {
@@ -314,30 +328,30 @@ public:
 };
 
 template <typename T>
-class WaitForGlobalRequestSuccess : public Task<> {
+class WaitForGlobalRequestSuccess : public Task<WaitForGlobalRequestSuccess<T>> {
 public:
   void start() override {
-    callbacks_->setTimeout(default_timeout_, fmt::format("WaitForGlobalRequestSuccess({})", type_name<T>()));
+    this->callbacks_->setTimeout(this->default_timeout_, fmt::format("WaitForGlobalRequestSuccess({})", type_name<T>()));
   }
   MiddlewareResult onMessageReceived(wire::Message& msg) override {
     return msg.visit(
       [&](wire::GlobalRequestSuccessMsg& msg) {
         if (msg.resolve<T>().ok()) {
-          taskSuccess();
+          this->taskSuccess();
           return Break;
         }
-        taskFailure(absl::InternalError("received unexpected global request success response"));
+        this->taskFailure(absl::InternalError("received unexpected global request success response"));
         return Break;
       },
       [&](const wire::GlobalRequestFailureMsg& msg) {
-        taskFailure(absl::InternalError(fmt::format("request failed: {}", msg)));
+        this->taskFailure(absl::InternalError(fmt::format("request failed: {}", msg)));
         return Break;
       },
       DEFAULT_CONTINUE);
   };
 };
 
-class AcceptReversePortForward : public Task<void, Channel> {
+class AcceptReversePortForward : public Task<AcceptReversePortForward, void, Channel> {
 public:
   AcceptReversePortForward(const std::string& address_connected, uint32_t port_connected,
                            uint32_t local_channel_id)
@@ -396,7 +410,7 @@ public:
   const uint32_t local_channel_id_;
 };
 
-class RejectReversePortForward : public Task<> {
+class RejectReversePortForward : public Task<RejectReversePortForward> {
 public:
   RejectReversePortForward(const std::string& address_connected, uint32_t port_connected)
       : address_connected_(address_connected),
@@ -431,7 +445,7 @@ public:
   const uint32_t port_connected_;
 };
 
-class OpenSessionChannel : public Task<void, Channel> {
+class OpenSessionChannel : public Task<OpenSessionChannel, void, Channel> {
 public:
   OpenSessionChannel(uint32_t local_channel_id)
       : local_channel_id_(local_channel_id) {}
@@ -439,7 +453,7 @@ public:
     setChannelFilter(Tasks::Channel{
       .local_id = local_channel_id_,
     });
-    callbacks_->setTimeout(default_timeout_, "OpenSessionChannel");
+    callbacks_->setTimeout(default_timeout_);
     callbacks_->sendMessage(wire::ChannelOpenMsg{
       .sender_channel = local_channel_id_,
       .initial_window_size = wire::ChannelWindowSize,
@@ -473,7 +487,7 @@ public:
   uint32_t local_channel_id_;
 };
 
-class WaitForChannelData : public Task<Channel, Channel> {
+class WaitForChannelData : public Task<WaitForChannelData, Channel, Channel> {
 public:
   explicit WaitForChannelData(const std::string& expected_data)
       : expected_data_(expected_data) {}
@@ -512,7 +526,7 @@ public:
 };
 
 template <wire::ChannelMsg T>
-class WaitForChannelMsg : public Task<Channel, T> {
+class WaitForChannelMsg : public Task<WaitForChannelMsg<T>, Channel, T> {
 public:
   WaitForChannelMsg(uint32_t count = 1)
       : count_(count) {}
@@ -536,7 +550,7 @@ public:
   uint32_t count_{};
 };
 
-class SendChannelData : public Task<Channel, Channel> {
+class SendChannelData : public Task<SendChannelData, Channel, Channel> {
 public:
   explicit SendChannelData(const bytes& data)
       : data_(data) {}
@@ -554,7 +568,7 @@ public:
   bytes data_;
 };
 
-class SendWindowAdjust : public Task<Channel, Channel> {
+class SendWindowAdjust : public Task<SendWindowAdjust, Channel, Channel> {
 public:
   explicit SendWindowAdjust(uint32_t bytes_to_add)
       : bytes_to_add_(bytes_to_add) {}
@@ -570,7 +584,7 @@ public:
   uint32_t bytes_to_add_;
 };
 
-class SendChannelEOF : public Task<Channel, Channel> {
+class SendChannelEOF : public Task<SendChannelEOF, Channel, Channel> {
 public:
   void start(Channel channel) override {
     callbacks_->sendMessage(wire::ChannelEOFMsg{
@@ -589,14 +603,14 @@ enum class ExpectEOF {
 
 enum class SendEOF : bool {};
 
-class WaitForChannelCloseByPeer : public Task<Channel> {
+class WaitForChannelCloseByPeer : public Task<WaitForChannelCloseByPeer, Channel> {
 public:
   explicit WaitForChannelCloseByPeer(ExpectEOF expect_eof = ExpectEOF::Optional)
       : eof_requirement_(expect_eof) {}
   void start(Channel channel) override {
     channel_ = channel;
     setChannelFilter(channel);
-    callbacks_->setTimeout(default_timeout_, "WaitForChannelCloseByPeer");
+    callbacks_->setTimeout(default_timeout_);
   }
   MiddlewareResult onMessageReceived(wire::Message& msg) override {
     return msg.visit(
@@ -628,12 +642,12 @@ public:
   const ExpectEOF eof_requirement_;
 };
 
-class WaitForChannelEOF : public Task<Channel, Channel> {
+class WaitForChannelEOF : public Task<WaitForChannelEOF, Channel, Channel> {
 public:
   void start(Channel channel) override {
     channel_ = channel;
     setChannelFilter(channel);
-    callbacks_->setTimeout(default_timeout_, "WaitForChannelEOF");
+    callbacks_->setTimeout(default_timeout_);
   }
   MiddlewareResult onMessageReceived(wire::Message& msg) override {
     return msg.visit(
@@ -650,7 +664,7 @@ public:
   Channel channel_{};
 };
 
-class SendChannelCloseAndWait : public Task<Channel> {
+class SendChannelCloseAndWait : public Task<SendChannelCloseAndWait, Channel> {
 public:
   SendChannelCloseAndWait(SendEOF send_eof = SendEOF(false), ExpectEOF expect_eof = ExpectEOF::Optional)
       : send_eof_(send_eof),
@@ -666,7 +680,7 @@ public:
     callbacks_->sendMessage(wire::ChannelCloseMsg{
       .recipient_channel = channel_.remote_id,
     });
-    callbacks_->setTimeout(default_timeout_, "SendChannelCloseAndWait");
+    callbacks_->setTimeout(default_timeout_);
   }
   MiddlewareResult onMessageReceived(wire::Message& msg) override {
     return msg.visit(
@@ -691,7 +705,7 @@ public:
   const ExpectEOF eof_requirement_;
 };
 
-class WaitForDisconnectWithError : public Task<> {
+class WaitForDisconnectWithError : public Task<WaitForDisconnectWithError> {
 public:
   WaitForDisconnectWithError(const std::string& message)
       : message_(message) {}
