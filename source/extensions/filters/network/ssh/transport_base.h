@@ -140,7 +140,8 @@ public:
         terminate(statusf("failed to decode packet: {}", packet_len.status()));
         return;
       }
-      ENVOY_LOG(trace, "received message: size: {}, type: {}", *packet_len, msg.msg_type());
+      ENVOY_LOG(trace, "ssh [{}]: stream {}: received message: size: {}, type: {}",
+                codec_traits<Codec>::name, streamId(), *packet_len, msg.msg_type());
       if (auto err = onMessageDecoded(std::move(msg)); !err.ok()) {
         terminate(err);
         return;

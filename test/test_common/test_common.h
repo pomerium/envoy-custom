@@ -51,66 +51,6 @@ constexpr absl::Status to_status(S&& statusor) {
       << "CHECK_CALL failed: the expected statement was not reached"; \
   } while (false)
 
-// NOLINTBEGIN(readability-identifier-naming)
-template <typename T>
-class WhenResolvedAsMatcher {
-public:
-  explicit WhenResolvedAsMatcher(const testing::Matcher<T>& matcher)
-      : matcher_(matcher) {}
-
-  void DescribeTo(::std::ostream* os) const {
-    *os << "when resolved as " << ::type_name<T>() << ",";
-    matcher_.DescribeTo(os);
-  }
-
-  void DescribeNegationTo(::std::ostream* os) const {
-    *os << "when resolved as " << ::type_name<T>() << ",";
-    matcher_.DescribeNegationTo(os);
-  }
-
-  template <typename Overloaded>
-  bool MatchAndExplain(Overloaded ov, testing::MatchResultListener* listener) const {
-    opt_ref<T> t = ov.template resolve<T>();
-    if (!t.has_value()) {
-      *listener << "which did not resolve";
-      return false;
-    }
-    return MatchPrintAndExplain(t.value().get(), this->matcher_, listener);
-  }
-
-protected:
-  const testing::Matcher<T> matcher_;
-};
-
-template <typename T>
-inline testing::PolymorphicMatcher<WhenResolvedAsMatcher<T>>
-WhenResolvedAs(const testing::Matcher<T>& inner_matcher) {
-  return testing::MakePolymorphicMatcher(WhenResolvedAsMatcher<T>{inner_matcher});
-}
-
-#define MSG(msg_type, ...)                                                                                                               \
-  [&] {                                                                                                                                  \
-    using MsgType_ = msg_type;                                                                                                           \
-    if constexpr (wire::detail::is_overloaded_message<std::decay_t<MsgType_>>) {                                                         \
-      return VariantWith<wire::detail::overload_set_for_t<std::remove_const_t<MsgType_>>>(WhenResolvedAs<MsgType_>(AllOf(__VA_ARGS__))); \
-    } else {                                                                                                                             \
-      return VariantWith<MsgType_>(AllOf(__VA_ARGS__));                                                                                  \
-    }                                                                                                                                    \
-  }()
-
-#define SUB_MSG(submsg_type, ...) \
-  VariantWith<submsg_type>(AllOf(__VA_ARGS__))
-
-// NOLINTEND(readability-identifier-naming)
-
-#define FIELD_EQ(name, ...) FIELD_EQ_IMPL_(name, (__VA_ARGS__))
-
-#define FIELD_EQ_IMPL_(name, ...) \
-  Field(#name, &MsgType_::name, Eq(__VA_ARGS__))
-
-#define FIELD(name, ...) \
-  Field(#name, &MsgType_::name, (__VA_ARGS__))
-
 #define CONCATENATE_IMPL_(a, b) a##b
 #define CONCATENATE(a, b) CONCATENATE_IMPL_(a, b)
 #define IN_SEQUENCE ::testing::InSequence CONCATENATE(in_sequence_, __LINE__)

@@ -14,7 +14,13 @@ SshIntegrationTest::SshIntegrationTest(std::vector<std::string> ssh_routes, Netw
   config_helper_.addConfigModifier([this, localhost = localhost(), ssh_routes](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
     RELEASE_ASSERT(bootstrap.mutable_static_resources()->clusters_size() == 0, "");
     auto fakeMgmtCluster = ConfigHelper::buildStaticCluster("fake_mgmt", 0, localhost);
-    ConfigHelper::setHttp2(fakeMgmtCluster);
+    // NB: the management server must have a max stream count of 1 so that each stream gets its own
+    // unique connection. When waiting for a management server connection, waitForHttpConnection
+    // is called, followed by waitForNewStream. If streams are multiplexed and we need to wait for
+    // more than one management server connection, the first call to waitForHttpConnection will
+    // succeed but the second one will block forever (since the second stream is really multiplexed
+    // onto the first connection and there is no new connection to wait for).
+    ConfigHelper::setHttp2WithMaxConcurrentStreams(fakeMgmtCluster, 1);
     bootstrap.mutable_static_resources()->add_clusters()->CopyFrom(fakeMgmtCluster);
 
     // Upstream bug: BaseIntegrationTest::createEnvoy() does not assign ports in the correct order
@@ -45,31 +51,38 @@ SshIntegrationTest::SshIntegrationTest(std::vector<std::string> ssh_routes, Netw
     configureUpstreamTunnelCluster(tcpCluster);
     bootstrap.mutable_static_resources()->add_clusters()->CopyFrom(tcpCluster);
   });
-  mgmt_upstream_ = FakeUpstreamShimImpl{&addFakeUpstream(Http::CodecType::HTTP2, "mgmt_upstream")};
+  mgmt_upstream_ = std::make_unique<FakeUpstreamShimImpl>(&addFakeUpstream(Http::CodecType::HTTP2, "mgmt_upstream"));
   for (size_t i = 0; i < ssh_routes.size(); i++) {
-    ssh_upstreams_.emplace_back(&addFakeUpstream(Http::CodecType::HTTP1, "ssh_upstream_" + ssh_routes[i])); // codec type is unused here
+    ssh_upstreams_.push_back(std::make_unique<FakeUpstreamShimImpl>(&addFakeUpstream(Http::CodecType::HTTP1, "ssh_upstream_" + ssh_routes[i]))); // codec type is unused here
   }
-  http_upstream_1_ = FakeUpstreamShimImpl{&addFakeUpstream(Http::CodecType::HTTP1, "http_upstream_1")};
-  http_upstream_2_ = FakeUpstreamShimImpl{&addFakeUpstream(Http::CodecType::HTTP1, "http_upstream_2")};
-  tcp_upstream_ = FakeUpstreamShimImpl{&addFakeUpstream(Http::CodecType::HTTP1, "tcp_upstream")}; // codec type is unused here
+  http_upstream_1_ = std::make_unique<FakeUpstreamShimImpl>(&addFakeUpstream(Http::CodecType::HTTP1, "http_upstream_1"));
+  http_upstream_2_ = std::make_unique<FakeUpstreamShimImpl>(&addFakeUpstream(Http::CodecType::HTTP1, "http_upstream_2"));
+  tcp_upstream_ = std::make_unique<FakeUpstreamShimImpl>(&addFakeUpstream(Http::CodecType::HTTP1, "tcp_upstream")); // codec type is unused here
 }
 
 SshIntegrationTest::~SshIntegrationTest() = default;
 
 void SshIntegrationTest::cleanup() {
   for (auto& upstream : ssh_upstreams_) {
-    upstream.cleanup();
+    upstream->cleanup();
   }
 };
 
 void FakeUpstreamShimImpl::cleanup() {
-  if (handler_ != nullptr) {
-    absl::Notification done;
-    fake_upstream_->dispatcher()->post([handler = std::move(handler_), &done] mutable {
-      handler.reset();
-      done.Notify();
-    });
-    done.WaitForNotification();
+  absl::MutexLock lock(listeners_mu_);
+  for (auto& listener : listeners_) {
+    listener->mu.lock();
+    if (listener->handler != nullptr) {
+      absl::Notification done;
+      fake_upstream_->dispatcher()->post([handler = std::move(listener->handler), &done] mutable {
+        handler.reset();
+        done.Notify();
+      });
+      listener->mu.unlock();
+      done.WaitForNotification();
+    } else {
+      listener->mu.unlock();
+    }
   }
   fake_upstream_->cleanUp();
 }
@@ -83,12 +96,12 @@ std::shared_ptr<SshConnectionDriver> SshIntegrationTest::makeSshConnectionDriver
     makeClientConnection(lookupPort("ssh")),
     server_factory_context_,
     std::make_shared<pomerium::extensions::ssh::CodecConfig>(),
-    mgmt_upstream_);
+    *mgmt_upstream_);
 }
 
-AssertionResult SshIntegrationTest::configureSshUpstream(SshFakeUpstreamHandlerOpts&& opts, size_t upstream_index) {
+AssertionResult SshIntegrationTest::listenForSshConnection(SshFakeUpstreamHandlerOpts&& opts, size_t upstream_index) {
   ASSERT(upstream_index < ssh_upstreams_.size());
-  return ssh_upstreams_[upstream_index].configureSshUpstream(
+  return ssh_upstreams_[upstream_index]->listenForSshConnection(
     std::make_shared<SshFakeUpstreamHandlerOpts>(std::move(opts)), server_factory_context_);
 }
 
@@ -147,8 +160,8 @@ AssertionResult FakeUpstreamShimImpl::waitForHttpConnection(Envoy::Event::Dispat
   return ret;
 }
 
-AssertionResult FakeUpstreamShimImpl::configureSshUpstream(std::shared_ptr<SshFakeUpstreamHandlerOpts> opts,
-                                                           Server::Configuration::ServerFactoryContext& server_factory_context) {
+AssertionResult FakeUpstreamShimImpl::listenForSshConnection(std::shared_ptr<SshFakeUpstreamHandlerOpts> opts,
+                                                             Server::Configuration::ServerFactoryContext& server_factory_context) {
   // FakeUpstream isn't really built to do what we need here, which is to have it pre-configured
   // with callbacks that all run on its own thread. We don't want to drive it from the test thread,
   // because we are already driving the downstream connection from the test thread. The tests need
@@ -156,30 +169,41 @@ AssertionResult FakeUpstreamShimImpl::configureSshUpstream(std::shared_ptr<SshFa
   // sequence involves connecting to the upstream, which would otherwise need to be a separate
   // blocking operation on the test thread.
   return fake_upstream_->runOnDispatcherThreadAndWait([this, opts, ctx = &server_factory_context] {
-    ASSERT(timer_ == nullptr);
-    // XXX: this only handles one connection. If we need to support multiple upstream connections at
-    // the same time, this will need to be adjusted.
-    ASSERT(handler_ == nullptr);
     auto config = std::make_shared<pomerium::extensions::ssh::CodecConfig>();
     config->mutable_connection_service_options()
       ->mutable_channel_close_response_grace_period()
       ->set_seconds(1);
-    handler_ = std::make_unique<SshFakeUpstreamHandler>(
+    auto listener = std::make_unique<FakeUpstreamConnectionListenCtx>();
+    listener->mu.lock();
+    listener->handler = std::make_unique<SshFakeUpstreamHandler>(
       *ctx,
       config,
       opts);
-    timer_ = fake_upstream_->dispatcher()->createTimer([this] {
-      absl::ReleasableMutexLock lock(fake_upstream_->lock());
-      if (!fake_upstream_->hasNewConnections()) {
-        timer_->enableTimer(std::chrono::milliseconds(10));
+    listener->timer = fake_upstream_->dispatcher()->createTimer([this, listener = listener.get()] {
+      absl::MutexLock lock(listener->mu);
+      if (listener->handler == nullptr) {
+        // the handler was cleaned up already
         return;
       }
-      timer_ = nullptr;
+      absl::ReleasableMutexLock lock2(fake_upstream_->lock());
+      if (!fake_upstream_->hasNewConnections()) {
+        listener->timer->enableTimer(std::chrono::milliseconds(10));
+        return;
+      }
+      listener->timer = nullptr;
       auto& sc = fake_upstream_->consumeConnection();
-      lock.Release();
-      handler_->onNewConnection(sc.connection());
+      lock2.Release();
+      listener->handler->onNewConnection(sc.connection());
     });
-    timer_->enableTimer(std::chrono::milliseconds(10));
+    listener->mu.unlock();
+
+    listeners_mu_.lock();
+    listeners_.push_back(std::move(listener));
+    listeners_.back()->mu.lock();
+    listeners_.back()->timer->enableTimer(std::chrono::milliseconds(10));
+    listeners_.back()->mu.unlock();
+    listeners_mu_.unlock();
+
     return testing::AssertionSuccess();
   });
 }

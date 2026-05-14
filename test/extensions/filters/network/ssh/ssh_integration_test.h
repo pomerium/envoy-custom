@@ -114,16 +114,24 @@ public:
                                                  std::chrono::milliseconds timeout) override;
 
   [[nodiscard]]
-  testing::AssertionResult configureSshUpstream(std::shared_ptr<SshFakeUpstreamHandlerOpts> opts,
-                                                Server::Configuration::ServerFactoryContext& ctx) override;
+  testing::AssertionResult listenForSshConnection(std::shared_ptr<SshFakeUpstreamHandlerOpts> opts,
+                                                  Server::Configuration::ServerFactoryContext& ctx) override;
 
   void cleanup() override;
 
+  struct FakeUpstreamConnectionListenCtx {
+    absl::Mutex mu;
+    Envoy::Event::TimerPtr timer ABSL_GUARDED_BY(mu);
+    std::unique_ptr<SshFakeUpstreamHandler> handler ABSL_GUARDED_BY(mu);
+  };
+
 private:
   FakeUpstream* fake_upstream_{};
-  Envoy::Event::TimerPtr timer_;
-  std::unique_ptr<SshFakeUpstreamHandler> handler_;
+  absl::Mutex listeners_mu_;
+  std::vector<std::unique_ptr<FakeUpstreamConnectionListenCtx>> listeners_ ABSL_GUARDED_BY(listeners_mu_);
 };
+
+using FakeUpstreamShimImplPtr = std::unique_ptr<FakeUpstreamShimImpl>;
 
 class SshIntegrationTest : public SecretsProviderImpl,
                            public HttpIntegrationTest {
@@ -153,7 +161,7 @@ protected:
   std::shared_ptr<SshConnectionDriver> makeSshConnectionDriver();
   IntegrationTcpClientPtr makeTcpConnectionWithServerName(uint32_t port, const std::string& server_name);
 
-  AssertionResult configureSshUpstream(SshFakeUpstreamHandlerOpts&& opts, size_t upstream_index = 0);
+  AssertionResult listenForSshConnection(SshFakeUpstreamHandlerOpts&& opts, size_t upstream_index = 0);
   void configureUpstreamTunnelCluster(envoy::config::cluster::v3::Cluster& cluster);
 
   struct ClusterLoadOpts {
@@ -178,11 +186,11 @@ protected:
   int grpcUpstreamClusterIndex() const { return 1 + static_cast<int>(ssh_upstreams_.size()) + 1; }
   int tcpUpstreamClusterIndex() const { return 1 + static_cast<int>(ssh_upstreams_.size()) + 2; }
 
-  FakeUpstreamShimImpl mgmt_upstream_;
-  std::vector<FakeUpstreamShimImpl> ssh_upstreams_;
-  FakeUpstreamShimImpl http_upstream_1_;
-  FakeUpstreamShimImpl http_upstream_2_;
-  FakeUpstreamShimImpl tcp_upstream_;
+  FakeUpstreamShimImplPtr mgmt_upstream_;
+  std::vector<FakeUpstreamShimImplPtr> ssh_upstreams_;
+  FakeUpstreamShimImplPtr http_upstream_1_;
+  FakeUpstreamShimImplPtr http_upstream_2_;
+  FakeUpstreamShimImplPtr tcp_upstream_;
 
   // NB: filesystem EDS subscription doesn't work like api-based subscription: it always reports
   // all changed resources, and ignores the resource name filter (for some reason). So we need

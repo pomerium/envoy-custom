@@ -391,7 +391,7 @@ static constexpr auto stat_downstream_disconnect_before_init =
 static constexpr auto stat_upstream_init_canceled_by_downstream_disconnect =
   "cluster.tcp_cluster.ssh_reverse_tunnel.upstream_init_canceled_by_downstream_disconnect_total";
 
-class SendDataUntilRemoteWindowExhausted : public Task<Tasks::Channel, Tasks::Channel> {
+class SendDataUntilRemoteWindowExhausted : public Task<SendDataUntilRemoteWindowExhausted, Tasks::Channel, Tasks::Channel> {
 public:
   SendDataUntilRemoteWindowExhausted(Stats::Counter& local_window_exhausted_counter, size_t* total_bytes_written = nullptr)
       : local_window_exhausted_counter_(local_window_exhausted_counter),
@@ -402,7 +402,7 @@ public:
     remote_window_ = channel.initial_window_size;
     max_packet_size_ = channel.max_packet_size;
 
-    callbacks_->setTimeout(default_timeout_, "SendDataUntilRemoteWindowExhausted");
+    callbacks_->setTimeout(default_timeout_);
     callbacks_->loop(std::chrono::milliseconds(0), [this] {
       if (remote_window_ == 0) {
         if (local_window_exhausted_counter_.value() == 1) {
@@ -444,7 +444,7 @@ public:
   size_t* total_bytes_written_out_{};
 };
 
-class ReceiveDataUntilLocalWindowExhausted : public Task<Tasks::Channel, Tasks::Channel> {
+class ReceiveDataUntilLocalWindowExhausted : public Task<ReceiveDataUntilLocalWindowExhausted, Tasks::Channel, Tasks::Channel> {
 public:
   void start(Tasks::Channel channel) override {
     channel_ = channel;
@@ -731,10 +731,10 @@ TEST_P(StaticPortForwardTest, DownstreamDisconnectsDuringWriteBacklog) {
   ASSERT_TRUE(driver->wait(driver->createTask<Tasks::WaitForChannelCloseByPeer>().start(channel)));
 }
 
-class ReceiveReversePortForwardChannelOpen : public Task<void, wire::ChannelOpenMsg> {
+class ReceiveReversePortForwardChannelOpen : public Task<ReceiveReversePortForwardChannelOpen, void, wire::ChannelOpenMsg> {
 public:
   void start() override {
-    callbacks_->setTimeout(default_timeout_, "ReceiveReversePortForwardChannelOpen");
+    callbacks_->setTimeout(default_timeout_);
   }
 
   MiddlewareResult onMessageReceived(wire::Message& msg) override {
@@ -809,7 +809,7 @@ TEST_P(StaticPortForwardTest, UpstreamSendsLargeMessageThenDownstreamDisconnects
   ASSERT_TRUE(driver->wait(driver->createTask<Tasks::WaitForChannelCloseByPeer>().start(channel)));
 }
 
-class SendTooLargePacket : public Task<Tasks::Channel, Tasks::Channel> {
+class SendTooLargePacket : public Task<SendTooLargePacket, Tasks::Channel, Tasks::Channel> {
 public:
   void start(Tasks::Channel channel) override {
     callbacks_->sendMessage(wire::ChannelDataMsg{
@@ -1019,7 +1019,7 @@ TEST_P(StaticPortForwardTest, DownstreamClosesAbruptly2) {
   ASSERT_TRUE(driver->wait(driver->createTask<Tasks::WaitForChannelCloseByPeer>().start(channel)));
 }
 
-class RejectChannelOpenRequests : public Task<> {
+class RejectChannelOpenRequests : public Task<RejectChannelOpenRequests> {
 public:
   void start() override {}
 
@@ -1070,10 +1070,10 @@ TEST_P(StaticPortForwardTest, HostDrainClosesDownstreamConnections) {
   downstream->waitForDisconnect();
 }
 
-class ReceiveReversePortForwardButDoNotConfirm : public Task<void, Tasks::Channel> {
+class ReceiveReversePortForwardButDoNotConfirm : public Task<ReceiveReversePortForwardButDoNotConfirm, void, Tasks::Channel> {
 public:
   void start() override {
-    callbacks_->setTimeout(default_timeout_, fmt::format("ReceiveReversePortForwardButDoNotConfirm"));
+    callbacks_->setTimeout(default_timeout_);
   }
   MiddlewareResult onMessageReceived(wire::Message& msg) override {
     return msg.visit(
@@ -1258,7 +1258,7 @@ public:
   std::shared_ptr<SshConnectionDriver> driver;
 };
 
-class DoSocks5ServerHandshake : public Task<Tasks::Channel, Tasks::Channel> {
+class DoSocks5ServerHandshake : public Task<DoSocks5ServerHandshake, Tasks::Channel, Tasks::Channel> {
 public:
   DoSocks5ServerHandshake(Network::Address::IpVersion version) {
     if (version == Network::Address::IpVersion::v4) {
@@ -1276,7 +1276,7 @@ public:
   void start(Tasks::Channel channel) override {
     channel_ = channel;
     setChannelFilter(channel);
-    callbacks_->setTimeout(default_timeout_, "DoSocks5ServerHandshake");
+    callbacks_->setTimeout(default_timeout_);
     callbacks_->sendMessage(wire::ChannelDataMsg{
       .recipient_channel = channel.remote_id,
       .data = bytes{0x05, 0x00},
@@ -1371,12 +1371,12 @@ TEST_P(DynamicPortForwardTest, DownstreamCloseAfterOpen) {
   ASSERT_TRUE(driver->wait(th2));
 }
 
-class DoIncompleteSocks5ServerHandshake : public Task<Tasks::Channel, Tasks::Channel> {
+class DoIncompleteSocks5ServerHandshake : public Task<DoIncompleteSocks5ServerHandshake, Tasks::Channel, Tasks::Channel> {
 public:
   void start(Tasks::Channel channel) override {
     channel_ = channel;
     setChannelFilter(channel);
-    callbacks_->setTimeout(default_timeout_, "DoIncompleteSocks5ServerHandshake");
+    callbacks_->setTimeout(default_timeout_);
   }
 
   MiddlewareResult onMessageReceived(wire::Message& msg) override {
@@ -1627,7 +1627,7 @@ public:
   void start(Tasks::Channel channel) override {
     channel_ = channel;
     setChannelFilter(channel);
-    callbacks_->setTimeout(default_timeout_, "DoSocks5ServerHandshakeWithExtraData");
+    callbacks_->setTimeout(default_timeout_);
     callbacks_->sendMessage(wire::ChannelDataMsg{
       .recipient_channel = channel.remote_id,
       .data = bytes{0x05, 0x00},
