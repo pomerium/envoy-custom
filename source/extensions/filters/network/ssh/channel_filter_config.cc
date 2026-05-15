@@ -30,21 +30,21 @@ size_t ChannelFilterManager::numConfiguredFilters() const {
 }
 
 absl::Status ChannelFilterManager::configureFilters(const ExtensionConfigList& configs) {
-  std::unordered_map<std::string, ProtobufTypes::MessagePtr> updated;
+  std::vector<std::pair<std::string, ProtobufTypes::MessagePtr>> updatedConfigs;
   for (const auto& config : configs) {
     if (!factories_.contains(config.name())) {
       return absl::NotFoundError(fmt::format("channel filter not found: {}", config.name()));
     }
     auto& factory = factories_[config.name()];
-    ProtobufTypes::MessagePtr factoryConfig = factory->createEmptyConfigProto();
+    auto factoryConfig = factory->createEmptyConfigProto();
     auto stat = Envoy::Config::Utility::translateOpaqueConfig(
       config.typed_config(), context_->messageValidationContext().dynamicValidationVisitor(), *factoryConfig);
     if (!stat.ok()) {
       return absl::InvalidArgumentError(fmt::format("invalid channel filter config: {}", stat.message()));
     }
-    updated[config.name()] = std::move(factoryConfig);
+    updatedConfigs.emplace_back(config.name(), std::move(factoryConfig));
   }
-  filter_configs_.swap(updated);
+  filter_configs_.swap(updatedConfigs);
   return absl::OkStatus();
 }
 

@@ -47,7 +47,7 @@ public:
 private:
   Envoy::Server::Configuration::ServerFactoryContext* context_{};
   std::unordered_map<std::string, ChannelFilterFactoryPtr> factories_;
-  std::unordered_map<std::string, ProtobufTypes::MessagePtr> filter_configs_;
+  std::vector<std::pair<std::string, ProtobufTypes::MessagePtr>> filter_configs_;
 };
 
 using ChannelFilterManagerSharedPtr = std::shared_ptr<ChannelFilterManager>;

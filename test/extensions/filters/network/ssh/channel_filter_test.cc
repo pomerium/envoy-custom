@@ -303,5 +303,131 @@ TEST_F(ChannelFilterTest, ChannelFilterManager_FiltersCreated) {
   writeFilters[0]->onMessageForward(msg);
 }
 
+TEST_F(ChannelFilterTest, ChannelFilterManager_MultipleFiltersConfigurationOrder) {
+  std::vector<std::function<ProtobufTypes::MessagePtr()>> filterCfgTypes{
+    [] { return std::make_unique<Envoy::Protobuf::StringValue>(); },
+    [] { return std::make_unique<Envoy::Protobuf::Int32Value>(); },
+    [] { return std::make_unique<Envoy::Protobuf::UInt32Value>(); },
+    [] { return std::make_unique<Envoy::Protobuf::Int64Value>(); },
+    [] { return std::make_unique<Envoy::Protobuf::DoubleValue>(); },
+  };
+  std::vector<std::unique_ptr<testing::NiceMock<MockChannelFilterFactoryConfig>>> filterCfgs;
+  for (size_t i = 0; i < filterCfgTypes.size(); i++) {
+    auto cfg = std::make_unique<decltype(filterCfgs)::value_type::element_type>();
+    ON_CALL(*cfg, createEmptyConfigProto).WillByDefault([i, &filterCfgTypes] {
+      return filterCfgTypes[i]();
+    });
+    ON_CALL(*cfg, name)
+      .WillByDefault(Return(fmt::format("test_channel_filter_{}", i)));
+    filterCfgs.push_back(std::move(cfg));
+  }
+
+  // This sequences checks that filters are created in the same order they are listed in the
+  // configuration
+  testing::Sequence factorySeq;
+  testing::Sequence readFilterSeq;
+  testing::Sequence writeFilterSeq;
+
+  std::vector<std::unique_ptr<testing::StrictMock<MockChannelFilterFactory>>> tmpFactories;
+  std::vector<std::unique_ptr<testing::StrictMock<MockChannelFilter>>> tmpReadFilters;
+  std::vector<std::unique_ptr<testing::StrictMock<MockChannelFilter>>> tmpWriteFilters;
+  for (size_t i = 0; i < filterCfgTypes.size(); i++) {
+    auto factory = std::make_unique<testing::StrictMock<MockChannelFilterFactory>>();
+    EXPECT_CALL(*factory, createEmptyConfigProto)
+      .InSequence(factorySeq)
+      .WillOnce([] {
+        return std::make_unique<Envoy::Protobuf::StringValue>();
+      });
+
+    {
+      auto readFilter = std::make_unique<testing::StrictMock<MockChannelFilter>>();
+      EXPECT_CALL(*readFilter, onMessageForward(MSG(wire::ChannelDataMsg, _)))
+        .InSequence(readFilterSeq);
+      tmpReadFilters.push_back(std::move(readFilter));
+    }
+    {
+      auto writeFilter = std::make_unique<testing::StrictMock<MockChannelFilter>>();
+      EXPECT_CALL(*writeFilter, onMessageForward(MSG(wire::ChannelDataMsg, _)))
+        .InSequence(writeFilterSeq);
+      tmpWriteFilters.push_back(std::move(writeFilter));
+    }
+
+    EXPECT_CALL(*factory, createReadFilter)
+      .WillOnce([i, &tmpReadFilters](const google::protobuf::Message& config, const ChannelFilterCallbacks&) {
+        EXPECT_EQ("filter_config", dynamic_cast<const Envoy::Protobuf::StringValue&>(config).value());
+        return std::move(tmpReadFilters[i]);
+      });
+    EXPECT_CALL(*factory, createWriteFilter)
+      .WillOnce([i, &tmpWriteFilters](const google::protobuf::Message& config, const ChannelFilterCallbacks&) {
+        EXPECT_EQ("filter_config", dynamic_cast<const Envoy::Protobuf::StringValue&>(config).value());
+        return std::move(tmpWriteFilters[i]);
+      });
+
+    tmpFactories.push_back(std::move(factory));
+  }
+
+  // Also check that the filter factories are created in order. Calls in this sequence may be
+  // interleaved with calls in the above sequence, but the relative order of each will be enforced.
+  testing::Sequence factoryConfigSeq;
+  for (size_t i = 0; i < filterCfgTypes.size(); i++) {
+    EXPECT_CALL(*filterCfgs[i], createChannelFilterFactory)
+      .InSequence(factoryConfigSeq)
+      .WillOnce([i, &tmpFactories](const google::protobuf::Message&,
+                                   Envoy::Server::Configuration::ServerFactoryContext&) {
+        return std::move(tmpFactories[i]);
+      });
+  }
+
+  std::vector<std::unique_ptr<Registry::InjectFactory<ChannelFilterFactoryConfig>>> inject;
+  for (auto& filterCfg : filterCfgs) {
+    inject.push_back(std::make_unique<Registry::InjectFactory<ChannelFilterFactoryConfig>>(*filterCfg));
+  }
+
+  ExtensionConfigList enabledChannelFilters;
+  ExtensionConfigList filterConfigs;
+  for (size_t i = 0; i < filterCfgTypes.size(); i++) {
+    {
+      auto* cfg = enabledChannelFilters.Add();
+      cfg->set_name(fmt::format("test_channel_filter_{}", i));
+      auto msgPtr = filterCfgTypes[i]();
+      cfg->mutable_typed_config()->PackFrom(*msgPtr);
+    }
+
+    {
+      auto* cfg = filterConfigs.Add();
+      cfg->set_name(fmt::format("test_channel_filter_{}", i));
+      // filter type is always string here, these can have duplicate types
+      Envoy::Protobuf::StringValue v;
+      v.set_value("filter_config");
+      cfg->mutable_typed_config()->PackFrom(v);
+    }
+  }
+
+  ChannelFilterManager mgr(enabledChannelFilters, server_factory_context_);
+
+  testing::StrictMock<MockChannelFilterCallbacks> cb;
+  EXPECT_CALL(cb, channelId)
+    .Times(AnyNumber())
+    .WillRepeatedly(Return(1234));
+
+  EXPECT_OK(mgr.configureFilters(filterConfigs));
+  EXPECT_EQ(filterCfgTypes.size(), mgr.numConfiguredFilters());
+
+  auto readFilters = mgr.createReadFilters(cb);
+  auto writeFilters = mgr.createWriteFilters(cb);
+  EXPECT_EQ(filterCfgTypes.size(), readFilters.size());
+  EXPECT_EQ(filterCfgTypes.size(), writeFilters.size());
+
+  // order of filters returned by create{Read|Write}Filters should match the configuration order,
+  // so the order of onMessageForward calls should match readFilterSeq/writeFilterSeq
+  wire::Message msg{wire::ChannelDataMsg{}};
+  for (auto& rf : readFilters) {
+    rf->onMessageForward(msg);
+  }
+  for (auto& wf : writeFilters) {
+    wf->onMessageForward(msg);
+  }
+}
+
 } // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
