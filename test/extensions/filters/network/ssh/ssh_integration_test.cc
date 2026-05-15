@@ -63,9 +63,13 @@ SshIntegrationTest::SshIntegrationTest(std::vector<std::string> ssh_routes, Netw
 SshIntegrationTest::~SshIntegrationTest() = default;
 
 void SshIntegrationTest::cleanup() {
+  tcp_upstream_->cleanup();
+  http_upstream_2_->cleanup();
+  http_upstream_1_->cleanup();
   for (auto& upstream : ssh_upstreams_) {
     upstream->cleanup();
   }
+  mgmt_upstream_->cleanup();
 };
 
 void FakeUpstreamShimImpl::cleanup() {
@@ -420,7 +424,7 @@ IntegrationTcpClientPtr SshIntegrationTest::makeTcpConnectionWithServerName(uint
 
   uint32_t len = ntohl(server_name.size());
   std::string len_str(reinterpret_cast<char*>(&len), sizeof(len));
-  if (auto res = tcp_client->write(len_str + server_name); !res) {
+  if (auto res = tcp_client->write(len_str + server_name, false, true, TestUtility::DefaultTimeout, true); !res) {
     ADD_FAILURE() << "error writing server name: " << res.message();
   }
   return tcp_client;
