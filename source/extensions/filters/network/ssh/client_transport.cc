@@ -91,6 +91,7 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
     connection_dispatcher_ = callbacks_->connection()->dispatcher();
 
     ASSERT(filterState->hasDataWithName(ChannelIDManagerFilterStateKey));
+    ASSERT(filterState->hasDataWithName(ChannelFilterManagerFilterStateKey));
     ASSERT(filterState->hasDataWithName(AuthInfoFilterStateKey));
     ASSERT(filterState->hasDataWithName(RequestedServerName::key()));
     ASSERT(filterState->hasDataWithName(DownstreamSourceAddressFilterStateFactory::key()));
@@ -99,6 +100,8 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
       filterState->getDataSharedMutableGeneric(AuthInfoFilterStateKey));
     channel_id_manager_ = std::dynamic_pointer_cast<ChannelIDManager>(
       filterState->getDataSharedMutableGeneric(ChannelIDManagerFilterStateKey));
+    channel_filter_manager_ = std::dynamic_pointer_cast<ChannelFilterManager>(
+      filterState->getDataSharedMutableGeneric(ChannelFilterManagerFilterStateKey));
     if (auth_info_->channel_mode == ChannelMode::Handoff) {
       if (auth_info_->allow_response->has_upstream()) {
         ASSERT(auth_info_->handoff_info.handoff_in_progress);

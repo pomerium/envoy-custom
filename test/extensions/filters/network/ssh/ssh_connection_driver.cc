@@ -496,5 +496,9 @@ void SshConnectionDriver::CodecCallbacks::writeToConnection(Buffer::Instance& bu
   client_connection_.write(buffer, false);
 }
 
+Envoy::OptRef<Envoy::Network::Connection> SshConnectionDriver::CodecCallbacks::connection() {
+  return client_connection_;
+}
+
 } // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

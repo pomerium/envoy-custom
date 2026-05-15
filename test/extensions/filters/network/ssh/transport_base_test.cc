@@ -12,6 +12,18 @@
 #include "absl/synchronization/blocking_counter.h"
 #include "test/mocks/server/server_factory_context.h"
 
+namespace Envoy::Network {
+// Mock connection with no defaults configured. The regular mock connection interferes with the
+// time system, and some tests here only need to check if certain methods are called.
+class NoopMockConnection : public Connection {
+public:
+  NoopMockConnection() = default;
+  ~NoopMockConnection() = default;
+
+  DEFINE_MOCK_CONNECTION_MOCK_METHODS;
+};
+} // namespace Envoy::Network
+
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 namespace test {
 // NOLINTBEGIN(readability-identifier-naming)
@@ -22,7 +34,8 @@ public:
                     std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
                     const SecretsProvider& secrets_provider)
       : TransportBase<T>(context, config, secrets_provider),
-        dispatcher_(context.api().allocateDispatcher(std::string(codec_traits<T>::name))) {
+        dispatcher_(context.api().allocateDispatcher(std::string(codec_traits<T>::name))),
+        channel_filter_manager_({}, context) {
     SetVersion(fmt::format("SSH-2.0-{}", codec_traits<T>::name));
   }
 
@@ -60,12 +73,18 @@ public:
       .WillByDefault([this](absl::Status status) {
         return this->TransportBase<T>::terminate(std::move(status));
       });
+    ON_CALL(*this, connectionReadDisable(_))
+      .WillByDefault([this](bool disable) {
+        return this->TransportBase<T>::connectionReadDisable(disable);
+      });
     ON_CALL(*this, connectionDispatcher())
       .WillByDefault([this] -> Envoy::OptRef<Envoy::Event::Dispatcher> {
         return *dispatcher_;
       });
     ON_CALL(*this, channelIdManager())
       .WillByDefault(ReturnRef(channel_id_manager_));
+    ON_CALL(*this, channelFilterManager())
+      .WillByDefault(ReturnRef(channel_filter_manager_));
     ON_CALL(*this, updatePeerExtInfo(_))
       .WillByDefault([this](std::optional<wire::ExtInfoMsg> msg) {
         return this->TransportBase<T>::updatePeerExtInfo(std::move(msg));
@@ -105,6 +124,7 @@ public:
   MOCK_METHOD(absl::StatusOr<size_t>, sendMessageToConnection, (wire::Message&&), (override));           // delegates to the base class
   MOCK_METHOD(absl::StatusOr<size_t>, sendMessageDirect, (wire::Message&&), (override));                 // delegates to the base class
   MOCK_METHOD(void, terminate, (absl::Status), (override));                                              // delegates to the base class
+  MOCK_METHOD(void, connectionReadDisable, (bool), (override));                                          // delegates to the base class
 
   MOCK_METHOD(EncodingResult, encode, (const StreamFrame&, EncodingContext&));                         // pure virtual, not tested here
   MOCK_METHOD(ResponseHeaderFramePtr, respond, (Status, std::string_view, const RequestHeaderFrame&)); // pure virtual, not tested here
@@ -113,6 +133,7 @@ public:
   MOCK_METHOD(void, registerMessageHandlers, (SshMessageDispatcher&));                              // mocked
   MOCK_METHOD(Envoy::OptRef<Envoy::Event::Dispatcher>, connectionDispatcher, (), (const override)); // mocked
   MOCK_METHOD(ChannelIDManager&, channelIdManager, (), (override));                                 // mocked
+  MOCK_METHOD(ChannelFilterManager&, channelFilterManager, (), (override));                         // mocked, not tested here
 
   MOCK_METHOD(void, forward, (wire::Message&&, FrameTags));                   // pure virtual, not tested here
   MOCK_METHOD(absl::StatusOr<bytes>, signWithHostKey, (bytes_view), (const)); // pure virtual, not tested here
@@ -205,6 +226,7 @@ private:
   std::atomic_bool closed_{false};
   ::Envoy::Event::DispatcherPtr dispatcher_;
   ChannelIDManager channel_id_manager_;
+  ChannelFilterManager channel_filter_manager_;
 };
 
 inline absl::Duration defaultTimeout() {
@@ -1523,6 +1545,60 @@ TYPED_TEST_P(TransportBaseTest, TestUnimplementedMsg) {
   this->Join();
 }
 
+TYPED_TEST_P(TransportBaseTest, TestConnectionReadDisable) {
+  if (!this->StartAndWaitForInitialKeyExchange()) {
+    return;
+  }
+
+  testing::StrictMock<Envoy::Network::NoopMockConnection> mockServerConn;
+  testing::MockFunction<void()> mockServerCheckpoint;
+  testing::StrictMock<Envoy::Network::NoopMockConnection> mockClientConn;
+  testing::MockFunction<void()> mockClientCheckpoint;
+
+  {
+    IN_SEQUENCE;
+    EXPECT_CALL(mockServerConn, readDisable(true));
+    EXPECT_CALL(mockServerCheckpoint, Call);
+    EXPECT_CALL(mockServerConn, readDisable(false));
+  }
+  {
+    IN_SEQUENCE;
+    EXPECT_CALL(mockClientConn, readDisable(true));
+    EXPECT_CALL(mockClientCheckpoint, Call);
+    EXPECT_CALL(mockClientConn, readDisable(false));
+  }
+
+  ON_CALL(this->ServerCallbacks(), connection())
+    .WillByDefault([&] {
+      return makeOptRef(dynamic_cast<Envoy::Network::Connection&>(mockServerConn));
+    });
+  EXPECT_CALL(this->ServerCallbacks(), connection())
+    .Times(2);
+
+  ON_CALL(this->ClientCallbacks(), connection())
+    .WillByDefault([&] {
+      return makeOptRef(dynamic_cast<Envoy::Network::Connection&>(mockClientConn));
+    });
+  EXPECT_CALL(this->ClientCallbacks(), connection())
+    .Times(2);
+
+  this->Server().Post([&](auto& server) {
+    server.connectionReadDisable(true);
+    mockServerCheckpoint.Call();
+    server.connectionReadDisable(false);
+    this->Server().Exit();
+  });
+
+  this->Client().Post([&](auto& client) {
+    client.connectionReadDisable(true);
+    mockClientCheckpoint.Call();
+    client.connectionReadDisable(false);
+    this->Client().Exit();
+  });
+
+  this->Join();
+}
+
 REGISTER_TYPED_TEST_SUITE_P(TransportBaseTest,
                             TestHandshake,
                             TestHandshakeWithExtInfo,
@@ -1546,7 +1622,8 @@ REGISTER_TYPED_TEST_SUITE_P(TransportBaseTest,
                             TestErrorSendingQueuedMessagesAfterRekey,
                             TestRekeyTriggeredDuringQueueReplay,
                             TestErrorEncodingPacket,
-                            TestUnimplementedMsg);
+                            TestUnimplementedMsg,
+                            TestConnectionReadDisable);
 
 struct ClientInitiatesOptions {
   static constexpr bool client_initiates = true;

@@ -10,6 +10,7 @@
 #include "source/extensions/filters/network/ssh/service.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/transport_base.h"
+#include "source/extensions/filters/network/ssh/channel_filter_config.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -53,6 +54,11 @@ public:
     return *channel_id_manager_;
   }
 
+  ChannelFilterManager& channelFilterManager() override {
+    ASSERT(channel_filter_manager_ != nullptr);
+    return *channel_filter_manager_;
+  }
+
   void onHandoffComplete() override {
     // handoff is complete, send an empty message to signal the downstream codec
     forwardHeader(wire::IgnoreMsg{}, Sentinel);
@@ -75,6 +81,7 @@ private:
   Envoy::OptRef<Envoy::Event::Dispatcher> connection_dispatcher_;
   std::shared_ptr<ChannelIDManager> channel_id_manager_; // shared with downstream
   std::unique_ptr<PingExtensionHandler> ping_handler_;
+  ChannelFilterManagerSharedPtr channel_filter_manager_; // shared with downstream
 
   std::unique_ptr<Envoy::Event::DeferredDeletable> handoff_middleware_;
 

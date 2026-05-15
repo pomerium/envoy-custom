@@ -20,6 +20,10 @@ void SshFakeUpstreamHandler::CodecCallbacks::writeToConnection(Buffer::Instance&
   connection_.write(buffer, false);
 }
 
+Envoy::OptRef<Envoy::Network::Connection> SshFakeUpstreamHandler::CodecCallbacks::connection() {
+  return connection_;
+}
+
 Network::FilterStatus SshFakeUpstreamHandler::ReadFilter::onData(Buffer::Instance& data, bool end_stream) {
   parent_.decode(data, end_stream);
   return Network::FilterStatus::StopIteration; // this is the only read filter

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "source/extensions/filters/network/ssh/channel.h"
+#include "source/extensions/filters/network/ssh/channel_filter.h"
 #include "source/extensions/filters/network/ssh/stream_tracker.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/service.h"
@@ -45,18 +46,41 @@ public:
   void registerMessageHandlers(SshMessageDispatcher& dispatcher) override;
   void shutdown(absl::Status err);
 
+  class ReadDisableHandleImpl : public ReadDisableHandle {
+  public:
+    ReadDisableHandleImpl(Envoy::Event::Dispatcher& dispatcher, absl::AnyInvocable<void()> do_read_enable)
+        : dispatcher_(dispatcher),
+          do_read_enable_(std::move(do_read_enable)) {
+      ASSERT(dispatcher_.isThreadSafe());
+    }
+
+    ~ReadDisableHandleImpl() {
+      ASSERT(dispatcher_.isThreadSafe());
+      std::invoke(std::exchange(do_read_enable_, nullptr));
+    }
+
+  private:
+    Envoy::Event::Dispatcher& dispatcher_;
+    absl::AnyInvocable<void()> do_read_enable_;
+  };
+
   class ChannelCallbacksImpl final : public ChannelCallbacks,
+                                     public ChannelFilterCallbacks,
                                      public LinkedObject<ChannelCallbacksImpl> {
   public:
     ChannelCallbacksImpl(ConnectionService& parent, uint32_t channel_id, Peer local_peer);
     void sendMessageLocal(wire::Message&& msg) override;
     absl::Status sendMessageRemote(wire::Message&& msg) override;
     uint32_t channelId() const override { return channel_id_; }
+    std::optional<std::string_view> channelType() const override { return channel_type_; }
     Stats::Scope& scope() const override { return *scope_; }
     void setStatsProvider(ChannelStatsProvider& stats_provider) override { stats_provider_ = stats_provider; }
     Envoy::OptRef<ChannelStatsProvider> statsProvider() const { return stats_provider_; }
     void terminate(absl::Status err) override {
       parent_.transport_.terminate(err);
+    }
+    void setChannelFilters(std::vector<ChannelFilterPtr> filters) {
+      filters_ = std::move(filters);
     }
 
     [[nodiscard]]
@@ -69,16 +93,32 @@ public:
       interrupt_callbacks_ = std::make_unique<Envoy::Common::CallbackManager<void, absl::Status, TransportCallbacks&>>();
     }
 
+    // ChannelFilterCallbacks
+    bool interruptChannel(absl::Status err) override;
+    stream_id_t streamId() const override { return parent_.transport_.streamId(); }
+    const AuthInfo& authInfo() const override { return parent_.transport_.authInfo(); }
+    Envoy::Event::Dispatcher& connectionDispatcher() const override {
+      return *parent_.transport_.connectionDispatcher();
+    }
+    ReadDisableHandlePtr connectionReadDisable() override {
+      parent_.transport_.connectionReadDisable(true);
+      return std::make_unique<ReadDisableHandleImpl>(connectionDispatcher(), [this] {
+        parent_.transport_.connectionReadDisable(false);
+      });
+    }
+
   private:
     void cleanup() override;
     ConnectionService& parent_;
     ChannelIDManager& channel_id_mgr_;
     const uint32_t channel_id_;
+    std::optional<std::string> channel_type_;
     const Peer local_peer_;
     Stats::ScopeSharedPtr scope_;
     Envoy::Event::TimerPtr close_timer_;
     Envoy::OptRef<ChannelStatsProvider> stats_provider_;
     std::unique_ptr<Envoy::Common::CallbackManager<void, absl::Status, TransportCallbacks&>> interrupt_callbacks_;
+    std::vector<ChannelFilterPtr> filters_;
   };
 
 protected:

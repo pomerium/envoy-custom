@@ -1,4 +1,5 @@
 
+#include "source/extensions/filters/network/ssh/channel_filter_config.h"
 #include "source/extensions/filters/network/ssh/client_transport.h"
 #include "source/extensions/filters/network/ssh/filter_state_objects.h"
 #include "source/extensions/filters/network/ssh/id_manager.h"
@@ -103,9 +104,17 @@ public:
     // Inject a new channel id manager into the mock filter state. This would normally be created
     // by the server transport
     channel_id_manager_ = std::make_shared<ChannelIDManager>(1000, 100);
+    channel_filter_manager_ = std::make_shared<ChannelFilterManager>(ExtensionConfigList{}, server_factory_context_);
     mock_connection_.streamInfo().filterState()->setData(
       ChannelIDManagerFilterStateKey,
       channel_id_manager_,
+      StreamInfo::FilterState::StateType::Mutable,
+      StreamInfo::FilterState::LifeSpan::Connection,
+      StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
+    // same with channel filter manager
+    mock_connection_.streamInfo().filterState()->setData(
+      ChannelFilterManagerFilterStateKey,
+      channel_filter_manager_,
       StreamInfo::FilterState::StateType::Mutable,
       StreamInfo::FilterState::LifeSpan::Connection,
       StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
@@ -515,6 +524,7 @@ public:
   testing::NiceMock<Envoy::Network::MockServerConnection> mock_connection_;
   testing::StrictMock<MockClientCodecCallbacks> client_codec_callbacks_;
   std::shared_ptr<ChannelIDManager> channel_id_manager_;
+  ChannelFilterManagerSharedPtr channel_filter_manager_;
   SshClientTransport transport_;
 
 private:

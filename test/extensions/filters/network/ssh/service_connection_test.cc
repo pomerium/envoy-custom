@@ -6,6 +6,7 @@
 #include "envoy/common/exception.h"
 #include "source/common/types.h"
 #include "source/extensions/filters/network/ssh/channel.h"
+#include "source/extensions/filters/network/ssh/channel_filter_config.h"
 #include "source/extensions/filters/network/ssh/frame.h"
 #include "source/extensions/filters/network/ssh/id_manager.h"
 #include "source/extensions/filters/network/ssh/service_connection.h"
@@ -65,6 +66,8 @@ public:
       .WillRepeatedly([this] -> Envoy::OptRef<Envoy::Event::Dispatcher> {
         return mock_dispatcher_;
       });
+    EXPECT_CALL(transport_, channelFilterManager)
+      .WillRepeatedly(ReturnRef(channel_filter_manager_));
   }
 
   Peer LocalPeer() const {
@@ -77,6 +80,7 @@ public:
   NiceMock<Envoy::Event::MockDispatcher> mock_dispatcher_; // field order is important
   ChannelIDManager channel_id_manager_{100, 100};
   TestSecretsProvider secrets_provider_;
+  ChannelFilterManager channel_filter_manager_{ChannelFilterManager::unused_in_this_test{}};
   testing::StrictMock<MockTransportCallbacks> transport_;
   TestConnectionService service_;
 };

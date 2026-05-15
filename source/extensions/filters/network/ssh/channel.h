@@ -1,6 +1,5 @@
 #pragma once
 
-#include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #pragma clang unsafe_buffer_usage begin
 #include "envoy/stats/scope.h"
@@ -18,7 +17,24 @@ public:
   virtual void populateChannelStats(pomerium::extensions::ssh::ChannelStats&) const PURE;
 };
 
-class ChannelCallbacks {
+class ChannelReadOnlyCallbacks {
+public:
+  virtual ~ChannelReadOnlyCallbacks() = default;
+
+  // Returns the channel's internal ID.
+  virtual uint32_t channelId() const PURE;
+
+  // Returns the channel's type, if available. The type will be available if a ChannelOpen message
+  // was passed to sendMessageRemote or sendMessageLocal via Channel::readChannelOpen.
+  virtual std::optional<std::string_view> channelType() const PURE;
+
+  // Base stats scope
+  virtual Stats::Scope& scope() const PURE;
+};
+
+class TransportCallbacks;
+
+class ChannelCallbacks : public ChannelReadOnlyCallbacks {
 public:
   virtual ~ChannelCallbacks() = default;
 
@@ -31,12 +47,6 @@ public:
   // recipient_channel field does not need to be set. It will be set to the current internal
   // channel ID automatically.
   virtual absl::Status sendMessageRemote(wire::Message&& msg) PURE;
-
-  // Returns the channel's internal ID.
-  virtual uint32_t channelId() const PURE;
-
-  // Base stats scope
-  virtual Stats::Scope& scope() const PURE;
 
   // Sets the stats provider for this channel (usually the channel itself). If set, the stats
   // provider's populateChannelStats() method will be invoked at regular intervals to obtain stats
