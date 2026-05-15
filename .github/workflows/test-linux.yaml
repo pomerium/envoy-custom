@@ -24,7 +24,21 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       - name: install dependencies
-        run: sudo apt-get update && sudo apt-get -y install lcov zstd
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          missing=()
+          command -v lcov >/dev/null 2>&1 || missing+=(lcov)
+          command -v zstd >/dev/null 2>&1 || missing+=(zstd)
+
+          if ((${#missing[@]} == 0)); then
+            echo "lcov and zstd already installed"
+            exit 0
+          fi
+
+          sudo apt-get update
+          sudo apt-get -y install "${missing[@]}"
 
       - name: setup bazel
         uses: bazel-contrib/setup-bazel@e8776f58fb6a6e9055cbaf1b38c52ccc5247e9c4
@@ -85,4 +99,3 @@ jobs:
       - name: test
         id: tsan-test
         run: bazel test --config=buildbarn  --config=tsan --test_output=errors //test/...
-

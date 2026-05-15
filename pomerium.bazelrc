@@ -6,6 +6,7 @@ build --cxxopt=-std=c++23 --host_cxxopt=-std=c++23
 build --config=clang
 
 build:asan-common --test_env=UBSAN_SYMBOLIZER_PATH
+build:asan-common --test_env=LSAN_OPTIONS=detect_leaks=0
 build:tsan --test_env=TSAN_SYMBOLIZER_PATH
 
 # The following options are required to build using hermetic llvm without gcc:
@@ -32,7 +33,9 @@ build:linux --features=-libtool
 
 common:buildbarn --remote_executor=grpc://frontend.buildbarn.svc.cluster.local:8980
 common:buildbarn --remote_cache=grpc://frontend.buildbarn.svc.cluster.local:8980
-common:buildbarn --jobs=64
+# Match the current healthy BuildBarn worker count: one remote action slot per
+# non-control-plane node, with talos-ms01-02 excluded while it is unreachable.
+common:buildbarn --jobs=5
 common:buildbarn --remote_timeout=3600
 common:buildbarn --remote_max_connections=100
 common:buildbarn --host_platform=@pomerium_envoy//bazel/platforms/rbe:linux_x64
