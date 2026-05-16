@@ -98,6 +98,11 @@ public:
     return real_fake_->close(close_type, timeout);
   }
 
+  [[nodiscard]]
+  testing::AssertionResult waitForDisconnect(std::chrono::milliseconds timeout) override {
+    return real_fake_->waitForDisconnect(timeout);
+  }
+
   std::unique_ptr<FakeHttpConnection> real_fake_;
 };
 
@@ -120,9 +125,17 @@ public:
   void cleanup() override;
 
   struct FakeUpstreamConnectionListenCtx {
-    absl::Mutex mu;
-    Envoy::Event::TimerPtr timer ABSL_GUARDED_BY(mu);
-    std::unique_ptr<SshFakeUpstreamHandler> handler ABSL_GUARDED_BY(mu);
+    FakeUpstreamConnectionListenCtx(FakeUpstream& fake_upstream, std::unique_ptr<SshFakeUpstreamHandler> handler);
+
+    void startTimer();
+    void cleanup();
+
+  private:
+    void timerCb();
+
+    FakeUpstream& fake_upstream_;
+    Envoy::Event::TimerPtr timer_;
+    std::unique_ptr<SshFakeUpstreamHandler> handler_;
   };
 
 private:

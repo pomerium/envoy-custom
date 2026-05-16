@@ -24,6 +24,9 @@ public:
   BaseReverseTunnelIntegrationTest(Network::Address::IpVersion version)
       : SshIntegrationTest({"unused"}, version) {
   }
+  ~BaseReverseTunnelIntegrationTest() {
+    cleanup();
+  }
 };
 
 class HttpReverseTunnelIntegrationTest : public BaseReverseTunnelIntegrationTest,

@@ -123,12 +123,15 @@ void SshConnectionDriver::onEvent(Network::ConnectionEvent event) {
   }
   if (event == Network::ConnectionEvent::RemoteClose ||
       event == Network::ConnectionEvent::LocalClose) {
-    disconnected_ = true;
     // Disconnect the management server after the server transport is done, otherwise the server
     // transport will trigger an error
     if (mgmt_connection_ != nullptr) {
       EXPECT_TRUE(mgmt_connection_->close(Network::ConnectionCloseType::FlushWrite, default_timeout_));
+      EXPECT_TRUE(mgmt_connection_->waitForDisconnect(default_timeout_));
+      mgmt_connection_.reset();
+      mgmt_stream_.reset();
     }
+    disconnected_ = true;
   }
 }
 

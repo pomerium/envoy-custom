@@ -64,6 +64,7 @@ public:
 
 class SshFakeUpstreamHandler : public SecretsProviderImpl,
                                public FakeSshUpstreamCallbacks,
+                               public Envoy::Network::ConnectionCallbacks,
                                public Envoy::Event::DispatcherThreadDeletable,
                                public TransportBase<SshFakeUpstreamHandlerCodec> {
 public:
@@ -98,6 +99,7 @@ public:
 
   void onNewConnection(Network::Connection& connection) override {
     connection_ = makeOptRef(connection);
+    connection_->addConnectionCallbacks(*this);
     dispatcher_ = makeOptRef(connection.dispatcher());
     codec_callbacks_ = std::make_unique<CodecCallbacks>(connection);
     setCodecCallbacks(*codec_callbacks_);
@@ -106,6 +108,17 @@ public:
     read_filter_ = std::make_shared<ReadFilter>(*this);
     connection.addReadFilter(read_filter_);
   }
+
+  void onEvent(Envoy::Network::ConnectionEvent event) override {
+    if (event == Envoy::Network::ConnectionEvent::LocalClose ||
+        event == Envoy::Network::ConnectionEvent::RemoteClose) {
+      connection_->removeReadFilter(read_filter_);
+      // IMPORTANT: do not reset the dispatcher. It is needed during cleanup
+    }
+  }
+
+  void onAboveWriteBufferHighWatermark() override {}
+  void onBelowWriteBufferLowWatermark() override {}
 
 protected:
   class FakeUpstreamConnectionService : public ConnectionService {
@@ -128,6 +141,7 @@ protected:
   };
 
   Envoy::OptRef<Envoy::Event::Dispatcher> connectionDispatcher() const override {
+    ASSERT(dispatcher_.has_value());
     return dispatcher_;
   }
 

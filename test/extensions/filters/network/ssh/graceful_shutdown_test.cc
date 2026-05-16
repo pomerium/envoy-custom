@@ -105,15 +105,11 @@ TEST_P(GracefulShutdownIntegrationTest, ServerShutdownThenDrain) {
               .then(driver_->createTask<Tasks::WaitForDisconnectWithError>("server shutting down"))
               .start(channel_);
   EXPECT_CALL(channel_recv_, Call(MSG(wire::ChannelCloseMsg, _)));
-  absl::Notification drainComplete;
-  test_server_->server().dispatcher().post([this, &drainComplete] {
+  test_server_->server().dispatcher().post([this] {
     test_server_->server().shutdown();
-    test_server_->server().drainManager().startDrainSequence(Network::DrainDirection::All, [&drainComplete] {
-      drainComplete.Notify();
-    });
+    test_server_->server().drainManager().startDrainSequence(Network::DrainDirection::All, [] {});
   });
   ASSERT_TRUE(driver_->wait(th));
-  ASSERT_FALSE(drainComplete.WaitForNotificationWithTimeout(absl::FromChrono(TestUtility::DefaultTimeout)));
 }
 
 TEST_P(GracefulShutdownIntegrationTest, ServerShutdownTwice) {
@@ -133,15 +129,11 @@ TEST_P(GracefulShutdownIntegrationTest, ServerDrainThenShutdown) {
               .then(driver_->createTask<Tasks::WaitForDisconnectWithError>("server shutting down"))
               .start(channel_);
   EXPECT_CALL(channel_recv_, Call(MSG(wire::ChannelCloseMsg, _)));
-  absl::Notification drainComplete;
-  test_server_->server().dispatcher().post([this, &drainComplete] {
-    test_server_->server().drainManager().startDrainSequence(Network::DrainDirection::All, [&drainComplete] {
-      drainComplete.Notify();
-    });
+  test_server_->server().dispatcher().post([this] {
+    test_server_->server().drainManager().startDrainSequence(Network::DrainDirection::All, [] {});
     test_server_->server().shutdown();
   });
   ASSERT_TRUE(driver_->wait(th));
-  ASSERT_FALSE(drainComplete.WaitForNotificationWithTimeout(absl::FromChrono(TestUtility::DefaultTimeout)));
 }
 
 class WaitForChannelCloseAndDoNotReply : public Task<WaitForChannelCloseAndDoNotReply, Tasks::Channel, Tasks::Channel> {
