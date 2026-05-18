@@ -24,6 +24,9 @@ public:
   BaseReverseTunnelIntegrationTest(Network::Address::IpVersion version)
       : SshIntegrationTest({"unused"}, version) {
   }
+  ~BaseReverseTunnelIntegrationTest() {
+    cleanup();
+  }
 };
 
 class HttpReverseTunnelIntegrationTest : public BaseReverseTunnelIntegrationTest,
@@ -1423,6 +1426,8 @@ TEST_P(DynamicPortForwardTest, AcceptAfterDownstreamDisconnected) {
               .start();
   auto downstream = makeTcpConnectionWithServerName(lookupPort("tcp"), "tcp-cluster");
   ASSERT_TRUE(driver->wait(th));
+  auto th2 = driver->createTask<Tasks::WaitForChannelCloseByPeer>(Tasks::ExpectEOF::Yes)
+               .start(channel);
   downstream->close(Network::ConnectionCloseType::AbortReset);
   test_server_->waitForCounterEq(stat_downstream_disconnect_before_init, 1);
   driver->sendMessage(wire::ChannelOpenConfirmationMsg{
@@ -1433,6 +1438,7 @@ TEST_P(DynamicPortForwardTest, AcceptAfterDownstreamDisconnected) {
   });
   test_server_->waitForCounterEq(stat_upstream_init_canceled_by_downstream_disconnect, 1,
                                  TestUtility::DefaultTimeout, driver->connectionDispatcher().ptr());
+  ASSERT_TRUE(driver->wait(th2));
 }
 
 TEST_P(DynamicPortForwardTest, DownstreamClosesDuringUpstreamSocks5Handshake) {
