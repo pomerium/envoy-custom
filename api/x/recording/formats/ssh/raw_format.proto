@@ -50,6 +50,10 @@ message UploadConfig {
   google.protobuf.UInt32Value concurrency = 6;
 }
 
+// Configuration type for the session_recording channel filter factory. Note that the filters
+// themselves accept UpstreamTargetExtensionConfig.
+message ChannelFilterConfig {}
+
 // This extension is added to [pomerium.extensions.ssh.UpstreamTarget] to enable session recording
 // and configure related options.
 message UpstreamTargetExtensionConfig {

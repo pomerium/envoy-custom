@@ -175,7 +175,7 @@ func (x RecordingTrailer_DisconnectReason) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use RecordingTrailer_DisconnectReason.Descriptor instead.
 func (RecordingTrailer_DisconnectReason) EnumDescriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_rawDescGZIP(), []int{4, 0}
+	return file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_rawDescGZIP(), []int{5, 0}
 }
 
 type Config struct {
@@ -337,6 +337,44 @@ func (*UploadConfig_PipeIpc_) isUploadConfig_IpcMode() {}
 
 func (*UploadConfig_GrpcServiceIpc) isUploadConfig_IpcMode() {}
 
+// Configuration type for the session_recording channel filter factory. Note that the filters
+// themselves accept UpstreamTargetExtensionConfig.
+type ChannelFilterConfig struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ChannelFilterConfig) Reset() {
+	*x = ChannelFilterConfig{}
+	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChannelFilterConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChannelFilterConfig) ProtoMessage() {}
+
+func (x *ChannelFilterConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ChannelFilterConfig.ProtoReflect.Descriptor instead.
+func (*ChannelFilterConfig) Descriptor() ([]byte, []int) {
+	return file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_rawDescGZIP(), []int{2}
+}
+
 // This extension is added to [pomerium.extensions.ssh.UpstreamTarget] to enable session recording
 // and configure related options.
 type UpstreamTargetExtensionConfig struct {
@@ -354,7 +392,7 @@ type UpstreamTargetExtensionConfig struct {
 
 func (x *UpstreamTargetExtensionConfig) Reset() {
 	*x = UpstreamTargetExtensionConfig{}
-	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[2]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -366,7 +404,7 @@ func (x *UpstreamTargetExtensionConfig) String() string {
 func (*UpstreamTargetExtensionConfig) ProtoMessage() {}
 
 func (x *UpstreamTargetExtensionConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[2]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -379,7 +417,7 @@ func (x *UpstreamTargetExtensionConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpstreamTargetExtensionConfig.ProtoReflect.Descriptor instead.
 func (*UpstreamTargetExtensionConfig) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_rawDescGZIP(), []int{2}
+	return file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *UpstreamTargetExtensionConfig) GetBufferExhaustMode() BufferExhaustMode {
@@ -428,7 +466,7 @@ type RecordingMetadata struct {
 
 func (x *RecordingMetadata) Reset() {
 	*x = RecordingMetadata{}
-	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[3]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -440,7 +478,7 @@ func (x *RecordingMetadata) String() string {
 func (*RecordingMetadata) ProtoMessage() {}
 
 func (x *RecordingMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[3]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -453,7 +491,7 @@ func (x *RecordingMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecordingMetadata.ProtoReflect.Descriptor instead.
 func (*RecordingMetadata) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_rawDescGZIP(), []int{3}
+	return file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *RecordingMetadata) GetProtocolVersion() uint32 {
@@ -536,7 +574,7 @@ type RecordingTrailer struct {
 
 func (x *RecordingTrailer) Reset() {
 	*x = RecordingTrailer{}
-	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[4]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -548,7 +586,7 @@ func (x *RecordingTrailer) String() string {
 func (*RecordingTrailer) ProtoMessage() {}
 
 func (x *RecordingTrailer) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[4]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -561,7 +599,7 @@ func (x *RecordingTrailer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecordingTrailer.ProtoReflect.Descriptor instead.
 func (*RecordingTrailer) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_rawDescGZIP(), []int{4}
+	return file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *RecordingTrailer) GetEndTime() *timestamppb.Timestamp {
@@ -595,7 +633,7 @@ type Packet struct {
 
 func (x *Packet) Reset() {
 	*x = Packet{}
-	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[5]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -607,7 +645,7 @@ func (x *Packet) String() string {
 func (*Packet) ProtoMessage() {}
 
 func (x *Packet) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[5]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -620,7 +658,7 @@ func (x *Packet) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Packet.ProtoReflect.Descriptor instead.
 func (*Packet) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_rawDescGZIP(), []int{5}
+	return file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Packet) GetTimeDeltaMs() int64 {
@@ -689,7 +727,7 @@ type UploadConfig_PipeIpc struct {
 
 func (x *UploadConfig_PipeIpc) Reset() {
 	*x = UploadConfig_PipeIpc{}
-	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[6]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -701,7 +739,7 @@ func (x *UploadConfig_PipeIpc) String() string {
 func (*UploadConfig_PipeIpc) ProtoMessage() {}
 
 func (x *UploadConfig_PipeIpc) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[6]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -726,7 +764,7 @@ type UploadConfig_GrpcService struct {
 
 func (x *UploadConfig_GrpcService) Reset() {
 	*x = UploadConfig_GrpcService{}
-	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[7]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -738,7 +776,7 @@ func (x *UploadConfig_GrpcService) String() string {
 func (*UploadConfig_GrpcService) ProtoMessage() {}
 
 func (x *UploadConfig_GrpcService) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[7]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -778,7 +816,8 @@ const file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_form
 	"\vGrpcService\x12;\n" +
 	"\aservice\x18\x01 \x01(\v2!.envoy.config.core.v3.GrpcServiceR\aserviceB\n" +
 	"\n" +
-	"\bipc_mode\"\xfb\x01\n" +
+	"\bipc_mode\"\x15\n" +
+	"\x13ChannelFilterConfig\"\xfb\x01\n" +
 	"\x1dUpstreamTargetExtensionConfig\x12c\n" +
 	"\x13buffer_exhaust_mode\x18\x01 \x01(\x0e23.pomerium.x.recording.formats.ssh.BufferExhaustModeR\x11bufferExhaustMode\x12=\n" +
 	"\vbuffer_size\x18\x02 \x01(\v2\x1c.google.protobuf.UInt64ValueR\n" +
@@ -839,42 +878,43 @@ func file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_forma
 }
 
 var file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_goTypes = []any{
 	(BufferExhaustMode)(0),                 // 0: pomerium.x.recording.formats.ssh.BufferExhaustMode
 	(PacketDirection)(0),                   // 1: pomerium.x.recording.formats.ssh.PacketDirection
 	(RecordingTrailer_DisconnectReason)(0), // 2: pomerium.x.recording.formats.ssh.RecordingTrailer.DisconnectReason
 	(*Config)(nil),                         // 3: pomerium.x.recording.formats.ssh.Config
 	(*UploadConfig)(nil),                   // 4: pomerium.x.recording.formats.ssh.UploadConfig
-	(*UpstreamTargetExtensionConfig)(nil),  // 5: pomerium.x.recording.formats.ssh.UpstreamTargetExtensionConfig
-	(*RecordingMetadata)(nil),              // 6: pomerium.x.recording.formats.ssh.RecordingMetadata
-	(*RecordingTrailer)(nil),               // 7: pomerium.x.recording.formats.ssh.RecordingTrailer
-	(*Packet)(nil),                         // 8: pomerium.x.recording.formats.ssh.Packet
-	(*UploadConfig_PipeIpc)(nil),           // 9: pomerium.x.recording.formats.ssh.UploadConfig.PipeIpc
-	(*UploadConfig_GrpcService)(nil),       // 10: pomerium.x.recording.formats.ssh.UploadConfig.GrpcService
-	(*v3.TypedExtensionConfig)(nil),        // 11: envoy.config.core.v3.TypedExtensionConfig
-	(*wrapperspb.UInt32Value)(nil),         // 12: google.protobuf.UInt32Value
-	(*wrapperspb.UInt64Value)(nil),         // 13: google.protobuf.UInt64Value
-	(*timestamppb.Timestamp)(nil),          // 14: google.protobuf.Timestamp
-	(*ssh.UpstreamTarget)(nil),             // 15: pomerium.extensions.ssh.UpstreamTarget
-	(*ssh.SSHDownstreamPTYInfo)(nil),       // 16: pomerium.extensions.ssh.SSHDownstreamPTYInfo
-	(*v3.GrpcService)(nil),                 // 17: envoy.config.core.v3.GrpcService
+	(*ChannelFilterConfig)(nil),            // 5: pomerium.x.recording.formats.ssh.ChannelFilterConfig
+	(*UpstreamTargetExtensionConfig)(nil),  // 6: pomerium.x.recording.formats.ssh.UpstreamTargetExtensionConfig
+	(*RecordingMetadata)(nil),              // 7: pomerium.x.recording.formats.ssh.RecordingMetadata
+	(*RecordingTrailer)(nil),               // 8: pomerium.x.recording.formats.ssh.RecordingTrailer
+	(*Packet)(nil),                         // 9: pomerium.x.recording.formats.ssh.Packet
+	(*UploadConfig_PipeIpc)(nil),           // 10: pomerium.x.recording.formats.ssh.UploadConfig.PipeIpc
+	(*UploadConfig_GrpcService)(nil),       // 11: pomerium.x.recording.formats.ssh.UploadConfig.GrpcService
+	(*v3.TypedExtensionConfig)(nil),        // 12: envoy.config.core.v3.TypedExtensionConfig
+	(*wrapperspb.UInt32Value)(nil),         // 13: google.protobuf.UInt32Value
+	(*wrapperspb.UInt64Value)(nil),         // 14: google.protobuf.UInt64Value
+	(*timestamppb.Timestamp)(nil),          // 15: google.protobuf.Timestamp
+	(*ssh.UpstreamTarget)(nil),             // 16: pomerium.extensions.ssh.UpstreamTarget
+	(*ssh.SSHDownstreamPTYInfo)(nil),       // 17: pomerium.extensions.ssh.SSHDownstreamPTYInfo
+	(*v3.GrpcService)(nil),                 // 18: envoy.config.core.v3.GrpcService
 }
 var file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_depIdxs = []int32{
 	4,  // 0: pomerium.x.recording.formats.ssh.Config.upload_config:type_name -> pomerium.x.recording.formats.ssh.UploadConfig
-	9,  // 1: pomerium.x.recording.formats.ssh.UploadConfig.pipe_ipc:type_name -> pomerium.x.recording.formats.ssh.UploadConfig.PipeIpc
-	10, // 2: pomerium.x.recording.formats.ssh.UploadConfig.grpc_service_ipc:type_name -> pomerium.x.recording.formats.ssh.UploadConfig.GrpcService
-	11, // 3: pomerium.x.recording.formats.ssh.UploadConfig.compression:type_name -> envoy.config.core.v3.TypedExtensionConfig
-	12, // 4: pomerium.x.recording.formats.ssh.UploadConfig.concurrency:type_name -> google.protobuf.UInt32Value
+	10, // 1: pomerium.x.recording.formats.ssh.UploadConfig.pipe_ipc:type_name -> pomerium.x.recording.formats.ssh.UploadConfig.PipeIpc
+	11, // 2: pomerium.x.recording.formats.ssh.UploadConfig.grpc_service_ipc:type_name -> pomerium.x.recording.formats.ssh.UploadConfig.GrpcService
+	12, // 3: pomerium.x.recording.formats.ssh.UploadConfig.compression:type_name -> envoy.config.core.v3.TypedExtensionConfig
+	13, // 4: pomerium.x.recording.formats.ssh.UploadConfig.concurrency:type_name -> google.protobuf.UInt32Value
 	0,  // 5: pomerium.x.recording.formats.ssh.UpstreamTargetExtensionConfig.buffer_exhaust_mode:type_name -> pomerium.x.recording.formats.ssh.BufferExhaustMode
-	13, // 6: pomerium.x.recording.formats.ssh.UpstreamTargetExtensionConfig.buffer_size:type_name -> google.protobuf.UInt64Value
-	14, // 7: pomerium.x.recording.formats.ssh.RecordingMetadata.start_time:type_name -> google.protobuf.Timestamp
-	15, // 8: pomerium.x.recording.formats.ssh.RecordingMetadata.upstream:type_name -> pomerium.extensions.ssh.UpstreamTarget
-	16, // 9: pomerium.x.recording.formats.ssh.RecordingMetadata.pty_info:type_name -> pomerium.extensions.ssh.SSHDownstreamPTYInfo
-	14, // 10: pomerium.x.recording.formats.ssh.RecordingTrailer.end_time:type_name -> google.protobuf.Timestamp
+	14, // 6: pomerium.x.recording.formats.ssh.UpstreamTargetExtensionConfig.buffer_size:type_name -> google.protobuf.UInt64Value
+	15, // 7: pomerium.x.recording.formats.ssh.RecordingMetadata.start_time:type_name -> google.protobuf.Timestamp
+	16, // 8: pomerium.x.recording.formats.ssh.RecordingMetadata.upstream:type_name -> pomerium.extensions.ssh.UpstreamTarget
+	17, // 9: pomerium.x.recording.formats.ssh.RecordingMetadata.pty_info:type_name -> pomerium.extensions.ssh.SSHDownstreamPTYInfo
+	15, // 10: pomerium.x.recording.formats.ssh.RecordingTrailer.end_time:type_name -> google.protobuf.Timestamp
 	2,  // 11: pomerium.x.recording.formats.ssh.RecordingTrailer.disconnect_reason:type_name -> pomerium.x.recording.formats.ssh.RecordingTrailer.DisconnectReason
 	1,  // 12: pomerium.x.recording.formats.ssh.Packet.direction:type_name -> pomerium.x.recording.formats.ssh.PacketDirection
-	17, // 13: pomerium.x.recording.formats.ssh.UploadConfig.GrpcService.service:type_name -> envoy.config.core.v3.GrpcService
+	18, // 13: pomerium.x.recording.formats.ssh.UploadConfig.GrpcService.service:type_name -> envoy.config.core.v3.GrpcService
 	14, // [14:14] is the sub-list for method output_type
 	14, // [14:14] is the sub-list for method input_type
 	14, // [14:14] is the sub-list for extension type_name
@@ -893,7 +933,7 @@ func file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_forma
 		(*UploadConfig_PipeIpc_)(nil),
 		(*UploadConfig_GrpcServiceIpc)(nil),
 	}
-	file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[5].OneofWrappers = []any{
+	file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_msgTypes[6].OneofWrappers = []any{
 		(*Packet_ChannelData)(nil),
 		(*Packet_SshMessage)(nil),
 	}
@@ -903,7 +943,7 @@ func file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_forma
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_rawDesc), len(file_github_com_pomerium_envoy_custom_api_x_recording_formats_ssh_raw_format_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   8,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
