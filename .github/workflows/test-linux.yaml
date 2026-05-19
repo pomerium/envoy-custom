@@ -33,7 +33,7 @@ jobs:
 
       - name: test
         run: |
-          bazel coverage --config=buildbarn --test_output=errors //test/...
+          bazel coverage --config=buildbarn --test_output=errors --test_arg='--log-level debug' //test/...
           tar xf bazel-out/_coverage/_coverage_report.dat ./lcov
 
       - name: upload to coveralls
@@ -62,7 +62,7 @@ jobs:
 
       - name: test
         id: asan-test
-        run: bazel test --config=buildbarn  --config=asan --test_output=errors //test/...
+        run: bazel test --config=buildbarn --config=asan --test_output=errors --test_arg='--log-level debug' //test/...
 
   test-tsan:
     if: >-
@@ -84,5 +84,4 @@ jobs:
 
       - name: test
         id: tsan-test
-        run: bazel test --config=buildbarn  --config=tsan --test_output=errors //test/...
-
+        run: bazel test --config=buildbarn --config=tsan --test_output=errors --test_arg='--log-level debug' //test/...

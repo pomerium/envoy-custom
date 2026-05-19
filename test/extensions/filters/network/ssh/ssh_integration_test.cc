@@ -63,9 +63,13 @@ SshIntegrationTest::SshIntegrationTest(std::vector<std::string> ssh_routes, Netw
 SshIntegrationTest::~SshIntegrationTest() = default;
 
 void SshIntegrationTest::cleanup() {
+  tcp_upstream_->cleanup();
+  http_upstream_2_->cleanup();
+  http_upstream_1_->cleanup();
   for (auto& upstream : ssh_upstreams_) {
     upstream->cleanup();
   }
+  mgmt_upstream_->cleanup();
 };
 
 void FakeUpstreamShimImpl::cleanup() {
@@ -73,15 +77,12 @@ void FakeUpstreamShimImpl::cleanup() {
   for (auto& listener : listeners_) {
     absl::Notification done;
     fake_upstream_->dispatcher()->post([listener = listener.get(), &done] mutable {
-      listener->mu.lock();
-      listener->timer->disableTimer();
-      listener->handler.reset();
-      listener->mu.unlock();
-
+      listener->cleanup();
       done.Notify();
     });
     done.WaitForNotification();
   }
+  listeners_.clear();
   fake_upstream_->cleanUp();
 }
 
@@ -171,39 +172,56 @@ AssertionResult FakeUpstreamShimImpl::listenForSshConnection(std::shared_ptr<Ssh
     config->mutable_connection_service_options()
       ->mutable_channel_close_response_grace_period()
       ->set_seconds(1);
-    auto listener = std::make_unique<FakeUpstreamConnectionListenCtx>();
-    listener->mu.lock();
-    listener->handler = std::make_unique<SshFakeUpstreamHandler>(
-      *ctx,
-      config,
-      opts);
-    listener->timer = fake_upstream_->dispatcher()->createTimer([this, listener = listener.get()] {
-      absl::MutexLock lock(listener->mu);
-      if (listener->handler == nullptr) {
-        // the handler was cleaned up already
-        return;
-      }
-      absl::ReleasableMutexLock lock2(fake_upstream_->lock());
-      if (!fake_upstream_->hasNewConnections()) {
-        listener->timer->enableTimer(std::chrono::milliseconds(10));
-        return;
-      }
-      listener->timer->disableTimer();
-      auto& sc = fake_upstream_->consumeConnection();
-      lock2.Release();
-      listener->handler->onNewConnection(sc.connection());
-    });
-    listener->mu.unlock();
-
+    auto listener = std::make_unique<FakeUpstreamConnectionListenCtx>(
+      *fake_upstream_, std::make_unique<SshFakeUpstreamHandler>(*ctx, config, opts));
     listeners_mu_.lock();
     listeners_.push_back(std::move(listener));
-    listeners_.back()->mu.lock();
-    listeners_.back()->timer->enableTimer(std::chrono::milliseconds(10));
-    listeners_.back()->mu.unlock();
+    listeners_.back()->startTimer();
     listeners_mu_.unlock();
 
     return testing::AssertionSuccess();
   });
+}
+
+FakeUpstreamShimImpl::FakeUpstreamConnectionListenCtx::FakeUpstreamConnectionListenCtx(FakeUpstream& fake_upstream, std::unique_ptr<SshFakeUpstreamHandler> handler)
+    : fake_upstream_(fake_upstream) {
+  ASSERT(fake_upstream_.dispatcher()->isThreadSafe());
+  timer_ = fake_upstream_.dispatcher()->createTimer([this] {
+    timerCb();
+  });
+  handler_ = std::move(handler);
+}
+
+void FakeUpstreamShimImpl::FakeUpstreamConnectionListenCtx::startTimer() {
+  ASSERT(fake_upstream_.dispatcher()->isThreadSafe());
+  if (timer_ != nullptr) {
+    timer_->enableTimer(std::chrono::milliseconds(10));
+  }
+}
+
+void FakeUpstreamShimImpl::FakeUpstreamConnectionListenCtx::cleanup() {
+  ASSERT(fake_upstream_.dispatcher()->isThreadSafe());
+  timer_->disableTimer();
+  timer_ = nullptr;
+  handler_ = nullptr;
+}
+
+void FakeUpstreamShimImpl::FakeUpstreamConnectionListenCtx::timerCb() {
+  ASSERT(fake_upstream_.dispatcher()->isThreadSafe());
+  if (handler_ == nullptr) {
+    // the handler was cleaned up already
+    return;
+  }
+  absl::ReleasableMutexLock lock(fake_upstream_.lock());
+  if (!fake_upstream_.hasNewConnections()) {
+    timer_->enableTimer(std::chrono::milliseconds(10));
+    return;
+  }
+  timer_->disableTimer();
+  auto& sc = fake_upstream_.consumeConnection();
+  lock.Release();
+  auto& conn = sc.connection();
+  handler_->onNewConnection(conn);
 }
 
 std::string SshIntegrationTest::defaultConfig(const std::vector<std::string>& routes, Network::Address::IpVersion version) {
@@ -420,7 +438,7 @@ IntegrationTcpClientPtr SshIntegrationTest::makeTcpConnectionWithServerName(uint
 
   uint32_t len = ntohl(server_name.size());
   std::string len_str(reinterpret_cast<char*>(&len), sizeof(len));
-  if (auto res = tcp_client->write(len_str + server_name); !res) {
+  if (auto res = tcp_client->write(len_str + server_name, false, true, TestUtility::DefaultTimeout, true); !res) {
     ADD_FAILURE() << "error writing server name: " << res.message();
   }
   return tcp_client;

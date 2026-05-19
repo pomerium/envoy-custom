@@ -60,12 +60,14 @@ public:
 class FakeHttpConnectionShim {
 public:
   virtual ~FakeHttpConnectionShim() = default;
-  ABSL_MUST_USE_RESULT
+  [[nodiscard]]
   virtual testing::AssertionResult waitForNewStream(
     Envoy::Event::Dispatcher& client_dispatcher, std::unique_ptr<FakeStreamShim>& stream,
     std::chrono::milliseconds timeout) PURE;
-  ABSL_MUST_USE_RESULT
+  [[nodiscard]]
   virtual testing::AssertionResult close(Network::ConnectionCloseType close_type, std::chrono::milliseconds timeout) PURE;
+  [[nodiscard]]
+  virtual testing::AssertionResult waitForDisconnect(std::chrono::milliseconds timeout) PURE;
 };
 
 class FakeUpstreamShim {
