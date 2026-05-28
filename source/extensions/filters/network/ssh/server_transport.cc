@@ -393,6 +393,8 @@ void SshServerTransport::initUpstream(AuthInfoSharedPtr auth_info) {
     if (auto stat = channel_filter_manager_->configureFilters(
           auth_info_->allow_response->upstream().channel_filters());
         !stat.ok()) {
+      ENVOY_LOG(error, "ssh: stream {}: disconnecting due to configuration error: {}", stream_id_, statusToString(stat));
+      ENVOY_LOG(error, "note: all known channel filters: {}", channel_filter_manager_->allFilterNames());
       terminate(stat);
       return;
     }
@@ -427,6 +429,8 @@ void SshServerTransport::initUpstream(AuthInfoSharedPtr auth_info) {
     if (auto stat = channel_filter_manager_->configureFilters(
           auth_info_->allow_response->upstream().channel_filters());
         !stat.ok()) {
+      ENVOY_LOG(error, "ssh: stream {}: disconnecting due to configuration error: {}", stream_id_, statusToString(stat));
+      ENVOY_LOG(error, "note: all known channel filters: {}", channel_filter_manager_->allFilterNames());
       terminate(stat);
       return;
     }

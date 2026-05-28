@@ -36,6 +36,7 @@ public:
                        Envoy::Server::Configuration::ServerFactoryContext& context);
 
   size_t numConfiguredFilters() const;
+  std::vector<std::string> allFilterNames() const;
   absl::Status configureFilters(const ExtensionConfigList& configs);
 
   std::vector<ChannelFilterPtr> createReadFilters(ChannelFilterCallbacks& channel_callbacks);

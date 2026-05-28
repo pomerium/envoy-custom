@@ -777,6 +777,8 @@ TEST_F(ChannelFilterConfigTest, ConfigureChannelFilters) {
   ASSERT_OK(WriteMsg(std::move(authReq)));
 
   EXPECT_EQ(1, transport_.channelFilterManager().numConfiguredFilters());
+  EXPECT_EQ(std::vector<std::string>{{"test_channel_filter"}},
+            transport_.channelFilterManager().allFilterNames());
 }
 
 TEST_F(ChannelFilterConfigTest, ConfigureChannelFilters_InvalidChannelFilterConfig) {
@@ -809,6 +811,7 @@ TEST_F(ChannelFilterConfigTest, ConfigureChannelFilters_InvalidChannelFilterConf
   ASSERT_OK(WriteMsg(std::move(authReq)));
 
   EXPECT_EQ(0, transport_.channelFilterManager().numConfiguredFilters());
+  EXPECT_TRUE(transport_.channelFilterManager().allFilterNames().empty());
 }
 
 TEST_F(ChannelFilterConfigTest, ConfigureChannelFilters_ChannelFilterNotFound) {
@@ -841,10 +844,11 @@ TEST_F(ChannelFilterConfigTest, ConfigureChannelFilters_ChannelFilterNotFound) {
       manage_stream_callbacks_->onReceiveMessage(std::move(response));
     });
 
-  EXPECT_CALL(server_codec_callbacks_, onDecodingFailure(HasSubstr("channel filter not found: nonexistent")));
+  EXPECT_CALL(server_codec_callbacks_, onDecodingFailure(HasSubstr("authorization server requested an unknown channel filter: 'nonexistent'")));
   ASSERT_OK(WriteMsg(std::move(authReq)));
 
   EXPECT_EQ(0, transport_.channelFilterManager().numConfiguredFilters());
+  EXPECT_TRUE(transport_.channelFilterManager().allFilterNames().empty());
 }
 
 // NOLINTBEGIN(readability-identifier-naming)
@@ -1860,6 +1864,8 @@ TEST_F(HandoffTest, HandoffMode_ConfigureChannelFilters) {
   serve_channel_callbacks_[0]->onRemoteClose(Envoy::Grpc::Status::Canceled, "handoff");
 
   EXPECT_EQ(1, transport_.channelFilterManager().numConfiguredFilters());
+  EXPECT_EQ(std::vector<std::string>{{"test_channel_filter"}},
+            transport_.channelFilterManager().allFilterNames());
 }
 
 TEST_F(HandoffTest, HandoffMode_ConfigureChannelFiltersError) {
@@ -1894,6 +1900,7 @@ TEST_F(HandoffTest, HandoffMode_ConfigureChannelFiltersError) {
   ReceiveOnServeChannelStream(msg);
 
   EXPECT_EQ(0, transport_.channelFilterManager().numConfiguredFilters());
+  EXPECT_TRUE(transport_.channelFilterManager().allFilterNames().empty());
 }
 
 TEST_F(ServerTransportTest, SuccessfulUserAuth_MirrorMode) {

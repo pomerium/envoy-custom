@@ -20,6 +20,7 @@ public:
 TEST_F(ChannelFilterTest, ChannelFilterManager_NoFilters) {
   ChannelFilterManager mgr({}, server_factory_context_);
   EXPECT_EQ(0, mgr.numConfiguredFilters());
+  EXPECT_TRUE(mgr.allFilterNames().empty());
 
   testing::StrictMock<MockChannelFilterCallbacks> cb;
 
@@ -38,6 +39,7 @@ TEST_F(ChannelFilterTest, ChannelFilterManager_NoEnabledFilters) {
 
   ChannelFilterManager mgr({}, server_factory_context_);
   EXPECT_EQ(0, mgr.numConfiguredFilters());
+  EXPECT_TRUE(mgr.allFilterNames().empty());
 
   testing::StrictMock<MockChannelFilterCallbacks> cb;
 
@@ -125,9 +127,9 @@ TEST_F(ChannelFilterTest, ChannelFilterManager_ConfigureFilters_NotFound) {
     auto* cfg2 = filterConfigs.Add();
     cfg2->set_name("nonexistent");
   }
-  EXPECT_EQ(absl::NotFoundError("channel filter not found: nonexistent"),
-            mgr.configureFilters(filterConfigs));
+  EXPECT_THAT(mgr.configureFilters(filterConfigs).message(), HasSubstr("authorization server requested an unknown channel filter: 'nonexistent'"));
   EXPECT_EQ(0, mgr.numConfiguredFilters());
+  EXPECT_TRUE(mgr.allFilterNames().empty());
 }
 
 TEST_F(ChannelFilterTest, ChannelFilterManager_ConfigureFilters_InvalidConfig) {
@@ -170,6 +172,7 @@ TEST_F(ChannelFilterTest, ChannelFilterManager_ConfigureFilters_InvalidConfig) {
   EXPECT_THAT(mgr.configureFilters(filterConfigs).message(),
               HasSubstr("invalid channel filter config: Unable to unpack as google.protobuf.StringValue"));
   EXPECT_EQ(0, mgr.numConfiguredFilters());
+  EXPECT_TRUE(mgr.allFilterNames().empty());
 }
 
 TEST_F(ChannelFilterTest, ChannelFilterManager_NoChannelFiltersCreated) {
@@ -225,6 +228,7 @@ TEST_F(ChannelFilterTest, ChannelFilterManager_NoChannelFiltersCreated) {
 
   EXPECT_OK(mgr.configureFilters(filterConfigs));
   EXPECT_EQ(1, mgr.numConfiguredFilters());
+  EXPECT_EQ(std::vector<std::string>{{"test_channel_filter"}}, mgr.allFilterNames());
 
   EXPECT_EQ(0, mgr.createReadFilters(cb).size());
   EXPECT_EQ(0, mgr.createWriteFilters(cb).size());
@@ -292,6 +296,7 @@ TEST_F(ChannelFilterTest, ChannelFilterManager_FiltersCreated) {
 
   EXPECT_OK(mgr.configureFilters(filterConfigs));
   EXPECT_EQ(1, mgr.numConfiguredFilters());
+  EXPECT_EQ(std::vector<std::string>{{"test_channel_filter"}}, mgr.allFilterNames());
 
   auto readFilters = mgr.createReadFilters(cb);
   auto writeFilters = mgr.createWriteFilters(cb);
@@ -412,6 +417,11 @@ TEST_F(ChannelFilterTest, ChannelFilterManager_MultipleFiltersConfigurationOrder
 
   EXPECT_OK(mgr.configureFilters(filterConfigs));
   EXPECT_EQ(filterCfgTypes.size(), mgr.numConfiguredFilters());
+  std::vector<std::string> expectedFilterNames;
+  for (size_t i = 0; i < filterCfgTypes.size(); i++) {
+    expectedFilterNames.push_back(fmt::format("test_channel_filter_{}", i));
+  }
+  EXPECT_EQ(expectedFilterNames, mgr.allFilterNames());
 
   auto readFilters = mgr.createReadFilters(cb);
   auto writeFilters = mgr.createWriteFilters(cb);

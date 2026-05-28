@@ -1,4 +1,5 @@
 #include "source/extensions/filters/network/ssh/channel_filter_config.h"
+#include <ranges>
 
 #pragma clang unsafe_buffer_usage begin
 #include "source/common/config/utility.h"
@@ -29,18 +30,25 @@ size_t ChannelFilterManager::numConfiguredFilters() const {
   return filter_configs_.size();
 }
 
+std::vector<std::string> ChannelFilterManager::allFilterNames() const {
+  return std::views::keys(filter_configs_) | std::ranges::to<std::vector>();
+}
+
 absl::Status ChannelFilterManager::configureFilters(const ExtensionConfigList& configs) {
   std::vector<std::pair<std::string, ProtobufTypes::MessagePtr>> updatedConfigs;
   for (const auto& config : configs) {
     if (!factories_.contains(config.name())) {
-      return absl::NotFoundError(fmt::format("channel filter not found: {}", config.name()));
+      return absl::NotFoundError(fmt::format(
+        "authorization server requested an unknown channel filter: '{}' "
+        "(the filter may be provided by an extension which was not loaded or failed to load)",
+        config.name()));
     }
     auto& factory = factories_[config.name()];
     auto factoryConfig = factory->createEmptyConfigProto();
     auto stat = Envoy::Config::Utility::translateOpaqueConfig(
       config.typed_config(), context_->messageValidationContext().dynamicValidationVisitor(), *factoryConfig);
     if (!stat.ok()) {
-      return absl::InvalidArgumentError(fmt::format("invalid channel filter config: {}", stat.message()));
+      return absl::InternalError(fmt::format("invalid channel filter config: {}", stat.message()));
     }
     updatedConfigs.emplace_back(config.name(), std::move(factoryConfig));
   }
