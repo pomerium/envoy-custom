@@ -56,6 +56,7 @@ http_archive(
         "//patches/envoy:0009-luajit.patch",
         "//patches/envoy:0011-integration-tcp-client-write.patch",
         "//patches/envoy:0012-generic-proxy-trace-logs.patch",
+        "//patches/envoy:0013-fuzz-toolchain-path.patch",
         "//patches/envoy:fix-antlr4-cpp-runtime.patch",
         "//patches/envoy:fix-integration-test-server-exit.patch",
         "//patches/envoy:fix-missing-symbolizer-env.patch",
