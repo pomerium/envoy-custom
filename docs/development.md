@@ -225,6 +225,11 @@ Optionally you can also use the Bazel extension, but it has a lot of missing fea
 of vscode-bazel here: https://github.com/kralicky/vscode-bazel which has several extremely useful
 features that are mostly specific to this repo but make development much easier.
 
+If you use the Bazel extension, it is highly recommended to also use the
+[starpls](https://github.com/withered-magic/starpls) language server and the
+[buildifier](https://github.com/bazelbuild/buildtools/blob/main/buildifier/README.md) formatting
+tool, both of which need to be installed manually (see below for instructions)
+
 ## VSCode Workspace Setup
 
 1. Configure `.vscode/settings.json`
@@ -298,6 +303,36 @@ features that are mostly specific to this repo but make development much easier.
    ```
 
    Note that if you run `bazel clean`, you will need to re-run this command again.
+
+4. (Optional) Configure `starpls`
+
+   Download `starpls` from https://github.com/withered-magic/starpls/releases.
+
+   Add the following vscode settings (this is required; the language server is only used if
+   `bazel.lsp.command` is not empty):
+
+   ```jsonc
+   {
+     // Required (set the path to wherever you install it, or just "starpls" if it's in your PATH)
+     "bazel.lsp.command": "/path/to/starpls",
+     // Optional but recommended
+     "bazel.lsp.args": [
+       "server",
+       "--experimental_enable_label_completions",
+       "--experimental_infer_ctx_attributes",
+     ],
+   }
+   ```
+
+   It is easier to set these in the global vscode settings, but they can also be added to the
+   workspace `.vscode/settings.json` if you prefer.
+
+5. (Optional) Configure `buildifier`
+
+   Download `buildifier` from https://github.com/bazelbuild/buildtools/releases. `go install` for
+   this tool does not work at the time of writing.
+
+   Move the binary somewhere in your PATH. The Bazel vscode extension will pick it up automatically.
 
 ## User Bazelrc Options
 
