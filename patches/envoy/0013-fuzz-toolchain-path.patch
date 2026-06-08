@@ -1,0 +1,16 @@
+diff --git a/test/fuzz/BUILD b/test/fuzz/BUILD
+index da576dac59..c523e335c6 100644
+--- a/test/fuzz/BUILD
++++ b/test/fuzz/BUILD
+@@ -26,9 +26,9 @@ exports_files(["headers.dict"])
+ 
+ cc_library(
+     name = "fuzzed_data_provider",
+-    hdrs = ["@llvm_toolchain_llvm//:lib/clang/18/include/fuzzer/FuzzedDataProvider.h"],
++    hdrs = ["@llvm_toolchain_llvm//:lib/clang/22/include/fuzzer/FuzzedDataProvider.h"],
+     include_prefix = "",
+-    strip_include_prefix = "/lib/clang/18/include",
++    strip_include_prefix = "/lib/clang/22/include",
+     visibility = ["//visibility:public"],
+ )
+ 
