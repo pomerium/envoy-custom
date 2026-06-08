@@ -35,7 +35,7 @@ There is no AI-generated text in this document.
 
 - Trace Context Injector (`source/extensions/http/early_header_mutation/trace_context`)
 
-  This is a
+  This is an
   [HTTP early header mutation](https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/http/early_header_mutation)
   filter. It processes pomerium-specific trace headers to propagate otel trace sampling decisions
   and trace parent info across redirects during oauth authentication flows.
@@ -60,7 +60,11 @@ There is no AI-generated text in this document.
 
   This is a [bootstrap](https://www.envoyproxy.io/docs/envoy/latest/api-v3/bootstrap/bootstrap.html)
   filter. Bootstrap filters are initialized shortly after server startup and persist for the
-  lifetime of the server. This filter is responsible for loading dynamic extensions.
+  lifetime of the server. This filter is responsible for loading dynamic extensions at runtime which
+  may contain optional features that are not statically linked into the main envoy binary. This is
+  different than upstream Envoy's
+  [dynamic modules](https://www.envoyproxy.io/docs/envoy/v1.37.0/intro/arch_overview/advanced/dynamic_modules.html)
+  system. See [Dynamic Extensions](#8-dynamic-extensions) for more details.
 
 ## Directory Structure
 
@@ -128,10 +132,12 @@ The directories `api`, `source`, and `test` follow a similar pattern for each ex
 
 - `.bazelrc` , `envoy.bazelrc` , `pomerium.bazelrc`
 
+  Bazel docs: https://bazel.build/run/bazelrc
+
   These contain workspace-specific bazel default flags for different bazel subcommands.
 
-  The syntax and behavior of these files is peculiar and sparsely documented. Generally, putting a
-  flag in the bazelrc makes it act as if you had explicitly written that flag on the command line.
+  The syntax and behavior of these files can be unintuitive. Generally, putting a flag in the
+  bazelrc makes it act as if you had explicitly written that flag on the command line.
 
   Flags are prefixed by a selector which tells bazel what situations the flags should apply in. The
   syntax of the selector is `<command>[:<config-key>]` . The command name corresponds to the bazel
@@ -599,9 +605,9 @@ We support 3 platforms:
 
 - Linux amd64
 - Linux arm64
-- Macos arm64
+- macOS arm64
 
-Some features, such as dynamic extensions, are currently not supported on macos.
+Some features, such as dynamic extensions, are currently not supported on macOS.
 
 ## Build
 
@@ -632,7 +638,7 @@ There are several envoy targets that build the binary in different ways:
 ### Building Images
 
 The `//:envoy` and `//:envoy.static` targets also have corresponding image targets which build OCI
-images.
+images. These are used in CI to build and publish the envoy binaries.
 
 The targets below are used with `bazel run`, not `bazel build`.
 
@@ -646,6 +652,27 @@ This command will output the path of the shell script which performs the image u
 not run the script unless you use `bazel run`. It will also have built the oci-layout directory and
 compressed oci tarball for the image. These can be found at `bazel-bin/_envoy.image_img/` and
 `bazel-bin/_envoy.image_tar.tar.zst` respectively.
+
+#### Image Details
+
+The images are in standard OCI format and contain only a single file, `/envoy`. The images are not
+necessarily intended to be run directly, though this may be useful for debugging (only the static
+version of the image can be run directly, as it has no runtime dependencies). These images are
+downloaded during the Pomerium build process using the
+[get-envoy](https://github.com/pomerium/pomerium/blob/main/pkg/envoy/get-envoy/main.go) tool. The
+envoy binary extracted from the image with the matching go module version will be embedded into the
+pomerium binary during the build.
+
+The images are automatically tagged with the go module pseudo-version suffix string of the form
+`timestamp-commithash` where `timestamp` has the format `20060102150405` and `commithash` is the git
+commit hash truncated to the first 12 bytes. When the `get-envoy` tool is run, it reads the version
+of the `github.com/pomerium/envoy-custom` dependency in the current module and fetches the OCI image
+with the matching tag.
+
+The images are also tagged with the full git commit hash. If there are any git tags for the commit,
+it will also tag the images with those git tags in addition to the other tags.
+
+Some additional details can be found [here](https://github.com/pomerium/pomerium/pull/6183).
 
 ## Compilation Database
 
@@ -930,10 +957,10 @@ manager.
 Manifest definition:
 https://github.com/pomerium/toolchain-utils/blob/main/manifests/llvm-extras-linux.tpl
 
-### Macos Utils
+### macOS Utils
 
-This package contains llvm implementations of some commonly used macos build tools. Some of these
-tools are used as part of the macos cross compilation workflow.
+This package contains llvm implementations of some commonly used macOS build tools. Some of these
+tools are used as part of the macOS cross compilation workflow.
 
 Manifest definition:
 https://github.com/pomerium/toolchain-utils/blob/main/manifests/llvm-macos-utils-linux.tpl
@@ -950,7 +977,7 @@ image, but only a collection of libraries and header files in a standard filesys
 dockerfile used to build the Linux sysroot is here:
 https://github.com/pomerium/toolchain-utils/blob/main/sysroot.dockerfile
 
-The macos sysroot is different; it is extracted from an official macos sdk archive. The manifest for
+The macOS sysroot is different; it is extracted from an official macOS sdk archive. The manifest for
 this sysroot is here:
 https://github.com/pomerium/toolchain-utils/blob/main/manifests/sysroot-macos.txt
 
@@ -1077,6 +1104,8 @@ Trailing comment alignment is also enabled, which works similarly to gofmt.
 The dynamic extension system can be used to build and load optional out-of-tree extensions. It is
 conceptually similar to upstream Envoy's dynamic modules. The two systems differ in terms of how the
 extensions are built and how they interact with the main program.
+
+This is a Linux-only feature currently.
 
 ## How It Works
 
