@@ -343,6 +343,7 @@ envoy_cc_test(
         ":test_mocks",
         "@envoy//test/extensions/filters/network/generic_proxy/mocks:codec_mocks",
         "@envoy//test/mocks/server:factory_context_mocks",
+        "@envoy//test/test_common:registry_lib",
     ],
 )
 
