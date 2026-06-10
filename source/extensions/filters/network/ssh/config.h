@@ -28,7 +28,8 @@ public:
 };
 
 class SshCodecFactory : public CodecFactory,
-                        public SecretsProvider {
+                        public SecretsProvider,
+                        public Envoy::Logger::Loggable<Envoy::Logger::Id::config> {
 public:
   SshCodecFactory(Envoy::Server::Configuration::ServerFactoryContext& context,
                   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
