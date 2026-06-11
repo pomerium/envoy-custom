@@ -4,7 +4,7 @@ load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
 load("//bazel/ci/images:update_index.bzl", "oci_update_index")
 
 # List of jq expressions to generate image tags
-tag_exprs = [
+default_tag_exprs = [
     # full commit hash
     ".STABLE_BUILD_SCM_REVISION",
     # go module pseudo version format
@@ -12,16 +12,23 @@ tag_exprs = [
     "(.STABLE_BUILD_SCM_TAG // \"\" | split(\" \"))",
 ]
 
-image_description = "This is an intermediate CI artifact used in the Pomerium build process. It is not intended to be run directly. " + \
-                    "If you are looking for the Pomerium docker image, it can be found at https://hub.docker.com/r/pomerium/pomerium."
+default_description = "This is an intermediate CI artifact used in the Pomerium build process. It is not intended to be run directly. " + \
+                      "If you are looking for the Pomerium docker image, it can be found at https://hub.docker.com/r/pomerium/pomerium."
 
-annotation_exprs = [
+default_annotation_exprs = [
     r'"org.opencontainers.image.source=" + (.BUILD_SCM_REMOTE | rtrimstr(".git") | tostring)',
-    r'"org.opencontainers.image.description=%s"' % image_description,
-    r'"org.opencontainers.image.licenses=Apache-2.0"',
+    r'"org.opencontainers.image.description={description}"',
+    r'"org.opencontainers.image.licenses={license}"',
 ]
 
-def image(name, srcs, repository = "ghcr.io/pomerium/envoy-custom"):
+def image(
+        name,
+        srcs,
+        repository = "ghcr.io/pomerium/envoy-custom",
+        license = "Apache-2.0",
+        description = default_description,
+        tag_exprs = default_tag_exprs,
+        annotation_exprs = default_annotation_exprs):
     _tar_name = "_" + name + "_tar"
     _img_name = "_" + name + "_img"
     _repo_tags_name = "_" + name + "_repo_tags"
@@ -72,7 +79,10 @@ def image(name, srcs, repository = "ghcr.io/pomerium/envoy-custom"):
         srcs = ["@pomerium_envoy//bazel/build_info:combined_status"],
         out = "image_annotations_%s.txt" % name,
         args = ["-r"],
-        filter = "[%s]" % ",".join(annotation_exprs) + r"| .[]",
+        filter = "[%s]" % ",".join([expr.format(
+            description = description,
+            license = license,
+        ) for expr in annotation_exprs]) + r"| .[]",
     )
 
     oci_image(
