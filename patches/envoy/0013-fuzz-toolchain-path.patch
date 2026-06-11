@@ -1,16 +1,15 @@
-diff --git a/test/fuzz/BUILD b/test/fuzz/BUILD
-index da576dac59..c523e335c6 100644
---- a/test/fuzz/BUILD
-+++ b/test/fuzz/BUILD
-@@ -26,9 +26,9 @@ exports_files(["headers.dict"])
- 
- cc_library(
-     name = "fuzzed_data_provider",
--    hdrs = ["@llvm_toolchain_llvm//:lib/clang/18/include/fuzzer/FuzzedDataProvider.h"],
-+    hdrs = ["@llvm_toolchain_llvm//:lib/clang/22/include/fuzzer/FuzzedDataProvider.h"],
-     include_prefix = "",
--    strip_include_prefix = "/lib/clang/18/include",
-+    strip_include_prefix = "/lib/clang/22/include",
-     visibility = ["//visibility:public"],
- )
- 
+diff --git a/bazel/toolchains.bzl b/bazel/toolchains.bzl
+index b02ca3bc57..c1c69e56fc 100644
+--- a/bazel/toolchains.bzl
++++ b/bazel/toolchains.bzl
+@@ -1,9 +1,8 @@
+ load("@envoy_repo//:compiler.bzl", "LLVM_LIB_DIR", "LLVM_PATH", "LLVM_VERSION_LOCAL", "USE_LOCAL_SYSROOT")
+ load("@envoy_toolshed//repository:utils.bzl", "arch_alias")
++load("@pomerium_envoy//bazel:toolchains.bzl", "LLVM_VERSION")
+ load("@toolchains_llvm//toolchain:rules.bzl", "llvm_toolchain")
+
+-_LLVM_VERSION_HERMETIC = "18.1.8"
+-LLVM_VERSION = LLVM_VERSION_LOCAL if LLVM_VERSION_LOCAL else _LLVM_VERSION_HERMETIC
+ LLVM_MAJOR = LLVM_VERSION.split(".")[0]
+ LLVM_MAJOR_MINOR = ".".join(LLVM_VERSION.split(".")[:2])
+
