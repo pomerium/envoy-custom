@@ -621,7 +621,7 @@ TEST_P(StaticPortForwardTest, UpstreamFlowControl_UpstreamIgnoresWindow) {
 TEST_P(StaticPortForwardTest, UpstreamFlowControl_DownstreamDisconnectsAfterReadEnable) {
   // This exercises logic that sometimes depends on the order in which events are invoked; run it
   // several times to avoid flakes (hopefully)
-  for (int i = 0; i < 10; i++) {
+  for (int i = 0; i < 20; i++) {
     auto local_window_exhausted = test_server_->counter(stat_local_window_exhausted);
     local_window_exhausted->reset();
     Tasks::Channel channel;

@@ -1,17 +1,3 @@
-diff --git a/Makefile.in b/Makefile.in
-index ba17a79f0..23ded1540 100644
---- a/Makefile.in
-+++ b/Makefile.in
-@@ -107,7 +107,8 @@ LIBSSH_OBJS=${LIBOPENSSH_OBJS} \
- 	kexgexc.o kexgexs.o \
- 	kexsntrup761x25519.o kexmlkem768x25519.o sntrup761.o kexgen.o \
- 	sftp-realpath.o platform-pledge.o platform-tracing.o platform-misc.o \
--	sshbuf-io.o misc-agent.o
-+	sshbuf-io.o misc-agent.o \
-+	ssh-sk-null.o ssh-pkcs11.o
-
- P11OBJS= ssh-pkcs11-client.o
-
 diff --git a/ssh-sk-null.c b/ssh-sk-null.c
 new file mode 100644
 index 000000000..948c3d933

@@ -27,6 +27,18 @@ write_file(
     content = ["#include <machine/endian.h>"],
 )
 
+write_file(
+    "compat_sys_queue_h",
+    out = "sys/queue.h",
+    content = ['#include "openbsd-compat/sys-queue.h"'],
+)
+
+write_file(
+    "compat_sys_tree_h",
+    out = "sys/tree.h",
+    content = ['#include "openbsd-compat/sys-tree.h"'],
+)
+
 config_setting(
     name = "darwin",
     constraint_values = ["@platforms//os:macos"],
@@ -60,9 +72,9 @@ cc_library(
         "digest-libc.c",
         "digest-openssl.c",
         "ed25519.c",
+        "ed25519-openssl.c",
         "entropy.c",
         "fatal.c",
-        "hash.c",
         "hmac.c",
         "krl.c",
         "log.c",
@@ -87,6 +99,7 @@ cc_library(
         "sshbuf-io.c",
         "sshbuf-misc.c",
         "ssherr.c",
+        "ssherr-libcrypto.c",
         "sshkey.c",
         "umac.c",
         "umac128.c",
@@ -94,6 +107,8 @@ cc_library(
         "xmalloc.c",
     ] + [
         ":compat_nlist_h",
+        ":compat_sys_queue_h",
+        ":compat_sys_tree_h",
         ":compat_util_h",
         ":config_h",
     ] + glob(

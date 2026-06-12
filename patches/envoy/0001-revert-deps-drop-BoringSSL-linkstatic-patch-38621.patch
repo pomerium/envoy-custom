@@ -25,44 +25,34 @@ index 0000000000..ce1a1b5010
 +++ a/bazel/boringssl_static.patch
 @@ -0,0 +1,20 @@
 +diff --git a/BUILD.bazel b/BUILD.bazel
-+index d3b66ee5f..b0791b0df 100644
++index bfe3137e6..ff1e17c3f 100644
 +--- a/BUILD.bazel
 ++++ b/BUILD.bazel
-+@@ -63,6 +63,7 @@ bssl_cc_library(
++@@ -81,6 +81,7 @@ bssl_cc_library(
 +         ],
 +         "//conditions:default": ["-pthread"],
 +     }),
 ++    linkstatic = True,
 +     visibility = ["//visibility:public"],
 + )
-+ 
-+@@ -72,6 +73,7 @@ bssl_cc_library(
-+     hdrs = ssl_headers,
-+     copts = ["-DBORINGSSL_IMPLEMENTATION"],
++
++@@ -92,6 +93,7 @@ bssl_cc_library(
++     # ssl_sources also depend on :crypto's internal headers.
++     implementation_deps = [":crypto_internal"],
 +     internal_hdrs = ssl_internal_headers,
 ++    linkstatic = True,
 +     visibility = ["//visibility:public"],
-+     deps = [":crypto_internal"],
-+ )
-diff --git b/bazel/repositories.bzl a/bazel/repositories.bzl
-index 3e5a2366dd..c5b9d45959 100644
---- b/bazel/repositories.bzl
-+++ a/bazel/repositories.bzl
-@@ -255,7 +255,13 @@ def envoy_dependencies(skip_targets = []):
-     )
- 
- def _boringssl():
--    external_http_archive(name = "boringssl")
-+    external_http_archive(
-+        name = "boringssl",
-+        patch_args = ["-p1"],
-+        patches = [
++     # ssl_headers depend on :crypto's exported headers.
++     deps = [":crypto"],
+diff --git a/bazel/repositories.bzl b/bazel/repositories.bzl
+index 7df0b1c741..4008ca2325 100644
+--- a/bazel/repositories.bzl
++++ b/bazel/repositories.bzl
+@@ -277,6 +277,7 @@ def _boringssl():
+         name = "boringssl",
+         patches = [
+             "@envoy//bazel:boringssl-bssl-compat.patch",
 +            "@envoy//bazel:boringssl_static.patch",
-+        ],
-+    )
- 
- def _boringssl_fips():
-     external_http_archive(
--- 
-2.43.0
-
+         ],
+         patch_args = ["-p1"],
+     )

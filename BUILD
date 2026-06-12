@@ -84,8 +84,7 @@ image(
 )
 
 configure_make(
-    name = "legacy_openssh",
-    args = ["-j4"],
+    name = "openssh_config_h",
     autoreconf = True,
     configure_in_place = True,
     configure_options = [
@@ -97,30 +96,13 @@ configure_make(
     defines = [
         "WITH_OPENSSL=1",
     ],
-    env = select({
-        "@platforms//os:macos": {"AR": ""},
-        "//conditions:default": {},
-    }),
-    includes = [
-        "openssh",
-    ],
     lib_source = "@openssh_portable//:all_sources",
-    linkopts = ["-pthread"],
-    out_static_libs = [
-        "libssh.a",
-        "libopenbsd-compat.a",
-    ],
+    out_headers_only = True,
     postfix_script = """
-        cp -L libssh.a $$INSTALLDIR/lib && \
-        cp -L openbsd-compat/libopenbsd-compat.a $$INSTALLDIR/lib && \
-        rm -rf $$INSTALLDIR/include/openssh && \
-        mkdir -p $$INSTALLDIR/include/openssh/openbsd-compat && \
-        cp -L *.h $$INSTALLDIR/include/openssh && \
-        cp -L openbsd-compat/*.h $$INSTALLDIR/include/openssh/openbsd-compat
+        cp config.h $$INSTALLDIR/include
     """,
-    set_file_prefix_map = True,
     targets = [
-        "",
+        "config.h",
     ],
     visibility = ["//visibility:public"],
     deps = [

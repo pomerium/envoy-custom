@@ -27,13 +27,15 @@ load("@hedron_compile_commands//:workspace_setup_transitive_transitive_transitiv
 
 hedron_compile_commands_setup_transitive_transitive_transitive()
 
-envoy_version = "be5f52a703ca8199d2142bdfa85e1f4b29032286"
+envoy_version = "5022e0b6cadc236414e98c74d611c9566ca398b8"
 
-openssh_version = "V_10_2_P1"
+openssh_version = "V_10_3_P1"
 
-magic_enum_version = "a413fcc9c46a020a746907136a384c227f3cd095"
+magic_enum_version = "0.9.8"
 
 readerwriterqueue_version = "1.0.7"
+
+rules_oci_version = "2.3.1"
 
 local_repository(
     name = "envoy_build_config",
@@ -60,16 +62,14 @@ http_archive(
         "//patches/envoy:fix-antlr4-cpp-runtime.patch",
         "//patches/envoy:fix-integration-test-server-exit.patch",
         "//patches/envoy:fix-missing-symbolizer-env.patch",
-        "//patches/envoy:fix-mock-connection-race.patch",
         "//patches/envoy:fix-static-libgcc-flag.patch",
         "//patches/envoy:fix-tcmalloc-macos-constraints.patch",
         "//patches/envoy:fix-transport-socket-options.patch",
-        "//patches/envoy:fix-zstd-cli-threading.patch",
-        "//patches/envoy:fix-allow-dev-shm.patch",
+        "//patches/envoy:fix-allow-dev-shm.patch",  # exists in upstream main but not in 1.38.x
     ],
-    sha256 = "46e132c211dedbf08b6d2f6d04077c34b6a85b3381b94df4fecbe42def019537",
+    sha256 = "b3e21dcd09be3b560b2771cd1ab06275b2d7d4028fba479c867fb5db72b51ea7",
     strip_prefix = "envoy-" + envoy_version,
-    url = "https://github.com/envoyproxy/envoy/archive/" + envoy_version + ".zip",
+    url = "https://github.com/envoyproxy/envoy/archive/" + envoy_version + ".tar.gz",
 )
 
 load("@envoy//bazel:api_binding.bzl", "envoy_api_binding")
@@ -102,7 +102,7 @@ external_http_archive(
     patch_args = ["-p1"],
     patches = [
         # (temporary) upstream patch from https://github.com/envoyproxy/toolshed/blob/main/bazel/patches/toolchains_llvm.patch
-        "//patches/toolchains_llvm:0001-upstream.patch",
+        "@envoy_toolshed//:patches/toolchains_llvm.patch",
         # linux->darwin cross-compile support
         "//patches/toolchains_llvm:0002-darwin.patch",
     ],
@@ -119,11 +119,9 @@ load("//bazel:repositories.bzl", "patch_antlr4_runtimes")
 
 patch_antlr4_runtimes()
 
-rules_oci_version = "2.2.7"
-
 http_archive(
     name = "rules_oci",
-    sha256 = "b8db7ab889d501db33313620b2c8040dbb07e95c26a0fefe06004b35baf80e08",
+    sha256 = "6d47e0bb9d3c269695cbb35abb603d1db08434376a1210867da8f6f4a9c630ba",
     strip_prefix = "rules_oci-" + rules_oci_version,
     url = "https://github.com/bazel-contrib/rules_oci/releases/download/v" + rules_oci_version + "/rules_oci-v" + rules_oci_version + ".tar.gz",
 )
@@ -184,9 +182,9 @@ envoy_http_archive(
             license = "BSD",
             license_url = "https://github.com/openssh/openssh-portable/blob/master/LICENCE",
             project_name = "openssh-portable",
-            sha256 = "8eb83ec34ac4714ca3c545e593d5cfb7f383ee80cfcafd9a04424539390a6398",
+            sha256 = "c1a4420b1a25ba7336f62afd42ed5974d93455a2ab8c769b5e8e0c8ff8eedadc",
             strip_prefix = "openssh-portable-" + openssh_version,
-            urls = ["https://github.com/openssh/openssh-portable/archive/" + openssh_version + ".zip"],
+            urls = ["https://github.com/openssh/openssh-portable/archive/" + openssh_version + ".tar.gz"],
             version = openssh_version,
         ),
     ),
@@ -217,9 +215,9 @@ envoy_http_archive(
             license = "MIT",
             license_url = "https://github.com/Neargye/magic_enum/blob/master/LICENSE",
             project_name = "magic_enum",
-            sha256 = "4fd719717102b308527528fa26ea93ce3c9d583aae8ffaf68e1199906ce22382",
+            sha256 = "1e54959a3f3cb675938d858603ad69d0f3f7c82439fc2bf86d7232daec2bd10e",
             strip_prefix = "magic_enum-" + magic_enum_version,
-            urls = ["https://github.com/Neargye/magic_enum/archive/" + magic_enum_version + ".zip"],
+            urls = ["https://github.com/Neargye/magic_enum/archive/v" + magic_enum_version + ".tar.gz"],
             version = magic_enum_version,
         ),
     ),
@@ -233,9 +231,9 @@ envoy_http_archive(
             license = "BSD",
             license_url = "https://github.com/cameron314/readerwriterqueue/blob/master/LICENSE.md",
             project_name = "readerwriterqueue",
-            sha256 = "ab5535466d0379963e5944a85ad3cd08c033006ddff0380cbb79d5c2a80f43db",
+            sha256 = "532224ed052bcd5f4c6be0ed9bb2b8c88dfe7e26e3eb4dd9335303b059df6691",
             strip_prefix = "readerwriterqueue-" + readerwriterqueue_version,
-            urls = ["https://github.com/cameron314/readerwriterqueue/archive/v" + readerwriterqueue_version + ".zip"],
+            urls = ["https://github.com/cameron314/readerwriterqueue/archive/v" + readerwriterqueue_version + ".tar.gz"],
             version = readerwriterqueue_version,
         ),
     ),

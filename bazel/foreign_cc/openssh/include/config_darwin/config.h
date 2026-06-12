@@ -35,7 +35,7 @@
 /* getline is not what we expect */
 /* #undef BROKEN_GETLINE */
 
-/* FreeBSD glob does not do what we need */
+/* Do not use system glob */
 #define BROKEN_GLOB 1
 
 /* Define if you system's inet_ntoa is busted (e.g. Irix gcc issue) */
@@ -167,7 +167,7 @@
 /* #undef GETSPNAM_CONFLICTING_DEFS */
 
 /* Define if your system glob() function has the GLOB_ALTDIRFUNC extension */
-/* #undef GLOB_HAS_ALTDIRFUNC */
+#define GLOB_HAS_ALTDIRFUNC 1
 
 /* Define if your system glob() function has gl_matchc options in glob_t */
 #define GLOB_HAS_GL_MATCHC 1
@@ -216,6 +216,9 @@
 
 /* Have attribute nonnull */
 #define HAVE_ATTRIBUTE__NONNULL__ 1
+
+/* compiler supports nonstring attribute */
+#define HAVE_ATTRIBUTE__NONSTRING__ 1
 
 /* OpenBSD's gcc has sentinel */
 /* #undef HAVE_ATTRIBUTE__SENTINEL__ */
@@ -1053,9 +1056,6 @@
 /* Define to 1 if you have the 'openpty' function. */
 #define HAVE_OPENPTY 1
 
-/* as a macro */
-#define HAVE_OPENSSL_ADD_ALL_ALGORITHMS 1
-
 /* Define to 1 if you have the 'OpenSSL_version' function. */
 #define HAVE_OPENSSL_VERSION 1
 
@@ -1574,7 +1574,7 @@
 #define HAVE_TIME_H 1
 
 /* Define if you have ut_time in utmp.h */
-/* #undef HAVE_TIME_IN_UTMP */
+#define HAVE_TIME_IN_UTMP 1
 
 /* Define if you have ut_time in utmpx.h */
 /* #undef HAVE_TIME_IN_UTMPX */
@@ -1595,13 +1595,13 @@
 /* #undef HAVE_TV_IN_UTMP */
 
 /* Define if you have ut_tv in utmpx.h */
-/* #undef HAVE_TV_IN_UTMPX */
+#define HAVE_TV_IN_UTMPX 1
 
 /* Define if you have ut_type in utmp.h */
 /* #undef HAVE_TYPE_IN_UTMP */
 
 /* Define if you have ut_type in utmpx.h */
-/* #undef HAVE_TYPE_IN_UTMPX */
+#define HAVE_TYPE_IN_UTMPX 1
 
 /* Define to 1 if you have the <ucred.h> header file. */
 /* #undef HAVE_UCRED_H */
@@ -1623,6 +1623,9 @@
 
 /* Define to 1 if the system has the type 'unsigned long long'. */
 #define HAVE_UNSIGNED_LONG_LONG 1
+
+/* Define to 1 if you have the 'unveil' function. */
+/* #undef HAVE_UNVEIL */
 
 /* Define to 1 if you have the 'updwtmp' function. */
 /* #undef HAVE_UPDWTMP */
@@ -1860,6 +1863,9 @@
 /* need inet in pledge for setsockopt IP_TOS */
 #define PLEDGE_EXTRA_INET /**/
 
+/* Define if poll 2nd arg is ulong */
+/* #undef POLL_NFDS_T_ULONG */
+
 /* Port number of PRNGD/EGD random number socket */
 /* #undef PRNGD_PORT */
 
@@ -1929,9 +1935,6 @@
 
 /* sshd PAM service name */
 /* #undef SSHD_PAM_SERVICE */
-
-/* Define if pam_chauthtok wants real uid set to the unpriv'ed user */
-/* #undef SSHPAM_CHAUTHTOK_NEEDS_RUID */
 
 /* Use audit debugging module */
 /* #undef SSH_AUDIT_EVENTS */

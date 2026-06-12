@@ -355,10 +355,10 @@ TEST_P(SSHKeyTestSuite, SignVerify) {
   }
 
   // the exact error we get from openssh depends on the key algorithm; it will be one of these two
-  ASSERT_THAT(key1_pub->sign(payload).status(), AnyOf(Eq(absl::InvalidArgumentError("invalid argument")),
-                                                      Eq(absl::InternalError("error in libcrypto"))));
-  ASSERT_THAT(key2_pub->sign(payload).status(), AnyOf(Eq(absl::InvalidArgumentError("invalid argument")),
-                                                      Eq(absl::InternalError("error in libcrypto"))));
+  ASSERT_THAT(key1_pub->sign(payload).status().message(), AnyOf(HasSubstr("invalid argument"),
+                                                                HasSubstr("error in libcrypto")));
+  ASSERT_THAT(key2_pub->sign(payload).status().message(), AnyOf(HasSubstr("invalid argument"),
+                                                                HasSubstr("error in libcrypto")));
 }
 
 INSTANTIATE_TEST_SUITE_P(SSHKeyTest, SSHKeyTestSuite,
@@ -481,8 +481,8 @@ TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate_AlreadyCert) {
   ASSERT_OK(stat);
   stat = key_->convertToSignedUserCertificate(1, {}, {}, absl::Now(), absl::Now() + absl::Hours(1), *signer_);
   // the exact error we get from openssh depends on the key algorithm; it will be one of these two
-  ASSERT_THAT(stat, AnyOf(Eq(absl::InvalidArgumentError("invalid argument")),
-                          Eq(absl::InternalError("error in libcrypto"))));
+  ASSERT_THAT(stat.message(), AnyOf(HasSubstr("invalid argument"),
+                                    HasSubstr("error in libcrypto")));
 }
 
 TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate_KeyIsPublicKey) {
@@ -491,8 +491,8 @@ TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate_KeyIsPublicKey) {
   auto stat = pub->convertToSignedUserCertificate(1, {}, {}, absl::Now(), absl::Now() + absl::Hours(1), *signer_);
   // this is fine, the cert just won't be able to sign etc.
   ASSERT_OK(stat);
-  ASSERT_THAT(pub->sign(bytes{'f', 'o', 'o'}).status(), AnyOf(Eq(absl::InvalidArgumentError("invalid argument")),
-                                                              Eq(absl::InternalError("error in libcrypto"))));
+  ASSERT_THAT(pub->sign(bytes{'f', 'o', 'o'}).status().message(), AnyOf(HasSubstr("invalid argument"),
+                                                                        HasSubstr("error in libcrypto")));
   ASSERT_EQ(absl::InvalidArgumentError("unknown or unsupported key type"), pub->formatPrivateKey().status());
 }
 
@@ -500,8 +500,8 @@ TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate_SignerIsPublicKey) {
   auto key = generate();
   auto pub = key->toPublicKey();
   auto stat = key_->convertToSignedUserCertificate(1, {}, {}, absl::Now(), absl::Now() + absl::Hours(1), *pub);
-  ASSERT_THAT(stat, AnyOf(Eq(absl::InvalidArgumentError("invalid argument")),
-                          Eq(absl::InternalError("error in libcrypto"))));
+  ASSERT_THAT(stat.message(), AnyOf(HasSubstr("invalid argument"),
+                                    HasSubstr("error in libcrypto")));
 }
 
 TEST_P(SSHKeyCertTestSuite, ConvertToSignedUserCertificate_TooManyPrincipals) {

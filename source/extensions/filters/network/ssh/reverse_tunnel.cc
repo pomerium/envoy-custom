@@ -348,8 +348,8 @@ private:
       // while reading from the io handle without draining it completely, so we will have to wait
       // for additional window updates from the upstream. Only when all data has been read should
       // the EOF be sent.
-      // Note: getWriteBuffer() returns the read buffer (it is normally called by the peer).
-      if (!downstream_eof_ && io_handle_->getWriteBuffer()->length() == 0) {
+      // Note: getReceiveBuffer() returns the read buffer (it is normally called by the peer).
+      if (!downstream_eof_ && io_handle_->getReceiveBuffer()->length() == 0) {
         // Only send this once since additional write events could be received if the downstream
         // is half-closed but the upstream still has data to write.
         downstream_eof_ = true;
@@ -364,9 +364,20 @@ private:
     }
 
     if ((events & FileReadyType::Write) != 0) {
-      if (!io_handle_->isPeerWritable()) {
+      if (!io_handle_->isWriteUnblocked()) {
         return;
       }
+
+      // NB: isWriteUnblocked() returning true does not guarantee that actually calling write
+      // will succeed; it will also return true if the peer handle is destroyed, which will cause
+      // subsequent calls to write() to return SOCKET_ERROR_INVAL. We need to know ahead of time if
+      // write() would fail, since we don't want to resume upstream window adjustments (if they are
+      // currently disabled) if the downstream is actually closed.
+      // See https://github.com/envoyproxy/envoy/pull/43976
+      if (io_handle_->isPeerClosed()) {
+        return;
+      }
+
       if (downstream_write_disabled_) {
         downstream_write_disabled_ = false;
         ENVOY_LOG(debug, "channel {}: flow control: downstream write enabled", peer_state_.id);
@@ -564,12 +575,13 @@ private:
   void writeReady() {
     ASSERT(initialized_);
     ASSERT(remote_dispatcher_.isThreadSafe());
+    ASSERT(!downstream_write_disabled_);
     // Flush data from the window buffer to the downstream until the buffer is empty or the
     // downstream high watermark is reached
     while (window_buffer_.length() > 0) {
       auto r = io_handle_->write(window_buffer_);
       if (!r.ok()) {
-        RELEASE_ASSERT(r.wouldBlock(), "");
+        RELEASE_ASSERT(r.wouldBlock(), ""); // see comments in readReady for details
         downstream_write_disabled_ = true;
         // Downstream write buffer high watermark activated
         ENVOY_LOG(debug, "channel {}: flow control: downstream write disabled");
