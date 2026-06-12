@@ -95,9 +95,111 @@ public:
     write_bytes_remaining_ = cipher_->rekeyAfterBytes(openssh::CipherMode::Write);
   }
 
+  // Notes on buffer watermark configuration:
+  //
+  // It is very important that the connection buffer high watermark is set to a value at least twice
+  // as large as the maximum allowed ssh packet size, to avoid a situation where an incomplete
+  // packet with a size greater than the low watermark threshold would prevent a buffer that has had
+  // its high watermark triggered from ever reaching the low watermark.
+  //
+  // Example: consider a read buffer with a buffer limit of 50. When a read event is triggered and
+  // decode() is called, there could be multiple packets (denoted below as `[--#--]`) available in
+  // the buffer to read. Note that the high watermark only triggers when the buffer size exceeds it,
+  // so in the diagram below the position marked with H is the limit, and any additional bytes will
+  // trigger the HWM. The low watermark is always H/2.
+  //
+  //            H------------------------L------------------------
+  //  Write ->                                     [-3-][--2--][1] -> Read
+  //            H------------------------L------------------------
+  //            ^ High Watermark         ^ Low Watermark
+  //
+  // In the above example we will read packets 1 2 and 3, then yield control back to envoy as the
+  // buffer will be empty.
+  //
+  // It is also possible that the trailing packet in the buffer is incomplete at the time decode()
+  // is called, and we need to yield with bytes still remaining in the buffer:
+  //
+  //                             before decode()
+  //            H------------------------L------------------------
+  //  Write ->                               --3---][--2--][--1--] -> Read
+  //            H------------------------L------------------------
+  //                             after decode()
+  //            H------------------------L------------------------
+  //  Write ->                                             --3---] -> Read
+  //            H------------------------L------------------------
+  //
+  // If the buffer has a size of 50, envoy might write 50 bytes at a time into the buffer then
+  // trigger a read event, and repeat. This is to avoid repeatedly triggering the watermarks.
+  //
+  //                             before decode()
+  //            H------------------------L------------------------
+  //  Write ->  -9-][---8---][-7-][--6--][5][--4--][-3-][--2--][1] -> Read
+  //            H------------------------L------------------------
+  //                             after decode()
+  //            H------------------------L------------------------
+  //  Write ->                                                -9-] -> Read
+  //            H------------------------L------------------------
+  //
+  // Next, envoy could write 46 bytes into the buffer to avoid triggering the HWM. It could also
+  // write more (the watermarks are soft limits). If it does, then the HWM will trigger and writes
+  // to the buffer will be temporarily disabled:
+  //
+  //            H------------------------L------------------------
+  //  W ->  [---13---][------12------][----11----][----10----][-9- -> Read
+  //            H------------------------L------------------------
+  //        ^^^^ triggers HWM
+  //
+  // No additional data will be written to the buffer until the buffer is drained to the low
+  // watermark threshold:
+  //
+  //              Read packet 9 (writes still blocked)
+  //            H------------------------L------------------------
+  //            [---13---][------12------][----11----][----10----] -> Read
+  //            H------------------------L------------------------
+  //              Read packet 10 (writes still blocked)
+  //            H------------------------L------------------------
+  //                        [---13---][------12------][----11----] -> Read
+  //            H------------------------L------------------------
+  //              Read packet 11 (writes still blocked)
+  //            H------------------------L------------------------
+  //                                    [---13---][------12------] -> Read
+  //            H------------------------L------------------------
+  //              Read packet 12 (low watermark triggered, writes unblocked)
+  //            H------------------------L------------------------
+  //  Write ->                                          [---13---] -> Read
+  //            H------------------------L------------------------
+  //
+  //
+  // A problem arises if the low watermark threshold is smaller than the max allowed packet size:
+  //
+  //              Large incomplete packet is written (high watermark triggered)
+  //            H------------------------L------------------------
+  //  W ->  ------------16---------------][----15----][----14----] -> Read
+  //            H------------------------L------------------------
+  //              Read packet 14 (writes still blocked)
+  //            H------------------------L------------------------
+  //                    ------------16---------------][----15----] -> Read
+  //            H------------------------L------------------------
+  //              Read packet 15 (writes still blocked)
+  //            H------------------------L------------------------
+  //                                ------------16---------------] -> Read
+  //            H------------------------L------------------------
+  //
+  // In this situation, packet 16 won't be read from the buffer because it is incomplete, but it is
+  // also large enough to prevent the low watermark from being activated. No new data will be
+  // written, so the connection is deadlocked.
+  //
+  // To prevent this situation, ensure the high watermark is at least 524288 bytes, which is twice
+  // the size of the largest allowed ssh packet (262144 bytes). Then, the low watermark (always
+  // HWM/2, not configurable) will be large enough to hold any packet.
+  //
   void decode(Envoy::Buffer::Instance& buffer, bool /*end_stream*/) override {
     while (buffer.length() > 0) {
       if (!version_exchange_done_) {
+        // Sanity check that the buffer high watermark can accomodate the entire version exchange.
+        // Note that MaxVersionExchangeBytes is much smaller than the actual required minimum
+        ASSERT(buffer.highWatermark() == 0 || buffer.highWatermark() >= MaxVersionExchangeBytes,
+               "configuration error: buffer high watermark is too small for version exchange");
         // This is the only place where readVersion should be called; if the version is read
         // completely, it must return an OK status with non-zero value, then continue on to set
         // the version_exchange_done_ flag to true. So, we should not be able to get here unless
@@ -127,6 +229,10 @@ public:
         return;
       }
       if (*bytes_read == 0) {
+        ENVOY_BUG(!buffer.highWatermarkTriggered(),
+                  fmt::format("connection deadlocked: buffer high watermark is too small "
+                              "(current value {} is less than the required minimum {})",
+                              buffer.highWatermark(), wire::MaxPacketSize * 2));
         // Note: sequence number not increased
         ENVOY_LOG(trace, "received incomplete packet; waiting for more data");
         return;

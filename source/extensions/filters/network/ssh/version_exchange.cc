@@ -18,9 +18,6 @@ static constexpr size_t MaxBannerLines = SSH_MAX_PRE_BANNER_LINES;
 static constexpr size_t MaxBannerLineLength = SSH_MAX_BANNER_LEN;
 static constexpr size_t MaxVersionLineLength = 255;
 
-// Arbitrary limit to keep things reasonably small. Openssh has an 8MB limit, which seems high.
-static constexpr size_t MaxVersionExchangeBytes = 16384;
-
 // Implements https://datatracker.ietf.org/doc/html/rfc4253#section-4.2
 //
 // NB: the RFC mentions a maximum version string length of 255, but the wording is ambiguous about

@@ -15,6 +15,9 @@ enum class VersionExchangeMode {
   Client = 2,
 };
 
+// Arbitrary limit to keep things reasonably small. Openssh has an 8MB limit, which seems high.
+static constexpr size_t MaxVersionExchangeBytes = 16384;
+
 class VersionExchangeCallbacks {
 public:
   virtual ~VersionExchangeCallbacks() = default;
