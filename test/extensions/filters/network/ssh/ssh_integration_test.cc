@@ -28,6 +28,7 @@ SshIntegrationTest::SshIntegrationTest(std::vector<std::string> ssh_routes, Netw
     // custom clusters
     for (const auto& route : ssh_routes) {
       auto c = ConfigHelper::buildStaticCluster("ssh_upstream_" + route, 0, localhost);
+      c.mutable_per_connection_buffer_limit_bytes()->set_value(2 * wire::MaxPacketSize);
       bootstrap.mutable_static_resources()->add_clusters()->CopyFrom(c);
     }
 
@@ -124,6 +125,8 @@ void SshIntegrationTest::configureUpstreamTunnelCluster(envoy::config::cluster::
 
   cluster.mutable_cluster_type()->set_name("envoy.clusters.ssh_reverse_tunnel");
   cluster.mutable_cluster_type()->mutable_typed_config()->PackFrom(reverse_tunnel_cluster);
+
+  cluster.mutable_per_connection_buffer_limit_bytes()->set_value(2 * wire::MaxPacketSize);
 }
 
 void SshIntegrationTest::setClusterLoad(const std::string& cluster_name, std::vector<ClusterLoadOpts> endpoint_opts) {
@@ -325,6 +328,7 @@ static_resources:
       socket_address:
         address: "{}"
         port_value: 0
+    per_connection_buffer_limit_bytes: 524288
     filter_chains:
     - filters:
       - name: generic_proxy

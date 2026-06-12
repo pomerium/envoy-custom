@@ -1,4 +1,5 @@
 #include "test/extensions/filters/network/ssh/ssh_connection_driver.h"
+#include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "test/extensions/filters/network/ssh/ssh_task.h"
 #include "test/test_common/test_common.h"
@@ -22,6 +23,7 @@ SshConnectionDriver::SshConnectionDriver(Network::ClientConnectionPtr client_con
 }
 
 void SshConnectionDriver::connect() {
+  client_connection_->setBufferLimits(2 * wire::MaxPacketSize);
   codec_callbacks_ = std::make_unique<CodecCallbacks>(*client_connection_);
   setCodecCallbacks(*codec_callbacks_);
   client_connection_->addReadFilter(shared_from_this());
