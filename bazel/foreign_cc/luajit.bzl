@@ -13,7 +13,10 @@ def luajit_copts():
         "-DLJ_ABI_SOFTFP=0",
         "-DLUAJIT_UNWIND_EXTERNAL",
         "-DLUAJIT_ENABLE_LUA52COMPAT",
-    ] + select(
+    ] + select({
+        "@envoy//bazel:dbg_build": ["-DLUA_USE_ASSERT"],
+        "//conditions:default": [],
+    }) + select(
         {
             ":luajit_target_x64": [
                 "-DLUAJIT_TARGET=LUAJIT_ARCH_x64",

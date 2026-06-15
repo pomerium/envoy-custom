@@ -1,0 +1,41 @@
+diff --git a/src/lj_err.c b/src/lj_err.c
+index 03b5030b..812b1700 100644
+--- a/src/lj_err.c
++++ b/src/lj_err.c
+@@ -590,16 +590,10 @@ static const uint8_t err_frame_jit_template[] = {
+ };
+ 
+ #define ERR_FRAME_JIT_OFS_HANDLER	0x12
+-#define ERR_FRAME_JIT_OFS_FDE		(LJ_64 ? 0x20 : 0x18)
+ #define ERR_FRAME_JIT_OFS_CODE_SIZE	(LJ_64 ? 0x2c : 0x24)
+-#if LJ_TARGET_OSX
+-#define ERR_FRAME_JIT_OFS_REGISTER	ERR_FRAME_JIT_OFS_FDE
+-#else
+-#define ERR_FRAME_JIT_OFS_REGISTER	0
+-#endif
+ 
+-extern void __register_frame(const void *);
+-extern void __deregister_frame(const void *);
++extern void __unw_add_dynamic_eh_frame_section(uintptr_t);
++extern void __unw_remove_dynamic_eh_frame_section(uintptr_t);
+ 
+ uint8_t *lj_err_register_mcode(void *base, size_t sz, uint8_t *info)
+ {
+@@ -617,7 +611,7 @@ uint8_t *lj_err_register_mcode(void *base, size_t sz, uint8_t *info)
+   memcpy(info + ERR_FRAME_JIT_OFS_HANDLER, &handler, sizeof(handler));
+   *(uint32_t *)(info + ERR_FRAME_JIT_OFS_CODE_SIZE) =
+     (uint32_t)(sz - sizeof(err_frame_jit_template) - (info - (uint8_t *)base));
+-  __register_frame(info + ERR_FRAME_JIT_OFS_REGISTER);
++  __unw_add_dynamic_eh_frame_section((uintptr_t)info);
+ #ifdef LUA_USE_ASSERT
+   {
+     struct dwarf_eh_bases ehb;
+@@ -631,7 +625,7 @@ uint8_t *lj_err_register_mcode(void *base, size_t sz, uint8_t *info)
+ void lj_err_deregister_mcode(void *base, size_t sz, uint8_t *info)
+ {
+   UNUSED(base); UNUSED(sz);
+-  __deregister_frame(info + ERR_FRAME_JIT_OFS_REGISTER);
++  __unw_remove_dynamic_eh_frame_section((uintptr_t)info);
+ }
+ #endif
+ 
