@@ -1,0 +1,26 @@
+diff --git a/src/lj_bcread.c b/src/lj_bcread.c
+index 55709522..a20a98c4 100644
+--- a/src/lj_bcread.c
++++ b/src/lj_bcread.c
+@@ -141,7 +141,7 @@ static uint32_t bcread_uleb128_33(LexState *ls)
+     int sh = -1;
+     v &= 0x3f;
+     do {
+-     v |= ((*p & 0x7f) << (sh += 7));
++     v |= (((uint32_t)(*p & 0x7f)) << (sh += 7));
+    } while (*p++ >= 0x80);
+   }
+   ls->p = (char *)p;
+diff --git a/src/lj_buf.c b/src/lj_buf.c
+index 01dcad5b..a03407ca 100644
+--- a/src/lj_buf.c
++++ b/src/lj_buf.c
+@@ -295,7 +295,7 @@ uint32_t LJ_FASTCALL lj_buf_ruleb128(const char **pp)
+   if (LJ_UNLIKELY(v >= 0x80)) {
+     int sh = 0;
+     v &= 0x7f;
+-    do { v |= ((*w & 0x7f) << (sh += 7)); } while (*w++ >= 0x80);
++    do { v |= (((uint32_t)(*w & 0x7f)) << (sh += 7)); } while (*w++ >= 0x80);
+   }
+   *pp = (const char *)w;
+   return v;
