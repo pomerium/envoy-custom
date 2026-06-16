@@ -18,7 +18,7 @@ echo "new commit hash: $_commit"
 
 # Compute new SHA-256 hash of the envoy repo archive.
 echo "downloading repo archive..."
-_hash="$(curl -fL https://github.com/envoyproxy/envoy/archive/$_commit.zip | shasum -a 256 | cut -d' ' -f1)"
+_hash="$(curl -fL https://github.com/envoyproxy/envoy/archive/$_commit.tar.gz | shasum -a 256 | cut -d' ' -f1)"
 
 # Update envoy version in the WORKSPACE file.
 sed "s/^envoy_version = .*/envoy_version = \"$_commit\"/" "$_dir/WORKSPACE" |
