@@ -1,0 +1,13 @@
+diff --git a/test/extensions/filters/common/lua/lua_wrappers.h b/test/extensions/filters/common/lua/lua_wrappers.h
+index b7c1dfb4bb..996a5271e6 100644
+--- a/test/extensions/filters/common/lua/lua_wrappers.h
++++ b/test/extensions/filters/common/lua/lua_wrappers.h
+@@ -31,7 +31,7 @@ public:
+     state_ = std::make_unique<ThreadLocalState>(code, tls_);
+     state_->registerType<T>();
+     coroutine_ = state_->createCoroutine();
+-    lua_pushcclosure(coroutine_->luaState(), luaTestPrint, 1);
++    lua_pushcclosure(coroutine_->luaState(), luaTestPrint, 0);
+     lua_setglobal(coroutine_->luaState(), "testPrint");
+     testing::Mock::AllowLeak(&printer_);
+   }
