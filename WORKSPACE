@@ -66,7 +66,7 @@ http_archive(
         "//patches/envoy:fix-tcmalloc-macos-constraints.patch",
         "//patches/envoy:fix-transport-socket-options.patch",
         "//patches/envoy:fix-allow-dev-shm.patch",  # exists in upstream main but not in 1.38.x
-        "//patches/envoy:fix-lua-wrappers-test.patch",
+        "//patches/envoy:fix-lua-wrappers-test.patch",  # https://github.com/envoyproxy/envoy/pull/45665
     ],
     sha256 = "af833ff8f9799499b44dee4276dad5fd5785638e73cb17ed38718565e49c7a5a",
     strip_prefix = "envoy-" + envoy_version,
@@ -115,6 +115,7 @@ external_http_archive(
     patch_args = ["-p1"],
     patches = [
         "//patches/luajit:0001-libunwind-fde-offset.patch",
+        "//patches/luajit:fix-luajit-asan.patch",
     ],
 )
 

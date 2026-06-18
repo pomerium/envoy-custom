@@ -32,6 +32,31 @@ def luajit_copts():
                          "*******************************",
     )
 
+# Extra copts that apply only to host build tools
+def luajit_host_only_copts():
+    return select({
+        "@envoy//bazel:asan_build": [
+            "-fno-sanitize=undefined",
+        ],
+        "//conditions:default": [],
+    })
+
+# Extra copts that do not apply to host build tools
+def luajit_target_only_copts():
+    return select({
+        "@envoy//bazel:asan_build": [
+            # False positives maybe related to unknown type info for some function pointers
+            "-fno-sanitize=function",
+            # There are many instances of UB from the "offsetof" pattern described in
+            # https://en.wikipedia.org/wiki/Offsetof, but where the pointer might actually be a fake
+            # address like 0x4 or 0x6 which is not suitably aligned. The ubsan warnings here are not
+            # false positives, but there isn't much we can do about it. The compiler generates the
+            # intended code anyway. Example: https://godbolt.org/z/7rKeK3sE7
+            "-fno-sanitize=alignment",
+        ],
+        "//conditions:default": [],
+    })
+
 def luajit_host_bin_env():
     return select({
         "@envoy//bazel:asan_build": "ASAN_OPTIONS=detect_leaks=0 ",
@@ -169,7 +194,7 @@ def lj_cc_binary(name, host = False, **kwargs):
 
     cc_binary(
         name = "_" + name,
-        conlyopts = luajit_copts(),
+        conlyopts = luajit_copts() + (luajit_host_only_copts() if host else luajit_target_only_copts()),
         **{key: value for key, value in kwargs.items() if key != "visibility"}
     )
 
@@ -209,6 +234,6 @@ def lj_cc_library(name, host = False, **kwargs):
 
     cc_library(
         name = "_" + name,
-        conlyopts = luajit_copts(),
+        conlyopts = luajit_copts() + (luajit_host_only_copts() if host else luajit_target_only_copts()),
         **{key: value for key, value in kwargs.items() if key != "visibility"}
     )
