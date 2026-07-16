@@ -2,6 +2,7 @@
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "test/extensions/filters/network/ssh/ssh_task.h"
+#include "test/extensions/filters/network/ssh/test_util.h"
 #include "test/test_common/test_common.h"
 #include "test/test_common/test_time_system.h"
 #include "gtest/gtest.h"
@@ -239,23 +240,19 @@ AssertionResult SshConnectionDriver::waitForUserAuth(std::string username, std::
   } else {
     ServerMessage serverMsg;
     auto* allow = serverMsg.mutable_auth_response()->mutable_allow();
-    allow->set_username(username);
+    allow->set_login_name(username);
     allow->mutable_upstream()->set_hostname(hostname);
-    auto* publicKeyMethod = allow->mutable_upstream()->add_allowed_methods();
-    publicKeyMethod->set_method("publickey");
-    pomerium::extensions::ssh::PublicKeyAllowResponse publicKeyMethodData;
-    pomerium::extensions::ssh::Permissions permissions;
-    permissions.set_permit_port_forwarding(true);
-    permissions.set_permit_agent_forwarding(true);
-    permissions.set_permit_x11_forwarding(true);
-    permissions.set_permit_pty(true);
-    permissions.set_permit_user_rc(true);
-    *permissions.mutable_valid_start_time() = google::protobuf::util::TimeUtil::NanosecondsToTimestamp(
+    util::populateAuthContext(*allow->mutable_auth_context(), key);
+    auto* certOpts = allow->mutable_upstream()->mutable_certificate_options();
+    certOpts->set_permit_port_forwarding(true);
+    certOpts->set_permit_agent_forwarding(true);
+    certOpts->set_permit_x11_forwarding(true);
+    certOpts->set_permit_pty(true);
+    certOpts->set_permit_user_rc(true);
+    *certOpts->mutable_valid_start_time() = google::protobuf::util::TimeUtil::NanosecondsToTimestamp(
       absl::ToUnixNanos(absl::Now()));
-    *permissions.mutable_valid_end_time() = google::protobuf::util::TimeUtil::NanosecondsToTimestamp(
+    *certOpts->mutable_valid_end_time() = google::protobuf::util::TimeUtil::NanosecondsToTimestamp(
       absl::ToUnixNanos(absl::Now() + absl::Hours(1)));
-    *publicKeyMethodData.mutable_permissions() = std::move(permissions);
-    publicKeyMethod->mutable_method_data()->PackFrom(publicKeyMethodData);
     if (modify_allow_response != nullptr) {
       modify_allow_response(*allow);
     }

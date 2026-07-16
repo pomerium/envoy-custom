@@ -5,6 +5,7 @@
 #include "test/extensions/filters/network/ssh/test_env_util.h"
 #include "test/extensions/filters/network/ssh/test_mocks.h"
 #include "test/extensions/filters/network/ssh/wire/test_field_reflect.h"
+#include "test/extensions/filters/network/ssh/test_util.h"
 #include "test/mocks/api/mocks.h"
 #include "test/test_common/test_common.h"
 
@@ -16,30 +17,6 @@ TEST(UserAuthServiceTest, SplitUsername) {
   ASSERT_EQ((std::pair{"foo", "bar"}), detail::splitUsername("foo@bar"));
   ASSERT_EQ((std::pair{"foo@bar", "baz"}), detail::splitUsername("foo@bar@baz"));
   ASSERT_EQ((std::pair{"foo\0@bar\0"s, "baz"s}), detail::splitUsername("foo\0@bar\0@baz"s));
-}
-
-AuthInfo newValidAuthInfo() {
-  auto allow_response = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
-  allow_response->set_username("foo");
-  allow_response->mutable_upstream()->set_hostname("example");
-  auto* publicKeyMethod = allow_response->mutable_upstream()->add_allowed_methods();
-  publicKeyMethod->set_method("publickey");
-  pomerium::extensions::ssh::PublicKeyAllowResponse publicKeyMethodData;
-  pomerium::extensions::ssh::Permissions permissions;
-  permissions.set_permit_port_forwarding(true);
-  permissions.set_permit_agent_forwarding(true);
-  permissions.set_permit_x11_forwarding(true);
-  permissions.set_permit_pty(true);
-  permissions.set_permit_user_rc(true);
-  *permissions.mutable_valid_start_time() = google::protobuf::util::TimeUtil::NanosecondsToTimestamp(
-    absl::ToUnixNanos(absl::Now()));
-  *permissions.mutable_valid_end_time() = google::protobuf::util::TimeUtil::NanosecondsToTimestamp(
-    absl::ToUnixNanos(absl::Now() + absl::Hours(1)));
-  *publicKeyMethodData.mutable_permissions() = std::move(permissions);
-  publicKeyMethod->mutable_method_data()->PackFrom(publicKeyMethodData);
-  AuthInfo info{};
-  info.allow_response = std::move(allow_response);
-  return info;
 }
 
 class TestSshMessageDispatcher : public SshMessageDispatcher {
@@ -745,6 +722,29 @@ public:
     service_ = std::make_unique<UpstreamUserAuthService>(*transport_, *api_);
   }
 
+  AuthInfo newValidAuthInfo() {
+    auto downstreamPublicKey = *openssh::SSHKey::generate(KEY_ED25519, 256);
+    auto allow = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
+    allow->set_login_name("foo");
+    util::populateAuthContext(*allow->mutable_auth_context(), *downstreamPublicKey);
+
+    allow->mutable_upstream()->set_hostname("example");
+    auto* certOpts = allow->mutable_upstream()->mutable_certificate_options();
+    certOpts->set_permit_port_forwarding(true);
+    certOpts->set_permit_agent_forwarding(true);
+    certOpts->set_permit_x11_forwarding(true);
+    certOpts->set_permit_pty(true);
+    certOpts->set_permit_user_rc(true);
+    *certOpts->mutable_valid_start_time() = google::protobuf::util::TimeUtil::NanosecondsToTimestamp(
+      absl::ToUnixNanos(absl::Now()));
+    *certOpts->mutable_valid_end_time() = google::protobuf::util::TimeUtil::NanosecondsToTimestamp(
+      absl::ToUnixNanos(absl::Now() + absl::Hours(1)));
+
+    AuthInfo info{};
+    info.allow_response = std::move(allow);
+    return info;
+  }
+
 protected:
   pomerium::extensions::ssh::CodecConfig codec_cfg_;
   std::optional<wire::ExtInfoMsg> peer_ext_info_;
@@ -812,24 +812,64 @@ TEST_F(UpstreamUserAuthServiceTest, OnServiceAccepted_AuthInfoMissingAllowRespon
   ASSERT_EQ(absl::InternalError("missing AllowResponse in auth state"), r);
 }
 
-TEST_F(UpstreamUserAuthServiceTest, OnServiceAccepted_AuthInfoMissingPublickeyMethod) {
-  AuthInfo info;
-  info.allow_response = std::make_unique<pomerium::extensions::ssh::AllowResponse>();
-  info.allow_response->mutable_upstream();
-  *info.allow_response->mutable_upstream()->add_allowed_methods()->mutable_method() = "not-publickey";
+TEST_F(UpstreamUserAuthServiceTest, OnServiceAccepted_AuthInfoMissingPublickey) {
+  AuthInfo info = newValidAuthInfo();
+  info.allow_response->mutable_auth_context()->clear_public_key();
   EXPECT_CALL(*transport_, authInfo())
     .WillRepeatedly(ReturnRef(info));
   auto r = service_->onServiceAccepted();
-  ASSERT_EQ(absl::InternalError("missing publickey method in AllowResponse"), r);
+  ASSERT_EQ(absl::InternalError("missing public key in AllowResponse"), r);
+}
+
+TEST_F(UpstreamUserAuthServiceTest, OnServiceAccepted_AuthInfoMissingPublickeyAlg) {
+  AuthInfo info = newValidAuthInfo();
+  info.allow_response->mutable_auth_context()->clear_public_key_alg();
+  EXPECT_CALL(*transport_, authInfo())
+    .WillRepeatedly(ReturnRef(info));
+  auto r = service_->onServiceAccepted();
+  ASSERT_EQ(absl::InternalError("missing public key in AllowResponse"), r);
+}
+
+TEST_F(UpstreamUserAuthServiceTest, OnServiceAccepted_AuthInfoMissingPublickeyFingerprint) {
+  AuthInfo info = newValidAuthInfo();
+  info.allow_response->mutable_auth_context()->clear_public_key_fingerprint_sha256();
+  EXPECT_CALL(*transport_, authInfo())
+    .WillRepeatedly(ReturnRef(info));
+  auto r = service_->onServiceAccepted();
+  ASSERT_EQ(absl::InternalError("missing public key in AllowResponse"), r);
+}
+
+TEST_F(UpstreamUserAuthServiceTest, OnServiceAccepted_AuthInfoMissingSessionBindingID) {
+  AuthInfo info = newValidAuthInfo();
+  info.allow_response->mutable_auth_context()->clear_session_binding_id();
+  EXPECT_CALL(*transport_, authInfo())
+    .WillRepeatedly(ReturnRef(info));
+  auto r = service_->onServiceAccepted();
+  ASSERT_EQ(absl::InternalError("missing session info in AllowResponse"), r);
+}
+
+TEST_F(UpstreamUserAuthServiceTest, OnServiceAccepted_AuthInfoMissingSessionID) {
+  AuthInfo info = newValidAuthInfo();
+  info.allow_response->mutable_auth_context()->clear_session_id();
+  EXPECT_CALL(*transport_, authInfo())
+    .WillRepeatedly(ReturnRef(info));
+  auto r = service_->onServiceAccepted();
+  ASSERT_EQ(absl::InternalError("missing session info in AllowResponse"), r);
+}
+
+TEST_F(UpstreamUserAuthServiceTest, OnServiceAccepted_AuthInfoMissingUserID) {
+  AuthInfo info = newValidAuthInfo();
+  info.allow_response->mutable_auth_context()->clear_user_id();
+  EXPECT_CALL(*transport_, authInfo())
+    .WillRepeatedly(ReturnRef(info));
+  auto r = service_->onServiceAccepted();
+  ASSERT_EQ(absl::InternalError("missing session info in AllowResponse"), r);
 }
 
 TEST_F(UpstreamUserAuthServiceTest, OnServiceAccepted_ErrorGeneratingCertificate) {
   auto info = newValidAuthInfo();
-  pomerium::extensions::ssh::PublicKeyAllowResponse publickeyResp;
-  info.allow_response->upstream().allowed_methods().at(0).method_data().UnpackTo(&publickeyResp);
-  publickeyResp.mutable_permissions()->mutable_valid_start_time()->Swap(
-    publickeyResp.mutable_permissions()->mutable_valid_end_time());
-  info.allow_response->mutable_upstream()->mutable_allowed_methods()->at(0).mutable_method_data()->PackFrom(publickeyResp);
+  info.allow_response->mutable_upstream()->mutable_certificate_options()->mutable_valid_start_time()->Swap(
+    info.allow_response->mutable_upstream()->mutable_certificate_options()->mutable_valid_end_time());
   EXPECT_CALL(*transport_, authInfo())
     .WillRepeatedly(ReturnRef(info));
   auto r = service_->onServiceAccepted();
@@ -839,7 +879,7 @@ TEST_F(UpstreamUserAuthServiceTest, OnServiceAccepted_ErrorGeneratingCertificate
 TEST_F(UpstreamUserAuthServiceTest, OnServiceAcceptedEncodingFailure) {
   auto info = newValidAuthInfo();
   std::string username_too_long(wire::MaxPacketSize, 'A');
-  info.allow_response->set_username(username_too_long);
+  info.allow_response->set_login_name(username_too_long);
   EXPECT_CALL(*transport_, authInfo())
     .WillRepeatedly(ReturnRef(info));
   auto streamId = "stream-id"_bytes;

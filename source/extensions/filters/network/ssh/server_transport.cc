@@ -359,10 +359,14 @@ void SshServerTransport::initHandoff(pomerium::extensions::ssh::SSHChannelContro
   case pomerium::extensions::ssh::AllowResponse::kMirrorSession:
     terminate(absl::UnavailableError("session mirroring feature not available"));
     break;
-  default:
-    terminate(absl::InternalError(fmt::format("received invalid handoff message: unexpected target: {}",
-                                              static_cast<int>(handoff_msg->upstream_auth().target_case()))));
-    break;
+  default: {
+    auto targetCase = static_cast<int>(handoff_msg->upstream_auth().target_case());
+    auto targetField = handoff_msg->upstream_auth().GetDescriptor()->FindFieldByNumber(targetCase);
+    RELEASE_ASSERT(targetField != nullptr,
+                   "received malformed AllowResponse from management server (proto api mismatch?)");
+    terminate(absl::InternalError(
+      fmt::format("received invalid handoff message: unexpected target: {}", targetField->name())));
+  } break;
   }
 }
 

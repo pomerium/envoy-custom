@@ -6,6 +6,7 @@
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "test/extensions/filters/network/generic_proxy/mocks/codec.h"
 #include "test/extensions/filters/network/ssh/test_env_util.h"
+#include "test/extensions/filters/network/ssh/test_util.h"
 #include "test/extensions/filters/network/ssh/wire/test_field_reflect.h" // IWYU pragma: keep
 #include "test/extensions/filters/network/ssh/test_mocks.h"              // IWYU pragma: keep
 #include "test/mocks/network/connection.h"
@@ -75,6 +76,7 @@ public:
   ClientTransportTest()
       : config_(newConfig()),
         server_host_key_(*openssh::SSHKey::generate(KEY_ED25519, 256)),
+        downstream_client_key_(*openssh::SSHKey::generate(KEY_ED25519, 256)),
         secrets_provider_(*config_),
         transport_(server_factory_context_, config_, secrets_provider_) {}
 
@@ -160,24 +162,21 @@ public:
     authInfo->server_version = "SSH-2.0-Envoy";
     authInfo->channel_mode = ChannelMode::Normal;
     authInfo->allow_response = std::make_unique<AllowResponse>();
-    authInfo->allow_response->set_username("foo");
+    authInfo->allow_response->set_login_name("foo");
     authInfo->allow_response->mutable_upstream()->set_hostname("example");
-    auto* publicKeyMethod = authInfo->allow_response->mutable_upstream()->add_allowed_methods();
-    SetDownstreamAuthInfo(authInfo);
-    publicKeyMethod->set_method("publickey");
-    PublicKeyAllowResponse publicKeyMethodData;
-    Permissions permissions;
-    permissions.set_permit_port_forwarding(true);
-    permissions.set_permit_agent_forwarding(true);
-    permissions.set_permit_x11_forwarding(true);
-    permissions.set_permit_pty(true);
-    permissions.set_permit_user_rc(true);
-    *permissions.mutable_valid_start_time() = google::protobuf::util::TimeUtil::NanosecondsToTimestamp(
+    util::populateAuthContext(*authInfo->allow_response->mutable_auth_context(), *downstream_client_key_);
+    auto* certOpts = authInfo->allow_response->mutable_upstream()->mutable_certificate_options();
+    certOpts->set_permit_port_forwarding(true);
+    certOpts->set_permit_agent_forwarding(true);
+    certOpts->set_permit_x11_forwarding(true);
+    certOpts->set_permit_pty(true);
+    certOpts->set_permit_user_rc(true);
+    *certOpts->mutable_valid_start_time() = google::protobuf::util::TimeUtil::NanosecondsToTimestamp(
       absl::ToUnixNanos(absl::Now()));
-    *permissions.mutable_valid_end_time() = google::protobuf::util::TimeUtil::NanosecondsToTimestamp(
+    *certOpts->mutable_valid_end_time() = google::protobuf::util::TimeUtil::NanosecondsToTimestamp(
       absl::ToUnixNanos(absl::Now() + absl::Hours(1)));
-    *publicKeyMethodData.mutable_permissions() = std::move(permissions);
-    publicKeyMethod->mutable_method_data()->PackFrom(publicKeyMethodData);
+    SetDownstreamAuthInfo(authInfo);
+
     GenericProxy::MockEncodingContext ctx;
     SSHRequestHeaderFrame reqHeaderFrame("example", 0);
     RETURN_IF_NOT_OK(transport_.encode(reqHeaderFrame, ctx).status());
@@ -204,23 +203,19 @@ public:
     authInfo->handoff_info.pty_info->set_width_px(300);
     authInfo->handoff_info.pty_info->set_height_px(250);
     authInfo->allow_response = std::make_unique<AllowResponse>();
-    authInfo->allow_response->set_username("foo");
+    authInfo->allow_response->set_login_name("foo");
     authInfo->allow_response->mutable_upstream()->set_hostname("example");
-    auto* publicKeyMethod = authInfo->allow_response->mutable_upstream()->add_allowed_methods();
-    publicKeyMethod->set_method("publickey");
-    PublicKeyAllowResponse publicKeyMethodData;
-    Permissions permissions;
-    permissions.set_permit_port_forwarding(true);
-    permissions.set_permit_agent_forwarding(true);
-    permissions.set_permit_x11_forwarding(true);
-    permissions.set_permit_pty(true);
-    permissions.set_permit_user_rc(true);
-    *permissions.mutable_valid_start_time() = google::protobuf::util::TimeUtil::NanosecondsToTimestamp(
+    util::populateAuthContext(*authInfo->allow_response->mutable_auth_context(), *downstream_client_key_);
+    auto* certOpts = authInfo->allow_response->mutable_upstream()->mutable_certificate_options();
+    certOpts->set_permit_port_forwarding(true);
+    certOpts->set_permit_agent_forwarding(true);
+    certOpts->set_permit_x11_forwarding(true);
+    certOpts->set_permit_pty(true);
+    certOpts->set_permit_user_rc(true);
+    *certOpts->mutable_valid_start_time() = google::protobuf::util::TimeUtil::NanosecondsToTimestamp(
       absl::ToUnixNanos(absl::Now()));
-    *permissions.mutable_valid_end_time() = google::protobuf::util::TimeUtil::NanosecondsToTimestamp(
+    *certOpts->mutable_valid_end_time() = google::protobuf::util::TimeUtil::NanosecondsToTimestamp(
       absl::ToUnixNanos(absl::Now() + absl::Hours(1)));
-    *publicKeyMethodData.mutable_permissions() = std::move(permissions);
-    publicKeyMethod->mutable_method_data()->PackFrom(publicKeyMethodData);
     return authInfo;
   }
 
@@ -520,6 +515,7 @@ public:
   testing::NiceMock<Server::Configuration::MockServerFactoryContext> server_factory_context_;
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config_;
   openssh::SSHKeyPtr server_host_key_;
+  openssh::SSHKeyPtr downstream_client_key_;
   TestSecretsProvider secrets_provider_;
   testing::NiceMock<Envoy::Network::MockServerConnection> mock_connection_;
   testing::StrictMock<MockClientCodecCallbacks> client_codec_callbacks_;
@@ -636,7 +632,7 @@ TEST_F(ClientTransportTest, InvalidUserAuthAllowState) {
   authInfo->server_version = "SSH-2.0-Envoy";
   authInfo->channel_mode = ChannelMode::Normal;
   authInfo->allow_response = std::make_unique<AllowResponse>();
-  authInfo->allow_response->set_username("foo");
+  authInfo->allow_response->set_login_name("foo");
   authInfo->allow_response->mutable_upstream()->set_hostname("example");
   SetDownstreamAuthInfo(authInfo);
 
@@ -648,7 +644,7 @@ TEST_F(ClientTransportTest, InvalidUserAuthAllowState) {
 
   ASSERT_OK(ExchangeExtInfo());
 
-  ExpectDisconnectAsHeader(absl::InternalError("missing publickey method in AllowResponse"));
+  ExpectDisconnectAsHeader(absl::InternalError("missing auth context in AllowResponse"));
   wire::ServiceRequestMsg clientUserAuthServiceRequest;
   EXPECT_OK(ReadMsg(clientUserAuthServiceRequest));
   EXPECT_EQ("ssh-userauth", clientUserAuthServiceRequest.service_name);

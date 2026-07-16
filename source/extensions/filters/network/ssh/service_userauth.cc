@@ -329,9 +329,28 @@ key_params_t UpstreamUserAuthService::getUpstreamKeyParams() {
 }
 
 absl::Status UpstreamUserAuthService::onServiceAccepted() {
-  if (!transport_.authInfo().allow_response) {
+  auto& allowResponse = transport_.authInfo().allow_response;
+  if (allowResponse == nullptr) {
     return absl::InternalError("missing AllowResponse in auth state");
   }
+  // Sanity check the AllowResponse received from the management server
+  if (!allowResponse->has_auth_context()) {
+    return absl::InternalError("missing auth context in AllowResponse");
+  }
+  if (allowResponse->auth_context().public_key().empty() ||
+      allowResponse->auth_context().public_key_alg().empty() ||
+      allowResponse->auth_context().public_key_fingerprint_sha256().empty()) {
+    return absl::InternalError("missing public key in AllowResponse");
+  }
+  if (allowResponse->auth_context().session_id().empty() ||
+      allowResponse->auth_context().session_binding_id().empty() ||
+      allowResponse->auth_context().user_id().empty()) {
+    return absl::InternalError("missing session info in AllowResponse");
+  }
+  if (!allowResponse->has_upstream()) {
+    return absl::InternalError("missing upstream target info in AllowResponse");
+  }
+  auto& upstreamTarget = allowResponse->upstream();
 
   auto [alg, key_type, key_bits] = getUpstreamKeyParams();
 
@@ -341,41 +360,29 @@ absl::Status UpstreamUserAuthService::onServiceAccepted() {
   userSessionSshKey = std::move(key).value();
 
   string_list extensions;
-  absl::Time validStartTime;
-  absl::Time validEndTime;
-  bool foundMethod{};
-  for (const auto& method : transport_.authInfo().allow_response->upstream().allowed_methods()) {
-    if (method.method() == "publickey") {
-      foundMethod = true;
-      PublicKeyAllowResponse resp;
-      method.method_data().UnpackTo(&resp);
-      if (resp.permissions().permit_port_forwarding()) {
-        extensions.push_back(openssh::ExtensionPermitPortForwarding);
-      }
-      if (resp.permissions().permit_agent_forwarding()) {
-        extensions.push_back(openssh::ExtensionPermitAgentForwarding);
-      }
-      if (resp.permissions().permit_x11_forwarding()) {
-        extensions.push_back(openssh::ExtensionPermitX11Forwarding);
-      }
-      if (resp.permissions().permit_pty()) {
-        extensions.push_back(openssh::ExtensionPermitPty);
-      }
-      if (resp.permissions().permit_user_rc()) {
-        extensions.push_back(openssh::ExtensionPermitUserRc);
-      }
-      validStartTime = absl::FromUnixNanos(google::protobuf::util::TimeUtil::TimestampToNanoseconds(resp.permissions().valid_start_time()));
-      validEndTime = absl::FromUnixNanos(google::protobuf::util::TimeUtil::TimestampToNanoseconds(resp.permissions().valid_end_time()));
-      break;
-    }
+  if (upstreamTarget.certificate_options().permit_port_forwarding()) {
+    extensions.push_back(openssh::ExtensionPermitPortForwarding);
   }
-  if (!foundMethod) {
-    return absl::InternalError("missing publickey method in AllowResponse");
+  if (upstreamTarget.certificate_options().permit_agent_forwarding()) {
+    extensions.push_back(openssh::ExtensionPermitAgentForwarding);
   }
+  if (upstreamTarget.certificate_options().permit_x11_forwarding()) {
+    extensions.push_back(openssh::ExtensionPermitX11Forwarding);
+  }
+  if (upstreamTarget.certificate_options().permit_pty()) {
+    extensions.push_back(openssh::ExtensionPermitPty);
+  }
+  if (upstreamTarget.certificate_options().permit_user_rc()) {
+    extensions.push_back(openssh::ExtensionPermitUserRc);
+  }
+  auto validStartTime = absl::FromUnixNanos(google::protobuf::util::TimeUtil::TimestampToNanoseconds(
+    upstreamTarget.certificate_options().valid_start_time()));
+  auto validEndTime = absl::FromUnixNanos(google::protobuf::util::TimeUtil::TimestampToNanoseconds(
+    upstreamTarget.certificate_options().valid_end_time()));
 
   auto stat = userSessionSshKey->convertToSignedUserCertificate(
     1, // channel id
-    {transport_.authInfo().allow_response->username()},
+    {allowResponse->login_name()},
     extensions,
     validStartTime,
     validEndTime,
@@ -385,7 +392,7 @@ absl::Status UpstreamUserAuthService::onServiceAccepted() {
   }
 
   auto req = std::make_unique<wire::UserAuthRequestMsg>();
-  req->username = transport_.authInfo().allow_response->username();
+  req->username = allowResponse->login_name();
   req->service_name = "ssh-connection";
 
   wire::PubKeyUserAuthRequestMsg pubkeyReq{
