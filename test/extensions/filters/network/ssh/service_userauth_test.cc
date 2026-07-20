@@ -812,6 +812,24 @@ TEST_F(UpstreamUserAuthServiceTest, OnServiceAccepted_AuthInfoMissingAllowRespon
   ASSERT_EQ(absl::InternalError("missing AllowResponse in auth state"), r);
 }
 
+TEST_F(UpstreamUserAuthServiceTest, OnServiceAccepted_AuthInfoMissingContext) {
+  AuthInfo info = newValidAuthInfo();
+  info.allow_response->clear_auth_context();
+  EXPECT_CALL(*transport_, authInfo())
+    .WillRepeatedly(ReturnRef(info));
+  auto r = service_->onServiceAccepted();
+  ASSERT_EQ(absl::InternalError("missing auth context in AllowResponse"), r);
+}
+
+TEST_F(UpstreamUserAuthServiceTest, OnServiceAccepted_AuthInfoMissingUpstreamTargetInfo) {
+  AuthInfo info = newValidAuthInfo();
+  info.allow_response->clear_upstream();
+  EXPECT_CALL(*transport_, authInfo())
+    .WillRepeatedly(ReturnRef(info));
+  auto r = service_->onServiceAccepted();
+  ASSERT_EQ(absl::InternalError("missing upstream target info in AllowResponse"), r);
+}
+
 TEST_F(UpstreamUserAuthServiceTest, OnServiceAccepted_AuthInfoMissingPublickey) {
   AuthInfo info = newValidAuthInfo();
   info.allow_response->mutable_auth_context()->clear_public_key();
