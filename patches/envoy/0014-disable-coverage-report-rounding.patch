@@ -1,0 +1,41 @@
+diff --git a/tools/coverage/filter.jq b/tools/coverage/filter.jq
+index 6acd6f3982..4e5c06e707 100644
+--- a/tools/coverage/filter.jq
++++ b/tools/coverage/filter.jq
+@@ -2,11 +2,11 @@
+ 
+ def round_to_precision(precision):
+   . * pow(10; precision)
+-  | round / pow(10; precision);
++  | floor / pow(10; precision);
+ 
+ def calculate_summary:
+   {
+-    coverage_percent: (.coveragePercent | round_to_precision(1)),
++    coverage_percent: (.coveragePercent | round_to_precision(2)),
+     lines_covered: .linesCovered,
+     lines_total: .linesTotal,
+     threshold: (if $config[0] then ($config[0].thresholds.total // 0) else 0 end),
+@@ -21,7 +21,7 @@ def get_default_threshold:
+ def directory_stats(path):
+   {
+     expected_percent: ((if $config[0] and $config[0].directories then $config[0].directories[path] else null end) // get_default_threshold),
+-    coverage_percent: (.coveragePercent | round_to_precision(1)),
++    coverage_percent: (.coveragePercent | round_to_precision(2)),
+     lines_covered: .linesCovered,
+     lines_total: .linesTotal
+   };
+diff --git a/tools/coverage/report_generator.sh.template b/tools/coverage/report_generator.sh.template
+index 631ec26361..e2025272f2 100755
+--- a/tools/coverage/report_generator.sh.template
++++ b/tools/coverage/report_generator.sh.template
+@@ -105,7 +105,8 @@ run_grcov() {
+     mkdir -p "${OUTPUT_DIR}"
+     $GRCOV \
+         "${INFO_FILES[@]}" \
+-        --precision 1 \
++        --precision 5 \
++        --branch \
+         -s "${WORKSPACE_PATH}" \
+         -t html,covdir \
+         --excl-line "LCOV_EXCL_LINE" \
