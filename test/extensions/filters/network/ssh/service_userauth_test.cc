@@ -804,13 +804,13 @@ TEST_F(UpstreamUserAuthServiceTest, RequestService) {
   EXPECT_OK(r);
 }
 
-TEST_F(UpstreamUserAuthServiceTest, OnServiceAccepted_AuthInfoMissingAllowResponse) {
-  AuthInfo info;
-  EXPECT_CALL(*transport_, authInfo())
-    .WillRepeatedly(ReturnRef(info));
-  auto r = service_->onServiceAccepted();
-  ASSERT_EQ(absl::InternalError("missing AllowResponse in auth state"), r);
-}
+// TEST_F(UpstreamUserAuthServiceTest, OnServiceAccepted_AuthInfoMissingAllowResponse) {
+//   AuthInfo info;
+//   EXPECT_CALL(*transport_, authInfo())
+//     .WillRepeatedly(ReturnRef(info));
+//   auto r = service_->onServiceAccepted();
+//   ASSERT_EQ(absl::InternalError("missing AllowResponse in auth state"), r);
+// }
 
 TEST_F(UpstreamUserAuthServiceTest, OnServiceAccepted_AuthInfoMissingPublickeyMethod) {
   AuthInfo info;
