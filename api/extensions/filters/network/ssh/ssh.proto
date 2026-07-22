@@ -281,20 +281,41 @@ message AuthenticationResponse {
 // successfully authenticated. Each method contains implementation-specific
 // metadata that can be processed by Envoy.
 message AllowResponse {
-  string username = 1;
+  string        login_name      = 1;
+  AuthContext   auth_context    = 2;
+  ExtraAuthInfo extra_auth_info = 3; // optional info for logging/metadata purposes etc.
   oneof target {
-    UpstreamTarget      upstream       = 2;
-    InternalTarget      internal       = 3;
-    MirrorSessionTarget mirror_session = 4;
+    UpstreamTarget      upstream       = 4;
+    InternalTarget      internal       = 5;
+    MirrorSessionTarget mirror_session = 6;
   }
 }
 
 message UpstreamTarget {
-  string                             hostname        = 1; // "from" address/route name
-  envoy.config.core.v3.SocketAddress address         = 2; // "to" address
-  bool                               direct_tcpip    = 3;
-  repeated AllowedMethod             allowed_methods = 4;
-  repeated envoy.config.core.v3.TypedExtensionConfig channel_filters = 5;
+  string                             hostname     = 1; // "from" address/route name
+  envoy.config.core.v3.SocketAddress address      = 2; // "to" address
+  bool                               direct_tcpip = 3;
+  repeated envoy.config.core.v3.TypedExtensionConfig channel_filters     = 5;
+  CertificateOptions                                 certificate_options = 6;
+}
+
+message CertificateOptions {
+  bool permit_port_forwarding  = 1;
+  bool permit_agent_forwarding = 2;
+  bool permit_x11_forwarding   = 3;
+  bool permit_pty              = 4;
+  bool permit_user_rc          = 5;
+
+  google.protobuf.Timestamp valid_start_time = 6;
+  google.protobuf.Timestamp valid_end_time   = 7;
+
+  repeated string permit_open   = 8;
+  repeated string permit_listen = 9;
+
+  string              force_command         = 10;
+  map<string, string> force_env             = 11;
+  bool                require_user_presence = 12;
+  bool                require_verify        = 13;
 }
 
 message InternalTarget {
@@ -308,11 +329,6 @@ message MirrorSessionTarget {
   }
   uint64 source_id = 1;
   Mode   mode      = 2;
-}
-
-message AllowedMethod {
-  string              method      = 1;
-  google.protobuf.Any method_data = 2;
 }
 
 // DenyResponse indicates the user was not successfully authenticated for
@@ -379,20 +395,8 @@ message PublicKeyMethodRequest {
   bytes  public_key_fingerprint_sha256 = 3; // raw fingerprint, no formatting
 }
 
-message PublicKeyAllowResponse {
-  bytes       public_key  = 1;
-  Permissions permissions = 2;
-}
-
 message KeyboardInteractiveMethodRequest {
   repeated string submethods = 1;
-}
-
-message KeyboardInteractiveAllowResponse {
-  string session_id = 1;
-  string user_id    = 2;
-  map<string, google.protobuf.ListValue> claims   = 3;
-  repeated string                        audience = 4;
 }
 
 message KeyboardInteractiveInfoPrompts {
@@ -411,23 +415,34 @@ message KeyboardInteractiveInfoPromptResponses {
   repeated string responses = 1;
 }
 
-message Permissions {
-  bool permit_port_forwarding  = 1;
-  bool permit_agent_forwarding = 2;
-  bool permit_x11_forwarding   = 3;
-  bool permit_pty              = 4;
-  bool permit_user_rc          = 5;
+enum AccessRequestState {
+  None     = 0;
+  Pending  = 1;
+  Approved = 2;
+}
 
-  google.protobuf.Timestamp valid_start_time = 6;
-  google.protobuf.Timestamp valid_end_time   = 7;
+message AuthContext {
+  // Public key info
+  bytes  public_key                    = 1;
+  string public_key_alg                = 2;
+  bytes  public_key_fingerprint_sha256 = 3; // raw fingerprint, no formatting
 
-  repeated string permit_open   = 8;
-  repeated string permit_listen = 9;
+  // Session and user IDs
+  string session_id         = 4;
+  string user_id            = 5;
+  string session_binding_id = 6;
 
-  string              force_command         = 10;
-  map<string, string> force_env             = 11;
-  bool                require_user_presence = 12;
-  bool                require_verify        = 13;
+  // Two person approval
+  AccessRequestState access_request_state = 10;
+}
+
+message ExtraAuthInfo {
+  // Extra session binding info
+  map<string, string> session_binding_details = 7;
+
+  // Extra session info
+  map<string, google.protobuf.ListValue> claims   = 8;
+  repeated string                        audience = 9;
 }
 
 enum InternalCLIModeHint {

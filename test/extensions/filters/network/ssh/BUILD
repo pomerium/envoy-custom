@@ -40,6 +40,9 @@ envoy_cc_test_library(
 
 envoy_cc_test_library(
     name = "ssh_test_common_lib",
+    srcs = [
+        "test_util.h",
+    ],
     repository = "@envoy",
     deps = [
         "//source/extensions/filters/network/ssh:pomerium_ssh",

@@ -8,6 +8,7 @@
 #include "test/extensions/filters/network/ssh/test_env_util.h"
 #include "test/extensions/filters/network/ssh/wire/test_field_reflect.h" // IWYU pragma: keep
 #include "test/extensions/filters/network/ssh/test_mocks.h"              // IWYU pragma: keep
+#include "test/extensions/filters/network/ssh/test_util.h"
 #include "test/mocks/network/connection.h"
 #include "test/mocks/grpc/mocks.h"
 #include "test/mocks/server/server_factory_context.h"
@@ -214,14 +215,14 @@ public:
              : absl::InternalError("test failure");
   }
 
-  std::pair<wire::Message, ClientMessage> BuildUserAuthMessages(openssh::SSHKey& clientKey) {
+  std::pair<wire::Message, ClientMessage> BuildUserAuthMessages(const openssh::SSHKey& client_key) {
     wire::UserAuthRequestMsg authReq;
     authReq.username = "test@example";
     authReq.service_name = "ssh-connection";
     wire::PubKeyUserAuthRequestMsg pubkeyReq{
       .has_signature = true,
-      .public_key_alg = std::string(clientKey.keyTypeName()),
-      .public_key = clientKey.toPublicKeyBlob(),
+      .public_key_alg = std::string(client_key.keyTypeName()),
+      .public_key = client_key.toPublicKeyBlob(),
     };
     Envoy::Buffer::OwnedImpl sig;
     wire::write_opt<wire::LengthPrefixed>(sig, *current_session_id_);
@@ -234,7 +235,7 @@ public:
                               pubkeyReq.public_key_alg,
                               pubkeyReq.public_key)
                 .status());
-    pubkeyReq.signature = *clientKey.sign(linearizeToSpan(sig));
+    pubkeyReq.signature = *client_key.sign(linearizeToSpan(sig));
 
     AuthenticationRequest grpcAuthReq;
     grpcAuthReq.set_protocol("ssh");
@@ -246,7 +247,7 @@ public:
     PublicKeyMethodRequest method_req;
     method_req.set_public_key(pubkeyReq.public_key->data(), pubkeyReq.public_key->size());
     method_req.set_public_key_alg(pubkeyReq.public_key_alg);
-    auto clientKeyFp = clientKey.rawFingerprint();
+    auto clientKeyFp = client_key.rawFingerprint();
     method_req.set_public_key_fingerprint_sha256(clientKeyFp.data(), clientKeyFp.size());
     grpcAuthReq.mutable_method_request()->PackFrom(method_req);
 
@@ -256,25 +257,32 @@ public:
     return {wire::Message{std::move(authReq)}, std::move(clientMsg)};
   }
 
-  void ExpectHandlePomeriumGrpcAuthRequestNormal(const ClientMessage& clientMsg) {
-    EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(clientMsg), false))
-      .WillOnce([this](Buffer::InstancePtr&, bool) {
+  void ExpectHandlePomeriumGrpcAuthRequestNormal(const ClientMessage& client_msg) {
+    PublicKeyMethodRequest publicKeyMethodRequest;
+    ASSERT_TRUE(client_msg.auth_request().method_request().UnpackTo(&publicKeyMethodRequest));
+
+    EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(client_msg), false))
+      .WillOnce([this, publicKeyMethodRequest](Buffer::InstancePtr&, bool) {
         auto response = std::make_unique<ServerMessage>();
         auto* allow = response->mutable_auth_response()->mutable_allow();
-        allow->set_username("test");
+        allow->set_login_name("test");
         auto* upstream = allow->mutable_upstream();
         upstream->set_hostname("example");
-        *upstream->add_allowed_methods()->mutable_method() = "publickey";
+        util::populateAuthContext(*allow->mutable_auth_context(), publicKeyMethodRequest);
         manage_stream_callbacks_->onReceiveMessage(std::move(response));
       });
   }
 
   void ExpectHandlePomeriumGrpcAuthRequestHijack(const ClientMessage& clientMsg, bool add_well_known_metadata = false) {
+    PublicKeyMethodRequest publicKeyMethodRequest;
+    ASSERT_TRUE(clientMsg.auth_request().method_request().UnpackTo(&publicKeyMethodRequest));
+
     EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(clientMsg), false))
-      .WillOnce([this, add_well_known_metadata](Buffer::InstancePtr&, bool) {
+      .WillOnce([this, publicKeyMethodRequest, add_well_known_metadata](Buffer::InstancePtr&, bool) {
         auto response = std::make_unique<ServerMessage>();
         auto* allow = response->mutable_auth_response()->mutable_allow();
-        allow->set_username("test");
+        util::populateAuthContext(*allow->mutable_auth_context(), publicKeyMethodRequest);
+
         auto* internal = allow->mutable_internal();
         (*internal->mutable_set_metadata()->mutable_filter_metadata())["foo"] = Protobuf::Struct{};
         if (add_well_known_metadata) {
@@ -754,13 +762,14 @@ TEST_F(ChannelFilterConfigTest, ConfigureChannelFilters) {
   auto [authReq, clientMsg] = BuildUserAuthMessages(*clientKey);
 
   EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(clientMsg), false))
-    .WillOnce([this](Buffer::InstancePtr&, bool) {
+    .WillOnce([this, &clientKey](Buffer::InstancePtr&, bool) {
       auto response = std::make_unique<ServerMessage>();
       auto* allow = response->mutable_auth_response()->mutable_allow();
-      allow->set_username("test");
+      allow->set_login_name("test");
+      util::populateAuthContext(*allow->mutable_auth_context(), *clientKey);
+
       auto* upstream = allow->mutable_upstream();
       upstream->set_hostname("example");
-      *upstream->add_allowed_methods()->mutable_method() = "publickey";
 
       // configure channel filters
       auto* filter = upstream->add_channel_filters();
@@ -790,13 +799,13 @@ TEST_F(ChannelFilterConfigTest, ConfigureChannelFilters_InvalidChannelFilterConf
   auto [authReq, clientMsg] = BuildUserAuthMessages(*clientKey);
 
   EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(clientMsg), false))
-    .WillOnce([this](Buffer::InstancePtr&, bool) {
+    .WillOnce([this, &clientKey](Buffer::InstancePtr&, bool) {
       auto response = std::make_unique<ServerMessage>();
       auto* allow = response->mutable_auth_response()->mutable_allow();
-      allow->set_username("test");
+      allow->set_login_name("test");
       auto* upstream = allow->mutable_upstream();
       upstream->set_hostname("example");
-      *upstream->add_allowed_methods()->mutable_method() = "publickey";
+      util::populateAuthContext(*allow->mutable_auth_context(), *clientKey);
 
       auto* filter = upstream->add_channel_filters();
       filter->set_name("test_channel_filter");
@@ -823,13 +832,13 @@ TEST_F(ChannelFilterConfigTest, ConfigureChannelFilters_ChannelFilterNotFound) {
   auto [authReq, clientMsg] = BuildUserAuthMessages(*clientKey);
 
   EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(clientMsg), false))
-    .WillOnce([this](Buffer::InstancePtr&, bool) {
+    .WillOnce([this, &clientKey](Buffer::InstancePtr&, bool) {
       auto response = std::make_unique<ServerMessage>();
       auto* allow = response->mutable_auth_response()->mutable_allow();
-      allow->set_username("test");
+      allow->set_login_name("test");
       auto* upstream = allow->mutable_upstream();
       upstream->set_hostname("example");
-      *upstream->add_allowed_methods()->mutable_method() = "publickey";
+      util::populateAuthContext(*allow->mutable_auth_context(), *clientKey);
 
       auto* filter = upstream->add_channel_filters();
       filter->set_name("test_channel_filter");
@@ -1626,13 +1635,11 @@ TEST_F(HijackedModeTest, CancelTcpipForwardRequest) {
 // NOLINTBEGIN(readability-identifier-naming)
 class HandoffTest : public ServerTransportTest {
 public:
-  absl::Status PrepareHandoff() {
+  absl::Status PrepareHandoff(const openssh::SSHKey& client_key) {
     RETURN_IF_NOT_OK(ReadExtInfo());
 
-    auto clientKey = *openssh::SSHKey::generate(KEY_ED25519, 256);
-
     RETURN_IF_NOT_OK(RequestUserAuthService());
-    auto [authReq, clientMsg] = BuildUserAuthMessages(*clientKey);
+    auto [authReq, clientMsg] = BuildUserAuthMessages(client_key);
 
     ExpectHandlePomeriumGrpcAuthRequestHijack(clientMsg);
 
@@ -1679,7 +1686,7 @@ public:
     serve_channel_callbacks_[0]->onReceiveMessage(std::move(channelMsg));
   }
 
-  ChannelMessage BuildHandOffChannelMessage() {
+  ChannelMessage BuildHandOffChannelMessage(const openssh::SSHKey& client_key) {
     ChannelMessage ctrl;
     SSHChannelControlAction action;
     auto* handoff = action.mutable_hand_off();
@@ -1694,10 +1701,11 @@ public:
     ptyInfo->set_height_rows(24);
     ptyInfo->set_width_columns(80);
     auto* allow = handoff->mutable_upstream_auth();
-    allow->set_username("test");
+    allow->set_login_name("test");
     auto* upstream = allow->mutable_upstream();
-    *upstream->mutable_hostname() = "example";
-    *upstream->add_allowed_methods()->mutable_method() = "publickey";
+    upstream->set_hostname("example");
+    util::populateAuthContext(*allow->mutable_auth_context(), client_key);
+
     ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action);
     return ctrl;
   }
@@ -1706,12 +1714,13 @@ public:
 // NOLINTEND(readability-identifier-naming)
 
 TEST_F(HandoffTest, HandoffMode) {
-  ASSERT_OK(PrepareHandoff());
+  auto clientKey = *openssh::SSHKey::generate(KEY_ED25519, 256);
+  ASSERT_OK(PrepareHandoff(*clientKey));
   SendChannelOpenConfirmation();
   ExpectUpstreamConnectEvent();
   EXPECT_CALL(mock_connection_, readDisable(true));
   ExpectDecodingSuccess();
-  ReceiveOnServeChannelStream(BuildHandOffChannelMessage());
+  ReceiveOnServeChannelStream(BuildHandOffChannelMessage(*clientKey));
   serve_channel_callbacks_[0]->onRemoteClose(Envoy::Grpc::Status::Canceled, "handoff");
 
   // any messages sent by the downstream after handoff should be forwarded
@@ -1728,35 +1737,40 @@ TEST_F(HandoffTest, HandoffMode) {
 }
 
 TEST_F(HandoffTest, HandoffMode_Mirror) {
-  ASSERT_OK(PrepareHandoff());
+  auto clientKey = *openssh::SSHKey::generate(KEY_ED25519, 256);
+  ASSERT_OK(PrepareHandoff(*clientKey));
   SendChannelOpenConfirmation();
   ChannelMessage ctrl;
   SSHChannelControlAction action;
   auto* handoff = action.mutable_hand_off();
   auto* allow = handoff->mutable_upstream_auth();
-  allow->set_username("test");
+  allow->set_login_name("test");
   allow->mutable_mirror_session();
+  util::populateAuthContext(*allow->mutable_auth_context(), *clientKey);
   ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action);
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("session mirroring feature not available"));
   ReceiveOnServeChannelStream(ctrl);
 }
 
 TEST_F(HandoffTest, HandoffMode_Internal) {
-  ASSERT_OK(PrepareHandoff());
+  auto clientKey = *openssh::SSHKey::generate(KEY_ED25519, 256);
+  ASSERT_OK(PrepareHandoff(*clientKey));
   SendChannelOpenConfirmation();
   ChannelMessage ctrl;
   SSHChannelControlAction action;
   auto* handoff = action.mutable_hand_off();
   auto* allow = handoff->mutable_upstream_auth();
-  allow->set_username("test");
+  allow->set_login_name("test");
   allow->mutable_internal();
+  util::populateAuthContext(*allow->mutable_auth_context(), *clientKey);
   ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action);
-  EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("received invalid handoff message: unexpected target: 3"));
+  EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("received invalid handoff message: unexpected target: internal"));
   ReceiveOnServeChannelStream(ctrl);
 }
 
 TEST_F(HandoffTest, HandoffMode_StartHandoffBeforeChannelOpenConfirmation) {
-  ASSERT_OK(PrepareHandoff());
+  auto clientKey = *openssh::SSHKey::generate(KEY_ED25519, 256);
+  ASSERT_OK(PrepareHandoff(*clientKey));
   SSHChannelControlAction action;
   action.mutable_hand_off(); // any handoff message should trigger this error, contents don't matter
   ChannelMessage ctrl;
@@ -1766,10 +1780,13 @@ TEST_F(HandoffTest, HandoffMode_StartHandoffBeforeChannelOpenConfirmation) {
 }
 
 TEST_F(HandoffTest, HandoffMode_StartDirectTcpipHandoffBeforeChannelOpenConfirmation) {
-  ASSERT_OK(PrepareHandoff());
+  auto clientKey = *openssh::SSHKey::generate(KEY_ED25519, 256);
+  ASSERT_OK(PrepareHandoff(*clientKey));
   ChannelMessage ctrl;
   SSHChannelControlAction action;
   action.mutable_hand_off()->mutable_upstream_auth()->mutable_upstream()->set_direct_tcpip(true);
+  util::populateAuthContext(*action.mutable_hand_off()->mutable_upstream_auth()->mutable_auth_context(), *clientKey);
+
   auto* downstreamInfo = action.mutable_hand_off()->mutable_downstream_channel_info();
   downstreamInfo->set_downstream_channel_id(1);
   downstreamInfo->set_internal_upstream_channel_id(100);
@@ -1782,21 +1799,26 @@ TEST_F(HandoffTest, HandoffMode_StartDirectTcpipHandoffBeforeChannelOpenConfirma
 }
 
 TEST_F(HandoffTest, HandoffMode_StartDirectTcpipHandoffAfterChannelOpenConfirmation) {
-  ASSERT_OK(PrepareHandoff());
+  auto clientKey = *openssh::SSHKey::generate(KEY_ED25519, 256);
+  ASSERT_OK(PrepareHandoff(*clientKey));
   SendChannelOpenConfirmation();
   ChannelMessage ctrl;
   SSHChannelControlAction action;
   action.mutable_hand_off()->mutable_upstream_auth()->mutable_upstream()->set_direct_tcpip(true);
+  util::populateAuthContext(*action.mutable_hand_off()->mutable_upstream_auth()->mutable_auth_context(), *clientKey);
+
   auto* downstreamInfo = action.mutable_hand_off()->mutable_downstream_channel_info();
   downstreamInfo->set_downstream_channel_id(1);
   downstreamInfo->set_internal_upstream_channel_id(100);
   ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action);
+
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("direct-tcpip handoff requested after channel open confirmation"));
   ReceiveOnServeChannelStream(ctrl);
 }
 
 TEST_F(HandoffTest, HandoffMode_UpstreamConnectionFails) {
-  ASSERT_OK(PrepareHandoff());
+  auto clientKey = *openssh::SSHKey::generate(KEY_ED25519, 256);
+  ASSERT_OK(PrepareHandoff(*clientKey));
   SendChannelOpenConfirmation();
 
   EXPECT_CALL(mock_connection_, readDisable(true));
@@ -1808,22 +1830,24 @@ TEST_F(HandoffTest, HandoffMode_UpstreamConnectionFails) {
       EXPECT_OK(res);
     }));
 
-  ReceiveOnServeChannelStream(BuildHandOffChannelMessage());
+  ReceiveOnServeChannelStream(BuildHandOffChannelMessage(*clientKey));
   serve_channel_callbacks_[0]->onRemoteClose(Envoy::Grpc::Status::Canceled, "handoff");
 }
 
 TEST_F(HandoffTest, HandoffMode_HandoffMsgMissingDownstreamChannelInfo) {
-  ASSERT_OK(PrepareHandoff());
+  auto clientKey = *openssh::SSHKey::generate(KEY_ED25519, 256);
+  ASSERT_OK(PrepareHandoff(*clientKey));
+
   SendChannelOpenConfirmation();
 
   ChannelMessage ctrl;
   SSHChannelControlAction action;
   auto* handoff = action.mutable_hand_off();
   auto* allow = handoff->mutable_upstream_auth();
-  allow->set_username("test");
+  allow->set_login_name("test");
   auto* upstream = allow->mutable_upstream();
   *upstream->mutable_hostname() = "example";
-  *upstream->add_allowed_methods()->mutable_method() = "publickey";
+  util::populateAuthContext(*allow->mutable_auth_context(), *clientKey);
   ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action);
 
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("received invalid handoff message: missing downstream channel info"));
@@ -1844,13 +1868,15 @@ TEST_F(HandoffTest, HandoffMode_ConfigureChannelFilters) {
     });
   SetupChannelFilterManager();
 
-  ASSERT_OK(PrepareHandoff());
+  auto clientKey = *openssh::SSHKey::generate(KEY_ED25519, 256);
+  ASSERT_OK(PrepareHandoff(*clientKey));
+
   SendChannelOpenConfirmation();
   ExpectUpstreamConnectEvent();
   EXPECT_CALL(mock_connection_, readDisable(true));
   ExpectDecodingSuccess();
 
-  auto msg = BuildHandOffChannelMessage();
+  auto msg = BuildHandOffChannelMessage(*clientKey);
   SSHChannelControlAction action;
   msg.mutable_channel_control()->mutable_control_action()->UnpackTo(&action);
   auto* filter = action.mutable_hand_off()->mutable_upstream_auth()->mutable_upstream()->add_channel_filters();
@@ -1882,11 +1908,13 @@ TEST_F(HandoffTest, HandoffMode_ConfigureChannelFiltersError) {
     });
   SetupChannelFilterManager();
 
-  ASSERT_OK(PrepareHandoff());
+  auto clientKey = *openssh::SSHKey::generate(KEY_ED25519, 256);
+  ASSERT_OK(PrepareHandoff(*clientKey));
+
   SendChannelOpenConfirmation();
   // Upstream connect event, readDisable(true), and decoding success should not occur
 
-  auto msg = BuildHandOffChannelMessage();
+  auto msg = BuildHandOffChannelMessage(*clientKey);
   SSHChannelControlAction action;
   msg.mutable_channel_control()->mutable_control_action()->UnpackTo(&action);
   auto* filter = action.mutable_hand_off()->mutable_upstream_auth()->mutable_upstream()->add_channel_filters();
@@ -2172,10 +2200,10 @@ TEST_F(ServerTransportTest, EncodeEffectiveHeaderHandoffComplete) {
   ChannelMessage ctrl;
   SSHChannelControlAction action;
   auto* allow = action.mutable_hand_off()->mutable_upstream_auth();
-  allow->set_username("test");
+  allow->set_login_name("test");
   auto* upstream = allow->mutable_upstream();
   *upstream->mutable_hostname() = "example";
-  *upstream->add_allowed_methods()->mutable_method() = "publickey";
+  util::populateAuthContext(*allow->mutable_auth_context(), *clientKey);
   auto* downstreamInfo = action.mutable_hand_off()->mutable_downstream_channel_info();
   downstreamInfo->set_downstream_channel_id(1);
   downstreamInfo->set_internal_upstream_channel_id(100);

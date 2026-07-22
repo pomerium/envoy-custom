@@ -48,7 +48,7 @@ TEST_F(StreamManagementServiceClientTest, OnReceiveMessage) {
   EXPECT_CALL(stream_, sendMessageRaw_);
 
   ServerMessage msg;
-  *msg.mutable_auth_response()->mutable_allow()->mutable_username() = "bar";
+  msg.mutable_auth_response()->mutable_allow()->set_login_name("bar");
   EXPECT_CALL(handler, handleMessage(testing::Pointee(Envoy::ProtoEq(msg))))
     .WillOnce(Return(absl::OkStatus()));
 
