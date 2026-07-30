@@ -1,0 +1,89 @@
+syntax = "proto3";
+
+package pomerium.x.mirroring;
+
+import "api/extensions/filters/network/ssh/ssh.proto";
+import "envoy/config/core/v3/grpc_service.proto";
+import "validate/validate.proto";
+
+option go_package = "github.com/pomerium/envoy-custom/api/x/mirroring";
+
+service MirroringReceiver {
+  rpc Mirror(stream MirrorRequest) returns (stream MirrorResponse);
+}
+
+message MirrorRequest {
+  oneof request {
+    StreamMetadata metadata = 1;
+    StreamData     data     = 2;
+    StreamEvent    event    = 3;
+  }
+}
+
+message MirrorResponse {
+  oneof response {
+    // ReceiverHello must be the first response received and must be sent by the server immediately
+    // on connect. There is a 5 second timeout between the client starting the stream until the
+    // ReceiverHello is received, or the session will be terminated.
+    ReceiverHello hello = 1;
+
+    PauseRequest  pause  = 2;
+    ResumeRequest resume = 3;
+  }
+}
+
+message ReceiverHello {}
+
+message StreamMetadata {
+  uint64 stream_id = 1;
+  pomerium.extensions.ssh.AllowResponse        auth_info = 2;
+  pomerium.extensions.ssh.SSHDownstreamPTYInfo pty_info  = 3;
+}
+
+message StreamData {
+  bytes raw_data = 1;
+}
+
+message StreamEvent {
+  oneof event {
+    ResizeEvent resize = 1;
+  }
+}
+
+message PauseRequest {
+  bool downstream = 1;
+  bool upstream   = 2;
+}
+
+message ResumeRequest {
+  bool downstream = 1;
+  bool upstream   = 2;
+}
+
+message ResizeEvent {
+  uint32 width_columns = 1;
+  uint32 height_rows   = 2;
+  uint32 width_px      = 3;
+  uint32 height_px     = 4;
+}
+
+message ReceiverServiceConfig {
+  string                           hostname     = 1;
+  envoy.config.core.v3.GrpcService grpc_service = 2;
+}
+
+message ChannelFilterConfig {}
+
+message UpstreamTargetExtensionConfig {
+  envoy.config.core.v3.GrpcService receiver_service = 1;
+
+  message Endpoint {
+    // Endpoint within the selected cluster to connect to
+    string ip   = 1 [(validate.rules).string.ip = true];
+    uint32 port = 2 [(validate.rules).uint32 = {
+      gt: 0,
+      lt: 65536,
+    }];
+  }
+  Endpoint receiver_cluster_endpoint = 2 [(validate.rules).message.required = true];
+}

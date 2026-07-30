@@ -3065,7 +3065,9 @@ func (x *AuthContext) GetAccessRequestMetadata() map[string]string {
 }
 
 type ExtraAuthInfo struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	RouteId   string                 `protobuf:"bytes,1,opt,name=route_id,json=routeId,proto3" json:"route_id,omitempty"`
+	StartTime *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=start_time,json=startTime,proto3" json:"start_time,omitempty"`
 	// Extra session binding info
 	SessionBindingDetails map[string]string `protobuf:"bytes,7,rep,name=session_binding_details,json=sessionBindingDetails,proto3" json:"session_binding_details,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Extra session info
@@ -3103,6 +3105,20 @@ func (x *ExtraAuthInfo) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ExtraAuthInfo.ProtoReflect.Descriptor instead.
 func (*ExtraAuthInfo) Descriptor() ([]byte, []int) {
 	return file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *ExtraAuthInfo) GetRouteId() string {
+	if x != nil {
+		return x.RouteId
+	}
+	return ""
+}
+
+func (x *ExtraAuthInfo) GetStartTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.StartTime
+	}
+	return nil
 }
 
 func (x *ExtraAuthInfo) GetSessionBindingDetails() map[string]string {
@@ -3992,8 +4008,11 @@ const file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_s
 	"\x17access_request_metadata\x18\v \x03(\v2?.pomerium.extensions.ssh.AuthContext.AccessRequestMetadataEntryR\x15accessRequestMetadata\x1aH\n" +
 	"\x1aAccessRequestMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x93\x03\n" +
-	"\rExtraAuthInfo\x12y\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xe9\x03\n" +
+	"\rExtraAuthInfo\x12\x19\n" +
+	"\broute_id\x18\x01 \x01(\tR\arouteId\x129\n" +
+	"\n" +
+	"start_time\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tstartTime\x12y\n" +
 	"\x17session_binding_details\x18\a \x03(\v2A.pomerium.extensions.ssh.ExtraAuthInfo.SessionBindingDetailsEntryR\x15sessionBindingDetails\x12J\n" +
 	"\x06claims\x18\b \x03(\v22.pomerium.extensions.ssh.ExtraAuthInfo.ClaimsEntryR\x06claims\x12\x1a\n" +
 	"\baudience\x18\t \x03(\tR\baudience\x1aH\n" +
@@ -4183,28 +4202,29 @@ var file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh
 	54, // 55: pomerium.extensions.ssh.KeyboardInteractiveInfoPrompts.prompts:type_name -> pomerium.extensions.ssh.KeyboardInteractiveInfoPrompts.Prompt
 	0,  // 56: pomerium.extensions.ssh.AuthContext.access_request_state:type_name -> pomerium.extensions.ssh.AccessRequestState
 	55, // 57: pomerium.extensions.ssh.AuthContext.access_request_metadata:type_name -> pomerium.extensions.ssh.AuthContext.AccessRequestMetadataEntry
-	56, // 58: pomerium.extensions.ssh.ExtraAuthInfo.session_binding_details:type_name -> pomerium.extensions.ssh.ExtraAuthInfo.SessionBindingDetailsEntry
-	57, // 59: pomerium.extensions.ssh.ExtraAuthInfo.claims:type_name -> pomerium.extensions.ssh.ExtraAuthInfo.ClaimsEntry
-	1,  // 60: pomerium.extensions.ssh.FilterMetadata.mode_hint:type_name -> pomerium.extensions.ssh.InternalCLIModeHint
-	45, // 61: pomerium.extensions.ssh.EndpointMetadata.server_port:type_name -> pomerium.extensions.ssh.ServerPort
-	46, // 62: pomerium.extensions.ssh.EndpointMetadata.matched_permission:type_name -> pomerium.extensions.ssh.PortForwardPermission
-	58, // 63: pomerium.extensions.ssh.EndpointMetadata.pomerium_route_info:type_name -> pomerium.extensions.ssh.EndpointMetadata.RouteInfo
-	17, // 64: pomerium.extensions.ssh.ChannelEvent.InternalChannelClosedEvent.stats:type_name -> pomerium.extensions.ssh.ChannelStats
-	15, // 65: pomerium.extensions.ssh.ChannelEvent.InternalChannelClosedEvent.diagnostics:type_name -> pomerium.extensions.ssh.Diagnostic
-	16, // 66: pomerium.extensions.ssh.ChannelEvent.ChannelStatsEvent.stats_list:type_name -> pomerium.extensions.ssh.ChannelStatsList
-	35, // 67: pomerium.extensions.ssh.SSHChannelControlAction.HandOffUpstream.downstream_channel_info:type_name -> pomerium.extensions.ssh.SSHDownstreamChannelInfo
-	36, // 68: pomerium.extensions.ssh.SSHChannelControlAction.HandOffUpstream.downstream_pty_info:type_name -> pomerium.extensions.ssh.SSHDownstreamPTYInfo
-	28, // 69: pomerium.extensions.ssh.SSHChannelControlAction.HandOffUpstream.upstream_auth:type_name -> pomerium.extensions.ssh.AllowResponse
-	71, // 70: pomerium.extensions.ssh.ExtraAuthInfo.ClaimsEntry.value:type_name -> google.protobuf.ListValue
-	10, // 71: pomerium.extensions.ssh.StreamManagement.ManageStream:input_type -> pomerium.extensions.ssh.ClientMessage
-	8,  // 72: pomerium.extensions.ssh.StreamManagement.ServeChannel:input_type -> pomerium.extensions.ssh.ChannelMessage
-	26, // 73: pomerium.extensions.ssh.StreamManagement.ManageStream:output_type -> pomerium.extensions.ssh.ServerMessage
-	8,  // 74: pomerium.extensions.ssh.StreamManagement.ServeChannel:output_type -> pomerium.extensions.ssh.ChannelMessage
-	73, // [73:75] is the sub-list for method output_type
-	71, // [71:73] is the sub-list for method input_type
-	71, // [71:71] is the sub-list for extension type_name
-	71, // [71:71] is the sub-list for extension extendee
-	0,  // [0:71] is the sub-list for field type_name
+	69, // 58: pomerium.extensions.ssh.ExtraAuthInfo.start_time:type_name -> google.protobuf.Timestamp
+	56, // 59: pomerium.extensions.ssh.ExtraAuthInfo.session_binding_details:type_name -> pomerium.extensions.ssh.ExtraAuthInfo.SessionBindingDetailsEntry
+	57, // 60: pomerium.extensions.ssh.ExtraAuthInfo.claims:type_name -> pomerium.extensions.ssh.ExtraAuthInfo.ClaimsEntry
+	1,  // 61: pomerium.extensions.ssh.FilterMetadata.mode_hint:type_name -> pomerium.extensions.ssh.InternalCLIModeHint
+	45, // 62: pomerium.extensions.ssh.EndpointMetadata.server_port:type_name -> pomerium.extensions.ssh.ServerPort
+	46, // 63: pomerium.extensions.ssh.EndpointMetadata.matched_permission:type_name -> pomerium.extensions.ssh.PortForwardPermission
+	58, // 64: pomerium.extensions.ssh.EndpointMetadata.pomerium_route_info:type_name -> pomerium.extensions.ssh.EndpointMetadata.RouteInfo
+	17, // 65: pomerium.extensions.ssh.ChannelEvent.InternalChannelClosedEvent.stats:type_name -> pomerium.extensions.ssh.ChannelStats
+	15, // 66: pomerium.extensions.ssh.ChannelEvent.InternalChannelClosedEvent.diagnostics:type_name -> pomerium.extensions.ssh.Diagnostic
+	16, // 67: pomerium.extensions.ssh.ChannelEvent.ChannelStatsEvent.stats_list:type_name -> pomerium.extensions.ssh.ChannelStatsList
+	35, // 68: pomerium.extensions.ssh.SSHChannelControlAction.HandOffUpstream.downstream_channel_info:type_name -> pomerium.extensions.ssh.SSHDownstreamChannelInfo
+	36, // 69: pomerium.extensions.ssh.SSHChannelControlAction.HandOffUpstream.downstream_pty_info:type_name -> pomerium.extensions.ssh.SSHDownstreamPTYInfo
+	28, // 70: pomerium.extensions.ssh.SSHChannelControlAction.HandOffUpstream.upstream_auth:type_name -> pomerium.extensions.ssh.AllowResponse
+	71, // 71: pomerium.extensions.ssh.ExtraAuthInfo.ClaimsEntry.value:type_name -> google.protobuf.ListValue
+	10, // 72: pomerium.extensions.ssh.StreamManagement.ManageStream:input_type -> pomerium.extensions.ssh.ClientMessage
+	8,  // 73: pomerium.extensions.ssh.StreamManagement.ServeChannel:input_type -> pomerium.extensions.ssh.ChannelMessage
+	26, // 74: pomerium.extensions.ssh.StreamManagement.ManageStream:output_type -> pomerium.extensions.ssh.ServerMessage
+	8,  // 75: pomerium.extensions.ssh.StreamManagement.ServeChannel:output_type -> pomerium.extensions.ssh.ChannelMessage
+	74, // [74:76] is the sub-list for method output_type
+	72, // [72:74] is the sub-list for method input_type
+	72, // [72:72] is the sub-list for extension type_name
+	72, // [72:72] is the sub-list for extension extendee
+	0,  // [0:72] is the sub-list for field type_name
 }
 
 func init() {

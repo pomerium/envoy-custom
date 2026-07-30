@@ -438,6 +438,9 @@ message AuthContext {
 }
 
 message ExtraAuthInfo {
+  string                    route_id   = 1;
+  google.protobuf.Timestamp start_time = 2;
+
   // Extra session binding info
   map<string, string> session_binding_details = 7;
 
