@@ -12,8 +12,8 @@ class ChannelFilterFactory {
 public:
   virtual ~ChannelFilterFactory() = default;
   virtual ProtobufTypes::MessagePtr createEmptyConfigProto() PURE;
-  virtual ChannelFilterPtr createReadFilter(const google::protobuf::Message& config, ChannelFilterCallbacks& channel_callbacks) PURE;
-  virtual ChannelFilterPtr createWriteFilter(const google::protobuf::Message& config, ChannelFilterCallbacks& channel_callbacks) PURE;
+  virtual absl::StatusOr<ChannelFilterPtr> createReadFilter(const google::protobuf::Message& config, ChannelFilterCallbacks& channel_callbacks) PURE;
+  virtual absl::StatusOr<ChannelFilterPtr> createWriteFilter(const google::protobuf::Message& config, ChannelFilterCallbacks& channel_callbacks) PURE;
 };
 using ChannelFilterFactoryPtr = std::unique_ptr<ChannelFilterFactory>;
 
@@ -28,6 +28,7 @@ public:
 };
 
 using ExtensionConfigList = google::protobuf::RepeatedPtrField<envoy::config::core::v3::TypedExtensionConfig>;
+using ChannelFilterPtrVector = std::vector<ChannelFilterPtr>;
 
 class ChannelFilterManager : NonCopyable,
                              public StreamInfo::FilterState::Object {
@@ -39,8 +40,8 @@ public:
   std::vector<std::string> allFilterNames() const;
   absl::Status configureFilters(const ExtensionConfigList& configs);
 
-  std::vector<ChannelFilterPtr> createReadFilters(ChannelFilterCallbacks& channel_callbacks);
-  std::vector<ChannelFilterPtr> createWriteFilters(ChannelFilterCallbacks& channel_callbacks);
+  absl::StatusOr<ChannelFilterPtrVector> createReadFilters(ChannelFilterCallbacks& channel_callbacks);
+  absl::StatusOr<ChannelFilterPtrVector> createWriteFilters(ChannelFilterCallbacks& channel_callbacks);
 
   struct unused_in_this_test {};
   ChannelFilterManager(unused_in_this_test) {}

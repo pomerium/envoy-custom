@@ -49,14 +49,22 @@ absl::StatusOr<uint32_t> ConnectionService::startChannel(std::unique_ptr<Channel
 
   auto callbacks = std::make_unique<ChannelCallbacksImpl>(*this, *channelId, local_peer_);
   if (auto& filterMgr = transport_.channelFilterManager(); filterMgr.numConfiguredFilters() > 0) {
-    std::vector<ChannelFilterPtr> filters;
+    ChannelFilterPtrVector filters;
     switch (local_peer_) {
-    case Downstream:
-      filters = filterMgr.createReadFilters(*callbacks);
-      break;
-    case Upstream:
-      filters = filterMgr.createWriteFilters(*callbacks);
-      break;
+    case Downstream: {
+      auto f = filterMgr.createReadFilters(*callbacks);
+      if (!f.ok()) {
+        return f.status();
+      }
+      filters = std::move(f).value();
+    } break;
+    case Upstream: {
+      auto f = filterMgr.createWriteFilters(*callbacks);
+      if (!f.ok()) {
+        return f.status();
+      }
+      filters = std::move(f).value();
+    } break;
     }
     if (!filters.empty()) {
       callbacks->setChannelFilters(std::move(filters));
@@ -87,7 +95,7 @@ absl::StatusOr<uint32_t> ConnectionService::startChannel(std::unique_ptr<Channel
         transport_.channelIdManager().releaseChannelID(*channelId,
                                                        local_peer_ == Downstream ? Upstream : Downstream);
       }
-      return stat;
+      return statusf("error opening channel: {}", stat);
     }
   }
 
@@ -384,7 +392,10 @@ absl::Status ConnectionService::ChannelCallbacksImpl::sendMessageRemote(wire::Me
   }
 
   for (auto& filter : filters_) {
-    filter->onMessageForward(std::as_const(msg));
+    auto stat = filter->onMessageForward(std::as_const(msg));
+    if (!stat.ok()) [[unlikely]] {
+      return stat;
+    }
   }
 
   ENVOY_LOG(trace, "sending messsage to remote channel {}: {}", channel_id_, msg.msg_type());

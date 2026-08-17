@@ -18,7 +18,7 @@ enum Direction {
 
 using on_channel_filter_created_fn_t = testing::StrictMock<testing::MockFunction<void(uint32_t, uint32_t, std::string, Direction)>>;
 using on_channel_filter_factory_created_fn_t = testing::StrictMock<testing::MockFunction<void(uint32_t)>>;
-using on_message_forward_fn_t = testing::StrictMock<testing::MockFunction<void(uint32_t, uint32_t, std::string, Direction, const wire::Message&)>>;
+using on_message_forward_fn_t = testing::StrictMock<testing::MockFunction<absl::Status(uint32_t, uint32_t, std::string, Direction, const wire::Message&)>>;
 
 static Envoy::OptRef<on_channel_filter_created_fn_t> on_channel_filter_created;
 static Envoy::OptRef<on_channel_filter_factory_created_fn_t> on_channel_filter_factory_created;
@@ -34,8 +34,8 @@ public:
     on_channel_filter_created->Call(instance_num_, filter_instance_num_, name_, direction_);
   }
 
-  void onMessageForward(const wire::Message& msg) override {
-    on_message_forward->Call(instance_num_, filter_instance_num_, name_, direction_, msg);
+  absl::Status onMessageForward(const wire::Message& msg) override {
+    return on_message_forward->Call(instance_num_, filter_instance_num_, name_, direction_, msg);
   }
 
 private:
@@ -56,8 +56,8 @@ public:
     return std::make_unique<Protobuf::StringValue>();
   }
 
-  Codec::ChannelFilterPtr createReadFilter(const google::protobuf::Message& config,
-                                           Codec::ChannelFilterCallbacks& channel_callbacks) override {
+  absl::StatusOr<Codec::ChannelFilterPtr> createReadFilter(const google::protobuf::Message& config,
+                                                           Codec::ChannelFilterCallbacks& channel_callbacks) override {
     EXPECT_EQ(config.GetTypeName(), "google.protobuf.StringValue");
     (void)channel_callbacks;
     return std::make_unique<TestChannelFilter>(instance_num_,
@@ -66,8 +66,8 @@ public:
                                                Read);
   }
 
-  Codec::ChannelFilterPtr createWriteFilter(const google::protobuf::Message& config,
-                                            Codec::ChannelFilterCallbacks& channel_callbacks) override {
+  absl::StatusOr<Codec::ChannelFilterPtr> createWriteFilter(const google::protobuf::Message& config,
+                                                            Codec::ChannelFilterCallbacks& channel_callbacks) override {
     EXPECT_EQ(config.GetTypeName(), "google.protobuf.StringValue");
     (void)channel_callbacks;
     return std::make_unique<TestChannelFilter>(instance_num_,
