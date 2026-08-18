@@ -386,7 +386,9 @@ public:
   }
 
   void connectionReadDisable(bool disable) override {
-    callbacks_->connection()->readDisable(disable);
+    if (auto conn = callbacks_->connection(); conn.has_value()) {
+      conn->readDisable(disable);
+    }
   }
 
   const bytes& sessionId() const final { return kex_result_->session_id; }
