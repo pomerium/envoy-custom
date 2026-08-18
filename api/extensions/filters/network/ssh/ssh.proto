@@ -433,7 +433,8 @@ message AuthContext {
   string session_binding_id = 6;
 
   // Two person approval
-  AccessRequestState access_request_state = 10;
+  AccessRequestState  access_request_state    = 10;
+  map<string, string> access_request_metadata = 11;
 }
 
 message ExtraAuthInfo {
