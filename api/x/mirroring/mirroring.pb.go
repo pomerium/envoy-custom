@@ -9,9 +9,9 @@ package mirroring
 import (
 	v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	_ "github.com/envoyproxy/protoc-gen-validate/validate"
-	ssh "github.com/pomerium/envoy-custom/api/extensions/filters/network/ssh"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -24,32 +24,32 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type MirrorRequest struct {
+type ClientMessage struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Types that are valid to be assigned to Request:
+	// Types that are valid to be assigned to Msg:
 	//
-	//	*MirrorRequest_Metadata
-	//	*MirrorRequest_Data
-	//	*MirrorRequest_Event
-	Request       isMirrorRequest_Request `protobuf_oneof:"request"`
+	//	*ClientMessage_Hello
+	//	*ClientMessage_Data
+	//	*ClientMessage_Event
+	Msg           isClientMessage_Msg `protobuf_oneof:"msg"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *MirrorRequest) Reset() {
-	*x = MirrorRequest{}
+func (x *ClientMessage) Reset() {
+	*x = ClientMessage{}
 	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *MirrorRequest) String() string {
+func (x *ClientMessage) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*MirrorRequest) ProtoMessage() {}
+func (*ClientMessage) ProtoMessage() {}
 
-func (x *MirrorRequest) ProtoReflect() protoreflect.Message {
+func (x *ClientMessage) ProtoReflect() protoreflect.Message {
 	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -61,188 +61,194 @@ func (x *MirrorRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use MirrorRequest.ProtoReflect.Descriptor instead.
-func (*MirrorRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use ClientMessage.ProtoReflect.Descriptor instead.
+func (*ClientMessage) Descriptor() ([]byte, []int) {
 	return file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *MirrorRequest) GetRequest() isMirrorRequest_Request {
+func (x *ClientMessage) GetMsg() isClientMessage_Msg {
 	if x != nil {
-		return x.Request
+		return x.Msg
 	}
 	return nil
 }
 
-func (x *MirrorRequest) GetMetadata() *StreamMetadata {
+func (x *ClientMessage) GetHello() *ClientHello {
 	if x != nil {
-		if x, ok := x.Request.(*MirrorRequest_Metadata); ok {
-			return x.Metadata
-		}
-	}
-	return nil
-}
-
-func (x *MirrorRequest) GetData() *StreamData {
-	if x != nil {
-		if x, ok := x.Request.(*MirrorRequest_Data); ok {
-			return x.Data
-		}
-	}
-	return nil
-}
-
-func (x *MirrorRequest) GetEvent() *StreamEvent {
-	if x != nil {
-		if x, ok := x.Request.(*MirrorRequest_Event); ok {
-			return x.Event
-		}
-	}
-	return nil
-}
-
-type isMirrorRequest_Request interface {
-	isMirrorRequest_Request()
-}
-
-type MirrorRequest_Metadata struct {
-	Metadata *StreamMetadata `protobuf:"bytes,1,opt,name=metadata,proto3,oneof"`
-}
-
-type MirrorRequest_Data struct {
-	Data *StreamData `protobuf:"bytes,2,opt,name=data,proto3,oneof"`
-}
-
-type MirrorRequest_Event struct {
-	Event *StreamEvent `protobuf:"bytes,3,opt,name=event,proto3,oneof"`
-}
-
-func (*MirrorRequest_Metadata) isMirrorRequest_Request() {}
-
-func (*MirrorRequest_Data) isMirrorRequest_Request() {}
-
-func (*MirrorRequest_Event) isMirrorRequest_Request() {}
-
-type MirrorResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Types that are valid to be assigned to Response:
-	//
-	//	*MirrorResponse_Hello
-	//	*MirrorResponse_Pause
-	//	*MirrorResponse_Resume
-	Response      isMirrorResponse_Response `protobuf_oneof:"response"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *MirrorResponse) Reset() {
-	*x = MirrorResponse{}
-	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *MirrorResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*MirrorResponse) ProtoMessage() {}
-
-func (x *MirrorResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[1]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use MirrorResponse.ProtoReflect.Descriptor instead.
-func (*MirrorResponse) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *MirrorResponse) GetResponse() isMirrorResponse_Response {
-	if x != nil {
-		return x.Response
-	}
-	return nil
-}
-
-func (x *MirrorResponse) GetHello() *ReceiverHello {
-	if x != nil {
-		if x, ok := x.Response.(*MirrorResponse_Hello); ok {
+		if x, ok := x.Msg.(*ClientMessage_Hello); ok {
 			return x.Hello
 		}
 	}
 	return nil
 }
 
-func (x *MirrorResponse) GetPause() *PauseRequest {
+func (x *ClientMessage) GetData() *StreamData {
 	if x != nil {
-		if x, ok := x.Response.(*MirrorResponse_Pause); ok {
+		if x, ok := x.Msg.(*ClientMessage_Data); ok {
+			return x.Data
+		}
+	}
+	return nil
+}
+
+func (x *ClientMessage) GetEvent() *StreamEvent {
+	if x != nil {
+		if x, ok := x.Msg.(*ClientMessage_Event); ok {
+			return x.Event
+		}
+	}
+	return nil
+}
+
+type isClientMessage_Msg interface {
+	isClientMessage_Msg()
+}
+
+type ClientMessage_Hello struct {
+	// ClientHello must be the first message sent on the stream immediately after it begins.
+	Hello *ClientHello `protobuf:"bytes,1,opt,name=hello,proto3,oneof"`
+}
+
+type ClientMessage_Data struct {
+	Data *StreamData `protobuf:"bytes,2,opt,name=data,proto3,oneof"`
+}
+
+type ClientMessage_Event struct {
+	Event *StreamEvent `protobuf:"bytes,3,opt,name=event,proto3,oneof"`
+}
+
+func (*ClientMessage_Hello) isClientMessage_Msg() {}
+
+func (*ClientMessage_Data) isClientMessage_Msg() {}
+
+func (*ClientMessage_Event) isClientMessage_Msg() {}
+
+type ServerMessage struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Msg:
+	//
+	//	*ServerMessage_Hello
+	//	*ServerMessage_Pause
+	//	*ServerMessage_Resume
+	Msg           isServerMessage_Msg `protobuf_oneof:"msg"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ServerMessage) Reset() {
+	*x = ServerMessage{}
+	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ServerMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ServerMessage) ProtoMessage() {}
+
+func (x *ServerMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ServerMessage.ProtoReflect.Descriptor instead.
+func (*ServerMessage) Descriptor() ([]byte, []int) {
+	return file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *ServerMessage) GetMsg() isServerMessage_Msg {
+	if x != nil {
+		return x.Msg
+	}
+	return nil
+}
+
+func (x *ServerMessage) GetHello() *ServerHello {
+	if x != nil {
+		if x, ok := x.Msg.(*ServerMessage_Hello); ok {
+			return x.Hello
+		}
+	}
+	return nil
+}
+
+func (x *ServerMessage) GetPause() *PauseRequest {
+	if x != nil {
+		if x, ok := x.Msg.(*ServerMessage_Pause); ok {
 			return x.Pause
 		}
 	}
 	return nil
 }
 
-func (x *MirrorResponse) GetResume() *ResumeRequest {
+func (x *ServerMessage) GetResume() *ResumeRequest {
 	if x != nil {
-		if x, ok := x.Response.(*MirrorResponse_Resume); ok {
+		if x, ok := x.Msg.(*ServerMessage_Resume); ok {
 			return x.Resume
 		}
 	}
 	return nil
 }
 
-type isMirrorResponse_Response interface {
-	isMirrorResponse_Response()
+type isServerMessage_Msg interface {
+	isServerMessage_Msg()
 }
 
-type MirrorResponse_Hello struct {
-	// ReceiverHello must be the first response received and must be sent by the server immediately
+type ServerMessage_Hello struct {
+	// ServerHello must be the first response received and must be sent by the server immediately
 	// on connect. There is a 5 second timeout between the client starting the stream until the
-	// ReceiverHello is received, or the session will be terminated.
-	Hello *ReceiverHello `protobuf:"bytes,1,opt,name=hello,proto3,oneof"`
+	// ServerHello is received, or the session will be terminated.
+	Hello *ServerHello `protobuf:"bytes,1,opt,name=hello,proto3,oneof"`
 }
 
-type MirrorResponse_Pause struct {
+type ServerMessage_Pause struct {
 	Pause *PauseRequest `protobuf:"bytes,2,opt,name=pause,proto3,oneof"`
 }
 
-type MirrorResponse_Resume struct {
+type ServerMessage_Resume struct {
 	Resume *ResumeRequest `protobuf:"bytes,3,opt,name=resume,proto3,oneof"`
 }
 
-func (*MirrorResponse_Hello) isMirrorResponse_Response() {}
+func (*ServerMessage_Hello) isServerMessage_Msg() {}
 
-func (*MirrorResponse_Pause) isMirrorResponse_Response() {}
+func (*ServerMessage_Pause) isServerMessage_Msg() {}
 
-func (*MirrorResponse_Resume) isMirrorResponse_Response() {}
+func (*ServerMessage_Resume) isServerMessage_Msg() {}
 
-type ReceiverHello struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+type ClientHello struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Client's API version. Starts at 1 and should be incremented if new features are added that
+	// would require the client to know if the server supports them.
+	ApiVersion    uint32          `protobuf:"varint,1,opt,name=api_version,json=apiVersion,proto3" json:"api_version,omitempty"`
+	EnvoyVersion  string          `protobuf:"bytes,2,opt,name=envoy_version,json=envoyVersion,proto3" json:"envoy_version,omitempty"` // opaque version string for logging/display purposes
+	Metadata      *StreamMetadata `protobuf:"bytes,3,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ReceiverHello) Reset() {
-	*x = ReceiverHello{}
+func (x *ClientHello) Reset() {
+	*x = ClientHello{}
 	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ReceiverHello) String() string {
+func (x *ClientHello) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ReceiverHello) ProtoMessage() {}
+func (*ClientHello) ProtoMessage() {}
 
-func (x *ReceiverHello) ProtoReflect() protoreflect.Message {
+func (x *ClientHello) ProtoReflect() protoreflect.Message {
 	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -254,23 +260,126 @@ func (x *ReceiverHello) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ReceiverHello.ProtoReflect.Descriptor instead.
-func (*ReceiverHello) Descriptor() ([]byte, []int) {
+// Deprecated: Use ClientHello.ProtoReflect.Descriptor instead.
+func (*ClientHello) Descriptor() ([]byte, []int) {
 	return file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDescGZIP(), []int{2}
 }
 
-type StreamMetadata struct {
-	state         protoimpl.MessageState    `protogen:"open.v1"`
-	StreamId      uint64                    `protobuf:"varint,1,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
-	AuthInfo      *ssh.AllowResponse        `protobuf:"bytes,2,opt,name=auth_info,json=authInfo,proto3" json:"auth_info,omitempty"`
-	PtyInfo       *ssh.SSHDownstreamPTYInfo `protobuf:"bytes,3,opt,name=pty_info,json=ptyInfo,proto3" json:"pty_info,omitempty"`
+func (x *ClientHello) GetApiVersion() uint32 {
+	if x != nil {
+		return x.ApiVersion
+	}
+	return 0
+}
+
+func (x *ClientHello) GetEnvoyVersion() string {
+	if x != nil {
+		return x.EnvoyVersion
+	}
+	return ""
+}
+
+func (x *ClientHello) GetMetadata() *StreamMetadata {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
+}
+
+type ServerHello struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Server's API version. Must be <= client's version.
+	ApiVersion      uint32 `protobuf:"varint,1,opt,name=api_version,json=apiVersion,proto3" json:"api_version,omitempty"`
+	ReceiverVersion string `protobuf:"bytes,2,opt,name=receiver_version,json=receiverVersion,proto3" json:"receiver_version,omitempty"` // opaque version string for logging/display purposes
+	// If true, the client should not resume the connection after receiving this message. The default
+	// behavior is to pause both sides of the connection until the ServerHello is received, but the
+	// server may choose to extend this pause. If so, the server must send a ResumeRequest manually.
+	NoAutoResume  bool `protobuf:"varint,3,opt,name=no_auto_resume,json=noAutoResume,proto3" json:"no_auto_resume,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
+func (x *ServerHello) Reset() {
+	*x = ServerHello{}
+	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ServerHello) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ServerHello) ProtoMessage() {}
+
+func (x *ServerHello) ProtoReflect() protoreflect.Message {
+	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ServerHello.ProtoReflect.Descriptor instead.
+func (*ServerHello) Descriptor() ([]byte, []int) {
+	return file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ServerHello) GetApiVersion() uint32 {
+	if x != nil {
+		return x.ApiVersion
+	}
+	return 0
+}
+
+func (x *ServerHello) GetReceiverVersion() string {
+	if x != nil {
+		return x.ReceiverVersion
+	}
+	return ""
+}
+
+func (x *ServerHello) GetNoAutoResume() bool {
+	if x != nil {
+		return x.NoAutoResume
+	}
+	return false
+}
+
+type StreamMetadata struct {
+	state                      protoimpl.MessageState `protogen:"open.v1"`
+	RouteId                    string                 `protobuf:"bytes,1,opt,name=route_id,json=routeId,proto3" json:"route_id,omitempty"`
+	StartTime                  *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=start_time,json=startTime,proto3" json:"start_time,omitempty"`
+	StreamId                   uint64                 `protobuf:"varint,3,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
+	LoginName                  string                 `protobuf:"bytes,4,opt,name=login_name,json=loginName,proto3" json:"login_name,omitempty"`
+	PublicKeyAlg               string                 `protobuf:"bytes,5,opt,name=public_key_alg,json=publicKeyAlg,proto3" json:"public_key_alg,omitempty"`
+	PublicKeyFingerprintSha256 []byte                 `protobuf:"bytes,6,opt,name=public_key_fingerprint_sha256,json=publicKeyFingerprintSha256,proto3" json:"public_key_fingerprint_sha256,omitempty"`
+	SessionId                  string                 `protobuf:"bytes,7,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	UserId                     string                 `protobuf:"bytes,8,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	SessionBindingId           string                 `protobuf:"bytes,9,opt,name=session_binding_id,json=sessionBindingId,proto3" json:"session_binding_id,omitempty"`
+	AccessRequestMetadata      map[string]string      `protobuf:"bytes,10,rep,name=access_request_metadata,json=accessRequestMetadata,proto3" json:"access_request_metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	RequestType                string                 `protobuf:"bytes,11,opt,name=request_type,json=requestType,proto3" json:"request_type,omitempty"` // "shell" or "exec"
+	ExecCommand                string                 `protobuf:"bytes,12,opt,name=exec_command,json=execCommand,proto3" json:"exec_command,omitempty"` // if request_type is "exec"
+	HasPty                     bool                   `protobuf:"varint,13,opt,name=has_pty,json=hasPty,proto3" json:"has_pty,omitempty"`
+	TermEnv                    string                 `protobuf:"bytes,14,opt,name=term_env,json=termEnv,proto3" json:"term_env,omitempty"`
+	WidthColumns               uint32                 `protobuf:"varint,15,opt,name=width_columns,json=widthColumns,proto3" json:"width_columns,omitempty"`
+	HeightRows                 uint32                 `protobuf:"varint,16,opt,name=height_rows,json=heightRows,proto3" json:"height_rows,omitempty"`
+	WidthPx                    uint32                 `protobuf:"varint,17,opt,name=width_px,json=widthPx,proto3" json:"width_px,omitempty"`
+	HeightPx                   uint32                 `protobuf:"varint,18,opt,name=height_px,json=heightPx,proto3" json:"height_px,omitempty"`
+	TermModes                  []byte                 `protobuf:"bytes,19,opt,name=term_modes,json=termModes,proto3" json:"term_modes,omitempty"`
+	DownstreamPaused           bool                   `protobuf:"varint,20,opt,name=downstream_paused,json=downstreamPaused,proto3" json:"downstream_paused,omitempty"`
+	UpstreamPaused             bool                   `protobuf:"varint,21,opt,name=upstream_paused,json=upstreamPaused,proto3" json:"upstream_paused,omitempty"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
+}
+
 func (x *StreamMetadata) Reset() {
 	*x = StreamMetadata{}
-	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[3]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -282,7 +391,7 @@ func (x *StreamMetadata) String() string {
 func (*StreamMetadata) ProtoMessage() {}
 
 func (x *StreamMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[3]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -295,7 +404,21 @@ func (x *StreamMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamMetadata.ProtoReflect.Descriptor instead.
 func (*StreamMetadata) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDescGZIP(), []int{3}
+	return file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *StreamMetadata) GetRouteId() string {
+	if x != nil {
+		return x.RouteId
+	}
+	return ""
+}
+
+func (x *StreamMetadata) GetStartTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.StartTime
+	}
+	return nil
 }
 
 func (x *StreamMetadata) GetStreamId() uint64 {
@@ -305,18 +428,130 @@ func (x *StreamMetadata) GetStreamId() uint64 {
 	return 0
 }
 
-func (x *StreamMetadata) GetAuthInfo() *ssh.AllowResponse {
+func (x *StreamMetadata) GetLoginName() string {
 	if x != nil {
-		return x.AuthInfo
+		return x.LoginName
+	}
+	return ""
+}
+
+func (x *StreamMetadata) GetPublicKeyAlg() string {
+	if x != nil {
+		return x.PublicKeyAlg
+	}
+	return ""
+}
+
+func (x *StreamMetadata) GetPublicKeyFingerprintSha256() []byte {
+	if x != nil {
+		return x.PublicKeyFingerprintSha256
 	}
 	return nil
 }
 
-func (x *StreamMetadata) GetPtyInfo() *ssh.SSHDownstreamPTYInfo {
+func (x *StreamMetadata) GetSessionId() string {
 	if x != nil {
-		return x.PtyInfo
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *StreamMetadata) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *StreamMetadata) GetSessionBindingId() string {
+	if x != nil {
+		return x.SessionBindingId
+	}
+	return ""
+}
+
+func (x *StreamMetadata) GetAccessRequestMetadata() map[string]string {
+	if x != nil {
+		return x.AccessRequestMetadata
 	}
 	return nil
+}
+
+func (x *StreamMetadata) GetRequestType() string {
+	if x != nil {
+		return x.RequestType
+	}
+	return ""
+}
+
+func (x *StreamMetadata) GetExecCommand() string {
+	if x != nil {
+		return x.ExecCommand
+	}
+	return ""
+}
+
+func (x *StreamMetadata) GetHasPty() bool {
+	if x != nil {
+		return x.HasPty
+	}
+	return false
+}
+
+func (x *StreamMetadata) GetTermEnv() string {
+	if x != nil {
+		return x.TermEnv
+	}
+	return ""
+}
+
+func (x *StreamMetadata) GetWidthColumns() uint32 {
+	if x != nil {
+		return x.WidthColumns
+	}
+	return 0
+}
+
+func (x *StreamMetadata) GetHeightRows() uint32 {
+	if x != nil {
+		return x.HeightRows
+	}
+	return 0
+}
+
+func (x *StreamMetadata) GetWidthPx() uint32 {
+	if x != nil {
+		return x.WidthPx
+	}
+	return 0
+}
+
+func (x *StreamMetadata) GetHeightPx() uint32 {
+	if x != nil {
+		return x.HeightPx
+	}
+	return 0
+}
+
+func (x *StreamMetadata) GetTermModes() []byte {
+	if x != nil {
+		return x.TermModes
+	}
+	return nil
+}
+
+func (x *StreamMetadata) GetDownstreamPaused() bool {
+	if x != nil {
+		return x.DownstreamPaused
+	}
+	return false
+}
+
+func (x *StreamMetadata) GetUpstreamPaused() bool {
+	if x != nil {
+		return x.UpstreamPaused
+	}
+	return false
 }
 
 type StreamData struct {
@@ -328,7 +563,7 @@ type StreamData struct {
 
 func (x *StreamData) Reset() {
 	*x = StreamData{}
-	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[4]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -340,7 +575,7 @@ func (x *StreamData) String() string {
 func (*StreamData) ProtoMessage() {}
 
 func (x *StreamData) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[4]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -353,7 +588,7 @@ func (x *StreamData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamData.ProtoReflect.Descriptor instead.
 func (*StreamData) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDescGZIP(), []int{4}
+	return file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *StreamData) GetRawData() []byte {
@@ -375,7 +610,7 @@ type StreamEvent struct {
 
 func (x *StreamEvent) Reset() {
 	*x = StreamEvent{}
-	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[5]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -387,7 +622,7 @@ func (x *StreamEvent) String() string {
 func (*StreamEvent) ProtoMessage() {}
 
 func (x *StreamEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[5]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -400,7 +635,7 @@ func (x *StreamEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamEvent.ProtoReflect.Descriptor instead.
 func (*StreamEvent) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDescGZIP(), []int{5}
+	return file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *StreamEvent) GetEvent() isStreamEvent_Event {
@@ -430,16 +665,18 @@ type StreamEvent_Resize struct {
 func (*StreamEvent_Resize) isStreamEvent_Event() {}
 
 type PauseRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Downstream    bool                   `protobuf:"varint,1,opt,name=downstream,proto3" json:"downstream,omitempty"`
-	Upstream      bool                   `protobuf:"varint,2,opt,name=upstream,proto3" json:"upstream,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Whether to pause the downstream half of the connection
+	Downstream bool `protobuf:"varint,1,opt,name=downstream,proto3" json:"downstream,omitempty"`
+	// Whether to pause the upstream half of the connection
+	Upstream      bool `protobuf:"varint,2,opt,name=upstream,proto3" json:"upstream,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PauseRequest) Reset() {
 	*x = PauseRequest{}
-	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[6]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -451,7 +688,7 @@ func (x *PauseRequest) String() string {
 func (*PauseRequest) ProtoMessage() {}
 
 func (x *PauseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[6]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -464,7 +701,7 @@ func (x *PauseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PauseRequest.ProtoReflect.Descriptor instead.
 func (*PauseRequest) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDescGZIP(), []int{6}
+	return file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *PauseRequest) GetDownstream() bool {
@@ -482,16 +719,18 @@ func (x *PauseRequest) GetUpstream() bool {
 }
 
 type ResumeRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Downstream    bool                   `protobuf:"varint,1,opt,name=downstream,proto3" json:"downstream,omitempty"`
-	Upstream      bool                   `protobuf:"varint,2,opt,name=upstream,proto3" json:"upstream,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Whether to resume the downstream half of the connection
+	Downstream bool `protobuf:"varint,1,opt,name=downstream,proto3" json:"downstream,omitempty"`
+	// Whether to resume the upstream half of the connection
+	Upstream      bool `protobuf:"varint,2,opt,name=upstream,proto3" json:"upstream,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ResumeRequest) Reset() {
 	*x = ResumeRequest{}
-	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[7]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -503,7 +742,7 @@ func (x *ResumeRequest) String() string {
 func (*ResumeRequest) ProtoMessage() {}
 
 func (x *ResumeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[7]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -516,7 +755,7 @@ func (x *ResumeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResumeRequest.ProtoReflect.Descriptor instead.
 func (*ResumeRequest) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDescGZIP(), []int{7}
+	return file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ResumeRequest) GetDownstream() bool {
@@ -545,7 +784,7 @@ type ResizeEvent struct {
 
 func (x *ResizeEvent) Reset() {
 	*x = ResizeEvent{}
-	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[8]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -557,7 +796,7 @@ func (x *ResizeEvent) String() string {
 func (*ResizeEvent) ProtoMessage() {}
 
 func (x *ResizeEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[8]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -570,7 +809,7 @@ func (x *ResizeEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResizeEvent.ProtoReflect.Descriptor instead.
 func (*ResizeEvent) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDescGZIP(), []int{8}
+	return file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ResizeEvent) GetWidthColumns() uint32 {
@@ -601,6 +840,7 @@ func (x *ResizeEvent) GetHeightPx() uint32 {
 	return 0
 }
 
+// This message is exempt from compatibility requirements.
 type ReceiverServiceConfig struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Hostname      string                 `protobuf:"bytes,1,opt,name=hostname,proto3" json:"hostname,omitempty"`
@@ -611,7 +851,7 @@ type ReceiverServiceConfig struct {
 
 func (x *ReceiverServiceConfig) Reset() {
 	*x = ReceiverServiceConfig{}
-	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[9]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -623,7 +863,7 @@ func (x *ReceiverServiceConfig) String() string {
 func (*ReceiverServiceConfig) ProtoMessage() {}
 
 func (x *ReceiverServiceConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[9]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -636,7 +876,7 @@ func (x *ReceiverServiceConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReceiverServiceConfig.ProtoReflect.Descriptor instead.
 func (*ReceiverServiceConfig) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDescGZIP(), []int{9}
+	return file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ReceiverServiceConfig) GetHostname() string {
@@ -653,6 +893,7 @@ func (x *ReceiverServiceConfig) GetGrpcService() *v3.GrpcService {
 	return nil
 }
 
+// This message is exempt from compatibility requirements.
 type ChannelFilterConfig struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -661,7 +902,7 @@ type ChannelFilterConfig struct {
 
 func (x *ChannelFilterConfig) Reset() {
 	*x = ChannelFilterConfig{}
-	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[10]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -673,7 +914,7 @@ func (x *ChannelFilterConfig) String() string {
 func (*ChannelFilterConfig) ProtoMessage() {}
 
 func (x *ChannelFilterConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[10]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -686,9 +927,10 @@ func (x *ChannelFilterConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChannelFilterConfig.ProtoReflect.Descriptor instead.
 func (*ChannelFilterConfig) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDescGZIP(), []int{10}
+	return file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDescGZIP(), []int{11}
 }
 
+// This message is exempt from compatibility requirements.
 type UpstreamTargetExtensionConfig struct {
 	state                   protoimpl.MessageState                  `protogen:"open.v1"`
 	ReceiverService         *v3.GrpcService                         `protobuf:"bytes,1,opt,name=receiver_service,json=receiverService,proto3" json:"receiver_service,omitempty"`
@@ -699,7 +941,7 @@ type UpstreamTargetExtensionConfig struct {
 
 func (x *UpstreamTargetExtensionConfig) Reset() {
 	*x = UpstreamTargetExtensionConfig{}
-	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[11]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -711,7 +953,7 @@ func (x *UpstreamTargetExtensionConfig) String() string {
 func (*UpstreamTargetExtensionConfig) ProtoMessage() {}
 
 func (x *UpstreamTargetExtensionConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[11]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -724,7 +966,7 @@ func (x *UpstreamTargetExtensionConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpstreamTargetExtensionConfig.ProtoReflect.Descriptor instead.
 func (*UpstreamTargetExtensionConfig) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDescGZIP(), []int{11}
+	return file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *UpstreamTargetExtensionConfig) GetReceiverService() *v3.GrpcService {
@@ -752,7 +994,7 @@ type UpstreamTargetExtensionConfig_Endpoint struct {
 
 func (x *UpstreamTargetExtensionConfig_Endpoint) Reset() {
 	*x = UpstreamTargetExtensionConfig_Endpoint{}
-	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[12]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -764,7 +1006,7 @@ func (x *UpstreamTargetExtensionConfig_Endpoint) String() string {
 func (*UpstreamTargetExtensionConfig_Endpoint) ProtoMessage() {}
 
 func (x *UpstreamTargetExtensionConfig_Endpoint) ProtoReflect() protoreflect.Message {
-	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[12]
+	mi := &file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -777,7 +1019,7 @@ func (x *UpstreamTargetExtensionConfig_Endpoint) ProtoReflect() protoreflect.Mes
 
 // Deprecated: Use UpstreamTargetExtensionConfig_Endpoint.ProtoReflect.Descriptor instead.
 func (*UpstreamTargetExtensionConfig_Endpoint) Descriptor() ([]byte, []int) {
-	return file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDescGZIP(), []int{11, 0}
+	return file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDescGZIP(), []int{12, 0}
 }
 
 func (x *UpstreamTargetExtensionConfig_Endpoint) GetIp() string {
@@ -798,23 +1040,58 @@ var File_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto protor
 
 const file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDesc = "" +
 	"\n" +
-	"@github.com/pomerium/envoy-custom/api/x/mirroring/mirroring.proto\x12\x14pomerium.x.mirroring\x1aMgithub.com/pomerium/envoy-custom/api/extensions/filters/network/ssh/ssh.proto\x1a'envoy/config/core/v3/grpc_service.proto\x1aAgithub.com/envoyproxy/protoc-gen-validate/validate/validate.proto\"\xd1\x01\n" +
-	"\rMirrorRequest\x12B\n" +
-	"\bmetadata\x18\x01 \x01(\v2$.pomerium.x.mirroring.StreamMetadataH\x00R\bmetadata\x126\n" +
+	"@github.com/pomerium/envoy-custom/api/x/mirroring/mirroring.proto\x12\x14pomerium.x.mirroring\x1a'envoy/config/core/v3/grpc_service.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1aAgithub.com/envoyproxy/protoc-gen-validate/validate/validate.proto\"\xc4\x01\n" +
+	"\rClientMessage\x129\n" +
+	"\x05hello\x18\x01 \x01(\v2!.pomerium.x.mirroring.ClientHelloH\x00R\x05hello\x126\n" +
 	"\x04data\x18\x02 \x01(\v2 .pomerium.x.mirroring.StreamDataH\x00R\x04data\x129\n" +
-	"\x05event\x18\x03 \x01(\v2!.pomerium.x.mirroring.StreamEventH\x00R\x05eventB\t\n" +
-	"\arequest\"\xd4\x01\n" +
-	"\x0eMirrorResponse\x12;\n" +
-	"\x05hello\x18\x01 \x01(\v2#.pomerium.x.mirroring.ReceiverHelloH\x00R\x05hello\x12:\n" +
+	"\x05event\x18\x03 \x01(\v2!.pomerium.x.mirroring.StreamEventH\x00R\x05eventB\x05\n" +
+	"\x03msg\"\xcc\x01\n" +
+	"\rServerMessage\x129\n" +
+	"\x05hello\x18\x01 \x01(\v2!.pomerium.x.mirroring.ServerHelloH\x00R\x05hello\x12:\n" +
 	"\x05pause\x18\x02 \x01(\v2\".pomerium.x.mirroring.PauseRequestH\x00R\x05pause\x12=\n" +
-	"\x06resume\x18\x03 \x01(\v2#.pomerium.x.mirroring.ResumeRequestH\x00R\x06resumeB\n" +
+	"\x06resume\x18\x03 \x01(\v2#.pomerium.x.mirroring.ResumeRequestH\x00R\x06resumeB\x05\n" +
+	"\x03msg\"\x95\x01\n" +
+	"\vClientHello\x12\x1f\n" +
+	"\vapi_version\x18\x01 \x01(\rR\n" +
+	"apiVersion\x12#\n" +
+	"\renvoy_version\x18\x02 \x01(\tR\fenvoyVersion\x12@\n" +
+	"\bmetadata\x18\x03 \x01(\v2$.pomerium.x.mirroring.StreamMetadataR\bmetadata\"\x7f\n" +
+	"\vServerHello\x12\x1f\n" +
+	"\vapi_version\x18\x01 \x01(\rR\n" +
+	"apiVersion\x12)\n" +
+	"\x10receiver_version\x18\x02 \x01(\tR\x0freceiverVersion\x12$\n" +
+	"\x0eno_auto_resume\x18\x03 \x01(\bR\fnoAutoResume\"\xa1\a\n" +
+	"\x0eStreamMetadata\x12\x19\n" +
+	"\broute_id\x18\x01 \x01(\tR\arouteId\x129\n" +
 	"\n" +
-	"\bresponse\"\x0f\n" +
-	"\rReceiverHello\"\xbc\x01\n" +
-	"\x0eStreamMetadata\x12\x1b\n" +
-	"\tstream_id\x18\x01 \x01(\x04R\bstreamId\x12C\n" +
-	"\tauth_info\x18\x02 \x01(\v2&.pomerium.extensions.ssh.AllowResponseR\bauthInfo\x12H\n" +
-	"\bpty_info\x18\x03 \x01(\v2-.pomerium.extensions.ssh.SSHDownstreamPTYInfoR\aptyInfo\"'\n" +
+	"start_time\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tstartTime\x12\x1b\n" +
+	"\tstream_id\x18\x03 \x01(\x04R\bstreamId\x12\x1d\n" +
+	"\n" +
+	"login_name\x18\x04 \x01(\tR\tloginName\x12$\n" +
+	"\x0epublic_key_alg\x18\x05 \x01(\tR\fpublicKeyAlg\x12A\n" +
+	"\x1dpublic_key_fingerprint_sha256\x18\x06 \x01(\fR\x1apublicKeyFingerprintSha256\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\a \x01(\tR\tsessionId\x12\x17\n" +
+	"\auser_id\x18\b \x01(\tR\x06userId\x12,\n" +
+	"\x12session_binding_id\x18\t \x01(\tR\x10sessionBindingId\x12w\n" +
+	"\x17access_request_metadata\x18\n" +
+	" \x03(\v2?.pomerium.x.mirroring.StreamMetadata.AccessRequestMetadataEntryR\x15accessRequestMetadata\x12!\n" +
+	"\frequest_type\x18\v \x01(\tR\vrequestType\x12!\n" +
+	"\fexec_command\x18\f \x01(\tR\vexecCommand\x12\x17\n" +
+	"\ahas_pty\x18\r \x01(\bR\x06hasPty\x12\x19\n" +
+	"\bterm_env\x18\x0e \x01(\tR\atermEnv\x12#\n" +
+	"\rwidth_columns\x18\x0f \x01(\rR\fwidthColumns\x12\x1f\n" +
+	"\vheight_rows\x18\x10 \x01(\rR\n" +
+	"heightRows\x12\x19\n" +
+	"\bwidth_px\x18\x11 \x01(\rR\awidthPx\x12\x1b\n" +
+	"\theight_px\x18\x12 \x01(\rR\bheightPx\x12\x1d\n" +
+	"\n" +
+	"term_modes\x18\x13 \x01(\fR\ttermModes\x12+\n" +
+	"\x11downstream_paused\x18\x14 \x01(\bR\x10downstreamPaused\x12'\n" +
+	"\x0fupstream_paused\x18\x15 \x01(\bR\x0eupstreamPaused\x1aH\n" +
+	"\x1aAccessRequestMetadataEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"'\n" +
 	"\n" +
 	"StreamData\x12\x19\n" +
 	"\braw_data\x18\x01 \x01(\fR\arawData\"S\n" +
@@ -846,9 +1123,9 @@ const file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawD
 	"\x19receiver_cluster_endpoint\x18\x02 \x01(\v2<.pomerium.x.mirroring.UpstreamTargetExtensionConfig.EndpointB\b\xfaB\x05\x8a\x01\x02\x10\x01R\x17receiverClusterEndpoint\x1aD\n" +
 	"\bEndpoint\x12\x17\n" +
 	"\x02ip\x18\x01 \x01(\tB\a\xfaB\x04r\x02p\x01R\x02ip\x12\x1f\n" +
-	"\x04port\x18\x02 \x01(\rB\v\xfaB\b*\x06\x10\x80\x80\x04 \x00R\x04port2l\n" +
-	"\x11MirroringReceiver\x12W\n" +
-	"\x06Mirror\x12#.pomerium.x.mirroring.MirrorRequest\x1a$.pomerium.x.mirroring.MirrorResponse(\x010\x01B2Z0github.com/pomerium/envoy-custom/api/x/mirroringb\x06proto3"
+	"\x04port\x18\x02 \x01(\rB\v\xfaB\b*\x06\x10\x80\x80\x04 \x00R\x04port2k\n" +
+	"\x11MirroringReceiver\x12V\n" +
+	"\x06Mirror\x12#.pomerium.x.mirroring.ClientMessage\x1a#.pomerium.x.mirroring.ServerMessage(\x010\x01B2Z0github.com/pomerium/envoy-custom/api/x/mirroringb\x06proto3"
 
 var (
 	file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDescOnce sync.Once
@@ -862,45 +1139,47 @@ func file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDe
 	return file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDescData
 }
 
-var file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_goTypes = []any{
-	(*MirrorRequest)(nil),                          // 0: pomerium.x.mirroring.MirrorRequest
-	(*MirrorResponse)(nil),                         // 1: pomerium.x.mirroring.MirrorResponse
-	(*ReceiverHello)(nil),                          // 2: pomerium.x.mirroring.ReceiverHello
-	(*StreamMetadata)(nil),                         // 3: pomerium.x.mirroring.StreamMetadata
-	(*StreamData)(nil),                             // 4: pomerium.x.mirroring.StreamData
-	(*StreamEvent)(nil),                            // 5: pomerium.x.mirroring.StreamEvent
-	(*PauseRequest)(nil),                           // 6: pomerium.x.mirroring.PauseRequest
-	(*ResumeRequest)(nil),                          // 7: pomerium.x.mirroring.ResumeRequest
-	(*ResizeEvent)(nil),                            // 8: pomerium.x.mirroring.ResizeEvent
-	(*ReceiverServiceConfig)(nil),                  // 9: pomerium.x.mirroring.ReceiverServiceConfig
-	(*ChannelFilterConfig)(nil),                    // 10: pomerium.x.mirroring.ChannelFilterConfig
-	(*UpstreamTargetExtensionConfig)(nil),          // 11: pomerium.x.mirroring.UpstreamTargetExtensionConfig
-	(*UpstreamTargetExtensionConfig_Endpoint)(nil), // 12: pomerium.x.mirroring.UpstreamTargetExtensionConfig.Endpoint
-	(*ssh.AllowResponse)(nil),                      // 13: pomerium.extensions.ssh.AllowResponse
-	(*ssh.SSHDownstreamPTYInfo)(nil),               // 14: pomerium.extensions.ssh.SSHDownstreamPTYInfo
-	(*v3.GrpcService)(nil),                         // 15: envoy.config.core.v3.GrpcService
+	(*ClientMessage)(nil),                          // 0: pomerium.x.mirroring.ClientMessage
+	(*ServerMessage)(nil),                          // 1: pomerium.x.mirroring.ServerMessage
+	(*ClientHello)(nil),                            // 2: pomerium.x.mirroring.ClientHello
+	(*ServerHello)(nil),                            // 3: pomerium.x.mirroring.ServerHello
+	(*StreamMetadata)(nil),                         // 4: pomerium.x.mirroring.StreamMetadata
+	(*StreamData)(nil),                             // 5: pomerium.x.mirroring.StreamData
+	(*StreamEvent)(nil),                            // 6: pomerium.x.mirroring.StreamEvent
+	(*PauseRequest)(nil),                           // 7: pomerium.x.mirroring.PauseRequest
+	(*ResumeRequest)(nil),                          // 8: pomerium.x.mirroring.ResumeRequest
+	(*ResizeEvent)(nil),                            // 9: pomerium.x.mirroring.ResizeEvent
+	(*ReceiverServiceConfig)(nil),                  // 10: pomerium.x.mirroring.ReceiverServiceConfig
+	(*ChannelFilterConfig)(nil),                    // 11: pomerium.x.mirroring.ChannelFilterConfig
+	(*UpstreamTargetExtensionConfig)(nil),          // 12: pomerium.x.mirroring.UpstreamTargetExtensionConfig
+	nil,                                            // 13: pomerium.x.mirroring.StreamMetadata.AccessRequestMetadataEntry
+	(*UpstreamTargetExtensionConfig_Endpoint)(nil), // 14: pomerium.x.mirroring.UpstreamTargetExtensionConfig.Endpoint
+	(*timestamppb.Timestamp)(nil),                  // 15: google.protobuf.Timestamp
+	(*v3.GrpcService)(nil),                         // 16: envoy.config.core.v3.GrpcService
 }
 var file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_depIdxs = []int32{
-	3,  // 0: pomerium.x.mirroring.MirrorRequest.metadata:type_name -> pomerium.x.mirroring.StreamMetadata
-	4,  // 1: pomerium.x.mirroring.MirrorRequest.data:type_name -> pomerium.x.mirroring.StreamData
-	5,  // 2: pomerium.x.mirroring.MirrorRequest.event:type_name -> pomerium.x.mirroring.StreamEvent
-	2,  // 3: pomerium.x.mirroring.MirrorResponse.hello:type_name -> pomerium.x.mirroring.ReceiverHello
-	6,  // 4: pomerium.x.mirroring.MirrorResponse.pause:type_name -> pomerium.x.mirroring.PauseRequest
-	7,  // 5: pomerium.x.mirroring.MirrorResponse.resume:type_name -> pomerium.x.mirroring.ResumeRequest
-	13, // 6: pomerium.x.mirroring.StreamMetadata.auth_info:type_name -> pomerium.extensions.ssh.AllowResponse
-	14, // 7: pomerium.x.mirroring.StreamMetadata.pty_info:type_name -> pomerium.extensions.ssh.SSHDownstreamPTYInfo
-	8,  // 8: pomerium.x.mirroring.StreamEvent.resize:type_name -> pomerium.x.mirroring.ResizeEvent
-	15, // 9: pomerium.x.mirroring.ReceiverServiceConfig.grpc_service:type_name -> envoy.config.core.v3.GrpcService
-	15, // 10: pomerium.x.mirroring.UpstreamTargetExtensionConfig.receiver_service:type_name -> envoy.config.core.v3.GrpcService
-	12, // 11: pomerium.x.mirroring.UpstreamTargetExtensionConfig.receiver_cluster_endpoint:type_name -> pomerium.x.mirroring.UpstreamTargetExtensionConfig.Endpoint
-	0,  // 12: pomerium.x.mirroring.MirroringReceiver.Mirror:input_type -> pomerium.x.mirroring.MirrorRequest
-	1,  // 13: pomerium.x.mirroring.MirroringReceiver.Mirror:output_type -> pomerium.x.mirroring.MirrorResponse
-	13, // [13:14] is the sub-list for method output_type
-	12, // [12:13] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	2,  // 0: pomerium.x.mirroring.ClientMessage.hello:type_name -> pomerium.x.mirroring.ClientHello
+	5,  // 1: pomerium.x.mirroring.ClientMessage.data:type_name -> pomerium.x.mirroring.StreamData
+	6,  // 2: pomerium.x.mirroring.ClientMessage.event:type_name -> pomerium.x.mirroring.StreamEvent
+	3,  // 3: pomerium.x.mirroring.ServerMessage.hello:type_name -> pomerium.x.mirroring.ServerHello
+	7,  // 4: pomerium.x.mirroring.ServerMessage.pause:type_name -> pomerium.x.mirroring.PauseRequest
+	8,  // 5: pomerium.x.mirroring.ServerMessage.resume:type_name -> pomerium.x.mirroring.ResumeRequest
+	4,  // 6: pomerium.x.mirroring.ClientHello.metadata:type_name -> pomerium.x.mirroring.StreamMetadata
+	15, // 7: pomerium.x.mirroring.StreamMetadata.start_time:type_name -> google.protobuf.Timestamp
+	13, // 8: pomerium.x.mirroring.StreamMetadata.access_request_metadata:type_name -> pomerium.x.mirroring.StreamMetadata.AccessRequestMetadataEntry
+	9,  // 9: pomerium.x.mirroring.StreamEvent.resize:type_name -> pomerium.x.mirroring.ResizeEvent
+	16, // 10: pomerium.x.mirroring.ReceiverServiceConfig.grpc_service:type_name -> envoy.config.core.v3.GrpcService
+	16, // 11: pomerium.x.mirroring.UpstreamTargetExtensionConfig.receiver_service:type_name -> envoy.config.core.v3.GrpcService
+	14, // 12: pomerium.x.mirroring.UpstreamTargetExtensionConfig.receiver_cluster_endpoint:type_name -> pomerium.x.mirroring.UpstreamTargetExtensionConfig.Endpoint
+	0,  // 13: pomerium.x.mirroring.MirroringReceiver.Mirror:input_type -> pomerium.x.mirroring.ClientMessage
+	1,  // 14: pomerium.x.mirroring.MirroringReceiver.Mirror:output_type -> pomerium.x.mirroring.ServerMessage
+	14, // [14:15] is the sub-list for method output_type
+	13, // [13:14] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_init() }
@@ -909,16 +1188,16 @@ func file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_init(
 		return
 	}
 	file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[0].OneofWrappers = []any{
-		(*MirrorRequest_Metadata)(nil),
-		(*MirrorRequest_Data)(nil),
-		(*MirrorRequest_Event)(nil),
+		(*ClientMessage_Hello)(nil),
+		(*ClientMessage_Data)(nil),
+		(*ClientMessage_Event)(nil),
 	}
 	file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[1].OneofWrappers = []any{
-		(*MirrorResponse_Hello)(nil),
-		(*MirrorResponse_Pause)(nil),
-		(*MirrorResponse_Resume)(nil),
+		(*ServerMessage_Hello)(nil),
+		(*ServerMessage_Pause)(nil),
+		(*ServerMessage_Resume)(nil),
 	}
-	file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[5].OneofWrappers = []any{
+	file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_msgTypes[6].OneofWrappers = []any{
 		(*StreamEvent_Resize)(nil),
 	}
 	type x struct{}
@@ -927,7 +1206,7 @@ func file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_init(
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDesc), len(file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

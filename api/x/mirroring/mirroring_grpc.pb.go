@@ -25,8 +25,11 @@ const (
 // MirroringReceiverClient is the client API for MirroringReceiver service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// Warning: this API must maintain backwards compatibility. Do not renumber fields or embed messages
+// from other packages that do not have compatibility requirements.
 type MirroringReceiverClient interface {
-	Mirror(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[MirrorRequest, MirrorResponse], error)
+	Mirror(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ClientMessage, ServerMessage], error)
 }
 
 type mirroringReceiverClient struct {
@@ -37,24 +40,27 @@ func NewMirroringReceiverClient(cc grpc.ClientConnInterface) MirroringReceiverCl
 	return &mirroringReceiverClient{cc}
 }
 
-func (c *mirroringReceiverClient) Mirror(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[MirrorRequest, MirrorResponse], error) {
+func (c *mirroringReceiverClient) Mirror(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ClientMessage, ServerMessage], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &MirroringReceiver_ServiceDesc.Streams[0], MirroringReceiver_Mirror_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[MirrorRequest, MirrorResponse]{ClientStream: stream}
+	x := &grpc.GenericClientStream[ClientMessage, ServerMessage]{ClientStream: stream}
 	return x, nil
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type MirroringReceiver_MirrorClient = grpc.BidiStreamingClient[MirrorRequest, MirrorResponse]
+type MirroringReceiver_MirrorClient = grpc.BidiStreamingClient[ClientMessage, ServerMessage]
 
 // MirroringReceiverServer is the server API for MirroringReceiver service.
 // All implementations should embed UnimplementedMirroringReceiverServer
 // for forward compatibility.
+//
+// Warning: this API must maintain backwards compatibility. Do not renumber fields or embed messages
+// from other packages that do not have compatibility requirements.
 type MirroringReceiverServer interface {
-	Mirror(grpc.BidiStreamingServer[MirrorRequest, MirrorResponse]) error
+	Mirror(grpc.BidiStreamingServer[ClientMessage, ServerMessage]) error
 }
 
 // UnimplementedMirroringReceiverServer should be embedded to have
@@ -64,7 +70,7 @@ type MirroringReceiverServer interface {
 // pointer dereference when methods are called.
 type UnimplementedMirroringReceiverServer struct{}
 
-func (UnimplementedMirroringReceiverServer) Mirror(grpc.BidiStreamingServer[MirrorRequest, MirrorResponse]) error {
+func (UnimplementedMirroringReceiverServer) Mirror(grpc.BidiStreamingServer[ClientMessage, ServerMessage]) error {
 	return status.Error(codes.Unimplemented, "method Mirror not implemented")
 }
 func (UnimplementedMirroringReceiverServer) testEmbeddedByValue() {}
@@ -88,11 +94,11 @@ func RegisterMirroringReceiverServer(s grpc.ServiceRegistrar, srv MirroringRecei
 }
 
 func _MirroringReceiver_Mirror_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(MirroringReceiverServer).Mirror(&grpc.GenericServerStream[MirrorRequest, MirrorResponse]{ServerStream: stream})
+	return srv.(MirroringReceiverServer).Mirror(&grpc.GenericServerStream[ClientMessage, ServerMessage]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type MirroringReceiver_MirrorServer = grpc.BidiStreamingServer[MirrorRequest, MirrorResponse]
+type MirroringReceiver_MirrorServer = grpc.BidiStreamingServer[ClientMessage, ServerMessage]
 
 // MirroringReceiver_ServiceDesc is the grpc.ServiceDesc for MirroringReceiver service.
 // It's only intended for direct use with grpc.RegisterService,
