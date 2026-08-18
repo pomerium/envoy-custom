@@ -518,7 +518,11 @@ SshServerTransport::handleHostKeysProve(const wire::HostKeysProveRequestMsg& msg
 
 void SshServerTransport::sendMgmtClientMessage(const ClientMessage& msg) {
   ASSERT(msg.message_case() != ClientMessage::MessageCase::MESSAGE_NOT_SET, "empty ClientMessage sent");
-  mgmt_client_->stream().sendMessage(msg, false);
+  if (mgmt_client_ != nullptr) {
+    if (auto& stream = mgmt_client_->stream(); stream != nullptr) {
+      stream.sendMessage(msg, false);
+    }
+  }
 }
 
 void SshServerTransport::terminate(absl::Status status) {
