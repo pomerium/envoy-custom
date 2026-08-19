@@ -298,6 +298,15 @@ struct ShellChannelRequestMsg final : SubMsg<SshMessageType::ChannelRequest, "sh
   }
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4254#section-6.5
+struct ExecChannelRequestMsg final : SubMsg<SshMessageType::ChannelRequest, "exec"> {
+  field<std::string, LengthPrefixed> command;
+
+  constexpr auto operator<=>(const ExecChannelRequestMsg&) const = default;
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
+};
+
 // https://datatracker.ietf.org/doc/html/rfc4254#section-6.7
 struct WindowDimensionChangeChannelRequestMsg final : SubMsg<SshMessageType::ChannelRequest, "window-change"> {
   field<uint32_t> width_columns;
@@ -317,6 +326,7 @@ struct ChannelRequestMsg final : Msg<SshMessageType::ChannelRequest> {
   field<bool> want_reply;
   sub_message<PtyReqChannelRequestMsg,
               ShellChannelRequestMsg,
+              ExecChannelRequestMsg,
               WindowDimensionChangeChannelRequestMsg>
     request;
 

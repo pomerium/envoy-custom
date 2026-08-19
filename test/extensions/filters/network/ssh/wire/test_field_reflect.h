@@ -369,6 +369,8 @@ TEST_FIELDS(WindowDimensionChangeChannelRequestMsg,
             width_px,
             height_px);
 TEST_FIELDS(ShellChannelRequestMsg);
+TEST_FIELDS(ExecChannelRequestMsg,
+            command);
 TEST_FIELDS(HostKeysMsg,
             hostkeys);
 TEST_FIELDS(UserAuthInfoPrompt,

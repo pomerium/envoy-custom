@@ -187,6 +187,16 @@ absl::StatusOr<size_t> PtyReqChannelRequestMsg::encode(Envoy::Buffer::Instance& 
                         modes);
 }
 
+// ExecChannelRequestMsg
+absl::StatusOr<size_t> ExecChannelRequestMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
+  return decodeSequence(buffer, payload_size,
+                        command);
+}
+absl::StatusOr<size_t> ExecChannelRequestMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
+  return encodeSequence(buffer,
+                        command);
+}
+
 // WindowDimensionChangeChannelRequestMsg
 absl::StatusOr<size_t> WindowDimensionChangeChannelRequestMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
   return decodeSequence(buffer, payload_size,
