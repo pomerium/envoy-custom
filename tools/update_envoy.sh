@@ -21,7 +21,7 @@ echo "downloading repo archive..."
 _hash="$(curl -fL https://github.com/envoyproxy/envoy/archive/$_commit.tar.gz | shasum -a 256 | cut -d' ' -f1)"
 
 # Update envoy version in the WORKSPACE file.
-sed "s/^envoy_version = .*/envoy_version = \"$_commit\"/" "$_dir/WORKSPACE" |
+sed "s/^envoy_version = .*/envoy_version = \"$_commit\" # $_tag/" "$_dir/WORKSPACE" |
    sed "/name = \"envoy\"/,/sha256 = / { s/sha256 = .*/sha256 = \"$_hash\",/; }" > WORKSPACE.tmp
 mv WORKSPACE.tmp "$_dir/WORKSPACE"
 
