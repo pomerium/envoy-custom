@@ -27,7 +27,7 @@ load("@hedron_compile_commands//:workspace_setup_transitive_transitive_transitiv
 
 hedron_compile_commands_setup_transitive_transitive_transitive()
 
-envoy_version = "f387231af8dd7274e37c5ae2cc797cb09a948818"
+envoy_version = "ef2d997c1b022cf8b849a1d3521fbf234d79ca26" # v1.38.4
 
 openssh_version = "V_10_3_P1"
 
@@ -68,7 +68,7 @@ http_archive(
         "//patches/envoy:fix-allow-dev-shm.patch",  # exists in upstream main but not in 1.38.x
         "//patches/envoy:fix-lua-wrappers-test.patch",  # https://github.com/envoyproxy/envoy/pull/45665
     ],
-    sha256 = "af833ff8f9799499b44dee4276dad5fd5785638e73cb17ed38718565e49c7a5a",
+    sha256 = "e5e51350010d50d3d97f7618ba3ed9a8108b24032a594b0eb415bc9e29ef9683",
     strip_prefix = "envoy-" + envoy_version,
     url = "https://github.com/envoyproxy/envoy/archive/" + envoy_version + ".tar.gz",
 )
