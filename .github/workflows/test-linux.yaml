@@ -41,6 +41,8 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           file: lcov
+        env:
+          TZ: UTC
 
   test-asan:
     if: >-
