@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       - name: install dependencies
-        run: sudo apt-get update && sudo apt-get -y install lcov zstd
+        run: sudo apt-get update && sudo apt-get -y install lcov zstd jq
 
       - name: setup bazel
         uses: bazel-contrib/setup-bazel@e8776f58fb6a6e9055cbaf1b38c52ccc5247e9c4
@@ -34,7 +34,9 @@ jobs:
       - name: test
         run: |
           bazel coverage --config=buildbarn --test_output=errors --test_arg='--log-level debug' //test/...
-          tar xf bazel-out/_coverage/_coverage_report.dat ./lcov
+          tar xf bazel-out/_coverage/_coverage_report.dat ./coverage.json ./lcov
+          jq -r '.summary_message' coverage.json
+          jq -e '.summary.threshold_reached' coverage.json >/dev/null
 
       - name: upload to coveralls
         uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b
