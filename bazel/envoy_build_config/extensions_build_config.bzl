@@ -198,7 +198,7 @@ EXTENSIONS = {
     # "envoy.filters.http.tap":                           "//source/extensions/filters/http/tap:config",
     # "envoy.filters.http.thrift_to_metadata":            "//source/extensions/filters/http/thrift_to_metadata:config",
     # "envoy.filters.http.wasm":                          "//source/extensions/filters/http/wasm:config",
-    # "envoy.filters.http.stateful_session":              "//source/extensions/filters/http/stateful_session:config",
+    "envoy.filters.http.stateful_session":              "//source/extensions/filters/http/stateful_session:config",
     "envoy.filters.http.header_mutation":               "//source/extensions/filters/http/header_mutation:config",
 
     #
@@ -419,9 +419,9 @@ EXTENSIONS = {
     # Stateful session
     #
 
-    # "envoy.http.stateful_session.cookie":                "//source/extensions/http/stateful_session/cookie:config",
-    # "envoy.http.stateful_session.envelope":              "//source/extensions/http/stateful_session/envelope:config",
-    # "envoy.http.stateful_session.header":                "//source/extensions/http/stateful_session/header:config",
+    "envoy.http.stateful_session.cookie":                "//source/extensions/http/stateful_session/cookie:config",
+    "envoy.http.stateful_session.envelope":              "//source/extensions/http/stateful_session/envelope:config",
+    "envoy.http.stateful_session.header":                "//source/extensions/http/stateful_session/header:config",
 
     #
     # Custom response policies

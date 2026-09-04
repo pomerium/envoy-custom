@@ -1,0 +1,14 @@
+load("@envoy_api//bazel:api_build_system.bzl", "api_proto_package")
+
+package(default_visibility = ["//visibility:public"])
+
+licenses(["notice"])
+
+api_proto_package(
+    has_services = True,
+    deps = [
+        "//api/extensions/filters/network/ssh:pkg",
+        "@envoy_api//envoy/config/core/v3:pkg",
+        "@envoy_api//envoy/extensions/transport_sockets/tls/v3:pkg",
+    ],
+)
