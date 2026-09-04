@@ -13,7 +13,10 @@ class ChannelFilter {
 public:
   virtual ~ChannelFilter() = default;
   // Called just before a message is about to be forwarded to the peer.
-  virtual void onMessageForward(const wire::Message& msg) PURE;
+  // Errors returned from this function will tear down the entire connection. The interruptChannel
+  // API should be used when only this channel should be closed. However, interruptChannel cannot
+  // be used in all cases, for example when handling ChannelOpen messages.
+  virtual absl::Status onMessageForward(const wire::Message& msg) PURE;
 };
 
 class ReadDisableHandle {

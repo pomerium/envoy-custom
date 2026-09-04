@@ -4,6 +4,7 @@
 #include <cstdlib>
 
 #include "source/extensions/filters/network/ssh/channel.h"
+#include "source/extensions/filters/network/ssh/channel_filter.h"
 #include "source/extensions/filters/network/ssh/channel_filter_config.h"
 #include "source/extensions/filters/network/ssh/id_manager.h"
 #include "source/extensions/filters/network/ssh/service_connection.h"
@@ -227,7 +228,11 @@ TEST_F(DownstreamConnectionServiceTest, TestStatsTimer) {
 template <typename BaseTest>
 class ChannelFiltersTest : public BaseTest {
 public:
-  void SetupChannelFilterManager() {
+  struct SetupChannelFilterManagerOpts {
+    std::optional<absl::Status> create_filter_error;
+  };
+
+  void SetupChannelFilterManager(SetupChannelFilterManagerOpts opts = {}) {
     ON_CALL(cfg_, createEmptyConfigProto).WillByDefault([] {
       return std::make_unique<Envoy::Protobuf::StringValue>();
     });
@@ -249,32 +254,40 @@ public:
       });
     if constexpr (std::is_same_v<BaseTest, DownstreamConnectionServiceTest>) {
       EXPECT_CALL(*factory_, createReadFilter)
-        .WillOnce([this](const google::protobuf::Message& config, ChannelFilterCallbacks& filter_callbacks) {
+        .WillOnce([this, opts](const google::protobuf::Message& config, ChannelFilterCallbacks& filter_callbacks) -> absl::StatusOr<ChannelFilterPtr> {
           EXPECT_EQ("filter_config", dynamic_cast<const Envoy::Protobuf::StringValue&>(config).value());
           EXPECT_EQ(static_cast<stream_id_t>(1), filter_callbacks.streamId());
           channel_filter_callbacks_ = &filter_callbacks;
           EXPECT_EQ(channel_id_, filter_callbacks.channelId());
           // no channel open message has been received yet, so channelType should return nullopt
           EXPECT_EQ(std::nullopt, filter_callbacks.channelType());
+          if (opts.create_filter_error.has_value()) {
+            return opts.create_filter_error.value();
+          }
           return std::move(filter_);
         });
     } else if constexpr (std::is_same_v<BaseTest, UpstreamConnectionServiceTest>) {
       EXPECT_CALL(*factory_, createWriteFilter)
-        .WillOnce([&](const google::protobuf::Message& config, ChannelFilterCallbacks& filter_callbacks) {
+        .WillOnce([this, opts](const google::protobuf::Message& config, ChannelFilterCallbacks& filter_callbacks) -> absl::StatusOr<ChannelFilterPtr> {
           EXPECT_EQ("filter_config", dynamic_cast<const Envoy::Protobuf::StringValue&>(config).value());
           EXPECT_EQ(static_cast<stream_id_t>(1), filter_callbacks.streamId());
           EXPECT_EQ(&std::as_const(this->fake_auth_info_), &filter_callbacks.authInfo());
           EXPECT_EQ(&this->mock_dispatcher_, &filter_callbacks.connectionDispatcher());
           channel_filter_callbacks_ = &filter_callbacks;
           EXPECT_EQ(channel_id_, filter_callbacks.channelId());
+          if (opts.create_filter_error.has_value()) {
+            return opts.create_filter_error.value();
+          }
           return std::move(filter_);
         });
     }
-    EXPECT_CALL(*channel_, setChannelCallbacks)
-      .WillOnce([ch1 = channel_.get(), this](ChannelCallbacks& cb) {
-        ch1->Channel::setChannelCallbacks(cb);
-        channel_callbacks_ = &cb;
-      });
+    if (!opts.create_filter_error.has_value()) {
+      EXPECT_CALL(*channel_, setChannelCallbacks)
+        .WillOnce([ch1 = channel_.get(), this](ChannelCallbacks& cb) {
+          ch1->Channel::setChannelCallbacks(cb);
+          channel_callbacks_ = &cb;
+        });
+    }
 
     inject_ = std::make_unique<Registry::InjectFactory<ChannelFilterFactoryConfig>>(cfg_);
 
@@ -327,6 +340,7 @@ public:
                                                FIELD(request, SUB_MSG(wire::SessionChannelOpenMsg, _)))))
       .WillOnce(InvokeWithoutArgs([this] {
         EXPECT_EQ("session", channel_callbacks_->channelType());
+        return absl::OkStatus();
       }));
     EXPECT_CALL(*transport_, forward(MSG(wire::ChannelOpenMsg,
                                          FIELD_EQ(sender_channel, channel_id_),
@@ -343,7 +357,8 @@ public:
       });
     EXPECT_CALL(*filter_, onMessageForward(MSG(wire::ChannelDataMsg,
                                                FIELD_EQ(recipient_channel, 2u),
-                                               FIELD(data, "hello world"_bytes))));
+                                               FIELD(data, "hello world"_bytes))))
+      .WillOnce(Return(absl::OkStatus()));
     EXPECT_CALL(*transport_, forward(MSG(wire::ChannelDataMsg,
                                          FIELD_EQ(recipient_channel, 2u),
                                          FIELD(data, "hello world"_bytes)),
@@ -361,7 +376,8 @@ public:
         return channel_callbacks_->sendMessageRemote(std::move(msg));
       });
     EXPECT_CALL(*filter_, onMessageForward(MSG(wire::ChannelCloseMsg,
-                                               FIELD_EQ(recipient_channel, 2u))));
+                                               FIELD_EQ(recipient_channel, 2u))))
+      .WillOnce(Return(absl::OkStatus()));
     EXPECT_CALL(*transport_, forward(MSG(wire::ChannelCloseMsg,
                                          FIELD_EQ(recipient_channel, 2u)),
                                      _));
@@ -468,6 +484,82 @@ TEST_F(ChannelReadFiltersTest, TestChannelReadFilters_ConnectionReadDisable) {
   ReceiveChannelClose();
 }
 
+TEST_F(ChannelReadFiltersTest, TestChannelReadFilters_ErrorCreatingReadFilterOnChannelOpen) {
+  IN_SEQUENCE;
+
+  SetupChannelFilterManager(SetupChannelFilterManagerOpts{
+    .create_filter_error = absl::InternalError("createReadFilter error"),
+  });
+  EXPECT_CALL(*channel_, Die);
+
+  auto stat = service_->startChannel(std::move(channel_),
+                                     {
+                                       .allocated_channel_id = channel_id_,
+                                       .channel_open = wire::ChannelOpenMsg{
+                                         .sender_channel = 1,
+                                         .request = wire::SessionChannelOpenMsg{},
+                                       },
+                                     });
+  EXPECT_EQ(absl::InternalError("createReadFilter error"), stat.status());
+}
+
+TEST_F(ChannelReadFiltersTest, TestChannelReadFilters_ErrorOnChannelOpen) {
+  IN_SEQUENCE;
+
+  SetupChannelFilterManager();
+  EXPECT_CALL(*channel_, readChannelOpen)
+    .WillOnce([this](wire::ChannelOpenMsg&& msg) {
+      EXPECT_EQ(1u, *msg.sender_channel);
+      EXPECT_EQ("session", msg.channel_type());
+      return channel_callbacks_->sendMessageRemote(std::move(msg));
+    });
+  EXPECT_CALL(*filter_, onMessageForward(MSG(wire::ChannelOpenMsg,
+                                             FIELD_EQ(sender_channel, channel_id_),
+                                             FIELD(request, SUB_MSG(wire::SessionChannelOpenMsg, _)))))
+    .WillOnce(InvokeWithoutArgs([this] {
+      EXPECT_EQ("session", channel_callbacks_->channelType());
+      return absl::InternalError("test error");
+    }));
+  EXPECT_CALL(*channel_, Die);
+
+  auto stat = service_->startChannel(std::move(channel_),
+                                     {
+                                       .allocated_channel_id = channel_id_,
+                                       .channel_open = wire::ChannelOpenMsg{
+                                         .sender_channel = 1,
+                                         .request = wire::SessionChannelOpenMsg{},
+                                       },
+                                     });
+  EXPECT_EQ(absl::InternalError("error opening channel: test error"), stat.status());
+}
+
+TEST_F(ChannelReadFiltersTest, TestChannelReadFilters_ErrorOnMessageForward) {
+  IN_SEQUENCE;
+
+  SetupChannelFilterManager();
+  ExpectForwardChannelOpen();
+
+  EXPECT_CALL(*channel_, readMessage(MSG(wire::ChannelDataMsg,
+                                         FIELD_EQ(recipient_channel, channel_id_),
+                                         FIELD(data, "hello world"_bytes))))
+    .WillOnce([this](wire::Message&& msg) {
+      return channel_callbacks_->sendMessageRemote(std::move(msg));
+    });
+  EXPECT_CALL(*filter_, onMessageForward(MSG(wire::ChannelDataMsg,
+                                             FIELD_EQ(recipient_channel, 2u),
+                                             FIELD(data, "hello world"_bytes))))
+    .WillOnce(Return(absl::InternalError("test error")));
+
+  EXPECT_CALL(*channel_, Die);
+
+  ReceiveChannelOpen();
+  auto stat = service_->handleMessage(wire::ChannelDataMsg{
+    .recipient_channel = channel_id_,
+    .data = "hello world"_bytes,
+  });
+  EXPECT_EQ(absl::InternalError("test error"), stat);
+}
+
 // NOLINTBEGIN(readability-identifier-naming)
 class ChannelWriteFiltersTest : public ChannelFiltersTest<UpstreamConnectionServiceTest> {
 public:
@@ -484,6 +576,7 @@ public:
       .WillOnce(InvokeWithoutArgs([this] {
         // the write filter won't have the channel type
         EXPECT_EQ(std::nullopt, channel_callbacks_->channelType());
+        return absl::OkStatus();
       }));
     EXPECT_CALL(*transport_, forward(MSG(wire::ChannelOpenConfirmationMsg,
                                          FIELD_EQ(sender_channel, channel_id_),
@@ -500,7 +593,8 @@ public:
       });
     EXPECT_CALL(*filter_, onMessageForward(MSG(wire::ChannelDataMsg,
                                                FIELD_EQ(recipient_channel, 1u),
-                                               FIELD(data, "hello world"_bytes))));
+                                               FIELD(data, "hello world"_bytes))))
+      .WillOnce(Return(absl::OkStatus()));
     EXPECT_CALL(*transport_, forward(MSG(wire::ChannelDataMsg,
                                          FIELD_EQ(recipient_channel, 1u),
                                          FIELD_EQ(data, "hello world"_bytes)),
@@ -518,7 +612,8 @@ public:
         return channel_callbacks_->sendMessageRemote(std::move(msg));
       });
     EXPECT_CALL(*filter_, onMessageForward(MSG(wire::ChannelCloseMsg,
-                                               FIELD_EQ(recipient_channel, 1u))));
+                                               FIELD_EQ(recipient_channel, 1u))))
+      .WillOnce(Return(absl::OkStatus()));
     EXPECT_CALL(*transport_, forward(MSG(wire::ChannelCloseMsg,
                                          FIELD_EQ(recipient_channel, 1u)),
                                      _));
@@ -623,6 +718,80 @@ TEST_F(ChannelWriteFiltersTest, TestChannelWriteFilters_ConnectionReadDisable) {
 
   Interrupt();
   ReceiveChannelClose();
+}
+
+TEST_F(ChannelWriteFiltersTest, TestChannelWriteFilters_ErrorCreatingWriteFilterOnChannelCreate) {
+  IN_SEQUENCE;
+  SetupChannelFilterManager(SetupChannelFilterManagerOpts{
+    .create_filter_error = absl::InternalError("createWriteFilter error"),
+  });
+  EXPECT_CALL(*channel_, Die);
+
+  ASSERT_OK(channel_id_manager_.bindChannelID(channel_id_, PeerLocalID{
+                                                             .channel_id = 1,
+                                                             .local_peer = Downstream,
+                                                           }));
+  auto stat = service_->startChannel(std::move(channel_), {.allocated_channel_id = channel_id_});
+
+  EXPECT_EQ(absl::InternalError("createWriteFilter error"), stat.status());
+}
+
+TEST_F(ChannelWriteFiltersTest, TestChannelWriteFilters_ErrorOnChannelOpenConfirmation) {
+  IN_SEQUENCE;
+
+  SetupChannelFilterManager();
+
+  EXPECT_CALL(*channel_, readMessage(MSG(wire::ChannelOpenConfirmationMsg,
+                                         FIELD_EQ(recipient_channel, channel_id_),
+                                         FIELD_EQ(sender_channel, channel_id_))))
+    .WillOnce([this](wire::Message&& msg) {
+      return channel_callbacks_->sendMessageRemote(std::move(msg));
+    });
+  EXPECT_CALL(*filter_, onMessageForward(MSG(wire::ChannelOpenConfirmationMsg,
+                                             FIELD_EQ(sender_channel, channel_id_),
+                                             FIELD_EQ(recipient_channel, 1u))))
+    .WillOnce(InvokeWithoutArgs([this] {
+      // the write filter won't have the channel type
+      EXPECT_EQ(std::nullopt, channel_callbacks_->channelType());
+      return absl::InternalError("test error");
+    }));
+  EXPECT_CALL(*channel_, Die);
+
+  StartChannelFromDownstream();
+  auto stat = service_->handleMessage(wire::ChannelOpenConfirmationMsg{
+    .recipient_channel = channel_id_,
+    .sender_channel = 2,
+  });
+  EXPECT_EQ(absl::InternalError("error opening channel: test error"), stat);
+}
+
+TEST_F(ChannelWriteFiltersTest, TestChannelWriteFilters_ErrorOnMessageForward) {
+  IN_SEQUENCE;
+
+  SetupChannelFilterManager();
+  ExpectForwardChannelOpenConfirmation();
+
+  EXPECT_CALL(*channel_, readMessage(MSG(wire::ChannelDataMsg,
+                                         FIELD_EQ(recipient_channel, channel_id_),
+                                         FIELD(data, "hello world"_bytes))))
+    .WillOnce([this](wire::Message&& msg) {
+      return channel_callbacks_->sendMessageRemote(std::move(msg));
+    });
+  EXPECT_CALL(*filter_, onMessageForward(MSG(wire::ChannelDataMsg,
+                                             FIELD_EQ(recipient_channel, 1u),
+                                             FIELD(data, "hello world"_bytes))))
+    .WillOnce(Return(absl::InternalError("test error")));
+
+  EXPECT_CALL(*channel_, Die);
+
+  StartChannelFromDownstream();
+  ReceiveChannelOpenConfirmation();
+
+  auto stat = service_->handleMessage(wire::ChannelDataMsg{
+    .recipient_channel = channel_id_,
+    .data = "hello world"_bytes,
+  });
+  EXPECT_EQ(absl::InternalError("test error"), stat);
 }
 
 } // namespace test

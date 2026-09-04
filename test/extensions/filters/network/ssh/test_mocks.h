@@ -132,7 +132,7 @@ class MockChannelFilter : public ChannelFilter {
 public:
   MockChannelFilter();
   virtual ~MockChannelFilter();
-  MOCK_METHOD(void, onMessageForward, (const wire::Message&));
+  MOCK_METHOD(absl::Status, onMessageForward, (const wire::Message&));
 };
 
 class MockChannelFilterFactory : public ChannelFilterFactory {
@@ -141,8 +141,8 @@ public:
   virtual ~MockChannelFilterFactory();
 
   MOCK_METHOD(ProtobufTypes::MessagePtr, createEmptyConfigProto, ());
-  MOCK_METHOD(ChannelFilterPtr, createReadFilter, (const google::protobuf::Message&, ChannelFilterCallbacks&));
-  MOCK_METHOD(ChannelFilterPtr, createWriteFilter, (const google::protobuf::Message&, ChannelFilterCallbacks&));
+  MOCK_METHOD(absl::StatusOr<ChannelFilterPtr>, createReadFilter, (const google::protobuf::Message&, ChannelFilterCallbacks&));
+  MOCK_METHOD(absl::StatusOr<ChannelFilterPtr>, createWriteFilter, (const google::protobuf::Message&, ChannelFilterCallbacks&));
 };
 
 class MockChannelFilterFactoryConfig : public ChannelFilterFactoryConfig {

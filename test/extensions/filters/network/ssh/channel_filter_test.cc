@@ -24,8 +24,8 @@ TEST_F(ChannelFilterTest, ChannelFilterManager_NoFilters) {
 
   testing::StrictMock<MockChannelFilterCallbacks> cb;
 
-  EXPECT_EQ(0, mgr.createReadFilters(cb).size());
-  EXPECT_EQ(0, mgr.createWriteFilters(cb).size());
+  EXPECT_EQ(0, mgr.createReadFilters(cb)->size());
+  EXPECT_EQ(0, mgr.createWriteFilters(cb)->size());
 }
 
 TEST_F(ChannelFilterTest, ChannelFilterManager_NoEnabledFilters) {
@@ -43,8 +43,8 @@ TEST_F(ChannelFilterTest, ChannelFilterManager_NoEnabledFilters) {
 
   testing::StrictMock<MockChannelFilterCallbacks> cb;
 
-  EXPECT_EQ(0, mgr.createReadFilters(cb).size());
-  EXPECT_EQ(0, mgr.createWriteFilters(cb).size());
+  EXPECT_EQ(0, mgr.createReadFilters(cb)->size());
+  EXPECT_EQ(0, mgr.createWriteFilters(cb)->size());
 }
 
 TEST_F(ChannelFilterTest, ChannelFilterManager_InvalidFactoryConfig) {
@@ -230,8 +230,8 @@ TEST_F(ChannelFilterTest, ChannelFilterManager_NoChannelFiltersCreated) {
   EXPECT_EQ(1, mgr.numConfiguredFilters());
   EXPECT_EQ(std::vector<std::string>{{"test_channel_filter"}}, mgr.allFilterNames());
 
-  EXPECT_EQ(0, mgr.createReadFilters(cb).size());
-  EXPECT_EQ(0, mgr.createWriteFilters(cb).size());
+  EXPECT_EQ(0, mgr.createReadFilters(cb)->size());
+  EXPECT_EQ(0, mgr.createWriteFilters(cb)->size());
 }
 
 TEST_F(ChannelFilterTest, ChannelFilterManager_FiltersCreated) {
@@ -298,14 +298,14 @@ TEST_F(ChannelFilterTest, ChannelFilterManager_FiltersCreated) {
   EXPECT_EQ(1, mgr.numConfiguredFilters());
   EXPECT_EQ(std::vector<std::string>{{"test_channel_filter"}}, mgr.allFilterNames());
 
-  auto readFilters = mgr.createReadFilters(cb);
-  auto writeFilters = mgr.createWriteFilters(cb);
+  auto readFilters = *mgr.createReadFilters(cb);
+  auto writeFilters = *mgr.createWriteFilters(cb);
   EXPECT_EQ(1, readFilters.size());
   EXPECT_EQ(1, writeFilters.size());
 
   wire::Message msg = wire::ChannelDataMsg{};
-  readFilters[0]->onMessageForward(msg);
-  writeFilters[0]->onMessageForward(msg);
+  EXPECT_OK(readFilters[0]->onMessageForward(msg));
+  EXPECT_OK(writeFilters[0]->onMessageForward(msg));
 }
 
 TEST_F(ChannelFilterTest, ChannelFilterManager_MultipleFiltersConfigurationOrder) {
@@ -423,8 +423,8 @@ TEST_F(ChannelFilterTest, ChannelFilterManager_MultipleFiltersConfigurationOrder
   }
   EXPECT_EQ(expectedFilterNames, mgr.allFilterNames());
 
-  auto readFilters = mgr.createReadFilters(cb);
-  auto writeFilters = mgr.createWriteFilters(cb);
+  auto readFilters = *mgr.createReadFilters(cb);
+  auto writeFilters = *mgr.createWriteFilters(cb);
   EXPECT_EQ(filterCfgTypes.size(), readFilters.size());
   EXPECT_EQ(filterCfgTypes.size(), writeFilters.size());
 
@@ -432,11 +432,70 @@ TEST_F(ChannelFilterTest, ChannelFilterManager_MultipleFiltersConfigurationOrder
   // so the order of onMessageForward calls should match readFilterSeq/writeFilterSeq
   wire::Message msg{wire::ChannelDataMsg{}};
   for (auto& rf : readFilters) {
-    rf->onMessageForward(msg);
+    EXPECT_OK(rf->onMessageForward(msg));
   }
   for (auto& wf : writeFilters) {
-    wf->onMessageForward(msg);
+    EXPECT_OK(wf->onMessageForward(msg));
   }
+}
+
+TEST_F(ChannelFilterTest, ChannelFilterManager_ErrorCreatingFilters) {
+  testing::NiceMock<MockChannelFilterFactoryConfig> cfg;
+  ON_CALL(cfg, createEmptyConfigProto).WillByDefault([] {
+    return std::make_unique<Envoy::Protobuf::StringValue>();
+  });
+  ON_CALL(cfg, name).WillByDefault(Return("test_channel_filter"));
+
+  EXPECT_CALL(cfg, createChannelFilterFactory)
+    .WillOnce([](const google::protobuf::Message& config,
+                 Envoy::Server::Configuration::ServerFactoryContext&) {
+      EXPECT_EQ("factory_config", dynamic_cast<const Envoy::Protobuf::StringValue&>(config).value());
+      auto factory = std::make_unique<testing::StrictMock<MockChannelFilterFactory>>();
+      EXPECT_CALL(*factory, createEmptyConfigProto)
+        .WillOnce([] {
+          return std::make_unique<Envoy::Protobuf::StringValue>();
+        });
+      EXPECT_CALL(*factory, createReadFilter)
+        .WillOnce([](const google::protobuf::Message& config, ChannelFilterCallbacks&) {
+          EXPECT_EQ("filter_config", dynamic_cast<const Envoy::Protobuf::StringValue&>(config).value());
+          return absl::InternalError("test error (read filter)");
+        });
+      EXPECT_CALL(*factory, createWriteFilter)
+        .WillOnce([](const google::protobuf::Message& config, ChannelFilterCallbacks&) {
+          EXPECT_EQ("filter_config", dynamic_cast<const Envoy::Protobuf::StringValue&>(config).value());
+          return absl::InternalError("test error (write filter)");
+        });
+      return factory;
+    });
+  Registry::InjectFactory<ChannelFilterFactoryConfig> inject(cfg);
+
+  ExtensionConfigList enabledChannelFilters;
+  {
+    auto* cfg = enabledChannelFilters.Add();
+    cfg->set_name("test_channel_filter");
+    Envoy::Protobuf::StringValue v;
+    v.set_value("factory_config");
+    cfg->mutable_typed_config()->PackFrom(v);
+  }
+  ExtensionConfigList filterConfigs;
+  {
+    auto* cfg = filterConfigs.Add();
+    cfg->set_name("test_channel_filter");
+    Envoy::Protobuf::StringValue v;
+    v.set_value("filter_config");
+    cfg->mutable_typed_config()->PackFrom(v);
+  }
+
+  ChannelFilterManager mgr(enabledChannelFilters, server_factory_context_);
+
+  testing::StrictMock<MockChannelFilterCallbacks> cb;
+
+  EXPECT_OK(mgr.configureFilters(filterConfigs));
+  EXPECT_EQ(1, mgr.numConfiguredFilters());
+  EXPECT_EQ(std::vector<std::string>{{"test_channel_filter"}}, mgr.allFilterNames());
+
+  EXPECT_EQ(absl::InternalError("test error (read filter)"), mgr.createReadFilters(cb).status());
+  EXPECT_EQ(absl::InternalError("test error (write filter)"), mgr.createWriteFilters(cb).status());
 }
 
 } // namespace test

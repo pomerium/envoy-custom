@@ -56,25 +56,31 @@ absl::Status ChannelFilterManager::configureFilters(const ExtensionConfigList& c
   return absl::OkStatus();
 }
 
-std::vector<ChannelFilterPtr> ChannelFilterManager::createReadFilters(ChannelFilterCallbacks& channel_callbacks) {
+absl::StatusOr<ChannelFilterPtrVector> ChannelFilterManager::createReadFilters(ChannelFilterCallbacks& channel_callbacks) {
   std::vector<ChannelFilterPtr> out;
   for (const auto& [name, config] : filter_configs_) {
     ASSERT(factories_.contains(name));
     auto filter = factories_[name]->createReadFilter(*config, channel_callbacks);
-    if (filter != nullptr) {
-      out.push_back(std::move(filter));
+    if (!filter.ok()) {
+      return filter.status();
+    }
+    if (filter.value() != nullptr) {
+      out.push_back(std::move(filter).value());
     }
   }
   return out;
 }
 
-std::vector<ChannelFilterPtr> ChannelFilterManager::createWriteFilters(ChannelFilterCallbacks& channel_callbacks) {
+absl::StatusOr<ChannelFilterPtrVector> ChannelFilterManager::createWriteFilters(ChannelFilterCallbacks& channel_callbacks) {
   std::vector<ChannelFilterPtr> out;
   for (const auto& [name, config] : filter_configs_) {
     ASSERT(factories_.contains(name));
     auto filter = factories_[name]->createWriteFilter(*config, channel_callbacks);
-    if (filter != nullptr) {
-      out.push_back(std::move(filter));
+    if (!filter.ok()) {
+      return filter.status();
+    }
+    if (filter.value() != nullptr) {
+      out.push_back(std::move(filter).value());
     }
   }
   return out;

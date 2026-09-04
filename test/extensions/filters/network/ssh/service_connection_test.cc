@@ -201,7 +201,7 @@ TEST_P(ConnectionServiceTest, StartChannel_ErrorReadingChannelOpen) {
     .WillOnce(Return(absl::InternalError("test error")));
   EXPECT_CALL(*ch1, Die);
   auto id = service_.startChannel(std::move(ch1), {.channel_open = wire::ChannelOpenMsg{}});
-  ASSERT_EQ(absl::InternalError("test error"), id.status());
+  ASSERT_EQ(absl::InternalError("error opening channel: test error"), id.status());
 
   // Check that allocated IDs are freed if readChannelOpen fails. Because bind_expect_remote is
   // unset (which defaults to true), the remote peer's ID will briefly be in the Pending state,
