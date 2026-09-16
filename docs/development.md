@@ -66,6 +66,14 @@ There is no AI-generated text in this document.
   [dynamic modules](https://www.envoyproxy.io/docs/envoy/v1.37.0/intro/arch_overview/advanced/dynamic_modules.html)
   system. See [Dynamic Extensions](#8-dynamic-extensions) for more details.
 
+- Initial Metadata Transport Socket (`source/extensions/transport_sockets/initial_metadata`)
+
+  This is a
+  [transport socket](https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/transport_socket/transport_socket)
+  extension which allows injecting a small amount of custom metadata into the beginning of a TCP
+  stream. It is currently used for multiplexing http/grpc servers on the same port in the enterprise
+  console.
+
 ## Directory Structure
 
 The directories `api`, `source`, and `test` follow a similar pattern for each extension:
@@ -448,6 +456,21 @@ To avoid this, either:
   required to create the `.dwp`, so they _will_ be downloaded from the remote cache if needed. All
   cc_binary targets have a corresponding dwp target; this is not specific to envoy. Note that the
   `envoy` binary itself is not a dependency of `envoy.dwp`, so you have to tell bazel to build both.
+
+## Troubleshooting
+
+- Problem: When loading the bazel targets list in vscode, it throws an error that looks like this
+  (it can be any package, but abseil is alphabetically first so it is likely to error there):
+
+  ```
+  [...] error loading package 'bazel-<workspace-folder>/external/abseil-cpp/absl/utility':
+  Label '//absl:copts/configure_copts.bzl' is invalid because 'absl' is not a package [...]
+  ```
+
+  This can occur if your workspace folder name is something other than `envoy-custom`. To fix, edit
+  `.bazelignore` and change the line `bazel-envoy-custom` to `bazel-<workspace-folder>` with the
+  actual name of your workspace folder. You can keep local changes to this file intact by running
+  `git update-index --skip-worktree .bazelignore`.
 
 # 3. Building
 
@@ -875,16 +898,16 @@ When the task is completed, open the Test Explorer (if you can't find it or have
 command `Testing: Focus on Test Explorer View`) and the results will be displayed after a few
 seconds.
 
-The coverage report displays line coverage and function coverage. Function coverage occasionally
+The coverage report displays line, function, and branch coverage. Function coverage occasionally
 shows <100% even if line coverage is 100%. This can be legitimate, such as a function template not
 being called for some specialization, but most of the time these are false negatives caused by
 things like delegating constructors or an overloaded function where one overload calls the other
 overload. Clicking the dropdown arrow by a source file will show a list of functions and whether it
 thinks they have been called or not, so it is easy to figure out what the cause is.
 
-Branch coverage doesn't work currently, which is a known issue. Branch coverage is unfortunately not
-as useful as it could be due to the frequent usage of logging and assert macros, both of which
-introduce branches. There isn't a good way to exclude these from branch coverage at the moment.
+Branch coverage can be important feedback when writing tests but unfortunately it is not as useful
+as it could be due to the frequent usage of logging and assert macros, both of which introduce
+branches. There isn't a good way to exclude these from branch coverage at the moment.
 
 ## Upstream Tests
 
