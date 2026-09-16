@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package pomerium.extensions.transport_sockets.initial_metadata;
+
+import "envoy/config/core/v3/base.proto";
+import "google/protobuf/wrappers.proto";
+import "validate/validate.proto";
+
+message Config {
+  // Underlying transport socket to wrap
+  envoy.config.core.v3.TransportSocket transport_socket = 1 [(validate.rules).message.required = true];
+  // Required 4-byte magic prepended to any message that would be sent.
+  bytes magic = 2 [(validate.rules).bytes = {
+    len:     4,
+    pattern: "^[^\x04\x05\x50\x48\x14\x15\x16\x17].{3}$",
+  }];
+  // Optional payload value to send if none is set for the connection.
+  google.protobuf.BytesValue default_payload = 3 [
+    (validate.rules).bytes.max_len = 255
+  ];
+}
