@@ -47,14 +47,14 @@ private:
     }
 
     if (payload.size() > 255) {
-      ENVOY_LOG(error, "initial_metadata: payload size {} is greater than the max allowed size {}, not sending",
+      ENVOY_LOG(error, "initial_metadata: payload size {} is greater than the max allowed size ({}), not sending",
                 payload.size(), 255);
       return;
     }
 
     Buffer::OwnedImpl buf;
     buf.add(config_.magic());
-    buf.writeByte(static_cast<uint8_t>(payload.length()));
+    buf.writeByte(static_cast<uint8_t>(payload.size()));
     buf.add(payload);
     ENVOY_LOG(debug, "initial_metadata: writing {} bytes to socket", buf.length());
     callbacks_->ioHandle().write(buf);
