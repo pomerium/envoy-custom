@@ -100,24 +100,33 @@ public:
     Envoy::Event::Dispatcher& connectionDispatcher() const override {
       return *parent_.transport_.connectionDispatcher();
     }
-    ReadDisableHandlePtr connectionReadDisable() override {
-      parent_.transport_.connectionReadDisable(true);
-      return std::make_unique<ReadDisableHandleImpl>(connectionDispatcher(), [this] {
-        parent_.transport_.connectionReadDisable(false);
-      });
-    }
+    ReadDisableHandlePtr connectionReadDisable() override;
 
   private:
     void cleanup() override;
+    void flushRemoteMsgQueue();
+
     ConnectionService& parent_;
     ChannelIDManager& channel_id_mgr_;
     const uint32_t channel_id_;
+    uint32_t read_disable_count_{0};
     std::optional<std::string> channel_type_;
     const Peer local_peer_;
     Stats::ScopeSharedPtr scope_;
     Envoy::Event::TimerPtr close_timer_;
     Envoy::OptRef<ChannelStatsProvider> stats_provider_;
     std::unique_ptr<Envoy::Common::CallbackManager<void, absl::Status, TransportCallbacks&>> interrupt_callbacks_;
+
+    // Order is very important here, filters_ must be destroyed before queued_remote_msgs_
+    // (see comment in onReadDisableHandleDestroyed())
+    std::deque<wire::Message> queued_remote_msgs_;
+#ifndef NDEBUG
+    const Envoy::Cleanup debug_cleanup_{[this] {
+      ASSERT(read_disable_count_ == 0 && queued_remote_msgs_.empty(),
+             fmt::format("bug: {} ReadDisableHandle instance(s) were leaked by channel filters",
+                         read_disable_count_));
+    }};
+#endif
     std::vector<ChannelFilterPtr> filters_;
   };
 

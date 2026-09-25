@@ -398,6 +398,13 @@ absl::Status ConnectionService::ChannelCallbacksImpl::sendMessageRemote(wire::Me
     }
   }
 
+  if (read_disable_count_ > 0) [[unlikely]] {
+    ENVOY_LOG(debug, "message for remote channel {} queued while connection is read-disabled: {}",
+              channel_id_, msg.msg_type());
+    queued_remote_msgs_.emplace_back(std::move(msg));
+    return absl::OkStatus();
+  }
+
   ENVOY_LOG(trace, "sending messsage to remote channel {}: {}", channel_id_, msg.msg_type());
   parent_.transport_.forward(std::move(msg));
   return absl::OkStatus();
@@ -432,6 +439,40 @@ void ConnectionService::preempt(ChannelCallbacks& ccb, absl::Status err) {
   });
 }
 
+ReadDisableHandlePtr ConnectionService::ChannelCallbacksImpl::connectionReadDisable() {
+  parent_.transport_.connectionReadDisable(true);
+  read_disable_count_++;
+  return std::make_unique<ReadDisableHandleImpl>(connectionDispatcher(), [this] {
+    parent_.transport_.connectionReadDisable(false);
+    RELEASE_ASSERT(read_disable_count_ > 0, "bug: ReadDisableHandle destroyed twice");
+    read_disable_count_--;
+    // There may be (a small number of) queued outgoing remote messages that were held because
+    // connectionReadDisable() was called by a channel filter from within onMessageForward().
+    // All complete messages that were decoded in that particular read event will have been queued
+    // instead of forwarding them on. Once the read becomes unblocked, the queued messages, if any,
+    // are sent right away.
+    //
+    // Note: in the event a ChannelClose message is queued in this way, it will happen in the
+    // following sequence:
+    // 1. Channel::readMessage(ChannelCloseMsg) is called by the ConnectionService
+    // 2. sendMessageRemote(ChannelCloseMsg) is called by the Channel
+    // 3. The message is passed through channel filters, if any
+    // 4. The message is placed in the queue
+    // 5. The Channel is destroyed by the ConnectionService after readMessage returns,
+    //    ...which destroys the ChannelCallbacksImpl,
+    //     ...which destroys the ChannelFilters,
+    //      ...which destroys any outstanding ReadDisableHandles,
+    //       ...which calls this function as the last one is destroyed,
+    //        ...which flushes the queue, including the ChannelCloseMsg that was queued in (4).
+    //
+    // Note: If the channel is preempted before all ReadDisableHandles are destroyed, any messages
+    // in the queue will end up being dropped when it is flushed.
+    if (read_disable_count_ == 0) {
+      flushRemoteMsgQueue();
+    }
+  });
+}
+
 void ConnectionService::ChannelCallbacksImpl::cleanup() {
   if (close_timer_ != nullptr) {
     close_timer_->disableTimer();
@@ -441,6 +482,15 @@ void ConnectionService::ChannelCallbacksImpl::cleanup() {
   ASSERT(inserted());
   channel_id_mgr_.releaseChannelID(channel_id_, local_peer_);
   removeFromList(parent_.channel_callbacks_);
+}
+
+void ConnectionService::ChannelCallbacksImpl::flushRemoteMsgQueue() {
+  while (!queued_remote_msgs_.empty()) {
+    ENVOY_LOG(debug, "sending queued messsage to remote channel {}: {}",
+              channel_id_, queued_remote_msgs_.front().msg_type());
+    parent_.transport_.forward(std::move(queued_remote_msgs_.front()));
+    queued_remote_msgs_.pop_front();
+  }
 }
 
 // UpstreamConnectionService
