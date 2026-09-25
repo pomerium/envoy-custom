@@ -213,6 +213,90 @@ absl::StatusOr<size_t> WindowDimensionChangeChannelRequestMsg::encode(Envoy::Buf
                         height_px);
 }
 
+// SubsystemChannelRequestMsg
+absl::StatusOr<size_t> SubsystemChannelRequestMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
+  return decodeSequence(buffer, payload_size,
+                        subsystem_name);
+}
+absl::StatusOr<size_t> SubsystemChannelRequestMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
+  return encodeSequence(buffer,
+                        subsystem_name);
+}
+
+// EnvChannelRequestMsg
+absl::StatusOr<size_t> EnvChannelRequestMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
+  return decodeSequence(buffer, payload_size,
+                        variable_name,
+                        variable_value);
+}
+absl::StatusOr<size_t> EnvChannelRequestMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
+  return encodeSequence(buffer,
+                        variable_name,
+                        variable_value);
+}
+
+// X11ReqChannelRequestMsg
+absl::StatusOr<size_t> X11ReqChannelRequestMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
+  return decodeSequence(buffer, payload_size,
+                        single_connection,
+                        x11_authentication_protocol,
+                        x11_authentication_cookie,
+                        x11_screen_number);
+}
+absl::StatusOr<size_t> X11ReqChannelRequestMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
+  return encodeSequence(buffer,
+                        single_connection,
+                        x11_authentication_protocol,
+                        x11_authentication_cookie,
+                        x11_screen_number);
+}
+
+// ExitSignalChannelRequestMsg
+absl::StatusOr<size_t> ExitSignalChannelRequestMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
+  return decodeSequence(buffer, payload_size,
+                        signal_name,
+                        core_dumped,
+                        error_message,
+                        language_tag);
+}
+absl::StatusOr<size_t> ExitSignalChannelRequestMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
+  return encodeSequence(buffer,
+                        signal_name,
+                        core_dumped,
+                        error_message,
+                        language_tag);
+}
+
+// ExitStatusChannelRequestMsg
+absl::StatusOr<size_t> ExitStatusChannelRequestMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
+  return decodeSequence(buffer, payload_size,
+                        exit_status);
+}
+absl::StatusOr<size_t> ExitStatusChannelRequestMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
+  return encodeSequence(buffer,
+                        exit_status);
+}
+
+// SignalChannelRequestMsg
+absl::StatusOr<size_t> SignalChannelRequestMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
+  return decodeSequence(buffer, payload_size,
+                        signal_name);
+}
+absl::StatusOr<size_t> SignalChannelRequestMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
+  return encodeSequence(buffer,
+                        signal_name);
+}
+
+// XOnXOffChannelRequestMsg
+absl::StatusOr<size_t> XOnXOffChannelRequestMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
+  return decodeSequence(buffer, payload_size,
+                        client_can_do);
+}
+absl::StatusOr<size_t> XOnXOffChannelRequestMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
+  return encodeSequence(buffer,
+                        client_can_do);
+}
+
 // ChannelRequestMsg
 absl::StatusOr<size_t> ChannelRequestMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
   return decodeMsg(buffer, type, payload_size,

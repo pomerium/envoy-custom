@@ -371,6 +371,28 @@ TEST_FIELDS(WindowDimensionChangeChannelRequestMsg,
 TEST_FIELDS(ShellChannelRequestMsg);
 TEST_FIELDS(ExecChannelRequestMsg,
             command);
+TEST_FIELDS(SubsystemChannelRequestMsg,
+            subsystem_name);
+TEST_FIELDS(EnvChannelRequestMsg,
+            variable_name,
+            variable_value);
+TEST_FIELDS(X11ReqChannelRequestMsg,
+            single_connection,
+            x11_authentication_protocol,
+            x11_authentication_cookie,
+            x11_screen_number);
+TEST_FIELDS(ExitSignalChannelRequestMsg,
+            signal_name,
+            core_dumped,
+            error_message,
+            language_tag);
+TEST_FIELDS(ExitStatusChannelRequestMsg,
+            exit_status);
+TEST_FIELDS(SignalChannelRequestMsg,
+            signal_name);
+TEST_FIELDS(XOnXOffChannelRequestMsg,
+            client_can_do);
+TEST_FIELDS(EowChannelRequestMsg);
 TEST_FIELDS(HostKeysMsg,
             hostkeys);
 TEST_FIELDS(UserAuthInfoPrompt,
