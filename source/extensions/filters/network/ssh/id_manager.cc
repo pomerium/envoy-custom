@@ -146,10 +146,11 @@ absl::StatusOr<bool> ChannelIDManager::processOutgoingChannelMsgImpl(wire::field
   case ChannelIDState::Preempted:
     if (!info.preempted_closed) {
       // While the channel is in the Preempted state, messages can be sent only until the next
-      // ChannelClose, which will set preemptable=false.
+      // ChannelClose (or ChannelOpenFailure if never opened), which will set preemptable=false.
       recipient_channel = info.peer_ids[dest];
 
-      if (msg_type == wire::SshMessageType::ChannelClose) {
+      if (msg_type == wire::SshMessageType::ChannelClose ||
+          msg_type == wire::SshMessageType::ChannelOpenFailure) {
         info.preempted_closed = true;
       }
       return true;

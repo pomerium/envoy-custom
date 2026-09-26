@@ -500,7 +500,7 @@ TEST_F(ChannelReadFiltersTest, TestChannelReadFilters_ErrorCreatingReadFilterOnC
                                          .request = wire::SessionChannelOpenMsg{},
                                        },
                                      });
-  EXPECT_EQ(absl::InternalError("createReadFilter error"), stat.status());
+  EXPECT_EQ(absl::InternalError("createReadFilter error"), stat);
 }
 
 TEST_F(ChannelReadFiltersTest, TestChannelReadFilters_ErrorOnChannelOpen) {
@@ -530,7 +530,7 @@ TEST_F(ChannelReadFiltersTest, TestChannelReadFilters_ErrorOnChannelOpen) {
                                          .request = wire::SessionChannelOpenMsg{},
                                        },
                                      });
-  EXPECT_EQ(absl::InternalError("error opening channel: test error"), stat.status());
+  EXPECT_EQ(absl::InternalError("error opening channel: test error"), stat);
 }
 
 TEST_F(ChannelReadFiltersTest, TestChannelReadFilters_ErrorOnMessageForward) {
@@ -733,7 +733,7 @@ TEST_F(ChannelWriteFiltersTest, TestChannelWriteFilters_ErrorCreatingWriteFilter
                                                            }));
   auto stat = service_->startChannel(std::move(channel_), {.allocated_channel_id = channel_id_});
 
-  EXPECT_EQ(absl::InternalError("createWriteFilter error"), stat.status());
+  EXPECT_EQ(absl::InternalError("createWriteFilter error"), stat);
 }
 
 TEST_F(ChannelWriteFiltersTest, TestChannelWriteFilters_ErrorOnChannelOpenConfirmation) {
