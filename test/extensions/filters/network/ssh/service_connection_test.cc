@@ -94,11 +94,13 @@ TEST_P(ConnectionServiceTest, Name) {
 TEST_P(ConnectionServiceTest, StartChannel_NewID) {
   auto ch1 = std::make_unique<testing::StrictMock<MockChannel>>();
   IN_SEQUENCE;
-  EXPECT_CALL(*ch1, setChannelCallbacks);
+  EXPECT_CALL(*ch1, setChannelCallbacks)
+    .WillOnce([](ChannelCallbacks& cb) {
+      EXPECT_EQ(100, cb.channelId());
+    });
   EXPECT_CALL(*ch1, Die);
   auto id = service_.startChannel(std::move(ch1));
   ASSERT_OK(id);
-  EXPECT_EQ(100, id.value());
 }
 
 TEST_P(ConnectionServiceTest, StartChannel_ExistingID) {
@@ -106,11 +108,13 @@ TEST_P(ConnectionServiceTest, StartChannel_ExistingID) {
   auto newId = *channel_id_manager_.allocateNewChannel(GetParam());
   auto ch1 = std::make_unique<testing::StrictMock<MockChannel>>();
   IN_SEQUENCE;
-  EXPECT_CALL(*ch1, setChannelCallbacks);
+  EXPECT_CALL(*ch1, setChannelCallbacks)
+    .WillOnce([](ChannelCallbacks& cb) {
+      EXPECT_EQ(101, cb.channelId());
+    });
   EXPECT_CALL(*ch1, Die);
-  auto id = service_.startChannel(std::move(ch1), {.allocated_channel_id = newId});
-  ASSERT_OK(id);
-  EXPECT_EQ(101, id.value());
+  auto stat = service_.startChannel(std::move(ch1), {.allocated_channel_id = newId});
+  ASSERT_OK(stat);
 }
 
 TEST_P(ConnectionServiceTest, StartChannel_ErrorAllocatingID) {
@@ -120,7 +124,7 @@ TEST_P(ConnectionServiceTest, StartChannel_ErrorAllocatingID) {
   auto ch1 = std::make_unique<testing::StrictMock<MockChannel>>();
   EXPECT_CALL(*ch1, Die);
   auto id = service_.startChannel(std::move(ch1));
-  ASSERT_EQ(absl::ResourceExhaustedError("failed to allocate ID"), id.status());
+  ASSERT_EQ(absl::ResourceExhaustedError("failed to allocate ID"), id);
 
   EXPECT_TRUE(service_.AssertChannelCountEq(0));
 }
@@ -128,7 +132,10 @@ TEST_P(ConnectionServiceTest, StartChannel_ErrorAllocatingID) {
 TEST_P(ConnectionServiceTest, StartChannel_ReadChannelOpen) {
   auto ch1 = std::make_unique<testing::StrictMock<MockChannel>>();
   IN_SEQUENCE;
-  EXPECT_CALL(*ch1, setChannelCallbacks);
+  EXPECT_CALL(*ch1, setChannelCallbacks)
+    .WillOnce([](ChannelCallbacks& cb) {
+      EXPECT_EQ(100, cb.channelId());
+    });
   wire::ChannelOpenMsg msg{
     .sender_channel = 1,
     .request = wire::SessionChannelOpenMsg{},
@@ -137,20 +144,23 @@ TEST_P(ConnectionServiceTest, StartChannel_ReadChannelOpen) {
   EXPECT_CALL(*ch1, readChannelOpen(auto(msg)))
     .WillOnce(Return(absl::OkStatus()));
   EXPECT_CALL(*ch1, Die);
-  auto id = service_.startChannel(std::move(ch1), {.channel_open = msg});
-  ASSERT_OK(id);
+  auto stat = service_.startChannel(std::move(ch1), {.channel_open = msg});
+  ASSERT_OK(stat);
 
-  ASSERT_TRUE(channel_id_manager_.owner(*id).has_value());
-  ASSERT_EQ(LocalPeer(), channel_id_manager_.owner(*id));
+  ASSERT_TRUE(channel_id_manager_.owner(100).has_value());
+  ASSERT_EQ(LocalPeer(), channel_id_manager_.owner(100));
 
-  EXPECT_EQ(ChannelIDState::Pending, channel_id_manager_.peerState(*id, RemotePeer())); // expect_remote=true
-  EXPECT_EQ(ChannelIDState::Bound, channel_id_manager_.peerState(*id, LocalPeer()));
+  EXPECT_EQ(ChannelIDState::Pending, channel_id_manager_.peerState(100, RemotePeer())); // expect_remote=true
+  EXPECT_EQ(ChannelIDState::Bound, channel_id_manager_.peerState(100, LocalPeer()));
 }
 
 TEST_P(ConnectionServiceTest, StartChannel_SkipAutoBind) {
   auto ch1 = std::make_unique<testing::StrictMock<MockChannel>>();
   IN_SEQUENCE;
-  EXPECT_CALL(*ch1, setChannelCallbacks);
+  EXPECT_CALL(*ch1, setChannelCallbacks)
+    .WillOnce([](ChannelCallbacks& cb) {
+      EXPECT_EQ(100, cb.channelId());
+    });
   wire::ChannelOpenMsg msg{
     .sender_channel = 1,
     .request = wire::SessionChannelOpenMsg{},
@@ -159,20 +169,23 @@ TEST_P(ConnectionServiceTest, StartChannel_SkipAutoBind) {
   EXPECT_CALL(*ch1, readChannelOpen(auto(msg)))
     .WillOnce(Return(absl::OkStatus()));
   EXPECT_CALL(*ch1, Die);
-  auto id = service_.startChannel(std::move(ch1), {
-                                                    .channel_open = msg,
-                                                    .skip_auto_bind = true,
-                                                  });
-  ASSERT_OK(id);
+  auto stat = service_.startChannel(std::move(ch1), {
+                                                      .channel_open = msg,
+                                                      .skip_auto_bind = true,
+                                                    });
+  ASSERT_OK(stat);
 
-  EXPECT_EQ(ChannelIDState::Unbound, channel_id_manager_.peerState(*id, RemotePeer()));
-  EXPECT_EQ(ChannelIDState::Unbound, channel_id_manager_.peerState(*id, LocalPeer()));
+  EXPECT_EQ(ChannelIDState::Unbound, channel_id_manager_.peerState(100, RemotePeer()));
+  EXPECT_EQ(ChannelIDState::Unbound, channel_id_manager_.peerState(100, LocalPeer()));
 }
 
 TEST_P(ConnectionServiceTest, StartChannel_BindExpectRemote) {
   auto ch1 = std::make_unique<testing::StrictMock<MockChannel>>();
   IN_SEQUENCE;
-  EXPECT_CALL(*ch1, setChannelCallbacks);
+  EXPECT_CALL(*ch1, setChannelCallbacks)
+    .WillOnce([](ChannelCallbacks& cb) {
+      EXPECT_EQ(100, cb.channelId());
+    });
   wire::ChannelOpenMsg msg{
     .sender_channel = 1,
     .request = wire::SessionChannelOpenMsg{},
@@ -181,27 +194,30 @@ TEST_P(ConnectionServiceTest, StartChannel_BindExpectRemote) {
   EXPECT_CALL(*ch1, readChannelOpen(auto(msg)))
     .WillOnce(Return(absl::OkStatus()));
   EXPECT_CALL(*ch1, Die);
-  auto id = service_.startChannel(std::move(ch1), {
-                                                    .channel_open = msg,
-                                                    .bind_expect_remote = false,
-                                                  });
-  ASSERT_OK(id);
+  auto stat = service_.startChannel(std::move(ch1), {
+                                                      .channel_open = msg,
+                                                      .bind_expect_remote = false,
+                                                    });
+  ASSERT_OK(stat);
 
-  ASSERT_TRUE(channel_id_manager_.owner(*id).has_value());
+  ASSERT_TRUE(channel_id_manager_.owner(100).has_value());
 
-  EXPECT_EQ(ChannelIDState::Unbound, channel_id_manager_.peerState(*id, RemotePeer()));
-  EXPECT_EQ(ChannelIDState::Bound, channel_id_manager_.peerState(*id, LocalPeer()));
+  EXPECT_EQ(ChannelIDState::Unbound, channel_id_manager_.peerState(100, RemotePeer()));
+  EXPECT_EQ(ChannelIDState::Bound, channel_id_manager_.peerState(100, LocalPeer()));
 }
 
 TEST_P(ConnectionServiceTest, StartChannel_ErrorReadingChannelOpen) {
   auto ch1 = std::make_unique<testing::StrictMock<MockChannel>>();
   IN_SEQUENCE;
-  EXPECT_CALL(*ch1, setChannelCallbacks);
+  EXPECT_CALL(*ch1, setChannelCallbacks)
+    .WillOnce([](ChannelCallbacks& cb) {
+      EXPECT_EQ(100, cb.channelId());
+    });
   EXPECT_CALL(*ch1, readChannelOpen)
     .WillOnce(Return(absl::InternalError("test error")));
   EXPECT_CALL(*ch1, Die);
-  auto id = service_.startChannel(std::move(ch1), {.channel_open = wire::ChannelOpenMsg{}});
-  ASSERT_EQ(absl::InternalError("error opening channel: test error"), id.status());
+  auto stat = service_.startChannel(std::move(ch1), {.channel_open = wire::ChannelOpenMsg{}});
+  ASSERT_EQ(absl::InternalError("error opening channel: test error"), stat);
 
   // Check that allocated IDs are freed if readChannelOpen fails. Because bind_expect_remote is
   // unset (which defaults to true), the remote peer's ID will briefly be in the Pending state,
@@ -222,9 +238,8 @@ TEST_P(ConnectionServiceTest, SetChannelCallbacks) {
     EXPECT_NE(nullptr, &cb.scope());
   });
   EXPECT_CALL(*ch1, Die);
-  auto id = service_.startChannel(std::move(ch1));
-  ASSERT_OK(id);
-  EXPECT_EQ(100, id.value());
+  auto stat = service_.startChannel(std::move(ch1));
+  ASSERT_OK(stat);
 }
 
 TEST_P(ConnectionServiceTest, OpenPassthroughChannelOnChannelOpen) {
@@ -323,11 +338,10 @@ TEST_P(ConnectionServiceTest, OpenInternalChannel) {
       return absl::OkStatus();
     });
   EXPECT_CALL(*ch1, Die);
-  auto id = service_.startChannel(std::move(ch1));
-  ASSERT_OK(id);
-  EXPECT_EQ(100, *id);
+  auto stat = service_.startChannel(std::move(ch1));
+  ASSERT_OK(stat);
   ASSERT_OK(service_.handleMessage(wire::ChannelOpenConfirmationMsg{
-    .recipient_channel = *id,
+    .recipient_channel = 100,
     .sender_channel = 1, // local peer's ID
   }));
 }
@@ -339,13 +353,12 @@ TEST_P(ConnectionServiceTest, OpenInternalChannel_ErrorOnChannelOpened) {
   EXPECT_CALL(*ch1, readMessage(MSG(wire::ChannelOpenConfirmationMsg, _)))
     .WillOnce(Return(absl::InternalError("test error")));
   EXPECT_CALL(*ch1, Die);
-  auto id = service_.startChannel(std::move(ch1));
-  ASSERT_OK(id);
-  EXPECT_EQ(100, *id);
+  auto stat = service_.startChannel(std::move(ch1));
+  ASSERT_OK(stat);
   ASSERT_EQ(
     absl::InternalError("error opening channel: test error"),
     service_.handleMessage(wire::ChannelOpenConfirmationMsg{
-      .recipient_channel = *id,
+      .recipient_channel = 100,
       .sender_channel = 1, // local peer's IDq
     }));
 }
@@ -405,16 +418,15 @@ TEST_P(ConnectionServiceTest, CloseInternalChannel) {
   EXPECT_CALL(*ch1, readMessage(MSG(wire::ChannelCloseMsg, _)))
     .WillOnce(Return(absl::OkStatus()));
   EXPECT_CALL(*ch1, Die);
-  auto id = service_.startChannel(std::move(ch1));
-  ASSERT_OK(id);
-  EXPECT_EQ(100, *id);
+  auto stat = service_.startChannel(std::move(ch1));
+  ASSERT_OK(stat);
 
   ASSERT_OK(service_.handleMessage(wire::ChannelOpenConfirmationMsg{
-    .recipient_channel = *id,
+    .recipient_channel = 100,
     .sender_channel = 1, // local peer's ID
   }));
   ASSERT_OK(service_.handleMessage(wire::ChannelCloseMsg{
-    .recipient_channel = *id,
+    .recipient_channel = 100,
   }));
 
   ASSERT_EQ(0, channel_id_manager_.numActiveChannels());
@@ -424,12 +436,13 @@ TEST_P(ConnectionServiceTest, InterruptInternalChannel) {
   EXPECT_CALL(transport_, streamId)
     .WillRepeatedly(Return(1));
   auto ch1 = std::make_unique<testing::StrictMock<MockChannel>>();
-  uint32_t id{};
+  ChannelCallbacks* channelCallbacks{};
   Envoy::Common::CallbackHandlePtr interruptCbHandle;
   {
     IN_SEQUENCE;
     EXPECT_CALL(*ch1, setChannelCallbacks)
       .WillOnce([&](ChannelCallbacks& cb) {
+        channelCallbacks = &cb;
         interruptCbHandle = cb.addInterruptCallback([](absl::Status err, TransportCallbacks& transport_callbacks) {
           EXPECT_EQ(absl::InternalError("test error"), err);
           EXPECT_OK(transport_callbacks.sendMessageToConnection(wire::ChannelDataMsg{
@@ -445,8 +458,9 @@ TEST_P(ConnectionServiceTest, InterruptInternalChannel) {
       .WillOnce(Return(absl::OkStatus()));
 
     EXPECT_CALL(*ch1, Die);
-    id = *service_.startChannel(std::move(ch1));
+    ASSERT_OK(service_.startChannel(std::move(ch1)));
   }
+  auto id = channelCallbacks->channelId();
   ASSERT_OK(service_.handleMessage(wire::ChannelOpenConfirmationMsg{
     .recipient_channel = id,
     .sender_channel = 1, // local peer's ID
@@ -1269,6 +1283,75 @@ TEST_P(ChannelOpenPreemptRaceTest, IgnoreMessagesBeforeChannelClose) {
 }
 
 INSTANTIATE_TEST_SUITE_P(ChannelOpenPreemptRace, ChannelOpenPreemptRaceTest,
+                         testing::Values(Peer::Downstream, Peer::Upstream),
+                         TestParameterNames({"Local_Downstream", "Local_Upstream"}));
+
+// NOLINTBEGIN(readability-identifier-naming)
+class ChannelOpenLocalPreemptRaceTest : public ConnectionServiceTest {
+public:
+  using ConnectionServiceTest::ConnectionServiceTest;
+  void SetUp() override {
+    ConnectionServiceTest::SetUp();
+    EXPECT_CALL(transport_, streamId)
+      .WillRepeatedly(Return(1));
+  }
+
+protected:
+  uint32_t internal_id_{100};
+};
+// NOLINTEND(readability-identifier-naming)
+
+TEST_P(ChannelOpenLocalPreemptRaceTest, TestPreemptAfterChannelOpen) {
+  EXPECT_CALL(transport_, forward(MSG(wire::ChannelOpenMsg,
+                                      FIELD_EQ(sender_channel, internal_id_),
+                                      FIELD(request, SUB_MSG(wire::SessionChannelOpenMsg, _))),
+                                  _));
+  ASSERT_OK(service_.handleMessage(wire::ChannelOpenMsg{
+    .sender_channel = 1,
+    .request = wire::SessionChannelOpenMsg{},
+  }));
+
+  ASSERT_EQ(ChannelIDState::Bound, channel_id_manager_.peerState(internal_id_, LocalPeer()));
+  ASSERT_EQ(ChannelIDState::Pending, channel_id_manager_.peerState(internal_id_, RemotePeer()));
+
+  EXPECT_CALL(transport_, sendMessageToConnection(MSG(wire::ChannelOpenFailureMsg,
+                                                      FIELD_EQ(recipient_channel, internal_id_),
+                                                      _)))
+    .WillOnce(Return(0));
+  service_.preempt(service_.GetChannelCallbacks(internal_id_), absl::AbortedError("test error"));
+
+  // the remote peer has been sent a ChannelOpen message, so the internal state should be kept
+  // alive until it is closed via ForceCloseChannel .
+  ASSERT_EQ(ChannelIDState::Bereft, channel_id_manager_.peerState(internal_id_, LocalPeer()));
+  ASSERT_EQ(ChannelIDState::Pending, channel_id_manager_.peerState(internal_id_, RemotePeer()));
+}
+
+TEST_P(ChannelOpenLocalPreemptRaceTest, TestPreemptDuringChannelOpen) {
+  auto ch1 = std::make_unique<testing::StrictMock<MockChannel>>();
+  EXPECT_CALL(*ch1, readChannelOpen)
+    .WillOnce([&](wire::ChannelOpenMsg&& msg) {
+      IN_SEQUENCE;
+
+      EXPECT_CALL(transport_, sendMessageToConnection(MSG(wire::ChannelOpenFailureMsg,
+                                                          FIELD_EQ(recipient_channel, internal_id_),
+                                                          _)))
+        .WillOnce(Return(0));
+      EXPECT_CALL(*ch1, Die());
+
+      EXPECT_EQ(ChannelIDState::Bound, channel_id_manager_.peerState(internal_id_, LocalPeer()));
+      EXPECT_EQ(ChannelIDState::Pending, channel_id_manager_.peerState(internal_id_, RemotePeer()));
+
+      service_.preempt(service_.GetChannelCallbacks(msg.sender_channel), absl::AbortedError("test error"));
+
+      EXPECT_FALSE(channel_id_manager_.owner(internal_id_).has_value()); // the channel should be freed
+
+      return absl::OkStatus();
+    });
+
+  ASSERT_OK(service_.startChannel(std::move(ch1)));
+}
+
+INSTANTIATE_TEST_SUITE_P(ChannelOpenLocalPreemptRace, ChannelOpenLocalPreemptRaceTest,
                          testing::Values(Peer::Downstream, Peer::Upstream),
                          TestParameterNames({"Local_Downstream", "Local_Upstream"}));
 

@@ -34,10 +34,11 @@ void ConnectionService::registerMessageHandlers(SshMessageDispatcher& dispatcher
   dispatcher.registerHandler(wire::SshMessageType::ChannelFailure, this);
 }
 
-absl::StatusOr<uint32_t> ConnectionService::startChannel(std::unique_ptr<Channel> channel, StartChannelOpts opts) {
+absl::Status ConnectionService::startChannel(std::unique_ptr<Channel> channel, StartChannelOpts opts) {
+  auto& channelIdManager = transport_.channelIdManager();
   auto channelId = opts.allocated_channel_id;
   if (!channelId.has_value()) {
-    auto internalId = transport_.channelIdManager().allocateNewChannel(local_peer_);
+    auto internalId = channelIdManager.allocateNewChannel(local_peer_);
     if (!internalId.ok()) {
       return internalId.status();
     }
@@ -75,10 +76,11 @@ absl::StatusOr<uint32_t> ConnectionService::startChannel(std::unique_ptr<Channel
   // Note: order is important here; if readChannelOpen below fails, the callbacks cleanup routine
   // is invoked when the channel is destroyed, which will unlink it from channel_callbacks_.
   LinkedList::moveIntoList(std::move(callbacks), channel_callbacks_);
+  auto& channelCallbacks = channel_callbacks_.front();
 
   if (opts.channel_open.has_value()) {
     if (!opts.skip_auto_bind) {
-      auto stat = transport_.channelIdManager().bindChannelID(
+      auto stat = channelIdManager.bindChannelID(
         *channelId, PeerLocalID{
                       .channel_id = opts.channel_open->sender_channel,
                       .local_peer = local_peer_,
@@ -87,20 +89,27 @@ absl::StatusOr<uint32_t> ConnectionService::startChannel(std::unique_ptr<Channel
       ASSERT(stat.ok());
     }
 
-    if (auto stat = channel->readChannelOpen(std::move(opts.channel_open).value()); !stat.ok()) {
-      // If sending the channel open message fails, the peer's ID may still be in the Pending state,
-      // but it will never have received the channel open, so the ID will not be released.
-      if (!opts.skip_auto_bind && opts.bind_expect_remote.value_or(true)) {
-
-        transport_.channelIdManager().releaseChannelID(*channelId,
-                                                       local_peer_ == Downstream ? Upstream : Downstream);
+    auto stat = channel->readChannelOpen(std::move(opts.channel_open).value());
+    auto wasPreempted = channelIdManager.peerState(*channelId, local_peer_) == ChannelIDState::Preempted;
+    if (!stat.ok() || wasPreempted) {
+      // In either of these cases, the channel will be destroyed when this function returns. Before
+      // doing so, we may need to release the remote peer's channel ID. If the channel expected
+      // to send a ChannelOpen message to the remote peer, but did not get a chance to, the remote
+      // peer's channel ID state would be stuck in Pending indefinitely.
+      auto remotePeer = local_peer_ == Downstream ? Upstream : Downstream;
+      if (channelIdManager.peerState(*channelId, remotePeer) == ChannelIDState::Pending &&
+          !channelCallbacks->channelType().has_value()) {
+        channelIdManager.releaseChannelID(*channelId, remotePeer);
       }
-      return statusf("error opening channel: {}", stat);
+      if (!stat.ok()) {
+        return statusf("error opening channel: {}", stat);
+      }
+      return absl::OkStatus();
     }
   }
 
   channels_[*channelId] = std::move(channel);
-  return *channelId;
+  return absl::OkStatus();
 }
 
 absl::Status ConnectionService::handleMessage(wire::Message&& msg) {
@@ -108,9 +117,9 @@ absl::Status ConnectionService::handleMessage(wire::Message&& msg) {
     [&](wire::ChannelOpenMsg& msg) {
       ENVOY_LOG(debug, "starting new passthrough channel");
       auto passthrough = std::make_unique<PassthroughChannel>();
-      auto id = startChannel(std::move(passthrough), {.channel_open{std::move(msg)}});
-      if (!id.ok()) {
-        return statusf("error starting passthrough channel: {}", id.status());
+      auto stat = startChannel(std::move(passthrough), {.channel_open{std::move(msg)}});
+      if (!stat.ok()) {
+        return statusf("error starting passthrough channel: {}", stat);
       }
       return absl::OkStatus();
     },
@@ -243,10 +252,10 @@ absl::Status ConnectionService::maybeStartNonOwningPassthroughChannel(uint32_t i
     // PassthroughChannel, use a special channel type called ForceCloseChannel which will, upon
     // being started, simply attempt to close itself. Once it is closed, then the channel ID will
     // be released and freed (since at this point, the downstream channel will be bereft).
-    return startChannel(std::make_unique<ForceCloseChannel>(), {.allocated_channel_id = internal_id}).status();
+    return startChannel(std::make_unique<ForceCloseChannel>(), {.allocated_channel_id = internal_id});
   }
   auto passthrough = std::make_unique<PassthroughChannel>();
-  return startChannel(std::move(passthrough), {.allocated_channel_id = internal_id}).status();
+  return startChannel(std::move(passthrough), {.allocated_channel_id = internal_id});
 }
 
 Envoy::Common::CallbackHandlePtr ConnectionService::onServerDraining(std::chrono::milliseconds delay, Envoy::Event::Dispatcher& dispatcher, std::function<void()> complete_cb) {
@@ -331,9 +340,14 @@ void ConnectionService::ChannelCallbacksImpl::sendMessageLocal(wire::Message&& m
 
       // If the channel open failure originates from the local peer's Channel (e.g. for hijacked
       // channels), send the failure message to the local peer then immediately destroy the channel.
+      //
       // Note: it likely doesn't matter if the channel is deleted before or after the message is
       // sent since sendMessageToConnection is a lower level api. But to keep things consistent
       // it is deleted afterwards.
+      //
+      // Note: parent_.channels_ may not actually contain the channel; this can be reached during
+      // processing of the initial ChannelOpen message, in which case the channel will not have been
+      // stored yet. In that case, the line below is a no-op.
       deferredDelete.swap(parent_.channels_.extract(channel_id_).mapped());
 
       return *sendOk;
@@ -427,15 +441,37 @@ bool ConnectionService::ChannelCallbacksImpl::interruptChannel(absl::Status err)
 }
 
 void ConnectionService::preempt(ChannelCallbacks& ccb, absl::Status err) {
-  ASSERT(transport_.channelIdManager().isPreemptable(ccb.channelId(), local_peer_));
+  auto& channelIdManager = transport_.channelIdManager();
+  auto channelId = ccb.channelId();
+  ASSERT(channelIdManager.isPreemptable(channelId, local_peer_));
   ENVOY_LOG(debug, "ssh: stream {}: preempting channel {} (err: {})",
-            transport_.streamId(), ccb.channelId(), statusToString(err));
+            transport_.streamId(), channelId, statusToString(err));
 
-  transport_.channelIdManager().preempt(ccb.channelId(), local_peer_);
+  auto remotePeer = local_peer_ == Peer::Downstream ? Peer::Upstream : Peer::Downstream;
+  channelIdManager.preempt(channelId, local_peer_);
 
   ccb.runInterruptCallbacks(err);
+
+  // If a channel open confirmation/failure was never received, send a ChannelOpenFailure instead
+  // of ChannelClose.
+  // Note: For one-sided channel implementations such as HijackedChannel, the peer would be in
+  // the Unbound state instead of Pending, so this would not occur.
+  if (channelIdManager.peerState(channelId, remotePeer) == ChannelIDState::Pending) {
+    if (!ccb.channelType().has_value()) {
+      // If we are about to destroy the channel and it never sent a ChannelOpen message to the
+      // remote peer, release the remote peer's ID. Then, the channel id will be freed after the
+      // ChannelOpenFailure message is sent.
+      // This can happen if the channel is preempted while handling the local ChannelOpen message.
+      // channelIdManager.releaseChannelID(channelId, remotePeer);
+    }
+    ccb.sendMessageLocal(wire::ChannelOpenFailureMsg{
+      .recipient_channel = channelId,
+    });
+    return;
+  }
+
   ccb.sendMessageLocal(wire::ChannelCloseMsg{
-    .recipient_channel = ccb.channelId(),
+    .recipient_channel = channelId,
   });
 }
 
@@ -811,12 +847,12 @@ absl::StatusOr<MiddlewareResult> OpenHijackedChannelMiddleware::interceptMessage
       auto client = std::make_unique<ChannelStreamServiceClient>(grpc_client_);
 
       auto channel = std::make_unique<HijackedChannel>(hijack_callbacks_, std::move(client), config_);
-      auto internalId = parent_.startChannel(std::move(channel), {
-                                                                   .channel_open{std::move(msg)},
-                                                                   .bind_expect_remote = false,
-                                                                 });
-      if (!internalId.ok()) {
-        return statusf("error starting channel: {}", internalId.status());
+      auto stat = parent_.startChannel(std::move(channel), {
+                                                             .channel_open{std::move(msg)},
+                                                             .bind_expect_remote = false,
+                                                           });
+      if (!stat.ok()) {
+        return statusf("error starting channel: {}", stat);
       }
 
       return MiddlewareResult::Break;

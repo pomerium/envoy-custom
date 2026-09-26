@@ -54,8 +54,7 @@ absl::Status SshFakeUpstreamHandler::FakeUpstreamConnectionService::handleMessag
       RETURN_IF_NOT_OK(startChannel(std::move(ch), {
                                                      .channel_open = msg,
                                                      .bind_expect_remote = false,
-                                                   })
-                         .status());
+                                                   }));
       return absl::OkStatus();
     },
     [&](wire::ChannelOpenConfirmationMsg&& msg) {
@@ -70,7 +69,7 @@ absl::Status SshFakeUpstreamHandler::FakeUpstreamConnectionService::handleMessag
         PANIC("test bug: on_channel_accepted callback unset but required");
       }
       auto ch = std::make_unique<FakeUpstreamChannel>(parent_.opts_->on_channel_accepted(msg));
-      RETURN_IF_NOT_OK(startChannel(std::move(ch), {.allocated_channel_id = id}).status());
+      RETURN_IF_NOT_OK(startChannel(std::move(ch), {.allocated_channel_id = id}));
       msg.sender_channel = msg.recipient_channel;
       return channels_[id]->readMessage(std::move(msg));
     },
@@ -80,7 +79,7 @@ absl::Status SshFakeUpstreamHandler::FakeUpstreamConnectionService::handleMessag
         PANIC("test bug: on_channel_rejected callback unset but required");
       }
       auto ch = std::make_unique<FakeUpstreamChannel>(parent_.opts_->on_channel_rejected(msg));
-      RETURN_IF_NOT_OK(startChannel(std::move(ch), {.allocated_channel_id = id}).status());
+      RETURN_IF_NOT_OK(startChannel(std::move(ch), {.allocated_channel_id = id}));
       return channels_[id]->readMessage(std::move(msg));
     },
     [&](auto&& msg) {

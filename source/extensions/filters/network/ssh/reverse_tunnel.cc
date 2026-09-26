@@ -1281,17 +1281,17 @@ public:
         // It's simpler for the channel to construct its own ChannelOpenMsg, otherwise we would have
         // to duplicate obtaining metadata and downstream address here, which the channel already
         // needs for other things. Setting channel_open below triggers the readChannelOpen callback.
-        auto id = ctx->streamCallbacks().startChannel(
+        auto stat = ctx->streamCallbacks().startChannel(
           std::move(c),
           {
             .channel_open = wire::ChannelOpenMsg{},
             .skip_auto_bind = true,
           });
 
-        if (!id.ok()) {
-          ENVOY_LOG(warn, "failed to start channel: {}", statusToString(id.status()));
+        if (!stat.ok()) {
+          ENVOY_LOG(warn, "failed to start channel: {}", statusToString(stat));
         } else {
-          ENVOY_LOG(debug, "internal downstream channel started: {}", *id);
+          ENVOY_LOG(debug, "internal downstream channel started");
         }
       });
 

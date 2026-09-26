@@ -36,7 +36,7 @@ public:
     std::optional<bool> bind_expect_remote;
   };
 
-  virtual absl::StatusOr<uint32_t> startChannel(std::unique_ptr<Channel> channel, StartChannelOpts opts) PURE;
+  virtual absl::Status startChannel(std::unique_ptr<Channel> channel, StartChannelOpts opts) PURE;
 
   [[nodiscard]]
   virtual Envoy::Common::CallbackHandlePtr onServerDraining(std::chrono::milliseconds delay, Envoy::Event::Dispatcher& dispatcher, std::function<void()> complete_cb) PURE;
