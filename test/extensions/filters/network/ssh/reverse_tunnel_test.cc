@@ -1,4 +1,6 @@
 #include <algorithm>
+#include <tuple>
+#include <vector>
 
 #include "source/extensions/filters/network/ssh/message_handler.h"
 #include "source/extensions/filters/network/ssh/reverse_tunnel.h"

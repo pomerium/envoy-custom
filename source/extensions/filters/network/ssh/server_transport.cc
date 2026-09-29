@@ -7,6 +7,7 @@
 #include <memory>
 #include <sshkey.h>
 #include <unistd.h>
+#include <vector>
 
 #include "source/common/network/utility.h"
 

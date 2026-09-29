@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string_view>
+
 #pragma clang unsafe_buffer_usage begin
 #include "source/extensions/filters/network/generic_proxy/interface/stream.h"
 #pragma clang unsafe_buffer_usage end

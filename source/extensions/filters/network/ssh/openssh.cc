@@ -1,5 +1,9 @@
 #include "source/extensions/filters/network/ssh/openssh.h"
 
+#include <array>
+#include <string_view>
+#include <vector>
+
 #include "absl/time/time.h"
 #include "source/common/span.h"
 #include "source/extensions/filters/network/ssh/common.h"

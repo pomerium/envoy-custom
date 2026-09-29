@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #pragma clang unsafe_buffer_usage begin
 #include "envoy/buffer/buffer.h"

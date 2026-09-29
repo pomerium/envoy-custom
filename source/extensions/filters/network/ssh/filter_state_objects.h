@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string_view>
+
 #pragma clang unsafe_buffer_usage begin
 #include "source/common/network/filter_state_dst_address.h"
 #pragma clang unsafe_buffer_usage end
@@ -17,7 +19,8 @@ public:
 
 class RequestedServerName : public StreamInfo::FilterState::Object {
 public:
-  RequestedServerName(absl::string_view server_name) : server_name_(server_name) {}
+  RequestedServerName(absl::string_view server_name)
+      : server_name_(server_name) {}
   const std::string& value() const { return server_name_; }
   absl::optional<std::string> serializeAsString() const override { return server_name_; }
   static const std::string& key();
@@ -37,7 +40,8 @@ public:
 
 class RequestedPath : public StreamInfo::FilterState::Object {
 public:
-  RequestedPath(absl::string_view server_name) : server_name_(server_name) {}
+  RequestedPath(absl::string_view server_name)
+      : server_name_(server_name) {}
   const std::string& value() const { return server_name_; }
   absl::optional<std::string> serializeAsString() const override { return server_name_; }
   static const std::string& key();

@@ -4,6 +4,7 @@
 #include <type_traits>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "source/common/fixed_string.h"
 

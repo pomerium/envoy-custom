@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include "test/extensions/filters/network/ssh/ssh_connection_driver.h"
 #include "test/extensions/filters/network/ssh/ssh_upstream.h"
 #include "test/integration/http_integration.h"

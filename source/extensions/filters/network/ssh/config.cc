@@ -1,5 +1,7 @@
 #include "source/extensions/filters/network/ssh/config.h"
 
+#include <vector>
+
 #include "source/extensions/filters/network/ssh/openssh.h"
 #include "source/extensions/filters/network/ssh/client_transport.h"   // IWYU pragma: keep
 #include "source/extensions/filters/network/ssh/server_transport.h"   // IWYU pragma: keep

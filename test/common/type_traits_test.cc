@@ -1,3 +1,6 @@
+#include <tuple>
+#include <vector>
+
 #include "source/common/type_traits.h"
 #include "source/common/optref.h"
 #include "test/test_common/test_common.h"

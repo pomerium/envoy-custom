@@ -2,10 +2,12 @@
 #include "test/integration/base_integration_test.h"
 #include "test/test_common/status_utility.h"
 #include "gtest/gtest.h"
+#include <array>
 #include <csignal>
 #include <sstream>
 #include <unistd.h>
 #include <utility>
+#include <vector>
 
 using namespace std::literals;
 

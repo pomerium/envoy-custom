@@ -1,6 +1,9 @@
 
 #include "source/extensions/tracers/pomerium_otel/tracer_impl.h"
 
+#include <tuple>
+#include <vector>
+
 #include "source/extensions/tracers/pomerium_otel/span.h"
 #include "source/common/tracing/trace_context_impl.h"
 #include "source/common/common/logger.h"
@@ -34,14 +37,14 @@ Tracing::SpanPtr PomeriumDriver::startSpan(const Tracing::Config& config,
                                            Tracing::Decision tracing_decision) {
 
   std::vector<std::tuple<std::string, std::string>> name_substitutions{
-      {"${path}", std::string(Envoy::Http::PathUtil::removeQueryAndFragment(trace_context.path()))},
-      {"${host}", std::string(trace_context.host())},
-      {"${method}", std::string(trace_context.method())},
-      {"${protocol}", std::string(trace_context.protocol())},
+    {"${path}", std::string(Envoy::Http::PathUtil::removeQueryAndFragment(trace_context.path()))},
+    {"${host}", std::string(trace_context.host())},
+    {"${method}", std::string(trace_context.method())},
+    {"${protocol}", std::string(trace_context.protocol())},
   };
   auto span = new VariableNameSpan(
-      Driver::startSpan(config, trace_context, stream_info, operation_name, tracing_decision),
-      name_substitutions);
+    Driver::startSpan(config, trace_context, stream_info, operation_name, tracing_decision),
+    name_substitutions);
 
   // a valid trace context is a 55-character string containing four hex-encoded segments separated
   // by '-' characters (see https://www.w3.org/TR/trace-context/#trace-context-http-headers-format)

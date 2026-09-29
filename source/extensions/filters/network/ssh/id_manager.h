@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+
 #include "fmt/args.h"
 #include "source/common/id_alloc.h"
 #include "source/extensions/filters/network/ssh/common.h"

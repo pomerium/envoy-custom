@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include "source/extensions/filters/network/ssh/stream_address.h"
 #include "source/extensions/filters/network/ssh/stream_tracker.h"
 

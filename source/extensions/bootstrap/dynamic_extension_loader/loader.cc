@@ -1,6 +1,7 @@
 #include "source/extensions/bootstrap/dynamic_extension_loader/loader.h"
 
 #include <dlfcn.h>
+#include <vector>
 
 #include "source/common/json/json_streamer.h"
 #include "source/common/status.h"

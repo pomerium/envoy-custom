@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #pragma clang unsafe_buffer_usage begin
 #include "envoy/config/typed_config.h"
 #include "envoy/server/factory_context.h"

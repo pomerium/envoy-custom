@@ -1,8 +1,12 @@
 #pragma once
 
+#include <iterator>
+#include <vector>
+
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
 #include "test/extensions/filters/network/ssh/wire/test_util.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
+#include <string_view>
 #include <type_traits>
 
 namespace wire {

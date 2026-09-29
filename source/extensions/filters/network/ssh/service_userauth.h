@@ -1,6 +1,7 @@
 #pragma once
 
 #include <tuple>
+#include <string_view>
 
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"

@@ -1,4 +1,7 @@
 #pragma once
+
+#include <vector>
+
 #include "envoy/tracing/trace_driver.h"
 #include "source/extensions/tracers/opentelemetry/opentelemetry_tracer_impl.h"
 

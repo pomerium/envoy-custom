@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include "source/common/types.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "gtest/gtest.h" // IWYU pragma: keep

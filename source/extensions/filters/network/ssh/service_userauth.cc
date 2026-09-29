@@ -2,6 +2,8 @@
 
 #include <cstdlib>
 #include <memory>
+#include <string_view>
+#include <vector>
 
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "source/common/status.h"

@@ -1,8 +1,9 @@
 #pragma once
 
-#include <vector>
-#include <span>
 #include <array>
+#include <span>
+#include <string_view>
+#include <vector>
 
 using bytes = std::vector<uint8_t>;
 

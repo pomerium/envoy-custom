@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include "source/extensions/filters/network/ssh/kex_alg.h"
 #include "openssl/curve25519.h"
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {

@@ -1,3 +1,5 @@
+#include <vector>
+
 #include "test/extensions/filters/network/ssh/ssh_integration_test.h"
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
 #include "envoy/extensions/transport_sockets/raw_buffer/v3/raw_buffer.pb.h"

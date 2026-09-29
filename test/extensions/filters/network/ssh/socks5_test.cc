@@ -1,3 +1,6 @@
+#include <tuple>
+#include <vector>
+
 #include "source/extensions/filters/network/ssh/socks5.h"
 #include "test/test_common/test_common.h"
 #include "test/test_common/utility.h"

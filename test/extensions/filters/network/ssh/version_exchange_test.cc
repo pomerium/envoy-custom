@@ -1,3 +1,7 @@
+#include <initializer_list>
+#include <tuple>
+#include <vector>
+
 #include "source/extensions/filters/network/ssh/version_exchange.h"
 #include "test/extensions/filters/network/ssh/test_mocks.h"
 #include "gtest/gtest.h"

@@ -1,3 +1,7 @@
+#include <string_view>
+#include <tuple>
+#include <vector>
+
 #include "source/extensions/filters/network/ssh/filter_state_objects.h"
 #include "source/extensions/filters/network/ssh/id_manager.h"
 #include "source/extensions/filters/network/ssh/openssh.h"

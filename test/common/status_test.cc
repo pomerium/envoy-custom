@@ -1,3 +1,5 @@
+#include <vector>
+
 #include "source/common/status.h"
 #include "gtest/gtest.h"
 #include "absl/strings/str_replace.h"

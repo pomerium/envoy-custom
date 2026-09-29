@@ -3,6 +3,7 @@
 #include "gtest/gtest.h"
 #include <algorithm>
 #include <latch>
+#include <string_view>
 #include "test/extensions/filters/network/generic_proxy/mocks/codec.h"
 #include "test/extensions/filters/network/ssh/test_env_util.h"
 #include "test/extensions/filters/network/ssh/wire/test_field_reflect.h" // IWYU pragma: keep

@@ -1,5 +1,7 @@
 #include "source/extensions/filters/network/ssh/channel_filter_config.h"
+
 #include <ranges>
+#include <vector>
 
 #pragma clang unsafe_buffer_usage begin
 #include "source/common/config/utility.h"
