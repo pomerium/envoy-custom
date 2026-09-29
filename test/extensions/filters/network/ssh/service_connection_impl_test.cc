@@ -297,7 +297,7 @@ public:
       cfg->set_name("test_channel_filter");
       Envoy::Protobuf::StringValue v;
       v.set_value("factory_config");
-      cfg->mutable_typed_config()->PackFrom(v);
+      ASSERT_TRUE(cfg->mutable_typed_config()->PackFrom(v));
     }
     ExtensionConfigList filterConfigs;
     {
@@ -305,7 +305,7 @@ public:
       cfg->set_name("test_channel_filter");
       Envoy::Protobuf::StringValue v;
       v.set_value("filter_config");
-      cfg->mutable_typed_config()->PackFrom(v);
+      ASSERT_TRUE(cfg->mutable_typed_config()->PackFrom(v));
     }
 
     this->channel_filter_manager_.reset(new ChannelFilterManager(enabledChannelFilters, this->context_));
