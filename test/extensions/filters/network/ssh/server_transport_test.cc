@@ -253,7 +253,7 @@ public:
     method_req.set_public_key_alg(pubkeyReq.public_key_alg);
     auto clientKeyFp = client_key.rawFingerprint();
     method_req.set_public_key_fingerprint_sha256(clientKeyFp.data(), clientKeyFp.size());
-    grpcAuthReq.mutable_method_request()->PackFrom(method_req);
+    ASSERT_TRUE(grpcAuthReq.mutable_method_request()->PackFrom(method_req));
 
     ClientMessage clientMsg;
     *clientMsg.mutable_auth_request() = grpcAuthReq;
@@ -292,7 +292,7 @@ public:
         if (add_well_known_metadata) {
           pomerium::extensions::ssh::FilterMetadata sshMetadata;
           sshMetadata.set_stream_id(999); // not otherwise set by us
-          (*internal->mutable_set_metadata()->mutable_typed_filter_metadata())["com.pomerium.ssh"].PackFrom(sshMetadata);
+          ASSERT_TRUE((*internal->mutable_set_metadata()->mutable_typed_filter_metadata())["com.pomerium.ssh"].PackFrom(sshMetadata));
         }
         manage_stream_callbacks_->onReceiveMessage(std::move(response));
       });
@@ -350,7 +350,7 @@ public:
       factoryConfig->set_name("test_channel_filter");
       Envoy::Protobuf::StringValue v;
       v.set_value("factory_config");
-      factoryConfig->mutable_typed_config()->PackFrom(v);
+      ASSERT_TRUE(factoryConfig->mutable_typed_config()->PackFrom(v));
     }
 
     inject_ = std::make_unique<Registry::InjectFactory<ChannelFilterFactoryConfig>>(channel_filter_factory_config_);
@@ -780,7 +780,7 @@ TEST_F(ChannelFilterConfigTest, ConfigureChannelFilters) {
       filter->set_name("test_channel_filter");
       Envoy::Protobuf::StringValue filterConfig;
       filterConfig.set_value("filter_config");
-      filter->mutable_typed_config()->PackFrom(filterConfig);
+      ASSERT_TRUE(filter->mutable_typed_config()->PackFrom(filterConfig));
 
       manage_stream_callbacks_->onReceiveMessage(std::move(response));
     });
@@ -815,7 +815,7 @@ TEST_F(ChannelFilterConfigTest, ConfigureChannelFilters_InvalidChannelFilterConf
       filter->set_name("test_channel_filter");
       Envoy::Protobuf::Int64Value filterConfig;
       filterConfig.set_value(1234);
-      filter->mutable_typed_config()->PackFrom(filterConfig);
+      ASSERT_TRUE(filter->mutable_typed_config()->PackFrom(filterConfig));
 
       manage_stream_callbacks_->onReceiveMessage(std::move(response));
     });
@@ -848,7 +848,7 @@ TEST_F(ChannelFilterConfigTest, ConfigureChannelFilters_ChannelFilterNotFound) {
       filter->set_name("test_channel_filter");
       Envoy::Protobuf::StringValue filterConfig;
       filterConfig.set_value("filter_config");
-      filter->mutable_typed_config()->PackFrom(filterConfig);
+      ASSERT_TRUE(filter->mutable_typed_config()->PackFrom(filterConfig));
 
       // add another filter that doesn't exist
       upstream->add_channel_filters()
@@ -895,7 +895,7 @@ public:
     pomerium::extensions::ssh::FilterMetadata sshMetadata;
     sshMetadata.set_channel_id(nextInternalId);
     sshMetadata.set_mode_hint(expect_mode_hint);
-    (*metadataReq.mutable_metadata()->mutable_typed_filter_metadata())["com.pomerium.ssh"].PackFrom(sshMetadata);
+    ASSERT_TRUE((*metadataReq.mutable_metadata()->mutable_typed_filter_metadata())["com.pomerium.ssh"].PackFrom(sshMetadata));
 
     // when the downstream sends messages, they should be written to the hijacked stream
     wire::ChannelOpenMsg open;
@@ -1005,7 +1005,7 @@ TEST_F(HijackedModeTest, HijackedMode_AddWellKnownMetadata) {
   pomerium::extensions::ssh::FilterMetadata sshMetadata;
   sshMetadata.set_channel_id(transport_.channelIdManager().nextInternalIdForTest());
   sshMetadata.set_stream_id(999); // the stream_id should be passed through
-  (*metadataReq.mutable_metadata()->mutable_typed_filter_metadata())["com.pomerium.ssh"].PackFrom(sshMetadata);
+  ASSERT_TRUE((*metadataReq.mutable_metadata()->mutable_typed_filter_metadata())["com.pomerium.ssh"].PackFrom(sshMetadata));
 
   wire::ChannelOpenMsg open;
   open.request = wire::SessionChannelOpenMsg{};
@@ -1221,7 +1221,7 @@ TEST_F(HijackedModeTest, HijackedMode_InvalidChannelControlMsg_UnpackFailed) {
   ASSERT_OK(StartChannel());
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("received invalid channel message: failed to unpack control action"));
   auto channelMsg = std::make_unique<ChannelMessage>();
-  channelMsg->mutable_channel_control()->mutable_control_action()->PackFrom(Protobuf::StringValue{});
+  ASSERT_TRUE(channelMsg->mutable_channel_control()->mutable_control_action()->PackFrom(Protobuf::StringValue{}));
   serve_channel_callbacks_[0]->onReceiveMessage(std::move(channelMsg));
 }
 
@@ -1230,7 +1230,7 @@ TEST_F(HijackedModeTest, HijackedMode_InvalidChannelControlMsg_InvalidSshControl
   ASSERT_OK(StartChannel());
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("received invalid channel message: unknown action type: 0"));
   auto channelMsg = std::make_unique<ChannelMessage>();
-  channelMsg->mutable_channel_control()->mutable_control_action()->PackFrom(SSHChannelControlAction{});
+  ASSERT_TRUE(channelMsg->mutable_channel_control()->mutable_control_action()->PackFrom(SSHChannelControlAction{}));
   serve_channel_callbacks_[0]->onReceiveMessage(std::move(channelMsg));
 }
 
@@ -1254,7 +1254,7 @@ TEST_F(HijackedModeTest, HijackedMode_InterruptConfig) {
   auto channelMsg = std::make_unique<ChannelMessage>();
   SSHChannelControlAction action;
   *action.mutable_set_interrupt_options()->mutable_send_channel_data() = "goodbye world";
-  channelMsg->mutable_channel_control()->mutable_control_action()->PackFrom(action);
+  ASSERT_TRUE(channelMsg->mutable_channel_control()->mutable_control_action()->PackFrom(action));
 
   serve_channel_callbacks_[0]->onReceiveMessage(std::move(channelMsg));
 
@@ -1423,7 +1423,7 @@ TEST_F(HijackedModeTest, HijackedMode_StreamDisconnectAfterChannelOpenWithInterr
   auto channelMsg = std::make_unique<ChannelMessage>();
   SSHChannelControlAction action;
   *action.mutable_set_interrupt_options()->mutable_send_channel_data() = "goodbye world";
-  channelMsg->mutable_channel_control()->mutable_control_action()->PackFrom(action);
+  ASSERT_TRUE(channelMsg->mutable_channel_control()->mutable_control_action()->PackFrom(action));
   serve_channel_callbacks_[0]->onReceiveMessage(std::move(channelMsg));
 
   // On an unexpected disconnect, the channel should be interrupted. Since there is an interrupt
@@ -1655,7 +1655,7 @@ public:
     (*metadataReq.mutable_metadata()->mutable_filter_metadata())["foo"] = Protobuf::Struct{};
     pomerium::extensions::ssh::FilterMetadata sshMetadata;
     sshMetadata.set_channel_id(100);
-    (*metadataReq.mutable_metadata()->mutable_typed_filter_metadata())["com.pomerium.ssh"].PackFrom(sshMetadata);
+    ASSERT_TRUE((*metadataReq.mutable_metadata()->mutable_typed_filter_metadata())["com.pomerium.ssh"].PackFrom(sshMetadata));
 
     // when the downstream opens a channel, it should start a new stream
     wire::ChannelOpenMsg open;
@@ -1710,7 +1710,7 @@ public:
     upstream->set_hostname("example");
     util::populateAuthContext(*allow->mutable_auth_context(), client_key);
 
-    ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action);
+    ASSERT_TRUE(ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action));
     return ctrl;
   }
 };
@@ -1751,7 +1751,7 @@ TEST_F(HandoffTest, HandoffMode_Mirror) {
   allow->set_login_name("test");
   allow->mutable_mirror_session();
   util::populateAuthContext(*allow->mutable_auth_context(), *clientKey);
-  ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action);
+  ASSERT_TRUE(ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action));
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("session mirroring feature not available"));
   ReceiveOnServeChannelStream(ctrl);
 }
@@ -1767,7 +1767,7 @@ TEST_F(HandoffTest, HandoffMode_Internal) {
   allow->set_login_name("test");
   allow->mutable_internal();
   util::populateAuthContext(*allow->mutable_auth_context(), *clientKey);
-  ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action);
+  ASSERT_TRUE(ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action));
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("received invalid handoff message: unexpected target: internal"));
   ReceiveOnServeChannelStream(ctrl);
 }
@@ -1778,7 +1778,7 @@ TEST_F(HandoffTest, HandoffMode_StartHandoffBeforeChannelOpenConfirmation) {
   SSHChannelControlAction action;
   action.mutable_hand_off(); // any handoff message should trigger this error, contents don't matter
   ChannelMessage ctrl;
-  ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action);
+  ASSERT_TRUE(ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action));
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("handoff requested before channel open confirmation"));
   ReceiveOnServeChannelStream(ctrl);
 }
@@ -1794,7 +1794,7 @@ TEST_F(HandoffTest, HandoffMode_StartDirectTcpipHandoffBeforeChannelOpenConfirma
   auto* downstreamInfo = action.mutable_hand_off()->mutable_downstream_channel_info();
   downstreamInfo->set_downstream_channel_id(1);
   downstreamInfo->set_internal_upstream_channel_id(100);
-  ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action);
+  ASSERT_TRUE(ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action));
 
   ExpectUpstreamConnectEvent();
   ExpectDecodingSuccess(""); // empty host for direct-tcpip
@@ -1814,7 +1814,7 @@ TEST_F(HandoffTest, HandoffMode_StartDirectTcpipHandoffAfterChannelOpenConfirmat
   auto* downstreamInfo = action.mutable_hand_off()->mutable_downstream_channel_info();
   downstreamInfo->set_downstream_channel_id(1);
   downstreamInfo->set_internal_upstream_channel_id(100);
-  ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action);
+  ASSERT_TRUE(ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action));
 
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("direct-tcpip handoff requested after channel open confirmation"));
   ReceiveOnServeChannelStream(ctrl);
@@ -1852,7 +1852,7 @@ TEST_F(HandoffTest, HandoffMode_HandoffMsgMissingDownstreamChannelInfo) {
   auto* upstream = allow->mutable_upstream();
   *upstream->mutable_hostname() = "example";
   util::populateAuthContext(*allow->mutable_auth_context(), *clientKey);
-  ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action);
+  ASSERT_TRUE(ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action));
 
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("received invalid handoff message: missing downstream channel info"));
   ReceiveOnServeChannelStream(ctrl);
@@ -1887,8 +1887,8 @@ TEST_F(HandoffTest, HandoffMode_ConfigureChannelFilters) {
   filter->set_name("test_channel_filter");
   Envoy::Protobuf::StringValue v;
   v.set_value("filter_config");
-  filter->mutable_typed_config()->PackFrom(v);
-  msg.mutable_channel_control()->mutable_control_action()->PackFrom(action);
+  ASSERT_TRUE(filter->mutable_typed_config()->PackFrom(v));
+  ASSERT_TRUE(msg.mutable_channel_control()->mutable_control_action()->PackFrom(action));
 
   ReceiveOnServeChannelStream(msg);
   serve_channel_callbacks_[0]->onRemoteClose(Envoy::Grpc::Status::Canceled, "handoff");
@@ -1925,8 +1925,8 @@ TEST_F(HandoffTest, HandoffMode_ConfigureChannelFiltersError) {
   filter->set_name("test_channel_filter");
   Envoy::Protobuf::Int64Value v;
   v.set_value(1234);
-  filter->mutable_typed_config()->PackFrom(v);
-  msg.mutable_channel_control()->mutable_control_action()->PackFrom(action);
+  ASSERT_TRUE(filter->mutable_typed_config()->PackFrom(v));
+  ASSERT_TRUE(msg.mutable_channel_control()->mutable_control_action()->PackFrom(action));
 
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure(HasSubstr("invalid channel filter config")));
   ReceiveOnServeChannelStream(msg);
@@ -2169,7 +2169,7 @@ TEST_F(ServerTransportTest, EncodeEffectiveHeaderHandoffComplete) {
   (*metadataReq.mutable_metadata()->mutable_filter_metadata())["foo"] = Protobuf::Struct{};
   pomerium::extensions::ssh::FilterMetadata sshMetadata;
   sshMetadata.set_channel_id(transport_.channelIdManager().nextInternalIdForTest());
-  (*metadataReq.mutable_metadata()->mutable_typed_filter_metadata())["com.pomerium.ssh"].PackFrom(sshMetadata);
+  ASSERT_TRUE((*metadataReq.mutable_metadata()->mutable_typed_filter_metadata())["com.pomerium.ssh"].PackFrom(sshMetadata));
 
   wire::ChannelOpenMsg open;
   open.request = wire::SessionChannelOpenMsg{};
@@ -2214,7 +2214,7 @@ TEST_F(ServerTransportTest, EncodeEffectiveHeaderHandoffComplete) {
   downstreamInfo->set_channel_type("session");
   downstreamInfo->set_initial_window_size(wire::ChannelWindowSize);
   downstreamInfo->set_max_packet_size(wire::ChannelMaxPacketSize);
-  ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action);
+  ASSERT_TRUE(ctrl.mutable_channel_control()->mutable_control_action()->PackFrom(action);
   EXPECT_CALL(mock_connection_, readDisable(true));
   ExpectDecodingSuccess();
   ReceiveOnServeChannelStream(ctrl);

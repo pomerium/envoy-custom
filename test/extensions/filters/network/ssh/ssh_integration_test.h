@@ -28,7 +28,7 @@ public:
     eds_response.set_version_info(std::to_string(eds_version_++));
     eds_response.set_type_url(Config::TestTypeUrl::get().ClusterLoadAssignment);
     // Only one resource per file
-    eds_response.add_resources()->PackFrom(cluster_load_assignment);
+    ASSERT_TRUE(eds_response.add_resources()->PackFrom(cluster_load_assignment));
 
     // Past the initial write, need move semantics to trigger inotify move event that the
     // FilesystemSubscriptionImpl is subscribed to.

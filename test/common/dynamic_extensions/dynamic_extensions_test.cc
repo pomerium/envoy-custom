@@ -47,9 +47,9 @@ public:
         config.add_paths(path);
       }
       for (const auto& [id, msg] : configs) {
-        (*config.mutable_extension_configs())[id].PackFrom(msg);
+        ASSERT_TRUE((*config.mutable_extension_configs())[id].PackFrom(msg));
       }
-      ext->mutable_typed_config()->PackFrom(config);
+      ASSERT_TRUE(ext->mutable_typed_config()->PackFrom(config));
     });
   }
 

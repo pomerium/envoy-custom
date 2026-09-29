@@ -1769,8 +1769,8 @@ TEST_P(EDSUpdatesIntegrationTest, InvalidResourceCount) {
   envoy::service::discovery::v3::DiscoveryResponse eds_response;
   eds_response.set_version_info("1");
   eds_response.set_type_url(Config::TestTypeUrl::get().ClusterLoadAssignment);
-  eds_response.add_resources()->PackFrom(load);
-  eds_response.add_resources()->PackFrom(load); // <- more than 1 resource
+  ASSERT_TRUE(eds_response.add_resources()->PackFrom(load));
+  ASSERT_TRUE(eds_response.add_resources()->PackFrom(load)); // <- more than 1 resource
 
   std::string path = TestEnvironment::writeStringToFileForTest(
     "tcp_cluster_eds.update.pb_text", MessageUtil::toTextProto(eds_response));
@@ -1803,7 +1803,7 @@ TEST_P(EDSUpdatesIntegrationTest, InvalidLbEndpointName) {
     envoy::service::discovery::v3::DiscoveryResponse eds_response;
     eds_response.set_version_info(std::to_string(num_failures));
     eds_response.set_type_url(Config::TestTypeUrl::get().ClusterLoadAssignment);
-    eds_response.add_resources()->PackFrom(load);
+    ASSERT_TRUE(eds_response.add_resources()->PackFrom(load));
 
     std::string path = TestEnvironment::writeStringToFileForTest(
       "tcp_cluster_eds.update.pb_text", MessageUtil::toTextProto(eds_response));
@@ -1942,17 +1942,17 @@ public:
 
     envoy::extensions::transport_sockets::raw_buffer::v3::RawBuffer raw_buffer;
     internal_upstream.mutable_transport_socket()->set_name("envoy.transport_sockets.raw_buffer");
-    internal_upstream.mutable_transport_socket()->mutable_typed_config()->PackFrom(raw_buffer);
+    ASSERT_TRUE(internal_upstream.mutable_transport_socket()->mutable_typed_config()->PackFrom(raw_buffer));
 
     cluster.mutable_transport_socket()->set_name("envoy.transport_sockets.internal_upstream");
-    cluster.mutable_transport_socket()->mutable_typed_config()->PackFrom(internal_upstream);
+    ASSERT_TRUE(cluster.mutable_transport_socket()->mutable_typed_config()->PackFrom(internal_upstream));
 
     pomerium::extensions::ssh::ReverseTunnelCluster reverse_tunnel_cluster;
     reverse_tunnel_cluster.set_name(cluster.name());
     reverse_tunnel_cluster.mutable_eds_config()->set_resource_api_version(envoy::config::core::v3::ApiVersion::V3);
     reverse_tunnel_cluster.mutable_eds_config()->mutable_ads();
     cluster.mutable_cluster_type()->set_name("envoy.clusters.ssh_reverse_tunnel");
-    cluster.mutable_cluster_type()->mutable_typed_config()->PackFrom(reverse_tunnel_cluster);
+    ASSERT_TRUE(cluster.mutable_cluster_type()->mutable_typed_config()->PackFrom(reverse_tunnel_cluster));
 
     return cluster;
   }
@@ -2014,16 +2014,16 @@ TEST_F(SshReverseTunnelClusterUnitTest, DeltaXdsConfigUpdate) {
   endpointMetadata.mutable_matched_permission()->set_requested_host("example");
   endpointMetadata.mutable_matched_permission()->set_requested_port(443);
   endpointMetadata.mutable_server_port()->set_value(443);
-  (*endpoint
-      ->mutable_metadata()
-      ->mutable_typed_filter_metadata())["com.pomerium.ssh.endpoint"]
-    .PackFrom(endpointMetadata);
+  ASSERT_TRUE((*endpoint
+                  ->mutable_metadata()
+                  ->mutable_typed_filter_metadata())["com.pomerium.ssh.endpoint"]
+                .PackFrom(endpointMetadata));
   endpoint->set_health_status(envoy::config::core::v3::HealthStatus::HEALTHY);
   auto* socketAddress = endpoint->mutable_endpoint()->mutable_address()->mutable_socket_address();
   socketAddress->set_address("ssh:123456");
   socketAddress->set_port_value(12345);
 
-  resource->mutable_resource()->PackFrom(cluster_load_assignment);
+  ASSERT_TRUE(resource->mutable_resource()->PackFrom(cluster_load_assignment));
   const auto decoded_resources =
     TestUtility::decodeResources<envoy::config::endpoint::v3::ClusterLoadAssignment>(
       resources, "cluster_name");

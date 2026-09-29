@@ -644,7 +644,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerInfoRequest) {
   prompt1->set_prompt("username");
   auto prompt2 = prompts.add_prompts();
   prompt2->set_prompt("password");
-  req->mutable_request()->PackFrom(prompts);
+  ASSERT_TRUE(req->mutable_request()->PackFrom(prompts));
 
   auto matcher = MSG(wire::UserAuthInfoRequestMsg,
                      AllOf(FIELD_EQ(name, "prompts-name"),

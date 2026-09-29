@@ -113,12 +113,12 @@ void SshIntegrationTest::configureUpstreamTunnelCluster(envoy::config::cluster::
   if (!cluster.has_transport_socket()) {
     envoy::extensions::transport_sockets::raw_buffer::v3::RawBuffer raw_buffer;
     cluster.mutable_transport_socket()->set_name("envoy.transport_sockets.raw_buffer");
-    cluster.mutable_transport_socket()->mutable_typed_config()->PackFrom(raw_buffer);
+    ASSERT_TRUE(cluster.mutable_transport_socket()->mutable_typed_config()->PackFrom(raw_buffer));
   }
   envoy::extensions::transport_sockets::internal_upstream::v3::InternalUpstreamTransport internal_upstream;
   internal_upstream.mutable_transport_socket()->CopyFrom(cluster.transport_socket());
   cluster.mutable_transport_socket()->set_name("envoy.transport_sockets.internal_upstream");
-  cluster.mutable_transport_socket()->mutable_typed_config()->PackFrom(internal_upstream);
+  ASSERT_TRUE(cluster.mutable_transport_socket()->mutable_typed_config()->PackFrom(internal_upstream));
 
   pomerium::extensions::ssh::ReverseTunnelCluster reverse_tunnel_cluster;
   reverse_tunnel_cluster.set_name(cluster.name());
@@ -126,7 +126,7 @@ void SshIntegrationTest::configureUpstreamTunnelCluster(envoy::config::cluster::
   reverse_tunnel_cluster.mutable_eds_config()->mutable_path_config_source()->set_path(eds_helpers_[cluster.name()]->edsPath());
 
   cluster.mutable_cluster_type()->set_name("envoy.clusters.ssh_reverse_tunnel");
-  cluster.mutable_cluster_type()->mutable_typed_config()->PackFrom(reverse_tunnel_cluster);
+  ASSERT_TRUE(cluster.mutable_cluster_type()->mutable_typed_config()->PackFrom(reverse_tunnel_cluster));
 
   cluster.mutable_per_connection_buffer_limit_bytes()->set_value(2 * wire::MaxPacketSize);
 }
@@ -145,10 +145,10 @@ void SshIntegrationTest::setClusterLoad(const std::string& cluster_name, std::ve
     endpointMetadata.mutable_matched_permission()->set_requested_port(opts.requested_port);
     endpointMetadata.mutable_server_port()->set_value(opts.server_port);
     endpointMetadata.mutable_server_port()->set_is_dynamic(opts.is_dynamic);
-    (*endpoint
-        ->mutable_metadata()
-        ->mutable_typed_filter_metadata())["com.pomerium.ssh.endpoint"]
-      .PackFrom(endpointMetadata);
+    ASSERT_TRUE((*endpoint
+                    ->mutable_metadata()
+                    ->mutable_typed_filter_metadata())["com.pomerium.ssh.endpoint"]
+                  .PackFrom(endpointMetadata));
     endpoint->set_health_status(envoy::config::core::v3::HealthStatus::HEALTHY);
   }
   RELEASE_ASSERT(eds_helpers_.contains(cluster_name), "test bug: invalid cluster name");
