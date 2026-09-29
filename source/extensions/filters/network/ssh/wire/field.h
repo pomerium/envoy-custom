@@ -418,3 +418,11 @@ struct fmt::formatter<bytes> : fmt::formatter<string_view> {
       absl::BytesToHexString(std::string_view{reinterpret_cast<const char*>(b.data()), b.size()}), ctx);
   }
 };
+
+// std::formatter specialization of wire::field, for std::format
+template <typename T, wire::EncodingOptions Opt>
+struct std::formatter<wire::field<T, Opt>> : std::formatter<std::string> {
+  auto format(const wire::field<T, Opt>& f, std::format_context& ctx) const {
+    return std::formatter<std::string>::format(fmt::format("{}", f), ctx);
+  }
+};

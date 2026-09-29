@@ -206,3 +206,12 @@ private:
 
 DECL_BASIC_ENUM_FORMATTER(Envoy::Extensions::NetworkFilters::GenericProxy::Codec::Peer);
 DECL_BASIC_ENUM_FORMATTER(Envoy::Extensions::NetworkFilters::GenericProxy::Codec::ChannelIDState);
+
+template <>
+struct std::formatter<Envoy::Extensions::NetworkFilters::GenericProxy::Codec::InternalChannelInfo>
+    : std::formatter<std::string> {
+  auto format(const Envoy::Extensions::NetworkFilters::GenericProxy::Codec::InternalChannelInfo& info,
+              std::format_context& ctx) const {
+    return std::formatter<std::string>::format(format_as(info), ctx);
+  }
+};
