@@ -1,6 +1,7 @@
 #include "source/extensions/filters/network/ssh/transport.h"
 #include "source/extensions/filters/network/ssh/transport_base.h"
 #include "gtest/gtest.h"
+#include <algorithm>
 #include <latch>
 #include "test/extensions/filters/network/generic_proxy/mocks/codec.h"
 #include "test/extensions/filters/network/ssh/test_env_util.h"

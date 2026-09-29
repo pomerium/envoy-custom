@@ -1,13 +1,13 @@
 diff --git a/tools/coverage/report_generator.sh.template b/tools/coverage/report_generator.sh.template
-index ba0903f253..7315467533 100755
+index 631ec26361..faab364644 100755
 --- a/tools/coverage/report_generator.sh.template
 +++ b/tools/coverage/report_generator.sh.template
-@@ -94,7 +94,7 @@ run_grcov() {
+@@ -107,7 +107,7 @@ run_grcov() {
          "${INFO_FILES[@]}" \
          --precision 1 \
          -s "${WORKSPACE_PATH}" \
 -        -t html,covdir \
 +        -t html,covdir,lcov \
+         --excl-line "LCOV_EXCL_LINE" \
          --output-config-file grcov_config_updated.json \
          -o "${OUTPUT_DIR}"
- }

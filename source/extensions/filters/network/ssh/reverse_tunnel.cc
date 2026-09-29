@@ -1,4 +1,7 @@
 #include "source/extensions/filters/network/ssh/reverse_tunnel.h"
+
+#include <algorithm>
+
 #include "source/common/status.h"
 #include "source/common/math.h"
 #include "source/common/types.h"

@@ -27,7 +27,7 @@ load("@hedron_compile_commands//:workspace_setup_transitive_transitive_transitiv
 
 hedron_compile_commands_setup_transitive_transitive_transitive()
 
-envoy_version = "ef2d997c1b022cf8b849a1d3521fbf234d79ca26" # v1.38.4
+envoy_version = "b579d07d3ad7ee11d32b105e91a5a39ad24718d7" # v1.39.1
 
 openssh_version = "V_10_3_P1"
 
@@ -63,13 +63,12 @@ http_archive(
         "//patches/envoy:fix-antlr4-cpp-runtime.patch",
         "//patches/envoy:fix-integration-test-server-exit.patch",
         "//patches/envoy:fix-missing-symbolizer-env.patch",
+        "//patches/envoy:fix-quic-unused-field.patch", # fixed upstream in https://github.com/envoyproxy/envoy/pull/46371
         "//patches/envoy:fix-static-libgcc-flag.patch",
         "//patches/envoy:fix-tcmalloc-macos-constraints.patch",
         "//patches/envoy:fix-transport-socket-options.patch",
-        "//patches/envoy:fix-allow-dev-shm.patch",  # exists in upstream main but not in 1.38.x
-        "//patches/envoy:fix-lua-wrappers-test.patch",  # https://github.com/envoyproxy/envoy/pull/45665
     ],
-    sha256 = "e5e51350010d50d3d97f7618ba3ed9a8108b24032a594b0eb415bc9e29ef9683",
+    sha256 = "b4abb3025e52e0520e1ba5cfb5c170f160431d1ea1c1fd2c2a412c2720d97e02",
     strip_prefix = "envoy-" + envoy_version,
     url = "https://github.com/envoyproxy/envoy/archive/" + envoy_version + ".tar.gz",
 )

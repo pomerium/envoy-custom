@@ -31,6 +31,7 @@ public:
   void setBaggage(absl::string_view key, absl::string_view value) override;
   std::string getTraceId() const override;
   std::string getSpanId() const override;
+  bool exportedSpan() const override;
   bool useLocalDecision() const override { return false; }
 
   BaseOtelSpan& spanForTest() const;

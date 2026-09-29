@@ -1,3 +1,5 @@
+#include <algorithm>
+
 #include "source/extensions/filters/network/ssh/message_handler.h"
 #include "source/extensions/filters/network/ssh/reverse_tunnel.h"
 #include "source/extensions/filters/network/ssh/service_connection.h"

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "source/common/optref.h"
+#include <algorithm>
 #include <source_location>
 #include <type_traits>
 

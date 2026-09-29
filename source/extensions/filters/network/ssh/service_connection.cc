@@ -1,5 +1,7 @@
 #include "source/extensions/filters/network/ssh/service_connection.h"
 
+#include <algorithm>
+
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "source/common/status.h"
 #include "source/extensions/filters/network/ssh/id_manager.h"

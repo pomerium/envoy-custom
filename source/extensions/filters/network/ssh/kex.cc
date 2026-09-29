@@ -1,5 +1,7 @@
 #include "source/extensions/filters/network/ssh/kex.h"
 
+#include <algorithm>
+
 #include "openssl/rand.h"
 
 #include "source/extensions/filters/network/ssh/kex_alg.h"
