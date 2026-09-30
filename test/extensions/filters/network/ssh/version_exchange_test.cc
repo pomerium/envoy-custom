@@ -76,7 +76,7 @@ public:
     replaceTerm(versionWithoutTerm, {});
     switch (mode) {
     case VersionExchangeMode::Server:
-      EXPECT_CALL(transport_, writeToConnection(BufferStringEqual("ignored\r\n"s)));
+      EXPECT_CALL(transport_, writeToConnection(BufferString("ignored\r\n"s)));
       if (order == WriteFirst) {
         ASSERT_EQ(9, vex_.writeVersion("ignored"));
         if (status.ok()) {
@@ -90,7 +90,7 @@ public:
       }
       break;
     case VersionExchangeMode::Client:
-      EXPECT_CALL(transport_, writeToConnection(BufferStringEqual("ignored\r\n"s)));
+      EXPECT_CALL(transport_, writeToConnection(BufferString("ignored\r\n"s)));
       if (order == WriteFirst) {
         ASSERT_EQ(9, vex_.writeVersion("ignored"));
         if (status.ok()) {
@@ -540,7 +540,7 @@ TEST(VersionExchangerTest, ServerReadBannerTextError) {
 
 TEST(VersionExchangerTest, WriteVersionTwiceDeath) {
   MockTransportCallbacks transport;
-  EXPECT_CALL(transport, writeToConnection(BufferStringEqual("foo\r\n"s)));
+  EXPECT_CALL(transport, writeToConnection(BufferString("foo\r\n"s)));
   MockVersionExchangeCallbacks vex_callbacks;
   VersionExchanger vex(transport, vex_callbacks, VersionExchangeMode::Server);
   ASSERT_EQ(5, vex.writeVersion("foo"));
