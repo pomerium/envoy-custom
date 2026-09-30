@@ -1440,20 +1440,18 @@ SshReverseTunnelCluster::SshReverseTunnelCluster(const envoy::config::cluster::v
                                                  ClusterFactoryContext& cluster_context,
                                                  absl::Status& creation_status)
     : ClusterImplBase(cluster, cluster_context, creation_status),
-      Envoy::Config::SubscriptionBase<envoy::config::endpoint::v3::ClusterLoadAssignment>(
-        cluster_context.messageValidationVisitor(), "cluster_name"),
+      resource_type_helper_(cluster_context.messageValidationVisitor(), "cluster_name"),
       cluster_(cluster),
       server_context_(cluster_context.serverFactoryContext()),
-      config_(proto_config),
       stream_tracker_(StreamTracker::fromContext(cluster_context.serverFactoryContext())),
       reverse_tunnel_stat_names_(info_->statsScope().symbolTable()),
       reverse_tunnel_stats_(reverse_tunnel_stat_names_, info_->statsScope(), reverse_tunnel_stat_names_.ssh_reverse_tunnel_),
-      dispatcher_(cluster_context.serverFactoryContext().mainThreadDispatcher()),
       owned_context_(std::make_unique<ReverseTunnelClusterContextImpl>(
         info_, cluster_, stream_tracker_, load_assignment, reverse_tunnel_stats_)) {
   ASSERT_IS_MAIN_OR_TEST_THREAD();
   RETURN_ONLY_IF_NOT_OK_REF(creation_status);
 
+  const auto resource_name = resource_type_helper_.getResourceName();
   if (Runtime::runtimeFeatureEnabled(
         "envoy.reloadable_features.xdstp_based_config_singleton_subscriptions")) {
     auto subscription =
@@ -1462,9 +1460,9 @@ SshReverseTunnelCluster::SshReverseTunnelCluster(const envoy::config::cluster::v
         .xdsManager()
         .subscribeToSingletonResource(edsServiceName(),
                                       proto_config.eds_config(),
-                                      Grpc::Common::typeUrl(getResourceName()),
+                                      Grpc::Common::typeUrl(resource_name),
                                       info_->statsScope(),
-                                      *this, resource_decoder_, {});
+                                      *this, resource_type_helper_.resourceDecoder(), {});
     SET_AND_RETURN_IF_NOT_OK(subscription.status(), creation_status);
     eds_subscription_ = std::move(subscription).value();
   } else {
@@ -1474,9 +1472,9 @@ SshReverseTunnelCluster::SshReverseTunnelCluster(const envoy::config::cluster::v
         .clusterManager()
         .subscriptionFactory()
         .subscriptionFromConfigSource(proto_config.eds_config(),
-                                      Grpc::Common::typeUrl(getResourceName()),
+                                      Grpc::Common::typeUrl(resource_name),
                                       info_->statsScope(),
-                                      *this, resource_decoder_, {});
+                                      *this, resource_type_helper_.resourceDecoder(), {});
     SET_AND_RETURN_IF_NOT_OK(subscription.status(), creation_status);
     eds_subscription_ = std::move(subscription).value();
   }
