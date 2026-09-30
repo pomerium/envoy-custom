@@ -1,8 +1,16 @@
 #pragma once
 
 #include "source/common/optref.h"
+#include <algorithm>
+#include <array>
+#include <cstddef>
+#include <initializer_list>
+#include <iterator>
 #include <source_location>
+#include <string_view>
+#include <tuple>
 #include <type_traits>
+#include <vector>
 
 // Supplemental type traits
 

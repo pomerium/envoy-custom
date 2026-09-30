@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include "source/common/apple.h"
 
 #pragma clang unsafe_buffer_usage begin

@@ -1,5 +1,8 @@
 #pragma once
 
+#include <initializer_list>
+#include <vector>
+
 #include "source/common/optref.h"
 #include "source/common/types.h"
 #include "source/common/type_traits.h"

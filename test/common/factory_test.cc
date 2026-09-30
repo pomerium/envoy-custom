@@ -1,6 +1,8 @@
 #include "source/common/factory.h"
 #include "gtest/gtest.h"
 #include <algorithm>
+#include <tuple>
+#include <vector>
 #include "test/test_common/test_common.h"
 
 using string_list = std::vector<std::string>;

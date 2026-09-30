@@ -1,4 +1,6 @@
 
+#include <vector>
+
 #include "source/extensions/filters/network/ssh/channel_filter_config.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -62,7 +64,7 @@ TEST_F(ChannelFilterTest, ChannelFilterManager_InvalidFactoryConfig) {
     cfg->set_name("test_channel_filter");
     Envoy::Protobuf::Int64Value v;
     v.set_value(1234);
-    cfg->mutable_typed_config()->PackFrom(v);
+    ASSERT_TRUE(cfg->mutable_typed_config()->PackFrom(v));
   }
 
   EXPECT_THROW_WITH_REGEX(
@@ -79,7 +81,7 @@ TEST_F(ChannelFilterTest, ChannelFilterManager_FactoryNotFound) {
     cfg->set_name("test_channel_filter");
     Envoy::Protobuf::Int64Value v;
     v.set_value(1234);
-    cfg->mutable_typed_config()->PackFrom(v);
+    ASSERT_TRUE(cfg->mutable_typed_config()->PackFrom(v));
   }
 
   EXPECT_THROW_WITH_REGEX(
@@ -112,7 +114,7 @@ TEST_F(ChannelFilterTest, ChannelFilterManager_ConfigureFilters_NotFound) {
     cfg->set_name("test_channel_filter");
     Envoy::Protobuf::StringValue v;
     v.set_value("factory_config");
-    cfg->mutable_typed_config()->PackFrom(v);
+    ASSERT_TRUE(cfg->mutable_typed_config()->PackFrom(v));
   }
   ChannelFilterManager mgr(enabledChannelFilters, server_factory_context_);
 
@@ -122,7 +124,7 @@ TEST_F(ChannelFilterTest, ChannelFilterManager_ConfigureFilters_NotFound) {
     cfg->set_name("test_channel_filter");
     Envoy::Protobuf::StringValue v;
     v.set_value("filter_config");
-    cfg->mutable_typed_config()->PackFrom(v);
+    ASSERT_TRUE(cfg->mutable_typed_config()->PackFrom(v));
 
     auto* cfg2 = filterConfigs.Add();
     cfg2->set_name("nonexistent");
@@ -157,7 +159,7 @@ TEST_F(ChannelFilterTest, ChannelFilterManager_ConfigureFilters_InvalidConfig) {
     cfg->set_name("test_channel_filter");
     Envoy::Protobuf::StringValue v;
     v.set_value("factory_config");
-    cfg->mutable_typed_config()->PackFrom(v);
+    ASSERT_TRUE(cfg->mutable_typed_config()->PackFrom(v));
   }
   ChannelFilterManager mgr(enabledChannelFilters, server_factory_context_);
 
@@ -167,7 +169,7 @@ TEST_F(ChannelFilterTest, ChannelFilterManager_ConfigureFilters_InvalidConfig) {
     cfg->set_name("test_channel_filter");
     Envoy::Protobuf::Int64Value v;
     v.set_value(1234);
-    cfg->mutable_typed_config()->PackFrom(v);
+    ASSERT_TRUE(cfg->mutable_typed_config()->PackFrom(v));
   }
   EXPECT_THAT(mgr.configureFilters(filterConfigs).message(),
               HasSubstr("invalid channel filter config: Unable to unpack as google.protobuf.StringValue"));
@@ -211,7 +213,7 @@ TEST_F(ChannelFilterTest, ChannelFilterManager_NoChannelFiltersCreated) {
     cfg->set_name("test_channel_filter");
     Envoy::Protobuf::StringValue v;
     v.set_value("factory_config");
-    cfg->mutable_typed_config()->PackFrom(v);
+    ASSERT_TRUE(cfg->mutable_typed_config()->PackFrom(v));
   }
   ExtensionConfigList filterConfigs;
   {
@@ -219,7 +221,7 @@ TEST_F(ChannelFilterTest, ChannelFilterManager_NoChannelFiltersCreated) {
     cfg->set_name("test_channel_filter");
     Envoy::Protobuf::StringValue v;
     v.set_value("filter_config");
-    cfg->mutable_typed_config()->PackFrom(v);
+    ASSERT_TRUE(cfg->mutable_typed_config()->PackFrom(v));
   }
 
   ChannelFilterManager mgr(enabledChannelFilters, server_factory_context_);
@@ -276,7 +278,7 @@ TEST_F(ChannelFilterTest, ChannelFilterManager_FiltersCreated) {
     cfg->set_name("test_channel_filter");
     Envoy::Protobuf::StringValue v;
     v.set_value("factory_config");
-    cfg->mutable_typed_config()->PackFrom(v);
+    ASSERT_TRUE(cfg->mutable_typed_config()->PackFrom(v));
   }
   ExtensionConfigList filterConfigs;
   {
@@ -284,7 +286,7 @@ TEST_F(ChannelFilterTest, ChannelFilterManager_FiltersCreated) {
     cfg->set_name("test_channel_filter");
     Envoy::Protobuf::StringValue v;
     v.set_value("filter_config");
-    cfg->mutable_typed_config()->PackFrom(v);
+    ASSERT_TRUE(cfg->mutable_typed_config()->PackFrom(v));
   }
 
   ChannelFilterManager mgr(enabledChannelFilters, server_factory_context_);
@@ -395,7 +397,7 @@ TEST_F(ChannelFilterTest, ChannelFilterManager_MultipleFiltersConfigurationOrder
       auto* cfg = enabledChannelFilters.Add();
       cfg->set_name(fmt::format("test_channel_filter_{}", i));
       auto msgPtr = filterCfgTypes[i]();
-      cfg->mutable_typed_config()->PackFrom(*msgPtr);
+      ASSERT_TRUE(cfg->mutable_typed_config()->PackFrom(*msgPtr));
     }
 
     {
@@ -404,7 +406,7 @@ TEST_F(ChannelFilterTest, ChannelFilterManager_MultipleFiltersConfigurationOrder
       // filter type is always string here, these can have duplicate types
       Envoy::Protobuf::StringValue v;
       v.set_value("filter_config");
-      cfg->mutable_typed_config()->PackFrom(v);
+      ASSERT_TRUE(cfg->mutable_typed_config()->PackFrom(v));
     }
   }
 
@@ -475,7 +477,7 @@ TEST_F(ChannelFilterTest, ChannelFilterManager_ErrorCreatingFilters) {
     cfg->set_name("test_channel_filter");
     Envoy::Protobuf::StringValue v;
     v.set_value("factory_config");
-    cfg->mutable_typed_config()->PackFrom(v);
+    ASSERT_TRUE(cfg->mutable_typed_config()->PackFrom(v));
   }
   ExtensionConfigList filterConfigs;
   {
@@ -483,7 +485,7 @@ TEST_F(ChannelFilterTest, ChannelFilterManager_ErrorCreatingFilters) {
     cfg->set_name("test_channel_filter");
     Envoy::Protobuf::StringValue v;
     v.set_value("filter_config");
-    cfg->mutable_typed_config()->PackFrom(v);
+    ASSERT_TRUE(cfg->mutable_typed_config()->PackFrom(v));
   }
 
   ChannelFilterManager mgr(enabledChannelFilters, server_factory_context_);

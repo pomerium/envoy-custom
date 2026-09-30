@@ -4,6 +4,7 @@
 #include "gtest/gtest.h"
 #include <array>
 #include <elf.h>
+#include <vector>
 
 using namespace std::literals;
 

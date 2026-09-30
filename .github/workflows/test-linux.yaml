@@ -66,7 +66,7 @@ jobs:
 
       - name: test
         id: asan-test
-        run: bazel test --config=buildbarn --config=asan --test_output=errors --test_arg='--log-level debug' //test/...
+        run: bazel test --keep_going --config=buildbarn --config=asan --test_output=errors --test_arg='--log-level debug' //test/...
 
   test-tsan:
     if: >-

@@ -1,3 +1,5 @@
+#include <string_view>
+
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "test/extensions/filters/network/ssh/test_mocks.h"
 #include "test/mocks/grpc/mocks.h"

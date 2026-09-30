@@ -1,6 +1,8 @@
 #pragma once
 
+#include <algorithm>
 #include <concepts>
+#include <string_view>
 
 #include "source/common/math.h"
 #include "source/common/status.h"

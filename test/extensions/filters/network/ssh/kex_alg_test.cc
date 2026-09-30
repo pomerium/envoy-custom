@@ -1,3 +1,5 @@
+#include <string_view>
+
 #include "source/extensions/filters/network/ssh/kex_alg.h"
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
 #include "test/extensions/filters/network/ssh/wire/test_field_reflect.h"

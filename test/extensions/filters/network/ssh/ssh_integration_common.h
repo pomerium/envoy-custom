@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include "source/extensions/filters/network/ssh/channel.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 

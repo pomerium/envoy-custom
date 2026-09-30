@@ -1,11 +1,13 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <tuple>
 #include <type_traits>
 #include <utility>
 #include <variant>
+#include <vector>
 
 #pragma clang unsafe_buffer_usage begin
 #include "absl/strings/escaping.h"
@@ -414,5 +416,13 @@ struct fmt::formatter<bytes> : fmt::formatter<string_view> {
     -> format_context::iterator {
     return fmt::formatter<string_view>::format(
       absl::BytesToHexString(std::string_view{reinterpret_cast<const char*>(b.data()), b.size()}), ctx);
+  }
+};
+
+// std::formatter specialization of wire::field, for std::format
+template <typename T, wire::EncodingOptions Opt>
+struct std::formatter<wire::field<T, Opt>> : std::formatter<std::string> {
+  auto format(const wire::field<T, Opt>& f, std::format_context& ctx) const {
+    return std::formatter<std::string>::format(fmt::format("{}", f), ctx);
   }
 };

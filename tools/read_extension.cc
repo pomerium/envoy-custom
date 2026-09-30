@@ -1,12 +1,15 @@
 #include <algorithm>
+#include <cxxabi.h>
 #include <elf.h>
 #include <exception>
 #include <fcntl.h>
 #include <iterator>
+#include <unordered_map>
+#include <string_view>
 #include <sys/stat.h>
 #include <sys/mman.h>
-#include <cxxabi.h>
-#include <unordered_map>
+#include <tuple>
+#include <vector>
 
 #include "fmt/format.h"
 #include "fmt/ranges.h"

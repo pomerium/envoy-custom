@@ -1,3 +1,5 @@
+#include <string_view>
+
 #include "source/common/types.h"
 
 #include "gtest/gtest.h"

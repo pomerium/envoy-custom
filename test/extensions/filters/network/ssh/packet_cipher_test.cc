@@ -1,3 +1,6 @@
+#include <tuple>
+#include <vector>
+
 #include "source/extensions/filters/network/ssh/packet_cipher.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/wire/packet.h"

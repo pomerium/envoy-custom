@@ -20,7 +20,7 @@ TEST(GrpcHealthCheckEventSinkFactory, CreateHealthCheckEventSink) {
   envoy::extensions::health_check::event_sinks::grpc::Config config;
   *config.mutable_grpc_service()->mutable_envoy_grpc()->mutable_cluster_name() = "test";
   Envoy::Protobuf::Any typed_config;
-  typed_config.PackFrom(config);
+  ASSERT_TRUE(typed_config.PackFrom(config));
 
   NiceMock<Server::Configuration::MockHealthCheckerFactoryContext> context;
   EXPECT_NE(factory->createHealthCheckEventSink(typed_config, context), nullptr);

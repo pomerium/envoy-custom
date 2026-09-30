@@ -10,7 +10,10 @@
 #include "source/extensions/filters/network/ssh/kex.h"
 #include "gtest/gtest.h"
 #include <algorithm>
+#include <array>
 #include <coroutine>
+#include <tuple>
+#include <vector>
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 

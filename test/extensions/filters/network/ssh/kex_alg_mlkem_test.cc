@@ -1,3 +1,5 @@
+#include <vector>
+
 #include "source/extensions/filters/network/ssh/kex_alg.h"
 #include "source/extensions/filters/network/ssh/kex_alg_mlkem.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"

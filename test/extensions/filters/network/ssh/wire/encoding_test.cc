@@ -1,3 +1,7 @@
+#include <string_view>
+#include <tuple>
+#include <vector>
+
 #include "source/common/visit.h"
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
