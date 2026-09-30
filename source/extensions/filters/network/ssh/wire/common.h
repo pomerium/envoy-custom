@@ -119,3 +119,11 @@ inline constexpr auto format_as(SshMessageType mt) {
   return fmt::format("{}", std::to_underlying(mt));
 }
 } // namespace wire
+
+// std::formatter specialization of SshMessageType, for std::format
+template <>
+struct std::formatter<wire::SshMessageType> : std::formatter<std::string> {
+  auto format(wire::SshMessageType mt, std::format_context& ctx) const {
+    return std::formatter<std::string>::format(format_as(mt), ctx);
+  }
+};
