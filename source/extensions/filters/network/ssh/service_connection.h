@@ -3,6 +3,7 @@
 #include "source/extensions/filters/network/ssh/channel.h"
 #include "source/extensions/filters/network/ssh/channel_filter.h"
 #include "source/extensions/filters/network/ssh/stream_tracker.h"
+#include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/service.h"
 #include "source/extensions/filters/network/ssh/transport.h"
@@ -103,8 +104,83 @@ public:
     ReadDisableHandlePtr connectionReadDisable() override;
 
   private:
+    friend class ConnectionService;
+
+    // Initiates a channel close from Envoy, bypassing the normal channel close sequence. This will
+    // propagate to both peers and close the channel as normal.
+    //
+    // Warning: Before calling this function, ensure ChannelIDManager::isPreemptable() returns true
+    // given the channel ID and local peer.
+    //
+    //
+    // When preempting a channel, the following sequence of events occurs:
+    //  1. The channel is marked as preempted (see ChannelIDManager::preempt)
+    //  2. If any interrupt callbacks have been added, they are invoked.
+    //  3. Envoy sends a ChannelClose message to the local peer.
+    //  4. The local peer replies with its own ChannelClose message.
+    //  5. The local Channel receives the close message, and sends a ChannelClose message of its own
+    //     to the remote peer (if one exists).
+    //  6. The local Channel is destroyed, and invokes ChannelCallbacks::cleanup(), releasing the
+    //     channel ID for the local peer.
+    //  7. The remote peer receives the ChannelClose message (sent in step 5) and replies with a
+    //     ChannelClose message of its own.
+    //  8. The remote channel processes the ChannelClose message, and sends one to its peer
+    //     (the local peer from our perspective).
+    //     Note: at this point, the local channel thinks it has already received a ChannelClose
+    //     from its remote peer, so the real local client will have actually closed that channel
+    //     and we can't send anything to it.
+    //  9. The remote peer transport requests the ChannelIDManager to process its outgoing
+    //     ChannelClose message (sent in step 8), and the ChannelIDManager returns a flag indicating
+    //     the message should be dropped. The message is dropped.
+    // 10. The remote peer's Channel is destroyed, and its channel ID is released. Both sides are
+    //     now released, so the internal channel is freed.
+    //
+    // Preempting a channel will send a ChannelClose message to the *local* peer, regardless
+    // of which side created the channel. Therefore, the local peer's channel must be in a state
+    // where it is able to accept a ChannelClose, otherwise this is a protocol error. Whether or not
+    // we can know the channel is in such a state depends on which peer originally opened the
+    // channel:
+    //
+    // If the local peer sent the channel open request:
+    //   This Channel instance would have received and forwarded a ChannelOpen message. If the
+    //   remote peer replies with a ChannelOpenConfirmation message, this Channel instance would
+    //   NOT have observed it. The channel is only open once the local peer receives the
+    //   ChannelOpenConfirmation, but determining if this has occurred is not possible from this
+    //   side.
+    //
+    // If the remote peer sent the channel open request:
+    //   This Channel instance would NOT have observed the ChannelOpen message. If the local peer
+    //   replies with a ChannelOpenConfirmation message, this Channel instance would have observed
+    //   it and would be able to determine that the channel is open. However, there is still a
+    //   possible race if the remote peer decides to send a ChannelClose request for another reason
+    //   after the interrupt and before the local peer has a chance to reply with its own
+    //   ChannelClose. If that happens, then the local peer would receive two ChannelClose messages
+    //   for the same channel the second of which would be a protocol error.
+    //
+    // In general, therefore, it is not reliable for a single half of the transport to determine
+    // whether it can initiate a channel close internally without causing a protocol error. Instead,
+    // this state is tracked by the ChannelIDManager, which is shared between both sides of the
+    // transport. When one side of the transport calls ChannelIDManager::preempt() on an eligible
+    // ID (see ChannelIDManager::isPreemptable), it changes the channel's state to 'Preempted'.
+    // Then, further calls to ChannelIDManager::processOutgoingChannelMsg can return a flag
+    // indicating that the message about to be sent should instead be dropped.
+    //
+    // Note: In the shutdown() case, all local channels are closed at the same time. This usually
+    // results in the local client sending a DisconnectMsg after the last channel is closed. When
+    // that happens, the upstream is reset immediately and the sequence above skips over steps
+    // 7-9, and step 10 happens when the filter chain is destroyed, while parent_.channel_callbacks_
+    // is being deleted.
+    void preempt(absl::Status err);
+
     void cleanup() override;
-    void flushRemoteMsgQueue();
+    absl::Status flushRemoteMsgQueue();
+    bool didForwardChannelOpen() {
+      return did_forward_channel_open_;
+    }
+    bool preempted() {
+      return preempted_;
+    }
+    absl::Status sendMessageRemoteDirect(wire::Message&& msg);
 
     ConnectionService& parent_;
     ChannelIDManager& channel_id_mgr_;
@@ -112,6 +188,9 @@ public:
     uint32_t read_disable_count_{0};
     std::optional<std::string> channel_type_;
     const Peer local_peer_;
+    const Peer remote_peer_;
+    bool did_forward_channel_open_{false};
+    bool preempted_{false};
     Stats::ScopeSharedPtr scope_;
     Envoy::Event::TimerPtr close_timer_;
     Envoy::OptRef<ChannelStatsProvider> stats_provider_;
@@ -131,75 +210,11 @@ public:
   };
 
 protected:
-  // Initiates a channel close from Envoy, bypassing the normal channel close sequence. This will
-  // propagate to both peers and close the channel as normal.
-  //
-  // Warning: Before calling this function, ensure ChannelIDManager::isPreemptable() returns true
-  // given the channel ID and local peer.
-  //
-  //
-  // When preempting a channel, the following sequence of events occurs:
-  //  1. The channel is marked as preempted (see ChannelIDManager::preempt)
-  //  2. If any interrupt callbacks have been added, they are invoked.
-  //  3. Envoy sends a ChannelClose message to the local peer.
-  //  4. The local peer replies with its own ChannelClose message.
-  //  5. The local Channel receives the close message, and sends a ChannelClose message of its own
-  //     to the remote peer (if one exists).
-  //  6. The local Channel is destroyed, and invokes ChannelCallbacks::cleanup(), releasing the
-  //     channel ID for the local peer.
-  //  7. The remote peer receives the ChannelClose message (sent in step 5) and replies with a
-  //     ChannelClose message of its own.
-  //  8. The remote channel processes the ChannelClose message, and sends one to its peer
-  //     (the local peer from our perspective).
-  //     Note: at this point, the local channel thinks it has already received a ChannelClose
-  //     from its remote peer, so the real local client will have actually closed that channel
-  //     and we can't send anything to it.
-  //  9. The remote peer transport requests the ChannelIDManager to process its outgoing
-  //     ChannelClose message (sent in step 8), and the ChannelIDManager returns a flag indicating
-  //     the message should be dropped. The message is dropped.
-  // 10. The remote peer's Channel is destroyed, and its channel ID is released. Both sides are now
-  //     released, so the internal channel is freed.
-  //
-  // Preempting a channel will send a ChannelClose message to the *local* peer, regardless
-  // of which side created the channel. Therefore, the local peer's channel must be in a state
-  // where it is able to accept a ChannelClose, otherwise this is a protocol error. Whether or not
-  // we can know the channel is in such a state depends on which peer originally opened the channel:
-  //
-  // If the local peer sent the channel open request:
-  //   This Channel instance would have received and forwarded a ChannelOpen message. If the
-  //   remote peer replies with a ChannelOpenConfirmation message, this Channel instance would
-  //   NOT have observed it. The channel is only open once the local peer receives the
-  //   ChannelOpenConfirmation, but determining if this has occurred is not possible from this
-  //   side.
-  //
-  // If the remote peer sent the channel open request:
-  //   This Channel instance would NOT have observed the ChannelOpen message. If the local peer
-  //   replies with a ChannelOpenConfirmation message, this Channel instance would have observed
-  //   it and would be able to determine that the channel is open. However, there is still a
-  //   possible race if the remote peer decides to send a ChannelClose request for another reason
-  //   after the interrupt and before the local peer has a chance to reply with its own
-  //   ChannelClose. If that happens, then the local peer would receive two ChannelClose messages
-  //   for the same channel the second of which would be a protocol error.
-  //
-  // In general, therefore, it is not reliable for a single half of the transport to determine
-  // whether it can initiate a channel close internally without causing a protocol error. Instead,
-  // this state is tracked by the ChannelIDManager, which is shared between both sides of the
-  // transport. When one side of the transport calls ChannelIDManager::preempt() on an eligible
-  // ID (see ChannelIDManager::isPreemptable), it changes the channel's state to 'Preempted'.
-  // Then, further calls to ChannelIDManager::processOutgoingChannelMsg can return a flag indicating
-  // that the message about to be sent should instead be dropped.
-  //
-  // Note: In the shutdown() case, all local channels are closed at the same time. This usually
-  // results in the local client sending a DisconnectMsg after the last channel is closed. When
-  // that happens, the upstream is reset immediately and the sequence above skips over steps
-  // 7-9, and step 10 happens when the filter chain is destroyed, while parent_.channel_callbacks_
-  // is being deleted.
-  void preempt(ChannelCallbacks& ccb, absl::Status err);
-
   ConnectionServiceOptions options_;
   TransportCallbacks& transport_;
 
   const Peer local_peer_;
+  const Peer remote_peer_;
   Envoy::OptRef<MessageDispatcher<wire::Message>> msg_dispatcher_;
 
   // field order is important: callbacks must not be destroyed before the channels are

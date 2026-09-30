@@ -121,7 +121,8 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
                                                               PeerLocalID{
                                                                 .channel_id = internalId,
                                                                 .local_peer = Peer::Upstream,
-                                                              }));
+                                                              },
+                                                              BindMode::Confirmed));
           forwardHeader(std::move(confirm));
           return 0;
         }
@@ -367,7 +368,7 @@ absl::StatusOr<MiddlewareResult> HandoffMiddleware::interceptMessage(wire::Messa
           .channel_open = open,
           .skip_auto_bind = true,
         });
-      ASSERT(internalId.ok()); // should not be able to fail
+      ASSERT(internalId.ok()); // should not be able to fail, readChannelOpen never returns an error
 
       // this message won't be dispatched to the upstream userauth service, so we need to handle a
       // couple of post-auth-success actions that it would normally do
