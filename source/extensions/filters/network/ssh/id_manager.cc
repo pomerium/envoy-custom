@@ -1,5 +1,6 @@
 #include "source/extensions/filters/network/ssh/id_manager.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
+#include <utility>
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -9,10 +10,8 @@ inline bool releaseEligible(ChannelIDState state) {
          state == ChannelIDState::Released ||
          state == ChannelIDState::Bereft;
 }
-inline bool preemptEligible(ChannelIDState remote_state) {
-  return remote_state == ChannelIDState::Unbound ||
-         remote_state == ChannelIDState::Pending ||
-         remote_state == ChannelIDState::Bound;
+inline Peer oppositePeer(Peer peer) {
+  return peer == Downstream ? Upstream : Downstream;
 }
 
 } // namespace
@@ -33,43 +32,62 @@ absl::StatusOr<uint32_t> ChannelIDManager::allocateNewChannel(Peer owner) {
 }
 
 // Note: this should only be called by ConnectionService::handleMessage().
-absl::Status ChannelIDManager::bindChannelID(uint32_t internal_id, PeerLocalID peer_local_id, bool expect_remote) {
+absl::Status ChannelIDManager::bindChannelID(uint32_t internal_id, PeerLocalID peer_local_id, BindMode bind_mode) {
   auto it = internal_channels_.find(internal_id);
   if (it == internal_channels_.end()) {
     return absl::InvalidArgumentError(fmt::format("unknown channel {}", internal_id));
   }
-  if (auto localState = it->second.peer_states[peer_local_id.local_peer];
-      localState != ChannelIDState::Unbound && localState != ChannelIDState::Pending) {
+  auto& info = it->second;
+  const auto localPeer = peer_local_id.local_peer;
+  const auto localState = info.peer_states[localPeer];
+  const auto remotePeer = oppositePeer(localPeer);
+  const auto remoteState = info.peer_states[remotePeer];
+  if ((localState != ChannelIDState::Unbound && localState != ChannelIDState::Pending) ||
+      info.peer_ids[localPeer].has_value()) {
     return absl::InvalidArgumentError(fmt::format("channel {} is already known to {}",
-                                                  internal_id, peer_local_id.local_peer));
+                                                  internal_id, localPeer));
   }
-  it->second.peer_ids[peer_local_id.local_peer] = peer_local_id.channel_id;
-  it->second.peer_states[peer_local_id.local_peer] = ChannelIDState::Bound;
-  if (expect_remote) {
-    auto remotePeer = peer_local_id.local_peer == Downstream ? Upstream : Downstream;
-    if (it->second.peer_states[remotePeer] == ChannelIDState::Unbound) {
-      it->second.peer_states[remotePeer] = ChannelIDState::Pending;
+
+  info.peer_ids[localPeer] = peer_local_id.channel_id;
+
+  switch (bind_mode) {
+  case BindMode::PendingRemoteConfirmation:
+    info.peer_states[localPeer] = ChannelIDState::Pending;
+    ENVOY_LOG(debug, "channel {}: {} ID pending [{}]", internal_id, localPeer, info);
+    if (remoteState == ChannelIDState::Unbound) {
+      info.peer_states[remotePeer] = ChannelIDState::Pending;
+      ENVOY_LOG(debug, "channel {}: {} ID pending [{}]", internal_id, remotePeer, info);
     }
+    break;
+  case BindMode::PendingInternalConfirmation:
+    info.peer_states[localPeer] = ChannelIDState::Pending;
+    ENVOY_LOG(debug, "channel {}: {} ID pending [{}]", internal_id, localPeer, info);
+    break;
+  case BindMode::Confirmed:
+    // Note: the remote peer does not transition from Pending to Bound until it is forwarded the
+    // ChannelOpenConfirmation/Failure via processOutgoingChannelMsg
+    info.peer_states[localPeer] = ChannelIDState::Bound;
+    ENVOY_LOG(debug, "channel {}: {} ID bound [{}]", internal_id, localPeer, info);
+    break;
   }
-  ENVOY_LOG(debug, "channel {}: {} ID bound [{}]", internal_id, peer_local_id.local_peer, it->second);
   return absl::OkStatus();
 }
 
 // Note: this should only be called by ChannelCallbacksImpl::cleanup().
 void ChannelIDManager::releaseChannelID(uint32_t internal_id, Peer local_peer) {
   ASSERT(internal_channels_.contains(internal_id));
-  auto& internalChannel = internal_channels_[internal_id];
+  auto& info = internal_channels_[internal_id];
 
-  auto currentState = internalChannel.peer_states[local_peer];
-  if (currentState == ChannelIDState::Bound || currentState == ChannelIDState::Pending) {
-    internalChannel.peer_states[local_peer] = ChannelIDState::Released;
-  } else if (currentState == ChannelIDState::Preempted) {
-    internalChannel.peer_states[local_peer] = ChannelIDState::Bereft;
+  const auto localState = info.peer_states[local_peer];
+  if (localState == ChannelIDState::Bound || localState == ChannelIDState::Pending) {
+    info.peer_states[local_peer] = ChannelIDState::Released;
+  } else if (localState == ChannelIDState::Preempted) {
+    info.peer_states[local_peer] = ChannelIDState::Bereft;
   }
 
-  ENVOY_LOG(debug, "channel {}: {} ID released [{}]", internal_id, local_peer, internalChannel);
-  if (releaseEligible(internalChannel.peer_states[Peer::Downstream]) &&
-      releaseEligible(internalChannel.peer_states[Peer::Upstream])) {
+  ENVOY_LOG(debug, "channel {}: {} ID released [{}]", internal_id, local_peer, info);
+  if (releaseEligible(info.peer_states[Peer::Downstream]) &&
+      releaseEligible(info.peer_states[Peer::Upstream])) {
     internal_channels_.erase(internal_id);
     id_alloc_.release(internal_id);
     ENVOY_LOG(debug, "freed internal channel ID {}", internal_id);
@@ -88,22 +106,35 @@ std::optional<Peer> ChannelIDManager::owner(uint32_t internal_id) {
 }
 
 bool ChannelIDManager::isPreemptable(uint32_t internal_id, Peer local_peer) {
+  using enum ChannelIDState;
   if (!internal_channels_.contains(internal_id)) {
     // this should ideally return nullopt like owner(), but optional<bool> is error-prone
     return false;
   }
-  auto localState = internal_channels_[internal_id].peer_states[local_peer];
-  auto remoteState = internal_channels_[internal_id].peer_states[local_peer == Downstream
-                                                                   ? Upstream
-                                                                   : Downstream];
+  auto& info = internal_channels_[internal_id];
+  const auto localState = info.peer_states[local_peer];
+  const auto remotePeer = oppositePeer(local_peer);
+  const auto remoteState = info.peer_states[remotePeer];
 
-  return (localState == ChannelIDState::Bound && preemptEligible(remoteState));
+  // The local state must be either Bound or Pending, and if Pending it must have an ID (otherwise
+  // there is no action that could be taken). The remote state can't already be preempted or in the
+  // process of being closed.
+  if (localState != Bound && localState != Pending) {
+    return false;
+  }
+  if (info.peer_ids[local_peer].value_or(channel_id_error) == channel_id_error) {
+    return false;
+  }
+  if (remoteState != Unbound && remoteState != Pending && remoteState != Bound) {
+    return false;
+  }
+  return true;
 }
 
-void ChannelIDManager::preempt(uint32_t internal_id, Peer local_peer) {
+ChannelIDState ChannelIDManager::preempt(uint32_t internal_id, Peer local_peer) {
   ASSERT(isPreemptable(internal_id, local_peer));
   auto& internalChannel = internal_channels_[internal_id];
-  internalChannel.peer_states[local_peer] = ChannelIDState::Preempted;
+  return std::exchange(internalChannel.peer_states[local_peer], ChannelIDState::Preempted);
 }
 
 std::optional<ChannelIDState> ChannelIDManager::peerState(uint32_t internal_id, Peer peer) {
@@ -125,33 +156,57 @@ absl::StatusOr<bool> ChannelIDManager::processOutgoingChannelMsgImpl(wire::field
 
   auto& info = it->second;
   switch (info.peer_states[dest]) {
-  [[likely]] default:
-    recipient_channel = info.peer_ids[dest];
+  [[likely]] case ChannelIDState::Bound:
+    recipient_channel = *info.peer_ids[dest];
     return true;
   case ChannelIDState::Unbound:
+    // Even if the peer wasn't previously marked pending, receiving a ChannelOpenConfirmation or
+    // ChannelOpenFailure implies that a ChannelOpen was previously sent, so the channel should
+    // become Bound.
     [[fallthrough]];
   case ChannelIDState::Pending:
-    // There is one scenario where we need to drop messages to a Pending dest peer. If the source
-    // peer is in the Preempted state and attempts to forward a ChannelClose message, it is
-    // processing the response to a ChannelClose sent via preempt, and immediately after sending
-    // this ChannelClose, it will transition to the Bereft state. Then, if the dest peer sends
-    // a ChannelOpenConfirmation later, this will trigger it to create a new ForceCloseChannel.
-    if (msg_type == wire::SshMessageType::ChannelClose &&
-        info.peer_states[dest == Downstream ? Upstream : Downstream] == ChannelIDState::Preempted) {
-      return false;
+    // Pending channels can only receive ChannelOpenConfirmation or ChannelOpenFailure messages.
+    if (info.peer_ids[dest].value_or(channel_id_error) != channel_id_error) {
+      switch (msg_type) {
+      case wire::SshMessageType::ChannelOpenConfirmation:
+        recipient_channel = *info.peer_ids[dest];
+        // Transition the dest channel from Pending to Bound
+        info.peer_states[dest] = ChannelIDState::Bound;
+        ENVOY_LOG(debug, "channel {}: {} ID bound [{}]", internalId, dest, info);
+        return true;
+      case wire::SshMessageType::ChannelOpenFailure:
+        recipient_channel = *info.peer_ids[dest];
+        // Keep the dest channel Pending, but clear its local ID. No further messages can be sent
+        // after ChannelOpenFailure, and clearing the ID will make it ineligible for subsequent
+        // preemption.
+        info.peer_ids[dest] = channel_id_error;
+        ENVOY_LOG(debug, "channel {}: {} ID cleared [{}]", internalId, Upstream, info);
+        return true;
+      default:
+        break;
+      }
     }
     return absl::InvalidArgumentError(
       fmt::format("error processing outgoing message of type {}: internal channel {} is not known to {} (state: {})",
                   msg_type, internalId, dest, info.peer_states[dest]));
+  case ChannelIDState::Released:
+    if (info.peer_ids[dest].value_or(channel_id_error) == channel_id_error) {
+      return absl::InvalidArgumentError(
+        fmt::format("error processing outgoing message of type {}: internal channel {} is not known to {} (state: {})",
+                    msg_type, internalId, dest, info.peer_states[dest]));
+    }
+    recipient_channel = info.peer_ids[dest].value();
+    return true;
   case ChannelIDState::Preempted:
-    if (!info.preempted_closed) {
+    if (!info.preempted_closed[dest]) {
       // While the channel is in the Preempted state, messages can be sent only until the next
-      // ChannelClose (or ChannelOpenFailure if never opened), which will set preemptable=false.
-      recipient_channel = info.peer_ids[dest];
+      // ChannelClose (or ChannelOpenFailure if never opened), which will set preempted_closed=true.
+      recipient_channel = *info.peer_ids[dest];
 
       if (msg_type == wire::SshMessageType::ChannelClose ||
           msg_type == wire::SshMessageType::ChannelOpenFailure) {
-        info.preempted_closed = true;
+        info.preempted_closed[dest] = true;
+        ENVOY_LOG(debug, "channel {}: preempted {} ID is closed [{}]", internalId, dest, info);
       }
       return true;
     }

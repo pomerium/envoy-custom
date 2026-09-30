@@ -44,7 +44,19 @@ MockChannel::MockChannel() {
     });
 }
 MockChannel::~MockChannel() {
+  if (expect_set_channel_callbacks_never_called_) {
+    EXPECT_TRUE(callbacks_ == nullptr)
+      << "test bug: expectSetChannelCallbacksNeverCalled was called, but callbacks_ is not null";
+  } else {
+    EXPECT_TRUE(callbacks_ != nullptr)
+      << "test bug: non-default setChannelCallbacks handler is missing call to base class Channel::setChannelCallbacks\n"
+         "(if it is expected that setChannelCallbacks is never called, call expectSetChannelCallbacksNeverCalled())";
+  }
   Die();
+}
+void MockChannel::expectSetChannelCallbacksNeverCalled() {
+  EXPECT_CALL(*this, setChannelCallbacks).Times(0);
+  expect_set_channel_callbacks_never_called_ = true;
 }
 
 MockChannelStatsProvider::MockChannelStatsProvider() {}

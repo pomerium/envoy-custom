@@ -105,6 +105,14 @@ public:
   MOCK_METHOD(absl::Status, readChannelOpen, (wire::ChannelOpenMsg&&));
   MOCK_METHOD(absl::Status, readMessage, (wire::ChannelMessage&&));
   MOCK_METHOD(void, terminate, (absl::Status));
+
+  // Call this if it is expected that setChannelCallbacks will never be called, i.e. if a failure is
+  // expected early on in startChannel. This disables a check in the destructor of this class which
+  // assumes setChannelCallbacks would have been called.
+  void expectSetChannelCallbacksNeverCalled();
+
+private:
+  bool expect_set_channel_callbacks_never_called_{false};
 };
 
 class MockChannelStatsProvider : public ChannelStatsProvider {

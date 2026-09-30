@@ -287,6 +287,8 @@ public:
           ch1->Channel::setChannelCallbacks(cb);
           channel_callbacks_ = &cb;
         });
+    } else {
+      channel_->expectSetChannelCallbacksNeverCalled();
     }
 
     inject_ = std::make_unique<Registry::InjectFactory<ChannelFilterFactoryConfig>>(cfg_);
@@ -520,6 +522,9 @@ TEST_F(ChannelReadFiltersTest, TestChannelReadFilters_ErrorOnChannelOpen) {
       EXPECT_EQ("session", channel_callbacks_->channelType());
       return absl::InternalError("test error");
     }));
+  EXPECT_CALL(*transport_, sendMessageToConnection(MSG(wire::ChannelOpenFailureMsg,
+                                                       FIELD_EQ(recipient_channel, 1u))))
+    .WillOnce(Return(0));
   EXPECT_CALL(*channel_, Die);
 
   auto stat = service_->startChannel(std::move(channel_),
