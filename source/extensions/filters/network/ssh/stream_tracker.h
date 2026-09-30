@@ -31,8 +31,10 @@ public:
     // channel_open option. This has no effect if channel_open is unset.
     bool skip_auto_bind{};
 
-    // If channel_open is set, and skip_auto_bind is false, this value will be used as the
-    // 'expect_remote' argument to ChannelIDManager::bindChannelID() (default true if unset)
+    // If channel_open is set, and skip_auto_bind is false, this value will influence the
+    // 'bind_mode' argument to ChannelIDManager::bindChannelID(). If unset or true, the value will
+    // be BindMode::PendingRemoteConfirmation. If false (and set), the value will instead be
+    // BindMode::PendingInternalConfirmation.
     std::optional<bool> bind_expect_remote;
   };
 

@@ -128,7 +128,8 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
                                                               PeerLocalID{
                                                                 .channel_id = internalId,
                                                                 .local_peer = Peer::Upstream,
-                                                              }));
+                                                              },
+                                                              BindMode::Confirmed));
           forwardHeader(std::move(confirm));
           return 0;
         }

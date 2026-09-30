@@ -15,25 +15,41 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 constexpr uint32_t DefaultMaxConcurrentChannels = 32768;
 
-enum Peer {
+enum Peer : uint8_t {
   Downstream = 0,
   Upstream = 1,
+};
+
+enum class BindMode {
+  // The local ID is for a pending channel that is awaiting confirmation from the remote peer.
+  // In this mode, both peers will be set to Pending.
+  PendingRemoteConfirmation = 0,
+  // The local ID is for a pending channel that is awaiting internal confirmation, and does not yet
+  // involve the real remote peer.
+  // In this mode, the local peer will be set to Pending, and the remote peer will not be updated.
+  PendingInternalConfirmation = 1,
+  // The local ID was obtained by receiving a ChannelOpenConfirmation message.
+  // In this mode, the local peer will be set to Bound, and the remote peer will not be updated.
+  Confirmed = 2,
 };
 
 enum class ChannelIDState {
   // Default state. A channel is Unbound until a ChannelOpen request is received from the peer.
   Unbound = 0,
-  // A channel is marked Pending when it is expected to become Bound because the opposite peer's
-  // channel was bound. Pending is equivalent to Unbound except that it will prevent the channel
-  // from being freed.
+  // A channel is marked Pending when it is awaiting a ChannelOpenConfirmation or ChannelOpenFailure
+  // message in reply to a ChannelOpen message. Pending is equivalent to Unbound except that it will
+  // prevent the channel from being freed. If a peer is awaiting its opposite peer to bind the same
+  // internal channel, the opposite peer is also moved to the Pending state.
+  // Pending channels may or may not have an associated peer-local ID. If a Pending channel does
+  // have one, it may be
   Pending = 1,
-  // A channel is Bound when the peer knows about this channel ID. A Bound channel may be in the
-  // process of awaiting a ChannelOpenConfirmation or ChannelOpenFailure, depending on which side
-  // initiated the channel open. If a peer is awaiting its opposite peer to bind the same internal
-  // channel, the opposite peer is moved to the Pending state.
+  // A channel is Bound when the peer knows about this channel ID and it has received a
+  // ChannelOpenConfirmation message for the channel.
   Bound = 2,
-  // A channel is Released when awaiting a close handshake between peers. A channel in this state is
-  // still active until released by all bound peers.
+  // A channel is Released when awaiting a close handshake between peers, or awaiting destruction
+  // after opening the channel failed. A channel in this state is still active until released by
+  // all bound peers. If a released channel was previously bound with a local ID, it can still be
+  // sent messages, but messages will not be sent by it.
   Released = 3,
   // A channel becomes Preempted when a ChannelClose is sent from one side of the transport to
   // its local peer. It exists in this state until a corresponding ChannelClose is received,
@@ -51,16 +67,21 @@ enum class ChannelIDState {
   Bereft = 5,
 };
 
+// Sentinel value indicating a channel ID that was previously bound, but then cleared. This is used
+// to disambiguate between Pending channels which were never assigned an ID, and Pending channels
+// which had their ID cleared because a ChannelOpenFailure message was sent.
+constexpr uint32_t channel_id_error = 0xFFFFFFFF;
+
 struct PeerLocalID {
   uint32_t channel_id;
   Peer local_peer;
 };
 
 struct InternalChannelInfo {
-  std::array<uint32_t, 2> peer_ids;
+  std::array<std::optional<uint32_t>, 2> peer_ids;
   std::array<ChannelIDState, 2> peer_states;
 
-  bool preempted_closed{};
+  std::array<bool, 2> preempted_closed{};
   Peer owner{};
 };
 
@@ -136,7 +157,8 @@ public:
 
   absl::StatusOr<uint32_t> allocateNewChannel(Peer owner);
 
-  absl::Status bindChannelID(uint32_t internal_id, PeerLocalID peer_local_id, bool expect_remote = true);
+  // Associates a peer-local channel ID with an internal ID.
+  absl::Status bindChannelID(uint32_t internal_id, PeerLocalID peer_local_id, BindMode mode);
   void releaseChannelID(uint32_t internal_id, Peer local_peer);
 
   std::optional<Peer> owner(uint32_t internal_id);
@@ -146,10 +168,11 @@ public:
   // that peer, and it is in either the Bound or Unbound states for the opposite peer.
   bool isPreemptable(uint32_t internal_id, Peer local_peer);
 
-  // Changes the peer state for a Bound channel to Preempted, which has the following effects:
+  // Changes the peer state for a Bound or HalfBound channel to Preempted, and returns the previous
+  // state. The Preempted state has the following effects:
   //
-  // 1. Messages are allowed to be sent only until the next ChannelClose message, after which
-  //    messages are blocked.
+  // 1. Messages are allowed to be sent only until the next ChannelClose or ChannelOpenFailure
+  //    message, after which messages are blocked.
   //
   //    It is normally not necessary to check this condition and block messages explicitly; the
   //    protocol always disallows any channel messages to be sent after ChannelClose, so it's not
@@ -169,11 +192,30 @@ public:
   //    freed as usual. Bereft channels are considered the same as Released for purposes of
   //    determining whether to free an internal channel. Preempted channels are, however, not
   //    considered released and will hold the internal channel alive.
-  void preempt(uint32_t internal_id, Peer local_peer);
+  [[nodiscard]]
+  ChannelIDState preempt(uint32_t internal_id, Peer local_peer);
 
+  // Updates the recipient channel for the given message in-place from the internal channel ID to
+  // the local ID for the destination peer. Returns true if the message should be sent, or (rarely)
+  // false if the message should be dropped.
+  //
+  // NB: Calling this function updates channel state in some cases. Only call this function if you
+  // can commit to actually sending the message right away (if it returns true). It is assumed that
+  // the dest peer will receive channel messages sequenced in the same order that this function is
+  // called for those messages, and channel messages can be sent internally in response to
+  // preemption or potentially in other error scenarios.
+  // For example: if this function is called and returns true, and then that message is stored to be
+  // sent later, this function might be called from somewhere else in a future event loop cycle,
+  // and if that message is sent it would be sequenced out of order from the one that was stored
+  // previously.
   template <wire::ChannelMsg M>
   absl::StatusOr<bool> processOutgoingChannelMsg(M& msg, Peer dest) {
     return processOutgoingChannelMsgImpl(msg.recipient_channel, msg.msg_type(), dest);
+  }
+  absl::StatusOr<bool> processOutgoingChannelMsg(wire::ChannelMessage& msg, Peer dest) {
+    return msg.visit([this, dest](wire::ChannelMsg auto& msg) {
+      return processOutgoingChannelMsg(msg, dest);
+    });
   }
 
   size_t numActiveChannels() const { return internal_channels_.size(); }

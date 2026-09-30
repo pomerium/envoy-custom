@@ -5,6 +5,14 @@
 #include "gtest/gtest.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
+
+std::ostream& operator<<(std::ostream& os, const Peer& t) {
+  return os << fmt::to_string(t);
+}
+std::ostream& operator<<(std::ostream& os, const ChannelIDState& t) {
+  return os << fmt::to_string(t);
+}
+
 namespace test {
 
 TEST(ChannelIDManagerTest, AllocateNewChannel) {
@@ -58,21 +66,33 @@ TEST(ChannelIDManagerTest, BindChannelID) {
   ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
                                      .channel_id = 1,
                                      .local_peer = Peer::Downstream,
-                                   }));
+                                   },
+                              BindMode::PendingRemoteConfirmation));
 
-  EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Downstream));
+  EXPECT_EQ(ChannelIDState::Pending, *mgr.peerState(*id, Peer::Downstream));
   EXPECT_EQ(ChannelIDState::Pending, *mgr.peerState(*id, Peer::Upstream));
 
   ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
                                      .channel_id = 2,
                                      .local_peer = Peer::Upstream,
-                                   }));
+                                   },
+                              BindMode::Confirmed));
+
+  EXPECT_EQ(ChannelIDState::Pending, *mgr.peerState(*id, Peer::Downstream));
+  EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Upstream));
+
+  wire::ChannelOpenConfirmationMsg confirm{
+    .recipient_channel = *id,
+    .sender_channel = 2,
+  };
+  ASSERT_OK(mgr.processOutgoingChannelMsg(confirm, Peer::Downstream));
 
   EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Downstream));
   EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Upstream));
 }
 
-TEST(ChannelIDManagerTest, BindChannelID_NoExpectRemote) {
+TEST(ChannelIDManagerTest, BindChannelID_InternalConfirmation) {
+  // Test both peers half-opening and then confirming the channel individually
   ChannelIDManager mgr(10);
   auto id = mgr.allocateNewChannel(Peer::Downstream);
   ASSERT_OK(id);
@@ -84,7 +104,16 @@ TEST(ChannelIDManagerTest, BindChannelID_NoExpectRemote) {
                                      .channel_id = 1,
                                      .local_peer = Peer::Downstream,
                                    },
-                              false));
+                              BindMode::PendingInternalConfirmation));
+
+  EXPECT_EQ(ChannelIDState::Pending, *mgr.peerState(*id, Peer::Downstream));
+  EXPECT_EQ(ChannelIDState::Unbound, *mgr.peerState(*id, Peer::Upstream));
+
+  wire::ChannelOpenConfirmationMsg confirm{
+    .recipient_channel = *id,
+    .sender_channel = *id,
+  };
+  ASSERT_OK(mgr.processOutgoingChannelMsg(confirm, Peer::Downstream));
 
   EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Downstream));
   EXPECT_EQ(ChannelIDState::Unbound, *mgr.peerState(*id, Peer::Upstream));
@@ -92,7 +121,17 @@ TEST(ChannelIDManagerTest, BindChannelID_NoExpectRemote) {
   ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
                                      .channel_id = 2,
                                      .local_peer = Peer::Upstream,
-                                   }));
+                                   },
+                              BindMode::PendingInternalConfirmation));
+
+  EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Downstream));
+  EXPECT_EQ(ChannelIDState::Pending, *mgr.peerState(*id, Peer::Upstream));
+
+  wire::ChannelOpenConfirmationMsg confirm2{
+    .recipient_channel = *id,
+    .sender_channel = *id,
+  };
+  ASSERT_OK(mgr.processOutgoingChannelMsg(confirm2, Peer::Upstream));
 
   EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Downstream));
   EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Upstream));
@@ -104,12 +143,14 @@ TEST(ChannelIDManagerTest, BindChannelID_UnknownChannel) {
             mgr.bindChannelID(1, PeerLocalID{
                                    .channel_id = 1,
                                    .local_peer = Peer::Downstream,
-                                 }));
+                                 },
+                              BindMode::PendingRemoteConfirmation));
   ASSERT_EQ(absl::InvalidArgumentError("unknown channel 10"),
             mgr.bindChannelID(10, PeerLocalID{
                                     .channel_id = 1,
                                     .local_peer = Peer::Downstream,
-                                  }));
+                                  },
+                              BindMode::PendingRemoteConfirmation));
 }
 
 TEST(ChannelIDManagerTest, BindChannelID_AlreadyBound) {
@@ -119,12 +160,14 @@ TEST(ChannelIDManagerTest, BindChannelID_AlreadyBound) {
   ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
                                      .channel_id = 1,
                                      .local_peer = Peer::Downstream,
-                                   }));
+                                   },
+                              BindMode::PendingRemoteConfirmation));
   ASSERT_EQ(absl::InvalidArgumentError("channel 10 is already known to Downstream"),
             mgr.bindChannelID(*id, PeerLocalID{
                                      .channel_id = 1,
                                      .local_peer = Peer::Downstream,
-                                   }));
+                                   },
+                              BindMode::PendingRemoteConfirmation));
 }
 
 TEST(ChannelIDManagerTest, BindAndReleaseChannelID) {
@@ -135,25 +178,44 @@ TEST(ChannelIDManagerTest, BindAndReleaseChannelID) {
   ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
                                      .channel_id = 1,
                                      .local_peer = Peer::Downstream,
-                                   }));
+                                   },
+                              BindMode::PendingRemoteConfirmation));
+
   ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
                                      .channel_id = 2,
                                      .local_peer = Peer::Upstream,
-                                   }));
+                                   },
+                              BindMode::Confirmed));
+  wire::ChannelOpenConfirmationMsg confirm{
+    .recipient_channel = *id,
+    .sender_channel = *id,
+  };
+  ASSERT_OK(mgr.processOutgoingChannelMsg(confirm, Peer::Downstream));
+
   EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Downstream));
   EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Upstream));
+
+  ASSERT_TRUE(mgr.isPreemptable(*id, Peer::Upstream));
+  ASSERT_TRUE(mgr.isPreemptable(*id, Peer::Downstream));
 
   mgr.releaseChannelID(*id, Peer::Upstream);
 
   EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Downstream));
   EXPECT_EQ(ChannelIDState::Released, *mgr.peerState(*id, Peer::Upstream));
 
+  ASSERT_FALSE(mgr.isPreemptable(*id, Peer::Upstream));
+  // The downstream should also no longer be preemptable, because the upstream is closing
+  ASSERT_FALSE(mgr.isPreemptable(*id, Peer::Downstream));
+
   mgr.releaseChannelID(*id, Peer::Downstream);
   EXPECT_EQ(std::nullopt, mgr.peerState(*id, Peer::Downstream));
   EXPECT_EQ(std::nullopt, mgr.peerState(*id, Peer::Upstream));
+
+  ASSERT_FALSE(mgr.isPreemptable(*id, Peer::Upstream));
+  ASSERT_FALSE(mgr.isPreemptable(*id, Peer::Downstream));
 }
 
-TEST(ChannelIDManagerTest, ProcessOutgoingChannelMsg) {
+TEST(ChannelIDManagerTest, ProcessOutgoingChannelMsg_Pending) {
   ChannelIDManager mgr(10);
   auto id = mgr.allocateNewChannel(Peer::Downstream);
   ASSERT_OK(id);
@@ -161,11 +223,47 @@ TEST(ChannelIDManagerTest, ProcessOutgoingChannelMsg) {
   ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
                                      .channel_id = 1,
                                      .local_peer = Peer::Downstream,
-                                   }));
+                                   },
+                              BindMode::PendingRemoteConfirmation));
+  // While pending, only ChannelOpenConfirmation or ChannelOpenFailure should be allowed
+  {
+    wire::ChannelDataMsg msg;
+    msg.recipient_channel = *id;
+    ASSERT_EQ(absl::InvalidArgumentError(
+                fmt::format("error processing outgoing message of type ChannelData (94): internal channel 10 is not known to Downstream (state: Pending)")),
+              mgr.processOutgoingChannelMsg(msg, Peer::Downstream).status());
+    EXPECT_EQ(10u, msg.recipient_channel); // unchanged
+  }
+  {
+    wire::ChannelDataMsg msg;
+    msg.recipient_channel = *id;
+    ASSERT_EQ(absl::InvalidArgumentError(
+                fmt::format("error processing outgoing message of type ChannelData (94): internal channel 10 is not known to Upstream (state: Pending)")),
+              mgr.processOutgoingChannelMsg(msg, Peer::Upstream).status());
+    EXPECT_EQ(10u, msg.recipient_channel); // unchanged
+  }
+}
+
+TEST(ChannelIDManagerTest, ProcessOutgoingChannelMsg_Bound) {
+  ChannelIDManager mgr(10);
+  auto id = mgr.allocateNewChannel(Peer::Downstream);
+  ASSERT_OK(id);
+
+  ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
+                                     .channel_id = 1,
+                                     .local_peer = Peer::Downstream,
+                                   },
+                              BindMode::PendingRemoteConfirmation));
   ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
                                      .channel_id = 2,
                                      .local_peer = Peer::Upstream,
-                                   }));
+                                   },
+                              BindMode::Confirmed));
+  wire::ChannelOpenConfirmationMsg confirm{
+    .recipient_channel = *id,
+    .sender_channel = *id,
+  };
+  ASSERT_OK(mgr.processOutgoingChannelMsg(confirm, Peer::Downstream));
 
   {
     wire::ChannelDataMsg msg;
@@ -209,11 +307,18 @@ TEST(ChannelIDManagerTest, ProcessOutgoingChannelMsg_ChannelIDNotBound) {
   ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
                                      .channel_id = 1,
                                      .local_peer = Peer::Downstream,
-                                   }));
+                                   },
+                              BindMode::PendingRemoteConfirmation));
   ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
                                      .channel_id = 2,
                                      .local_peer = Peer::Upstream,
-                                   }));
+                                   },
+                              BindMode::Confirmed));
+  wire::ChannelOpenConfirmationMsg confirm{
+    .recipient_channel = *id,
+    .sender_channel = *id,
+  };
+  ASSERT_OK(mgr.processOutgoingChannelMsg(confirm, Peer::Downstream));
 
   // try processing the messages again
   ASSERT_OK(mgr.processOutgoingChannelMsg(msg, Peer::Downstream));
@@ -236,11 +341,18 @@ TEST(ChannelIDManagerTest, ProcessOutgoingChannelMsg_ChannelIDReleased) {
     ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
                                        .channel_id = 1,
                                        .local_peer = Peer::Downstream,
-                                     }));
+                                     },
+                                BindMode::PendingRemoteConfirmation));
     ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
                                        .channel_id = 2,
                                        .local_peer = Peer::Upstream,
-                                     }));
+                                     },
+                                BindMode::Confirmed));
+    wire::ChannelOpenConfirmationMsg confirm{
+      .recipient_channel = *id,
+      .sender_channel = *id,
+    };
+    ASSERT_OK(mgr.processOutgoingChannelMsg(confirm, Peer::Downstream));
 
     // release one of the bound IDs - this should not release the internal ID yet
     mgr.releaseChannelID(*id, a);
@@ -266,21 +378,151 @@ TEST(ChannelIDManagerTest, ProcessOutgoingChannelMsg_ChannelIDReleased) {
   }
 }
 
+TEST(ChannelIDManagerTest, ProcessOutgoingChannelMsg_ChannelOpenFailure) {
+  ChannelIDManager mgr(10);
+  auto id = mgr.allocateNewChannel(Peer::Downstream);
+  ASSERT_OK(id);
+
+  ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
+                                     .channel_id = 1,
+                                     .local_peer = Peer::Downstream,
+                                   },
+                              BindMode::PendingRemoteConfirmation));
+
+  ASSERT_EQ(ChannelIDState::Pending, mgr.peerState(*id, Peer::Downstream));
+
+  wire::ChannelOpenFailureMsg failure{
+    .recipient_channel = *id,
+  };
+  ASSERT_TRUE(mgr.isPreemptable(*id, Peer::Downstream));
+  ASSERT_OK(mgr.processOutgoingChannelMsg(failure, Peer::Downstream));
+  ASSERT_FALSE(mgr.isPreemptable(*id, Peer::Downstream));
+  ASSERT_EQ(ChannelIDState::Pending, mgr.peerState(*id, Peer::Downstream));
+
+  // Attempting to send another message should return an error.
+  auto trySendingMessages = [&](ChannelIDState expected_state) {
+    wire::ChannelOpenFailureMsg failure{
+      .recipient_channel = *id,
+    };
+    wire::ChannelOpenConfirmationMsg confirm{
+      .recipient_channel = *id,
+      .sender_channel = *id,
+    };
+    wire::ChannelCloseMsg close{
+      .recipient_channel = *id,
+    };
+    wire::ChannelDataMsg data{
+      .recipient_channel = *id,
+    };
+    for (auto msg : std::vector<wire::ChannelMessage>{auto(failure), auto(confirm), auto(close), auto(data)}) {
+      EXPECT_EQ(absl::InvalidArgumentError(
+                  fmt::format("error processing outgoing message of type {}: internal channel {} is not known to Downstream (state: {})", msg.msg_type(), *id, expected_state)),
+                mgr.processOutgoingChannelMsg(msg, Peer::Downstream).status());
+    }
+  };
+  trySendingMessages(ChannelIDState::Pending);
+
+  // After the channel is released when it is destroyed, sending messages to it should also error.
+  mgr.releaseChannelID(*id, Peer::Downstream);
+  ASSERT_EQ(ChannelIDState::Released, mgr.peerState(*id, Peer::Downstream));
+  ASSERT_FALSE(mgr.isPreemptable(*id, Peer::Downstream));
+  trySendingMessages(ChannelIDState::Released);
+}
+
+TEST(ChannelIDManagerTest, ProcessOutgoingChannelMsg_BindPendingChannelAgainAfterFailure) {
+  // Test that a failed Pending channel can't be re-bound again, after its ID is cleared
+  ChannelIDManager mgr(10);
+  auto id = mgr.allocateNewChannel(Peer::Downstream);
+  ASSERT_OK(id);
+
+  ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
+                                     .channel_id = 1,
+                                     .local_peer = Peer::Downstream,
+                                   },
+                              BindMode::PendingRemoteConfirmation));
+
+  ASSERT_EQ(ChannelIDState::Pending, mgr.peerState(*id, Peer::Downstream));
+
+  wire::ChannelOpenFailureMsg failure{
+    .recipient_channel = *id,
+  };
+  ASSERT_OK(mgr.processOutgoingChannelMsg(failure, Peer::Downstream));
+  ASSERT_EQ(ChannelIDState::Pending, mgr.peerState(*id, Peer::Downstream));
+
+  ASSERT_EQ(absl::InvalidArgumentError(fmt::format("channel {} is already known to Downstream", *id)),
+            mgr.bindChannelID(*id, PeerLocalID{
+                                     .channel_id = 1,
+                                     .local_peer = Peer::Downstream,
+                                   },
+                              BindMode::PendingRemoteConfirmation));
+}
+
 TEST(ChannelIDManagerTest, ProcessOutgoingChannelMsg_DropChannelClose) {
+  // Preempting a previously bound channel
   ChannelIDManager mgr(10);
   auto id = mgr.allocateNewChannel(Peer::Downstream);
   ASSERT_OK(id);
   ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
                                      .channel_id = 1,
                                      .local_peer = Peer::Downstream,
-                                   }));
-  mgr.preempt(*id, Peer::Downstream);
+                                   },
+                              BindMode::PendingRemoteConfirmation));
+  ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
+                                     .channel_id = 2,
+                                     .local_peer = Peer::Upstream,
+                                   },
+                              BindMode::Confirmed));
+  wire::ChannelOpenConfirmationMsg confirm{
+    .recipient_channel = *id,
+    .sender_channel = *id,
+  };
+  ASSERT_OK(mgr.processOutgoingChannelMsg(confirm, Peer::Downstream));
+  ASSERT_TRUE(mgr.isPreemptable(*id, Peer::Downstream));
+
+  ASSERT_EQ(ChannelIDState::Bound, mgr.preempt(*id, Peer::Downstream));
+
   wire::ChannelCloseMsg close{
     .recipient_channel = *id,
   };
-  auto send = mgr.processOutgoingChannelMsg(close, Peer::Upstream);
+  auto send = mgr.processOutgoingChannelMsg(close, Peer::Downstream);
   ASSERT_OK(send);
-  ASSERT_FALSE(*send);
+  ASSERT_TRUE(*send);
+  wire::ChannelCloseMsg close2{
+    .recipient_channel = *id,
+  };
+  auto send2 = mgr.processOutgoingChannelMsg(close2, Peer::Downstream);
+  ASSERT_OK(send2);
+  ASSERT_FALSE(*send2);
+}
+
+TEST(ChannelIDManagerTest, ProcessOutgoingChannelMsg_SendChannelOpenFailureAfterPreemptPending) {
+  // Preempting a pending channel should allow sending a ChannelOpenFailure message to it
+  ChannelIDManager mgr(10);
+  auto id = mgr.allocateNewChannel(Peer::Downstream);
+  ASSERT_OK(id);
+  ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
+                                     .channel_id = 1,
+                                     .local_peer = Peer::Downstream,
+                                   },
+                              BindMode::PendingRemoteConfirmation));
+  ASSERT_TRUE(mgr.isPreemptable(*id, Peer::Downstream));
+  ASSERT_EQ(ChannelIDState::Pending, mgr.preempt(*id, Peer::Downstream));
+  wire::ChannelOpenFailureMsg failure{
+    .recipient_channel = *id,
+  };
+  auto send = mgr.processOutgoingChannelMsg(failure, Peer::Downstream);
+  ASSERT_OK(send);
+  ASSERT_TRUE(*send);
+
+  // Attempting to send further messages should drop them.
+  wire::ChannelOpenFailureMsg failure2{
+    .recipient_channel = *id,
+  };
+  ASSERT_EQ(false, *mgr.processOutgoingChannelMsg(failure2, Peer::Downstream));
+  wire::ChannelCloseMsg close{
+    .recipient_channel = *id,
+  };
+  ASSERT_EQ(false, *mgr.processOutgoingChannelMsg(close, Peer::Downstream));
 }
 
 TEST(ChannelIDManagerTest, Drain) {
@@ -291,11 +533,18 @@ TEST(ChannelIDManagerTest, Drain) {
   ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
                                      .channel_id = 1,
                                      .local_peer = Peer::Downstream,
-                                   }));
+                                   },
+                              BindMode::PendingRemoteConfirmation));
   ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
                                      .channel_id = 2,
                                      .local_peer = Peer::Upstream,
-                                   }));
+                                   },
+                              BindMode::Confirmed));
+  wire::ChannelOpenConfirmationMsg confirm{
+    .recipient_channel = *id,
+    .sender_channel = *id,
+  };
+  ASSERT_OK(mgr.processOutgoingChannelMsg(confirm, Peer::Downstream));
 
   NiceMock<Envoy::Event::MockDispatcher> dispatcher;
   Envoy::Common::CallbackHandlePtr cbHandle;
@@ -333,7 +582,7 @@ TEST(ChannelIDManagerTest, Drain_AlreadyDraining) {
                                      .channel_id = 1,
                                      .local_peer = Peer::Downstream,
                                    },
-                              false));
+                              BindMode::PendingInternalConfirmation));
   bool called1{};
   bool called2{};
   auto cbHandle1 = mgr.startDrain(dispatcher, [&] {
@@ -362,7 +611,8 @@ TEST(ChannelIDManagerTest, Drain_PendingState) {
   ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
                                      .channel_id = 1,
                                      .local_peer = Peer::Downstream,
-                                   }));
+                                   },
+                              BindMode::PendingRemoteConfirmation));
   Envoy::Common::CallbackHandlePtr cbHandle;
   bool called{};
   cbHandle = mgr.startDrain(dispatcher, [&] {
@@ -385,14 +635,20 @@ TEST(ChannelIDManagerTest, Preempt) {
   ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
                                      .channel_id = 1,
                                      .local_peer = Peer::Downstream,
-                                   }));
+                                   },
+                              BindMode::PendingRemoteConfirmation));
   ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
                                      .channel_id = 2,
                                      .local_peer = Peer::Upstream,
-                                   }));
-
+                                   },
+                              BindMode::Confirmed));
+  wire::ChannelOpenConfirmationMsg confirm{
+    .recipient_channel = *id,
+    .sender_channel = *id,
+  };
+  ASSERT_OK(mgr.processOutgoingChannelMsg(confirm, Peer::Downstream));
   ASSERT_TRUE(mgr.isPreemptable(*id, Peer::Downstream));
-  mgr.preempt(*id, Peer::Downstream);
+  ASSERT_EQ(ChannelIDState::Bound, mgr.preempt(*id, Peer::Downstream));
   mgr.releaseChannelID(*id, Peer::Downstream);
 
   EXPECT_EQ(ChannelIDState::Bereft, *mgr.peerState(*id, Peer::Downstream));
@@ -428,15 +684,32 @@ TEST(ChannelIDManagerTest, PreemptCloseTracking) {
   ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
                                      .channel_id = 1,
                                      .local_peer = Peer::Downstream,
-                                   }));
+                                   },
+                              BindMode::PendingRemoteConfirmation));
+
+  EXPECT_EQ(ChannelIDState::Pending, *mgr.peerState(*id, Peer::Downstream));
+  EXPECT_EQ(ChannelIDState::Pending, *mgr.peerState(*id, Peer::Upstream));
 
   EXPECT_TRUE(mgr.isPreemptable(*id, Peer::Downstream));
-  EXPECT_FALSE(mgr.isPreemptable(*id, Peer::Upstream));
+  EXPECT_FALSE(mgr.isPreemptable(*id, Peer::Upstream)); // upstream is not preemptable since it has no id
 
   ASSERT_OK(mgr.bindChannelID(*id, PeerLocalID{
                                      .channel_id = 2,
                                      .local_peer = Peer::Upstream,
-                                   }));
+                                   },
+                              BindMode::Confirmed));
+
+  EXPECT_EQ(ChannelIDState::Pending, *mgr.peerState(*id, Peer::Downstream));
+  EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Upstream));
+
+  EXPECT_TRUE(mgr.isPreemptable(*id, Peer::Downstream));
+  EXPECT_TRUE(mgr.isPreemptable(*id, Peer::Upstream)); // Upstream is now preemptible, but still Pending
+
+  wire::ChannelOpenConfirmationMsg confirm{
+    .recipient_channel = *id,
+    .sender_channel = *id,
+  };
+  ASSERT_OK(mgr.processOutgoingChannelMsg(confirm, Peer::Downstream));
 
   EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Downstream));
   EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Upstream));
@@ -444,7 +717,10 @@ TEST(ChannelIDManagerTest, PreemptCloseTracking) {
   EXPECT_TRUE(mgr.isPreemptable(*id, Peer::Downstream));
   EXPECT_TRUE(mgr.isPreemptable(*id, Peer::Upstream));
 
-  mgr.preempt(*id, Peer::Downstream);
+  EXPECT_EQ(ChannelIDState::Bound, mgr.preempt(*id, Peer::Downstream));
+
+  EXPECT_FALSE(mgr.isPreemptable(*id, Peer::Downstream));
+  EXPECT_FALSE(mgr.isPreemptable(*id, Peer::Upstream));
 
   EXPECT_EQ(ChannelIDState::Preempted, *mgr.peerState(*id, Peer::Downstream));
   EXPECT_EQ(ChannelIDState::Bound, *mgr.peerState(*id, Peer::Upstream));
