@@ -90,9 +90,14 @@ constexpr auto format_as(const InternalChannelInfo& info) {
   for (auto peer : {Peer::Upstream, Peer::Downstream}) {
     args.push_back(info.owner == peer ? "*" : "");
     args.push_back(info.peer_states[peer]);
-    if (info.peer_states[peer] != ChannelIDState::Unbound) {
+    if (info.peer_ids[peer].has_value()) {
+      const auto id = info.peer_ids[peer].value();
       args.push_back(":");
-      args.push_back(info.peer_ids[peer]);
+      if (id == channel_id_error) {
+        args.push_back("<err>");
+      } else {
+        args.push_back(id);
+      }
     } else {
       args.push_back("");
       args.push_back("");

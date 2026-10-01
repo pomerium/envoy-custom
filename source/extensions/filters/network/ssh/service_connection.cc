@@ -101,11 +101,13 @@ absl::Status ConnectionService::startChannel(std::unique_ptr<Channel> channel, S
       // doing so, we may need to release the remote peer's channel ID. If the channel expected
       // to send a ChannelOpen message to the remote peer, but did not get a chance to, the remote
       // peer's channel ID state would be stuck in Pending indefinitely.
-      if (channelIdManager.peerState(*channelId, remote_peer_) == ChannelIDState::Pending &&
-          !channelCallbacks->didForwardChannelOpen()) {
-        channelIdManager.releaseChannelID(*channelId, remote_peer_);
-      }
-      if (channelIdManager.peerState(*channelId, local_peer_) == ChannelIDState::Pending) {
+
+      // Check if we need to send a ChannelOpenFailure locally. This relies on isPreemptable which
+      // would be affected by releasing the remote peer's ID, so do this first. isPreemptable is
+      // used because it indicates if sending a ChannelOpenFailure would be valid in the current
+      // state, as that is what happens when preempting a pending channel.
+      if (channelIdManager.peerState(*channelId, local_peer_) == ChannelIDState::Pending &&
+          channelIdManager.isPreemptable(*channelId, local_peer_)) {
         // If opening the channel failed, and the channel wasn't preempted (which would have sent
         // a ChannelOpenFailure message already), send the ChannelOpenFailure. This will not
         // destroy the channel as it was never added to this->channels_ (see comments in
@@ -113,12 +115,18 @@ absl::Status ConnectionService::startChannel(std::unique_ptr<Channel> channel, S
         // Note that returning an error from startChannel does not necessarily result in a
         // disconnect (although it is likely), but it doesn't hurt to send this even if it is
         // immediately followed by a Disconnect message.
-        ENVOY_LOG(debug, "failed to open channel {}: {}", *channelId, stat);
         channelCallbacks->sendMessageLocal(wire::ChannelOpenFailureMsg{
           .recipient_channel = *channelId,
         });
       }
+
+      if (channelIdManager.peerState(*channelId, remote_peer_) == ChannelIDState::Pending &&
+          !channelCallbacks->didForwardChannelOpen()) {
+        channelIdManager.releaseChannelID(*channelId, remote_peer_);
+      }
+
       if (!stat.ok()) {
+        ENVOY_LOG(debug, "failed to open channel {}: {}", *channelId, stat);
         return statusf("error opening channel: {}", stat);
       }
       return absl::OkStatus();

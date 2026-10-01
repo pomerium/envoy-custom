@@ -232,16 +232,20 @@ TEST_F(ChannelFilterManagerIntegrationTest, TestChannelFilterManagerPerConnectio
   Tasks::Channel driver2Channel1;
   Tasks::Channel driver2Channel2;
 
+  // hard-coding these but if the configuration ever changes the asserts should fail
+  uint32_t channel1InternalId = 100;
+  uint32_t channel2InternalId = 101;
+
   {
     IN_SEQUENCE;
 
     EXPECT_CALL(*on_channel_filter_created, Call(0, 0, "driver1", Read));
     EXPECT_CALL(*on_message_forward, Call(0, 0, "driver1", Read, MSG(wire::ChannelOpenMsg, _)));
     EXPECT_CALL(*on_channel_filter_created, Call(0, 0, "driver1", Write));
-    EXPECT_CALL(*on_message_forward, Call(0, 0, "driver1", Write, MSG(wire::ChannelOpenConfirmationMsg, FIELD_EQ(recipient_channel, 1u))));
+    EXPECT_CALL(*on_message_forward, Call(0, 0, "driver1", Write, MSG(wire::ChannelOpenConfirmationMsg, FIELD_EQ(recipient_channel, channel1InternalId))));
     EXPECT_CALL(*on_message_forward, Call(0, 0, "driver1", Read, MSG(wire::ChannelDataMsg, FIELD_EQ(data, "driver 1 channel 1"_bytes))));
     EXPECT_CALL(*on_message_forward, Call(0, 0, "driver1", Write, MSG(wire::ChannelDataMsg, FIELD_EQ(data, "driver 1 channel 1"_bytes))));
-    ASSERT_TRUE(driver1_->wait(
+    EXPECT_TRUE(driver1_->wait(
       driver1_->createTask<Tasks::OpenSessionChannel>(1)
         .saveOutput(&driver1Channel1)
         .then(driver1_->createTask<Tasks::SendChannelData>("driver 1 channel 1")
@@ -251,15 +255,19 @@ TEST_F(ChannelFilterManagerIntegrationTest, TestChannelFilterManagerPerConnectio
     EXPECT_CALL(*on_channel_filter_created, Call(0, 1, "driver1", Read));
     EXPECT_CALL(*on_message_forward, Call(0, 1, "driver1", Read, MSG(wire::ChannelOpenMsg, _)));
     EXPECT_CALL(*on_channel_filter_created, Call(0, 1, "driver1", Write));
-    EXPECT_CALL(*on_message_forward, Call(0, 1, "driver1", Write, MSG(wire::ChannelOpenConfirmationMsg, FIELD_EQ(recipient_channel, 2u))));
+    EXPECT_CALL(*on_message_forward, Call(0, 1, "driver1", Write, MSG(wire::ChannelOpenConfirmationMsg, FIELD_EQ(recipient_channel, channel2InternalId))));
     EXPECT_CALL(*on_message_forward, Call(0, 1, "driver1", Read, MSG(wire::ChannelDataMsg, FIELD_EQ(data, "driver 1 channel 2"_bytes))));
     EXPECT_CALL(*on_message_forward, Call(0, 1, "driver1", Write, MSG(wire::ChannelDataMsg, FIELD_EQ(data, "driver 1 channel 2"_bytes))));
-    ASSERT_TRUE(driver1_->wait(
+    EXPECT_TRUE(driver1_->wait(
       driver1_->createTask<Tasks::OpenSessionChannel>(2)
         .saveOutput(&driver1Channel2)
         .then(driver1_->createTask<Tasks::SendChannelData>("driver 1 channel 2")
                 .then(driver1_->createTask<Tasks::WaitForChannelData>("driver 1 channel 2")))
         .start()));
+
+    // sanity check
+    ASSERT_EQ(driver1Channel1.remote_id, channel1InternalId);
+    ASSERT_EQ(driver1Channel2.remote_id, channel2InternalId);
   }
 
   {
@@ -268,10 +276,10 @@ TEST_F(ChannelFilterManagerIntegrationTest, TestChannelFilterManagerPerConnectio
     EXPECT_CALL(on_channel_filter_created_fn_, Call(1, 0, "driver2", Read));
     EXPECT_CALL(on_message_forward_fn_, Call(1, 0, "driver2", Read, MSG(wire::ChannelOpenMsg, _)));
     EXPECT_CALL(on_channel_filter_created_fn_, Call(1, 0, "driver2", Write));
-    EXPECT_CALL(on_message_forward_fn_, Call(1, 0, "driver2", Write, MSG(wire::ChannelOpenConfirmationMsg, FIELD_EQ(recipient_channel, 1u))));
+    EXPECT_CALL(on_message_forward_fn_, Call(1, 0, "driver2", Write, MSG(wire::ChannelOpenConfirmationMsg, FIELD_EQ(recipient_channel, channel1InternalId))));
     EXPECT_CALL(on_message_forward_fn_, Call(1, 0, "driver2", Read, MSG(wire::ChannelDataMsg, FIELD_EQ(data, "driver 2 channel 1"_bytes))));
     EXPECT_CALL(on_message_forward_fn_, Call(1, 0, "driver2", Write, MSG(wire::ChannelDataMsg, FIELD_EQ(data, "driver 2 channel 1"_bytes))));
-    ASSERT_TRUE(driver2_->wait(
+    EXPECT_TRUE(driver2_->wait(
       driver2_->createTask<Tasks::OpenSessionChannel>(1)
         .saveOutput(&driver2Channel1)
         .then(driver2_->createTask<Tasks::SendChannelData>("driver 2 channel 1")
@@ -281,15 +289,19 @@ TEST_F(ChannelFilterManagerIntegrationTest, TestChannelFilterManagerPerConnectio
     EXPECT_CALL(on_channel_filter_created_fn_, Call(1, 1, "driver2", Read));
     EXPECT_CALL(on_message_forward_fn_, Call(1, 1, "driver2", Read, MSG(wire::ChannelOpenMsg, _)));
     EXPECT_CALL(on_channel_filter_created_fn_, Call(1, 1, "driver2", Write));
-    EXPECT_CALL(on_message_forward_fn_, Call(1, 1, "driver2", Write, MSG(wire::ChannelOpenConfirmationMsg, FIELD_EQ(recipient_channel, 2u))));
+    EXPECT_CALL(on_message_forward_fn_, Call(1, 1, "driver2", Write, MSG(wire::ChannelOpenConfirmationMsg, FIELD_EQ(recipient_channel, channel2InternalId))));
     EXPECT_CALL(on_message_forward_fn_, Call(1, 1, "driver2", Read, MSG(wire::ChannelDataMsg, FIELD_EQ(data, "driver 2 channel 2"_bytes))));
     EXPECT_CALL(on_message_forward_fn_, Call(1, 1, "driver2", Write, MSG(wire::ChannelDataMsg, FIELD_EQ(data, "driver 2 channel 2"_bytes))));
-    ASSERT_TRUE(driver2_->wait(
+    EXPECT_TRUE(driver2_->wait(
       driver2_->createTask<Tasks::OpenSessionChannel>(2)
         .saveOutput(&driver2Channel2)
         .then(driver2_->createTask<Tasks::SendChannelData>("driver 2 channel 2")
                 .then(driver2_->createTask<Tasks::WaitForChannelData>("driver 2 channel 2")))
         .start()));
+
+    // sanity check
+    ASSERT_EQ(driver2Channel1.remote_id, channel1InternalId);
+    ASSERT_EQ(driver2Channel2.remote_id, channel2InternalId);
   }
 
   // Close the channels
@@ -298,13 +310,13 @@ TEST_F(ChannelFilterManagerIntegrationTest, TestChannelFilterManagerPerConnectio
     IN_SEQUENCE;
 
     EXPECT_CALL(on_message_forward_fn_, Call(0, 0, "driver1", Read, MSG(wire::ChannelCloseMsg, FIELD_EQ(recipient_channel, driver1Channel1.remote_id))));
-    EXPECT_CALL(on_message_forward_fn_, Call(0, 0, "driver1", Write, MSG(wire::ChannelCloseMsg, FIELD_EQ(recipient_channel, driver1Channel1.local_id))));
+    EXPECT_CALL(on_message_forward_fn_, Call(0, 0, "driver1", Write, MSG(wire::ChannelCloseMsg, FIELD_EQ(recipient_channel, driver1Channel1.remote_id))));
     ASSERT_TRUE(driver1_->wait(
       driver1_->createTask<Tasks::SendChannelCloseAndWait>()
         .start(driver1Channel1)));
 
     EXPECT_CALL(on_message_forward_fn_, Call(0, 1, "driver1", Read, MSG(wire::ChannelCloseMsg, FIELD_EQ(recipient_channel, driver1Channel2.remote_id))));
-    EXPECT_CALL(on_message_forward_fn_, Call(0, 1, "driver1", Write, MSG(wire::ChannelCloseMsg, FIELD_EQ(recipient_channel, driver1Channel2.local_id))));
+    EXPECT_CALL(on_message_forward_fn_, Call(0, 1, "driver1", Write, MSG(wire::ChannelCloseMsg, FIELD_EQ(recipient_channel, driver1Channel2.remote_id))));
     ASSERT_TRUE(driver1_->wait(
       driver1_->createTask<Tasks::SendChannelCloseAndWait>()
         .start(driver1Channel2)));
@@ -314,13 +326,13 @@ TEST_F(ChannelFilterManagerIntegrationTest, TestChannelFilterManagerPerConnectio
     IN_SEQUENCE;
 
     EXPECT_CALL(on_message_forward_fn_, Call(1, 0, "driver2", Read, MSG(wire::ChannelCloseMsg, FIELD_EQ(recipient_channel, driver2Channel1.remote_id))));
-    EXPECT_CALL(on_message_forward_fn_, Call(1, 0, "driver2", Write, MSG(wire::ChannelCloseMsg, FIELD_EQ(recipient_channel, driver2Channel1.local_id))));
+    EXPECT_CALL(on_message_forward_fn_, Call(1, 0, "driver2", Write, MSG(wire::ChannelCloseMsg, FIELD_EQ(recipient_channel, driver2Channel1.remote_id))));
     ASSERT_TRUE(driver2_->wait(
       driver2_->createTask<Tasks::SendChannelCloseAndWait>()
         .start(driver2Channel1)));
 
     EXPECT_CALL(on_message_forward_fn_, Call(1, 1, "driver2", Read, MSG(wire::ChannelCloseMsg, FIELD_EQ(recipient_channel, driver2Channel2.remote_id))));
-    EXPECT_CALL(on_message_forward_fn_, Call(1, 1, "driver2", Write, MSG(wire::ChannelCloseMsg, FIELD_EQ(recipient_channel, driver2Channel2.local_id))));
+    EXPECT_CALL(on_message_forward_fn_, Call(1, 1, "driver2", Write, MSG(wire::ChannelCloseMsg, FIELD_EQ(recipient_channel, driver2Channel2.remote_id))));
     ASSERT_TRUE(driver2_->wait(
       driver2_->createTask<Tasks::SendChannelCloseAndWait>()
         .start(driver2Channel2)));
