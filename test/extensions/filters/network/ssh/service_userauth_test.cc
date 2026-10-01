@@ -642,7 +642,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerInfoRequest) {
   prompt1->set_prompt("username");
   auto prompt2 = prompts.add_prompts();
   prompt2->set_prompt("password");
-  req->mutable_request()->PackFrom(prompts);
+  ASSERT_TRUE(req->mutable_request()->PackFrom(prompts));
 
   auto matcher = MSG(wire::UserAuthInfoRequestMsg,
                      AllOf(FIELD_EQ(name, "prompts-name"),
@@ -678,6 +678,15 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerUnsupportedMessage) {
   auto msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
   auto r = service_->handleMessage(std::move(msg));
   ASSERT_EQ(absl::InternalError("server sent invalid message case"), r);
+}
+
+TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerBadInfoRequest) {
+  auto server_msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
+  auto* req = server_msg->mutable_auth_response()->mutable_info_request();
+  req->set_method("keyboard-interactive");
+  req->mutable_request()->set_type_url("foobar");
+  auto r = service_->handleMessage(std::move(server_msg));
+  ASSERT_EQ(absl::InternalError("couldn't deserialize KeyboardInteractiveInfoPrompts"), r);
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleInconsistentServiceNames) {

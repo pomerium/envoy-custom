@@ -119,18 +119,18 @@ public:
         ASSERT(filter->name() == "generic_proxy"); // sanity check
 
         envoy::extensions::filters::network::generic_proxy::v3::GenericProxy genericProxyConfig;
-        filter->typed_config().UnpackTo(&genericProxyConfig);
+        ASSERT_TRUE(filter->typed_config().UnpackTo(&genericProxyConfig));
 
         pomerium::extensions::ssh::CodecConfig sshCodecConfig;
-        genericProxyConfig.codec_config().typed_config().UnpackTo(&sshCodecConfig);
+        ASSERT_TRUE(genericProxyConfig.codec_config().typed_config().UnpackTo(&sshCodecConfig));
 
         auto* factoryConfig = sshCodecConfig.add_enabled_channel_filter_factories();
         factoryConfig->set_name("test_filter");
-        factoryConfig->mutable_typed_config()->PackFrom(Protobuf::Int32Value{});
+        ASSERT_TRUE(factoryConfig->mutable_typed_config()->PackFrom(Protobuf::Int32Value{}));
 
-        genericProxyConfig.mutable_codec_config()->mutable_typed_config()->PackFrom(sshCodecConfig);
+        ASSERT_TRUE(genericProxyConfig.mutable_codec_config()->mutable_typed_config()->PackFrom(sshCodecConfig));
 
-        filter->mutable_typed_config()->PackFrom(genericProxyConfig);
+        ASSERT_TRUE(filter->mutable_typed_config()->PackFrom(genericProxyConfig));
         break;
       }
     });
@@ -216,7 +216,7 @@ TEST_F(ChannelFilterManagerIntegrationTest, TestChannelFilterManagerPerConnectio
     filterConfig->set_name("test_filter");
     Protobuf::StringValue cfg;
     cfg.set_value("driver1");
-    filterConfig->mutable_typed_config()->PackFrom(cfg);
+    ASSERT_TRUE(filterConfig->mutable_typed_config()->PackFrom(cfg));
   }));
   ASSERT_TRUE(driver2_->waitForUserAuth("user", "upstream1", [](pomerium::extensions::ssh::AllowResponse& allow) {
     ASSERT_TRUE(allow.has_upstream()); // sanity check
@@ -224,7 +224,7 @@ TEST_F(ChannelFilterManagerIntegrationTest, TestChannelFilterManagerPerConnectio
     filterConfig->set_name("test_filter");
     Protobuf::StringValue cfg;
     cfg.set_value("driver2");
-    filterConfig->mutable_typed_config()->PackFrom(cfg);
+    ASSERT_TRUE(filterConfig->mutable_typed_config()->PackFrom(cfg));
   }));
 
   Tasks::Channel driver1Channel1;
