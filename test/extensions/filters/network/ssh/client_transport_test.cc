@@ -222,22 +222,35 @@ public:
   absl::StatusOr<uint32_t> StartTransportHandoff() {
     GenericProxy::MockEncodingContext ctx;
     auto authInfo = BuildHandoffAuthInfo();
+    auto internalId = authInfo->handoff_info.channel_info->internal_upstream_channel_id();
+    // The downstream would have a one-sided Bound internal channel at the time of handoff
+    RETURN_IF_NOT_OK(channel_id_manager_->bindChannelID(
+      internalId,
+      PeerLocalID{
+        .channel_id = authInfo->handoff_info.channel_info->downstream_channel_id(),
+        .local_peer = Peer::Downstream,
+      },
+      BindMode::Confirmed));
+
     SetDownstreamAuthInfo(authInfo);
     SSHRequestHeaderFrame reqHeaderFrame("example", 0);
     EXPECT_OK(transport_.encode(reqHeaderFrame, ctx).status());
     RETURN_IF_NOT_OK(DoKeyExchange());
-    return authInfo->handoff_info.channel_info->internal_upstream_channel_id();
+    return internalId;
   }
 
   absl::StatusOr<uint32_t> StartTransportDirectTcpip() {
     GenericProxy::MockEncodingContext ctx;
     auto authInfo = BuildHandoffAuthInfo();
+    // The downstream would have a one-sided Bound internal channel at the time of handoff
     RETURN_IF_NOT_OK(channel_id_manager_->bindChannelID(
       authInfo->handoff_info.channel_info->internal_upstream_channel_id(),
       PeerLocalID{
         .channel_id = 1,
         .local_peer = Peer::Downstream,
-      }));
+      },
+      BindMode::Confirmed));
+
     authInfo->handoff_info.channel_info->set_channel_type("direct-tcpip");
     authInfo->allow_response->mutable_upstream()->set_direct_tcpip(true);
     SetDownstreamAuthInfo(authInfo);
@@ -563,7 +576,8 @@ TEST_F(ClientTransportTest, OpenChannelFromDownstream) {
     ASSERT_OK(channel_id_manager_->bindChannelID(internal_id, PeerLocalID{
                                                                 .channel_id = downstream_id,
                                                                 .local_peer = Peer::Downstream,
-                                                              }));
+                                                              },
+                                                 BindMode::PendingRemoteConfirmation));
     wire::ChannelOpenMsg from_downstream;
     from_downstream.request = wire::SessionChannelOpenMsg{};
     from_downstream.sender_channel = internal_id;
@@ -732,13 +746,6 @@ TEST_F(ClientTransportTest, Handoff) {
   {
     wire::ChannelOpenMsg req;
     ASSERT_OK(ReadMsg(req));
-    // simulate the downstream OpenHijackedChannelMiddleware binding the downstream channel ID
-    ASSERT_OK(transport_.channelIdManager().bindChannelID(
-      *internalId,
-      PeerLocalID{
-        .channel_id = 1,
-        .local_peer = Peer::Downstream,
-      }));
 
     ASSERT_EQ("session", req.channel_type());
     ASSERT_EQ(*internalId, *req.sender_channel);

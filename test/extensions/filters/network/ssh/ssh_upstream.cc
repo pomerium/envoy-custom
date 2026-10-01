@@ -1,4 +1,6 @@
 #include "test/extensions/filters/network/ssh/ssh_upstream.h"
+#include "envoy/common/exception.h"
+#include "source/extensions/filters/network/ssh/id_manager.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -50,10 +52,20 @@ absl::Status SshFakeUpstreamHandler::FakeUpstreamConnectionService::handleMessag
         PANIC("test bug: on_channel_open_request callback unset but required");
       }
 
+      auto internalId = *transport_.channelIdManager()
+                           .allocateNewChannel(Peer::Downstream);
+      auto ok = transport_.channelIdManager()
+                  .bindChannelID(internalId, PeerLocalID{
+                                               .channel_id = msg.sender_channel,
+                                               .local_peer = Peer::Downstream,
+                                             },
+                                 BindMode::PendingInternalConfirmation);
+      THROW_IF_NOT_OK(ok);
       auto ch = std::make_unique<FakeUpstreamChannel>(parent_.opts_->on_channel_open_request(msg));
       RETURN_IF_NOT_OK(startChannel(std::move(ch), {
+                                                     .allocated_channel_id = internalId,
                                                      .channel_open = msg,
-                                                     .bind_expect_remote = false,
+                                                     .skip_auto_bind = true,
                                                    }));
       return absl::OkStatus();
     },
@@ -62,14 +74,14 @@ absl::Status SshFakeUpstreamHandler::FakeUpstreamConnectionService::handleMessag
       auto stat = transport_.channelIdManager().bindChannelID(id,
                                                               PeerLocalID{
                                                                 .channel_id = msg.sender_channel,
-                                                                .local_peer = local_peer_,
+                                                                .local_peer = Peer::Downstream,
                                                               },
-                                                              false);
+                                                              BindMode::Confirmed);
       if (!parent_.opts_->on_channel_accepted) {
         PANIC("test bug: on_channel_accepted callback unset but required");
       }
       auto ch = std::make_unique<FakeUpstreamChannel>(parent_.opts_->on_channel_accepted(msg));
-      RETURN_IF_NOT_OK(startChannel(std::move(ch), {.allocated_channel_id = id}));
+      RETURN_IF_NOT_OK(startChannel(std::move(ch), {.allocated_channel_id = id, .skip_auto_bind = true}));
       msg.sender_channel = msg.recipient_channel;
       return channels_[id]->readMessage(std::move(msg));
     },
@@ -79,7 +91,7 @@ absl::Status SshFakeUpstreamHandler::FakeUpstreamConnectionService::handleMessag
         PANIC("test bug: on_channel_rejected callback unset but required");
       }
       auto ch = std::make_unique<FakeUpstreamChannel>(parent_.opts_->on_channel_rejected(msg));
-      RETURN_IF_NOT_OK(startChannel(std::move(ch), {.allocated_channel_id = id}));
+      RETURN_IF_NOT_OK(startChannel(std::move(ch), {.allocated_channel_id = id, .skip_auto_bind = true}));
       return channels_[id]->readMessage(std::move(msg));
     },
     [&](auto&& msg) {

@@ -335,13 +335,16 @@ public:
       .WillOnce([this](wire::ChannelOpenMsg&& msg) {
         EXPECT_EQ(1u, *msg.sender_channel);
         EXPECT_EQ("session", msg.channel_type());
-        return channel_callbacks_->sendMessageRemote(std::move(msg));
+        auto stat = channel_callbacks_->sendMessageRemote(std::move(msg));
+        return stat;
       });
     EXPECT_CALL(*filter_, onMessageForward(MSG(wire::ChannelOpenMsg,
-                                               FIELD_EQ(sender_channel, channel_id_),
+                                               FIELD_EQ(sender_channel, 1u),
                                                FIELD(request, SUB_MSG(wire::SessionChannelOpenMsg, _)))))
       .WillOnce(InvokeWithoutArgs([this] {
-        EXPECT_EQ("session", channel_callbacks_->channelType());
+        // When handling the ChannelOpen message, ChannelCallbacks::channelType will not return a
+        // value yet. It is only set after the channel filter callbacks run.
+        EXPECT_EQ(std::nullopt, channel_callbacks_->channelType());
         return absl::OkStatus();
       }));
     EXPECT_CALL(*transport_, forward(MSG(wire::ChannelOpenMsg,
@@ -355,10 +358,11 @@ public:
                                            FIELD_EQ(recipient_channel, channel_id_),
                                            FIELD(data, "hello world"_bytes))))
       .WillOnce([this](wire::Message&& msg) {
+        EXPECT_EQ("session", channel_callbacks_->channelType());
         return channel_callbacks_->sendMessageRemote(std::move(msg));
       });
     EXPECT_CALL(*filter_, onMessageForward(MSG(wire::ChannelDataMsg,
-                                               FIELD_EQ(recipient_channel, 2u),
+                                               FIELD_EQ(recipient_channel, channel_id_),
                                                FIELD(data, "hello world"_bytes))))
       .WillOnce(Return(absl::OkStatus()));
     EXPECT_CALL(*transport_, forward(MSG(wire::ChannelDataMsg,
@@ -378,7 +382,7 @@ public:
         return channel_callbacks_->sendMessageRemote(std::move(msg));
       });
     EXPECT_CALL(*filter_, onMessageForward(MSG(wire::ChannelCloseMsg,
-                                               FIELD_EQ(recipient_channel, 2u))))
+                                               FIELD_EQ(recipient_channel, channel_id_))))
       .WillOnce(Return(absl::OkStatus()));
     EXPECT_CALL(*transport_, forward(MSG(wire::ChannelCloseMsg,
                                          FIELD_EQ(recipient_channel, 2u)),
@@ -395,10 +399,19 @@ public:
                                          .request = wire::SessionChannelOpenMsg{},
                                        },
                                      }));
+  }
+
+  void SimulateRemoteChannelConfirmation() {
     ASSERT_OK(channel_id_manager_.bindChannelID(channel_id_, PeerLocalID{
                                                                .channel_id = 2,
                                                                .local_peer = Upstream,
-                                                             }));
+                                                             },
+                                                BindMode::Confirmed));
+    wire::ChannelOpenConfirmationMsg confirm{
+      .recipient_channel = channel_id_,
+      .sender_channel = 2,
+    };
+    ASSERT_OK(channel_id_manager_.processOutgoingChannelMsg(confirm, Downstream));
   }
 
   void ReceiveChannelData() {
@@ -435,6 +448,7 @@ TEST_F(ChannelReadFiltersTest, TestChannelReadFilters) {
   ExpectInterrupt();
 
   ReceiveChannelOpen();
+  SimulateRemoteChannelConfirmation();
   ReceiveChannelData();
   Interrupt();
   ReceiveChannelClose();
@@ -449,6 +463,7 @@ TEST_F(ChannelReadFiltersTest, TestChannelReadFilters_InterruptTwice) {
   ExpectInterrupt();
 
   ReceiveChannelOpen();
+  SimulateRemoteChannelConfirmation();
   ReceiveChannelData();
   Interrupt();
 
@@ -470,6 +485,7 @@ TEST_F(ChannelReadFiltersTest, TestChannelReadFilters_ConnectionReadDisable) {
   }
 
   ReceiveChannelOpen();
+  SimulateRemoteChannelConfirmation();
 
   testing::MockFunction<void()> checkpoint;
   {
@@ -516,10 +532,9 @@ TEST_F(ChannelReadFiltersTest, TestChannelReadFilters_ErrorOnChannelOpen) {
       return channel_callbacks_->sendMessageRemote(std::move(msg));
     });
   EXPECT_CALL(*filter_, onMessageForward(MSG(wire::ChannelOpenMsg,
-                                             FIELD_EQ(sender_channel, channel_id_),
+                                             FIELD_EQ(sender_channel, 1u),
                                              FIELD(request, SUB_MSG(wire::SessionChannelOpenMsg, _)))))
-    .WillOnce(InvokeWithoutArgs([this] {
-      EXPECT_EQ("session", channel_callbacks_->channelType());
+    .WillOnce(InvokeWithoutArgs([] {
       return absl::InternalError("test error");
     }));
   EXPECT_CALL(*transport_, sendMessageToConnection(MSG(wire::ChannelOpenFailureMsg,
@@ -551,13 +566,15 @@ TEST_F(ChannelReadFiltersTest, TestChannelReadFilters_ErrorOnMessageForward) {
       return channel_callbacks_->sendMessageRemote(std::move(msg));
     });
   EXPECT_CALL(*filter_, onMessageForward(MSG(wire::ChannelDataMsg,
-                                             FIELD_EQ(recipient_channel, 2u),
+                                             FIELD_EQ(recipient_channel, channel_id_),
                                              FIELD(data, "hello world"_bytes))))
     .WillOnce(Return(absl::InternalError("test error")));
 
   EXPECT_CALL(*channel_, Die);
 
   ReceiveChannelOpen();
+  SimulateRemoteChannelConfirmation();
+
   auto stat = service_->handleMessage(wire::ChannelDataMsg{
     .recipient_channel = channel_id_,
     .data = "hello world"_bytes,
@@ -569,15 +586,16 @@ TEST_F(ChannelReadFiltersTest, TestChannelReadFilters_ErrorOnMessageForward) {
 class ChannelWriteFiltersTest : public ChannelFiltersTest<UpstreamConnectionServiceTest> {
 public:
   void ExpectForwardChannelOpenConfirmation() {
+    // Note: ChannelOpenConfirmation always remaps the sender_channel, this is a special case
     EXPECT_CALL(*channel_, readMessage(MSG(wire::ChannelOpenConfirmationMsg,
-                                           FIELD_EQ(recipient_channel, channel_id_),
-                                           FIELD_EQ(sender_channel, channel_id_))))
+                                           FIELD_EQ(sender_channel, channel_id_),
+                                           FIELD_EQ(recipient_channel, channel_id_))))
       .WillOnce([this](wire::Message&& msg) {
         return channel_callbacks_->sendMessageRemote(std::move(msg));
       });
     EXPECT_CALL(*filter_, onMessageForward(MSG(wire::ChannelOpenConfirmationMsg,
                                                FIELD_EQ(sender_channel, channel_id_),
-                                               FIELD_EQ(recipient_channel, 1u))))
+                                               FIELD_EQ(recipient_channel, channel_id_))))
       .WillOnce(InvokeWithoutArgs([this] {
         // the write filter won't have the channel type
         EXPECT_EQ(std::nullopt, channel_callbacks_->channelType());
@@ -597,7 +615,7 @@ public:
         return channel_callbacks_->sendMessageRemote(std::move(msg));
       });
     EXPECT_CALL(*filter_, onMessageForward(MSG(wire::ChannelDataMsg,
-                                               FIELD_EQ(recipient_channel, 1u),
+                                               FIELD_EQ(recipient_channel, channel_id_),
                                                FIELD(data, "hello world"_bytes))))
       .WillOnce(Return(absl::OkStatus()));
     EXPECT_CALL(*transport_, forward(MSG(wire::ChannelDataMsg,
@@ -617,7 +635,7 @@ public:
         return channel_callbacks_->sendMessageRemote(std::move(msg));
       });
     EXPECT_CALL(*filter_, onMessageForward(MSG(wire::ChannelCloseMsg,
-                                               FIELD_EQ(recipient_channel, 1u))))
+                                               FIELD_EQ(recipient_channel, channel_id_))))
       .WillOnce(Return(absl::OkStatus()));
     EXPECT_CALL(*transport_, forward(MSG(wire::ChannelCloseMsg,
                                          FIELD_EQ(recipient_channel, 1u)),
@@ -630,7 +648,8 @@ public:
     ASSERT_OK(channel_id_manager_.bindChannelID(channel_id_, PeerLocalID{
                                                                .channel_id = 1,
                                                                .local_peer = Downstream,
-                                                             }));
+                                                             },
+                                                BindMode::PendingRemoteConfirmation));
     ASSERT_OK(service_->startChannel(std::move(channel_), {.allocated_channel_id = channel_id_}));
   }
 
@@ -735,7 +754,8 @@ TEST_F(ChannelWriteFiltersTest, TestChannelWriteFilters_ErrorCreatingWriteFilter
   ASSERT_OK(channel_id_manager_.bindChannelID(channel_id_, PeerLocalID{
                                                              .channel_id = 1,
                                                              .local_peer = Downstream,
-                                                           }));
+                                                           },
+                                              BindMode::PendingRemoteConfirmation));
   auto stat = service_->startChannel(std::move(channel_), {.allocated_channel_id = channel_id_});
 
   EXPECT_EQ(absl::InternalError("createWriteFilter error"), stat);
@@ -747,14 +767,14 @@ TEST_F(ChannelWriteFiltersTest, TestChannelWriteFilters_ErrorOnChannelOpenConfir
   SetupChannelFilterManager();
 
   EXPECT_CALL(*channel_, readMessage(MSG(wire::ChannelOpenConfirmationMsg,
-                                         FIELD_EQ(recipient_channel, channel_id_),
-                                         FIELD_EQ(sender_channel, channel_id_))))
+                                         FIELD_EQ(sender_channel, channel_id_),
+                                         FIELD_EQ(recipient_channel, channel_id_))))
     .WillOnce([this](wire::Message&& msg) {
       return channel_callbacks_->sendMessageRemote(std::move(msg));
     });
   EXPECT_CALL(*filter_, onMessageForward(MSG(wire::ChannelOpenConfirmationMsg,
                                              FIELD_EQ(sender_channel, channel_id_),
-                                             FIELD_EQ(recipient_channel, 1u))))
+                                             FIELD_EQ(recipient_channel, channel_id_))))
     .WillOnce(InvokeWithoutArgs([this] {
       // the write filter won't have the channel type
       EXPECT_EQ(std::nullopt, channel_callbacks_->channelType());
@@ -783,7 +803,7 @@ TEST_F(ChannelWriteFiltersTest, TestChannelWriteFilters_ErrorOnMessageForward) {
       return channel_callbacks_->sendMessageRemote(std::move(msg));
     });
   EXPECT_CALL(*filter_, onMessageForward(MSG(wire::ChannelDataMsg,
-                                             FIELD_EQ(recipient_channel, 1u),
+                                             FIELD_EQ(recipient_channel, channel_id_),
                                              FIELD(data, "hello world"_bytes))))
     .WillOnce(Return(absl::InternalError("test error")));
 
