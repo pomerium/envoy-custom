@@ -27,7 +27,7 @@ load("@hedron_compile_commands//:workspace_setup_transitive_transitive_transitiv
 
 hedron_compile_commands_setup_transitive_transitive_transitive()
 
-envoy_version = "f387231af8dd7274e37c5ae2cc797cb09a948818"
+envoy_version = "4be7862a2a6d9a7867f576385d545bb0b47b9181"  # v1.38.5
 
 openssh_version = "V_10_3_P1"
 
@@ -68,7 +68,7 @@ http_archive(
         "//patches/envoy:fix-allow-dev-shm.patch",  # exists in upstream main but not in 1.38.x
         "//patches/envoy:fix-lua-wrappers-test.patch",  # https://github.com/envoyproxy/envoy/pull/45665
     ],
-    sha256 = "af833ff8f9799499b44dee4276dad5fd5785638e73cb17ed38718565e49c7a5a",
+    sha256 = "1b1c95003a057560451c545de8fb281040fd0b0a38387f0a461f1b018df715d2",
     strip_prefix = "envoy-" + envoy_version,
     url = "https://github.com/envoyproxy/envoy/archive/" + envoy_version + ".tar.gz",
 )
@@ -102,8 +102,8 @@ external_http_archive(
     name = "toolchains_llvm",
     patch_args = ["-p1"],
     patches = [
-        # (temporary) upstream patch from https://github.com/envoyproxy/toolshed/blob/main/bazel/patches/toolchains_llvm.patch
-        "@envoy_toolshed//:patches/toolchains_llvm.patch",
+        "@envoy//bazel:toolchains_llvm.patch",
+        "@envoy//bazel/foreign_cc:toolchains_llvm_stdc++.patch",
         # linux->darwin cross-compile support
         "//patches/toolchains_llvm:0002-darwin.patch",
     ],
