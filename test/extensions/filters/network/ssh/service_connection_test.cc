@@ -208,7 +208,7 @@ TEST_P(ConnectionServiceTest, StartChannel_BindExpectRemote) {
   ASSERT_TRUE(channel_id_manager_.owner(100).has_value());
 
   EXPECT_EQ(ChannelIDState::Unbound, channel_id_manager_.peerState(100, RemotePeer()));
-  EXPECT_EQ(ChannelIDState::Bound, channel_id_manager_.peerState(100, LocalPeer()));
+  EXPECT_EQ(ChannelIDState::Pending, channel_id_manager_.peerState(100, LocalPeer()));
 }
 
 TEST_P(ConnectionServiceTest, StartChannel_ErrorReadingChannelOpen) {
@@ -234,7 +234,7 @@ TEST_P(ConnectionServiceTest, StartChannel_ErrorReadingChannelOpen) {
   // Check that allocated IDs are freed if readChannelOpen fails. Because bind_expect_remote is
   // unset (which defaults to true), the remote peer's ID will briefly be in the Pending state,
   // but should be released before startChannel returns. The local peer's ID will briefly be in the
-  // Bound state, and will be releaed when the Channel is destroyed, freeing the internal id.
+  // Pending state also, and will be releaed when the Channel is destroyed, freeing the internal id.
   ASSERT_EQ(0, channel_id_manager_.numActiveChannels());
 
   // make sure that errors during channel start don't leave around channel objects
@@ -526,7 +526,8 @@ TEST_P(ConnectionServiceTest, InterruptLocalPassthroughChannelBeforeChannelOpenC
   // The local channel should be closed with a ChannelOpenFailure, and the remote channel should
   // be closed manually with a ChannelClose, since it would otherwise never receive one.
   EXPECT_CALL(transport_, sendMessageToConnection(MSG(wire::ChannelOpenFailureMsg,
-                                                      FIELD_EQ(recipient_channel, 1u))));
+                                                      FIELD_EQ(recipient_channel, 1u))))
+    .WillOnce(Return(0));
   EXPECT_CALL(transport_, forward(MSG(wire::ChannelCloseMsg,
                                       FIELD_EQ(recipient_channel, 2u)),
                                   _));
@@ -1090,7 +1091,7 @@ public:
     }));
 
     EXPECT_EQ(ChannelIDState::Pending, channel_id_manager_.peerState(id, RemotePeer()));
-    EXPECT_EQ(ChannelIDState::Bound, channel_id_manager_.peerState(id, LocalPeer()));
+    EXPECT_EQ(ChannelIDState::Pending, channel_id_manager_.peerState(id, LocalPeer()));
     return std::pair{id, localId};
   }
 
@@ -1480,7 +1481,7 @@ TEST_P(ChannelOpenLocalPreemptRaceTest, TestPreemptAndErrorDuringChannelOpen) {
   EXPECT_CALL(aliveCheck, Call());
   EXPECT_CALL(*ch1, Die());
 
-  ASSERT_EQ(absl::InternalError("readChannelOpen error"),
+  ASSERT_EQ(absl::InternalError("error opening channel: readChannelOpen error"),
             service_.startChannel(std::move(ch1), {.channel_open = wire::ChannelOpenMsg{
                                                      .sender_channel = 1,
                                                      .request = wire::SessionChannelOpenMsg{},
@@ -1498,8 +1499,9 @@ TEST_P(ChannelOpenLocalPreemptRaceTest, TestChannelAlreadySentFailureOnChannelOp
   testing::MockFunction<void()> aliveCheck;
   IN_SEQUENCE;
   EXPECT_CALL(*ch1, setChannelCallbacks)
-    .WillOnce([&](ChannelCallbacks& cb) {
+    .WillOnce([&, ch1 = ch1.get()](ChannelCallbacks& cb) {
       EXPECT_EQ(100, cb.channelId());
+      ch1->Channel::setChannelCallbacks(cb);
       channelCallbacks = &cb;
     });
   EXPECT_CALL(*ch1, readChannelOpen)
@@ -1511,7 +1513,7 @@ TEST_P(ChannelOpenLocalPreemptRaceTest, TestChannelAlreadySentFailureOnChannelOp
       channelCallbacks->sendMessageLocal(wire::ChannelOpenFailureMsg{
         .recipient_channel = msg.sender_channel,
       });
-      EXPECT_EQ(ChannelIDState::Preempted, channel_id_manager_.peerState(internal_id_, LocalPeer()));
+      EXPECT_EQ(ChannelIDState::Pending, channel_id_manager_.peerState(internal_id_, LocalPeer()));
       EXPECT_EQ(ChannelIDState::Pending, channel_id_manager_.peerState(internal_id_, RemotePeer()));
 
       // isPreemptable must be false after the ChannelOpenFailure is sent, so that preempt() won't
@@ -1531,7 +1533,7 @@ TEST_P(ChannelOpenLocalPreemptRaceTest, TestChannelAlreadySentFailureOnChannelOp
   EXPECT_CALL(aliveCheck, Call());
   EXPECT_CALL(*ch1, Die());
 
-  ASSERT_EQ(absl::InternalError("readChannelOpen error"),
+  ASSERT_EQ(absl::InternalError("error opening channel: readChannelOpen error"),
             service_.startChannel(std::move(ch1), {.channel_open = wire::ChannelOpenMsg{
                                                      .sender_channel = 1,
                                                      .request = wire::SessionChannelOpenMsg{},

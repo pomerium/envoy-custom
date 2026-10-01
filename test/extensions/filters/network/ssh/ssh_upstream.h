@@ -171,7 +171,7 @@ protected:
 private:
   // order is important here
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config_;
-  ChannelIDManager channel_id_manager_{100};
+  ChannelIDManager channel_id_manager_{10};
   ChannelFilterManager channel_filter_manager_{ChannelFilterManager::unused_in_this_test{}};
   MessageDispatcher<wire::Message>* msg_dispatcher_{};
   std::shared_ptr<SshFakeUpstreamHandlerOpts> opts_;

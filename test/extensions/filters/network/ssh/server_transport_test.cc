@@ -1674,7 +1674,8 @@ public:
                                                           PeerLocalID{
                                                             .channel_id = 2,
                                                             .local_peer = Peer::Upstream,
-                                                          }));
+                                                          },
+                                                          BindMode::Confirmed));
     auto channelMsg = std::make_unique<ChannelMessage>();
     auto confirmation = wire::ChannelOpenConfirmationMsg{
       .recipient_channel = 100,
@@ -2184,7 +2185,8 @@ TEST_F(ServerTransportTest, EncodeEffectiveHeaderHandoffComplete) {
                                                         PeerLocalID{
                                                           .channel_id = 2,
                                                           .local_peer = Peer::Upstream,
-                                                        }));
+                                                        },
+                                                        BindMode::Confirmed));
   auto channelMsg = std::make_unique<ChannelMessage>();
   auto confirmation = wire::ChannelOpenConfirmationMsg{
     .recipient_channel = 100,
