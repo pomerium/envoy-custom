@@ -2,12 +2,34 @@
 
 #pragma clang unsafe_buffer_usage begin
 #include "envoy/registry/registry.h"
+#include "source/common/network/utility.h"
 #pragma clang unsafe_buffer_usage end
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-const std::string& DownstreamSourceAddressFilterStateFactory::key() {
+const std::string& DownstreamSourceAddress::key() {
   CONSTRUCT_ON_FIRST_USE(std::string, "pomerium.extensions.ssh.downstream_source_address");
+}
+
+std::optional<std::string> DownstreamSourceAddress::serializeAsString() const {
+  auto addr = getAddress();
+  if (addr == nullptr) {
+    return std::nullopt;
+  }
+  return addr->asString();
+}
+
+const std::string& DownstreamSourceAddressFilterStateFactory::key() {
+  return DownstreamSourceAddress::key();
+}
+
+std::unique_ptr<StreamInfo::FilterState::Object>
+DownstreamSourceAddressFilterStateFactory::createFromBytes(absl::string_view data) const {
+  const auto address = Network::Utility::parseInternetAddressAndPortNoThrow(std::string(data));
+  if (address == nullptr) {
+    return nullptr;
+  }
+  return std::make_unique<DownstreamSourceAddress>(address);
 }
 
 std::string DownstreamSourceAddressFilterStateFactory::name() const {

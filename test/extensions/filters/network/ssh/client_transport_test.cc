@@ -128,7 +128,7 @@ public:
       StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
     mock_connection_.streamInfo().filterState()->setData(
       DownstreamSourceAddressFilterStateFactory::key(),
-      std::make_shared<Network::AddressObject>(std::make_shared<Network::Address::Ipv4Instance>("127.0.0.1", 12345)),
+      std::make_shared<DownstreamSourceAddress>(std::make_shared<Network::Address::Ipv4Instance>("127.0.0.1", 12345)),
       StreamInfo::FilterState::StateType::ReadOnly,
       StreamInfo::FilterState::LifeSpan::Request,
       StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
