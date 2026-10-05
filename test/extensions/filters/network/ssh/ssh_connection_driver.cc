@@ -229,10 +229,10 @@ AssertionResult SshConnectionDriver::waitForUserAuth(std::string username, std::
     // TODO: maybe refactor this api to be less confusing
     ServerMessage serverMsg;
     auto* allow = serverMsg.mutable_auth_response()->mutable_allow();
-    (*allow->mutable_internal()
-        ->mutable_set_metadata()
-        ->mutable_typed_filter_metadata())["com.pomerium.ssh"]
-      .PackFrom(filterMetadata);
+    EXPECT_TRUE((*allow->mutable_internal()
+                    ->mutable_set_metadata()
+                    ->mutable_typed_filter_metadata())["com.pomerium.ssh"]
+                  .PackFrom(filterMetadata));
     if (modify_allow_response != nullptr) {
       modify_allow_response(*allow);
     }

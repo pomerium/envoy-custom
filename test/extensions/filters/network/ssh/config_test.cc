@@ -155,7 +155,7 @@ TEST_F(ChannelFilterFactoryConfigTest, Invalid_WrongType) {
   f->set_name("test_channel_filter");
   google::protobuf::Int32Value v;
   v.set_value(1);
-  f->mutable_typed_config()->PackFrom(v);
+  ASSERT_TRUE(f->mutable_typed_config()->PackFrom(v));
   // this should reach our validation logic
   EXPECT_THROW_WITH_REGEX(factoryConfig->createCodecFactory(*cfg, context),
                           EnvoyException,
@@ -168,7 +168,7 @@ TEST_F(ChannelFilterFactoryConfigTest, Valid) {
   f->set_name("test_channel_filter");
   envoy::config::core::v3::DataSource v;
   v.set_filename("test"); // will satisfy protovalidate
-  f->mutable_typed_config()->PackFrom(v);
+  ASSERT_TRUE(f->mutable_typed_config()->PackFrom(v));
 
   EXPECT_NO_THROW(factoryConfig->createCodecFactory(*cfg, context));
 }
@@ -191,7 +191,7 @@ TEST_F(ChannelFilterFactoryConfigTest, Valid_TypedStruct) {
   (*fields)["filename"].set_string_value("test");
 
   f->set_name("test_channel_filter");
-  f->mutable_typed_config()->PackFrom(ts); // use the TypedStruct instead
+  ASSERT_TRUE(f->mutable_typed_config()->PackFrom(ts)); // use the TypedStruct instead
 
   ASSERT_NO_THROW(factoryConfig->createCodecFactory(*cfg, context));
 }
@@ -208,7 +208,7 @@ TEST_F(ChannelFilterFactoryConfigTest, Invalid_TypedStructWithWrongType) {
   auto* fields = ts.mutable_value()->mutable_fields();
   (*fields)["value"].set_string_value("test");
   f->set_name("test_channel_filter");
-  f->mutable_typed_config()->PackFrom(ts);
+  ASSERT_TRUE(f->mutable_typed_config()->PackFrom(ts));
 
   EXPECT_THROW_WITH_MESSAGE(factoryConfig->createCodecFactory(*cfg, context),
                             EnvoyException,
@@ -239,7 +239,7 @@ TEST_F(ChannelFilterFactoryConfigTest, Invalid_TypedStructWithMatchingTypeButMes
   // the unknown field should be ignored, but the missing oneof should cause a validation error
   (*fields)["some_unknown_field"].set_string_value("asdf");
   f->set_name("test_channel_filter");
-  f->mutable_typed_config()->PackFrom(ts);
+  ASSERT_TRUE(f->mutable_typed_config()->PackFrom(ts));
 
   EXPECT_THROW_WITH_REGEX(factoryConfig->createCodecFactory(*cfg, context),
                           EnvoyException,
@@ -256,7 +256,7 @@ TEST_F(ChannelFilterFactoryConfigTest, Invalid_TypedStructWithMatchingTypeButInv
   auto* fields = ts.mutable_value()->mutable_fields();
   (*fields)["filename"].set_number_value(1); // should be a string
   f->set_name("test_channel_filter");
-  f->mutable_typed_config()->PackFrom(ts);
+  ASSERT_TRUE(f->mutable_typed_config()->PackFrom(ts));
 
   EXPECT_THROW_WITH_REGEX(factoryConfig->createCodecFactory(*cfg, context),
                           EnvoyException,
