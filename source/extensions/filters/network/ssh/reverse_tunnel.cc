@@ -1078,7 +1078,7 @@ private:
       path_ = path->value();
     }
 
-    auto* addr = passthrough_filter_state.getDataReadOnly<DownstreamSourceAddress>(DownstreamSourceAddressFilterStateFactory::key());
+    auto* addr = passthrough_filter_state.getDataReadOnly<DownstreamSourceAddress>(DownstreamSourceAddress::key());
     RELEASE_ASSERT(addr != nullptr, "");
     downstream_address_ = addr->getAddress();
   }

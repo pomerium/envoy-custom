@@ -90,11 +90,13 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
     auto& filterState = callbacks_->connection()->streamInfo().filterState();
     connection_dispatcher_ = callbacks_->connection()->dispatcher();
 
+    RELEASE_ASSERT(callbacks_->upstreamCluster()->connectionPoolPerDownstreamConnection(),
+                   "upstream cluster missing connection_pool_per_downstream_connection=true");
     ASSERT(filterState->hasDataWithName(ChannelIDManagerFilterStateKey));
     ASSERT(filterState->hasDataWithName(ChannelFilterManagerFilterStateKey));
     ASSERT(filterState->hasDataWithName(AuthInfoFilterStateKey));
     ASSERT(filterState->hasDataWithName(RequestedServerName::key()));
-    ASSERT(filterState->hasDataWithName(DownstreamSourceAddressFilterStateFactory::key()));
+    ASSERT(filterState->hasDataWithName(DownstreamSourceAddress::key()));
 
     auth_info_ = std::dynamic_pointer_cast<AuthInfo>(
       filterState->getDataSharedMutableGeneric(AuthInfoFilterStateKey));
