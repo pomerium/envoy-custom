@@ -35,8 +35,6 @@ jobs:
         run: |
           bazel coverage --config=buildbarn --test_output=errors --test_arg='--log-level debug' //test/...
           tar xf bazel-out/_coverage/_coverage_report.dat ./coverage.json ./lcov
-          jq -r '.summary_message' coverage.json
-          jq -e '.summary.threshold_reached' coverage.json >/dev/null
 
       - name: upload to coveralls
         uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b
@@ -45,6 +43,11 @@ jobs:
           file: lcov
         env:
           TZ: UTC
+
+      - name: check coverage threshold
+        run: |
+          jq -r '.summary_message' coverage.json
+          jq -e '.summary.threshold_reached' coverage.json >/dev/null
 
   test-asan:
     if: >-
