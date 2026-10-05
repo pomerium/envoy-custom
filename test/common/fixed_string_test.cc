@@ -1,3 +1,5 @@
+#include <string_view>
+
 #include "source/common/fixed_string.h"
 #include "test/test_common/test_common.h"
 #include "gtest/gtest.h"

@@ -1,4 +1,7 @@
 #include "source/extensions/http/early_header_mutation/trace_context/trace_context.h"
+
+#include <vector>
+
 #include "source/common/common/logger.h"
 #include "source/common/common/base64.h"
 
@@ -31,7 +34,7 @@ bool TraceContext::mutate(Envoy::Http::RequestHeaderMap& headers,
   headers.remove(pomerium_external_parent_header);
   headers.remove(pomerium_sampling_decision_header);
   const auto params =
-      Envoy::Http::Utility::QueryParamsMulti::parseAndDecodeQueryString(headers.getPathValue());
+    Envoy::Http::Utility::QueryParamsMulti::parseAndDecodeQueryString(headers.getPathValue());
 
   const auto pomerium_traceparent = params.getFirstValue(pomerium_traceparent_query);
   if (!pomerium_traceparent.has_value()) {
@@ -49,11 +52,11 @@ bool TraceContext::mutate(Envoy::Http::RequestHeaderMap& headers,
         // The trace ID segment can be empty if this request was not traced. If so, the delimiter
         // is still present (e.g. the state will be "nonce|timestamp||encrypted_data").
         const std::string stateDecoded =
-            Base64Url::decode(StringUtil::removeTrailingCharacters(state.value(), '='));
+          Base64Url::decode(StringUtil::removeTrailingCharacters(state.value(), '='));
         // The encrypted data is not base64-encoded like the other fields, so read only up to the
         // third delimiter, instead of trying to split the entire string.
         const std::vector<absl::string_view> segments =
-            absl::StrSplit(stateDecoded, absl::MaxSplits('|', 3));
+          absl::StrSplit(stateDecoded, absl::MaxSplits('|', 3));
         if (segments.size() == 4) {
           const auto traceidDecoded = Base64Url::decode(segments[2]);
           if (traceidDecoded.size() == 17) { // 16 byte trace ID + 1 byte flags
@@ -70,7 +73,7 @@ bool TraceContext::mutate(Envoy::Http::RequestHeaderMap& headers,
   }
 
   const std::vector<absl::string_view> segments =
-      absl::StrSplit(pomerium_traceparent.value(), '-', absl::SkipEmpty());
+    absl::StrSplit(pomerium_traceparent.value(), '-', absl::SkipEmpty());
   if (segments.size() != 4) {
     return true;
   }

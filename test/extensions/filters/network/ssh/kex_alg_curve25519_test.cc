@@ -1,3 +1,5 @@
+#include <vector>
+
 #include "source/extensions/filters/network/ssh/kex_alg_curve25519.h"
 #include "test/extensions/filters/network/ssh/wire/test_field_reflect.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"

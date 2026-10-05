@@ -1,4 +1,8 @@
 #pragma once
+
+#include <string_view>
+#include <vector>
+
 #include "source/extensions/filters/network/ssh/channel.h"
 #include "source/extensions/filters/network/ssh/packet_cipher.h"
 #include "source/extensions/filters/network/ssh/service_connection.h"

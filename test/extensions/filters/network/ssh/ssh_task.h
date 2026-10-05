@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string_view>
+
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
 #include "source/extensions/filters/network/ssh/kex_alg.h"
 #include "source/extensions/filters/network/ssh/message_handler.h"

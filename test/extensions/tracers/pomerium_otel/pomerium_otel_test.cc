@@ -1,3 +1,5 @@
+#include <string_view>
+
 #include "source/extensions/tracers/pomerium_otel/config.h"
 #include "source/extensions/tracers/pomerium_otel/span.h"
 

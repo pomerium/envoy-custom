@@ -2,10 +2,12 @@
 #include "test/integration/base_integration_test.h"
 #include "test/test_common/status_utility.h"
 #include "gtest/gtest.h"
+#include <array>
 #include <csignal>
 #include <sstream>
 #include <unistd.h>
 #include <utility>
+#include <vector>
 
 using namespace std::literals;
 
@@ -45,9 +47,9 @@ public:
         config.add_paths(path);
       }
       for (const auto& [id, msg] : configs) {
-        (*config.mutable_extension_configs())[id].PackFrom(msg);
+        ASSERT_TRUE((*config.mutable_extension_configs())[id].PackFrom(msg));
       }
-      ext->mutable_typed_config()->PackFrom(config);
+      ASSERT_TRUE(ext->mutable_typed_config()->PackFrom(config));
     });
   }
 

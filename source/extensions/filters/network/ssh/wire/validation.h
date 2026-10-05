@@ -1,6 +1,8 @@
 #pragma once
 
 #include "source/common/visit.h"
+#include <algorithm>
+#include <array>
 #include <cstdio>
 #include <type_traits>
 

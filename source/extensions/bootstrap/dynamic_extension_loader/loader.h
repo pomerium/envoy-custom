@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include "api/extensions/bootstrap/dynamic_extension_loader/dynamic_extension_loader.pb.h"
 #include "envoy/server/bootstrap_extension_config.h"
 #include "source/extensions/bootstrap/dynamic_extension_loader/handle.h"

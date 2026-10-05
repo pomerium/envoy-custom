@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include "absl/functional/any_invocable.h"
 #pragma clang unsafe_buffer_usage begin
 #include "envoy/event/dispatcher.h"

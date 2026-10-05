@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string_view>
+
 #include "source/extensions/filters/network/ssh/channel_filter_config.h"
 #include "source/extensions/filters/network/ssh/service_connection.h"
 #include "source/extensions/filters/network/ssh/service_userauth.h"

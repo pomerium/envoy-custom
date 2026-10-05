@@ -2,6 +2,7 @@
 #include "gtest/gtest.h"
 #include <algorithm>
 #include <cstdlib>
+#include <vector>
 
 #include "envoy/common/exception.h"
 #include "source/common/types.h"

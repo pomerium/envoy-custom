@@ -1,3 +1,6 @@
+#include <tuple>
+#include <vector>
+
 #include "source/extensions/filters/network/ssh/packet_cipher_etm.h"
 #include "source/extensions/filters/network/ssh/wire/packet.h"
 #include "test/extensions/filters/network/ssh/wire/test_field_reflect.h"

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string_view>
+
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #pragma clang unsafe_buffer_usage begin
 #include "envoy/stats/scope.h"

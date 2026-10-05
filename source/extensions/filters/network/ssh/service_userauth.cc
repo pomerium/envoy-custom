@@ -2,6 +2,8 @@
 
 #include <cstdlib>
 #include <memory>
+#include <string_view>
+#include <vector>
 
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "source/common/status.h"
@@ -125,7 +127,10 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
           method_req.set_public_key_alg(pubkey_req.public_key_alg);
           auto rawFp = (*userPubKey)->rawFingerprint();
           method_req.set_public_key_fingerprint_sha256(rawFp.data(), rawFp.size());
-          auth_req.mutable_method_request()->PackFrom(method_req);
+          auto ok = auth_req.mutable_method_request()->PackFrom(method_req);
+          if (!ok) {
+            return absl::InternalError("couldn't serialize PublicKeyMethodRequest");
+          }
 
           pomerium::extensions::ssh::ClientMessage clientMsg;
           *clientMsg.mutable_auth_request() = auth_req;
@@ -138,7 +143,10 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
           for (const auto& sm : *interactive_req.submethods) {
             method_req.add_submethods(sm);
           }
-          auth_req.mutable_method_request()->PackFrom(method_req);
+          auto ok = auth_req.mutable_method_request()->PackFrom(method_req);
+          if (!ok) {
+            return absl::InternalError("couldn't serialize KeyboardInteractiveMethodRequest");
+          }
 
           pomerium::extensions::ssh::ClientMessage clientMsg;
           *clientMsg.mutable_auth_request() = auth_req;
@@ -169,7 +177,10 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
       for (const auto& resp : *msg.responses) {
         info_method_resp.add_responses(resp);
       }
-      info_resp.mutable_response()->PackFrom(info_method_resp);
+      auto ok = info_resp.mutable_response()->PackFrom(info_method_resp);
+      if (!ok) {
+        return absl::InternalError("couldn't serialize KeyboardInteractiveInfoPromptResponses");
+      }
 
       pomerium::extensions::ssh::ClientMessage clientMsg;
       *clientMsg.mutable_info_response() = info_resp;
@@ -260,7 +271,10 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
       const auto& infoReq = authResp.info_request();
       if (infoReq.method() == "keyboard-interactive") {
         KeyboardInteractiveInfoPrompts server_req;
-        infoReq.request().UnpackTo(&server_req);
+        auto ok = infoReq.request().UnpackTo(&server_req);
+        if (!ok) {
+          return absl::InvalidArgumentError("couldn't deserialize KeyboardInteractiveInfoPrompts");
+        }
 
         wire::UserAuthInfoRequestMsg client_req;
         client_req.name = server_req.name();

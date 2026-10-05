@@ -1,5 +1,9 @@
 #include "source/extensions/filters/network/ssh/kex.h"
 
+#include <algorithm>
+#include <string_view>
+#include <vector>
+
 #include "openssl/rand.h"
 
 #include "source/extensions/filters/network/ssh/kex_alg.h"

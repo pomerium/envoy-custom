@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include "source/extensions/filters/network/ssh/stream_address.h"
 #include "source/extensions/filters/network/ssh/stream_tracker.h"
 
@@ -8,7 +10,9 @@
 #pragma clang diagnostic ignored "-Wshorten-64-to-32"
 #include "source/common/upstream/upstream_impl.h"
 #pragma clang diagnostic pop
+#include "envoy/config/subscription.h"
 #include "envoy/registry/registry.h"
+#include "source/common/config/resource_type_helper.h"
 #include "source/common/upstream/cluster_factory_impl.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.validate.h"
@@ -76,7 +80,7 @@ public:
 namespace Upstream {
 
 class SshReverseTunnelCluster : public ClusterImplBase,
-                                public Envoy::Config::SubscriptionBase<envoy::config::endpoint::v3::ClusterLoadAssignment>,
+                                public Config::SubscriptionCallbacks,
                                 public std::enable_shared_from_this<SshReverseTunnelCluster> {
 public:
   static absl::StatusOr<std::unique_ptr<SshReverseTunnelCluster>>
@@ -88,7 +92,7 @@ public:
   InitializePhase initializePhase() const override { return Cluster::InitializePhase::Primary; }
   void startPreInit() override;
 
-  // SubscriptionBase
+  // Config::SubscriptionCallbacks
   // SOTW update
   absl::Status onConfigUpdate(const std::vector<Config::DecodedResourceRef>& resources,
                               const std::string& version_info) override;
@@ -116,13 +120,13 @@ private:
     return !name.empty() ? name : info_->name();
   }
 
+  const Config::ResourceTypeHelper<envoy::config::endpoint::v3::ClusterLoadAssignment>
+      resource_type_helper_;
   envoy::config::cluster::v3::Cluster cluster_;
   Server::Configuration::ServerFactoryContext& server_context_;
-  pomerium::extensions::ssh::ReverseTunnelCluster config_;
   std::shared_ptr<StreamTracker> stream_tracker_;
   ReverseTunnelStatNames reverse_tunnel_stat_names_;
   ReverseTunnelStats reverse_tunnel_stats_;
-  Event::Dispatcher& dispatcher_;
   Config::SubscriptionPtr eds_subscription_;
   std::unique_ptr<Network::ReverseTunnelClusterContext> owned_context_;
 };

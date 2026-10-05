@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdlib>
+#include <string_view>
+#include <vector>
 
 #include "source/common/common/c_smart_ptr.h"
 

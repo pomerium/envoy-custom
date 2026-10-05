@@ -7,6 +7,7 @@
 #include <memory>
 #include <sshkey.h>
 #include <unistd.h>
+#include <vector>
 
 #include "source/common/network/utility.h"
 
@@ -34,7 +35,6 @@ namespace {
 void setRequestedServerName(const StreamInfo::FilterStateSharedPtr& filter_state, const std::string& name) {
   filter_state->setData(RequestedServerName::key(),
                         std::make_shared<RequestedServerName>(name),
-                        StreamInfo::FilterState::StateType::ReadOnly,
                         StreamInfo::FilterState::LifeSpan::Request,
                         StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
 }
@@ -42,7 +42,6 @@ void setRequestedServerName(const StreamInfo::FilterStateSharedPtr& filter_state
 void setDownstreamSourceAddress(const StreamInfo::FilterStateSharedPtr& filter_state, const Network::Address::InstanceConstSharedPtr& addr) {
   filter_state->setData(DownstreamSourceAddressFilterStateFactory::key(),
                         std::make_shared<Network::AddressObject>(addr),
-                        StreamInfo::FilterState::StateType::ReadOnly,
                         StreamInfo::FilterState::LifeSpan::Request,
                         StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
 }
@@ -50,7 +49,6 @@ void setDownstreamSourceAddress(const StreamInfo::FilterStateSharedPtr& filter_s
 void setChannelIdManager(const StreamInfo::FilterStateSharedPtr& filter_state, std::shared_ptr<ChannelIDManager> channel_id_mgr) {
   filter_state->setData(ChannelIDManagerFilterStateKey,
                         channel_id_mgr,
-                        StreamInfo::FilterState::StateType::Mutable,
                         StreamInfo::FilterState::LifeSpan::Request,
                         StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
 }
@@ -58,7 +56,6 @@ void setChannelIdManager(const StreamInfo::FilterStateSharedPtr& filter_state, s
 void setChannelFilterManager(const StreamInfo::FilterStateSharedPtr& filter_state, ChannelFilterManagerSharedPtr channel_filter_mgr) {
   filter_state->setData(ChannelFilterManagerFilterStateKey,
                         channel_filter_mgr,
-                        StreamInfo::FilterState::StateType::Mutable,
                         StreamInfo::FilterState::LifeSpan::Request,
                         StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
 }
@@ -384,7 +381,6 @@ void SshServerTransport::initUpstream(AuthInfoSharedPtr auth_info) {
   auto& filterState = callbacks_->connection()->streamInfo().filterState();
   filterState->setData(
     AuthInfoFilterStateKey, auth_info_,
-    StreamInfo::FilterState::StateType::Mutable,
     StreamInfo::FilterState::LifeSpan::Request,
     StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
   switch (auth_info_->channel_mode) {

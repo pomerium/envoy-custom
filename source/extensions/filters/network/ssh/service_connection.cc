@@ -1,5 +1,7 @@
 #include "source/extensions/filters/network/ssh/service_connection.h"
 
+#include <algorithm>
+
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "source/common/status.h"
 #include "source/extensions/filters/network/ssh/id_manager.h"
@@ -546,7 +548,10 @@ public:
     sshMetadata.set_mode_hint(hijack_callbacks_.modeHint());
 
     // send the combined metadata
-    typedMetadata["com.pomerium.ssh"].PackFrom(sshMetadata);
+    auto ok = typedMetadata["com.pomerium.ssh"].PackFrom(sshMetadata);
+    if (!ok) {
+      return absl::InternalError("couldn't serialize ssh metadata after setting channel_id and mode_hint");
+    }
     channel_client_->start(this, std::move(metadata));
 
     sendMessageToStream(std::move(msg));

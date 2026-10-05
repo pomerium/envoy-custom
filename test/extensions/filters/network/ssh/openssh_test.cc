@@ -1,3 +1,7 @@
+#include <string_view>
+#include <tuple>
+#include <vector>
+
 #include "source/common/span.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
 #include "gtest/gtest.h"

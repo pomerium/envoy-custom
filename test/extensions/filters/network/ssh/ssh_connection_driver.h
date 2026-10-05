@@ -1,5 +1,8 @@
 #pragma once
 
+#include <string_view>
+#include <vector>
+
 #include "source/extensions/filters/network/ssh/transport_base.h"
 #include "source/extensions/filters/network/ssh/kex_alg.h"
 #include "source/extensions/filters/network/ssh/message_handler.h"

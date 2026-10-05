@@ -51,6 +51,10 @@ void VariableNameSpan::setSampled(bool sampled) {
   span_->setSampled(sampled);
 };
 
+bool VariableNameSpan::exportedSpan() const {
+  return span_->exportedSpan();
+}
+
 std::string VariableNameSpan::getBaggage(absl::string_view key) {
   return span_->getBaggage(key);
 };
