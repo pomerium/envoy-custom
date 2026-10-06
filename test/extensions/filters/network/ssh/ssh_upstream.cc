@@ -46,6 +46,8 @@ SshFakeUpstreamHandler::FakeUpstreamConnectionService::FakeUpstreamConnectionSer
 }
 
 absl::Status SshFakeUpstreamHandler::FakeUpstreamConnectionService::handleMessage(wire::Message&& msg) {
+  ENVOY_LOG(trace, "ssh fake upstream: received {}", msg.msg_type());
+
   return std::move(msg).visit(
     [&](wire::ChannelOpenMsg&& msg) {
       if (!parent_.opts_->on_channel_open_request) {
@@ -61,12 +63,16 @@ absl::Status SshFakeUpstreamHandler::FakeUpstreamConnectionService::handleMessag
                                              },
                                  BindMode::PendingInternalConfirmation);
       THROW_IF_NOT_OK(ok);
-      auto ch = std::make_unique<FakeUpstreamChannel>(parent_.opts_->on_channel_open_request(msg));
+      auto ch = std::make_unique<FakeUpstreamChannel>(
+        internalId,
+        parent_.opts_->on_channel_open_request(msg),
+        parent_.opts_);
       RETURN_IF_NOT_OK(startChannel(std::move(ch), {
                                                      .allocated_channel_id = internalId,
                                                      .channel_open = msg,
                                                      .skip_auto_bind = true,
                                                    }));
+      ENVOY_LOG(trace, "ssh fake upstream: started new channel {}", internalId);
       return absl::OkStatus();
     },
     [&](wire::ChannelOpenConfirmationMsg&& msg) {
@@ -80,7 +86,8 @@ absl::Status SshFakeUpstreamHandler::FakeUpstreamConnectionService::handleMessag
       if (!parent_.opts_->on_channel_accepted) {
         PANIC("test bug: on_channel_accepted callback unset but required");
       }
-      auto ch = std::make_unique<FakeUpstreamChannel>(parent_.opts_->on_channel_accepted(msg));
+      ENVOY_LOG(trace, "ssh fake upstream: invoking on_channel_accepted callback");
+      auto ch = std::make_unique<FakeUpstreamChannel>(id, parent_.opts_->on_channel_accepted(msg), parent_.opts_);
       RETURN_IF_NOT_OK(startChannel(std::move(ch), {.allocated_channel_id = id, .skip_auto_bind = true}));
       msg.sender_channel = msg.recipient_channel;
       return channels_[id]->readMessage(std::move(msg));
@@ -90,7 +97,8 @@ absl::Status SshFakeUpstreamHandler::FakeUpstreamConnectionService::handleMessag
       if (!parent_.opts_->on_channel_rejected) {
         PANIC("test bug: on_channel_rejected callback unset but required");
       }
-      auto ch = std::make_unique<FakeUpstreamChannel>(parent_.opts_->on_channel_rejected(msg));
+      ENVOY_LOG(trace, "ssh fake upstream: invoking on_channel_rejected callback");
+      auto ch = std::make_unique<FakeUpstreamChannel>(id, parent_.opts_->on_channel_rejected(msg), parent_.opts_);
       RETURN_IF_NOT_OK(startChannel(std::move(ch), {.allocated_channel_id = id, .skip_auto_bind = true}));
       return channels_[id]->readMessage(std::move(msg));
     },
@@ -129,12 +137,18 @@ void SshFakeUpstreamHandler::registerMessageHandlers(MessageDispatcher<wire::Mes
 absl::Status SshFakeUpstreamHandler::handleMessage(wire::Message&& msg) {
   return msg.visit(
     [&](wire::DisconnectMsg& msg) {
+      ENVOY_LOG(trace, "ssh fake upstream: received DisconnectMsg");
       auto desc = *msg.description;
+      if (opts_->on_disconnect) {
+        ENVOY_LOG(trace, "ssh fake upstream: invoking on_disconnect callback");
+        opts_->on_disconnect(msg);
+      }
       return absl::CancelledError(fmt::format("received disconnect: {}{}{}",
                                               openssh::disconnectCodeToString(*msg.reason_code),
                                               desc.empty() ? "" : ": ", desc));
     },
     [&](wire::ServiceRequestMsg& msg) {
+      ENVOY_LOG(trace, "ssh fake upstream: received ServiceRequestMsg");
       ASSERT(msg.service_name == "ssh-userauth");
       user_auth_service_->registerMessageHandlers(*msg_dispatcher_);
       msg_dispatcher_->unregisterHandler(wire::SshMessageType::ServiceRequest);

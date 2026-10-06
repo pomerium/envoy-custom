@@ -2,6 +2,7 @@
 
 #include "source/extensions/filters/network/ssh/channel.h"
 #include "source/extensions/filters/network/ssh/transport.h"
+#include "source/extensions/filters/network/ssh/wire/messages.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -20,11 +21,14 @@ public:
 };
 
 using ChannelMsgHandlerFunc = absl::AnyInvocable<absl::Status(wire::ChannelMessage&&, ChannelCallbacks&)>;
+using OnChannelDestroyedFunc = absl::AnyInvocable<void()>;
 
 struct SshFakeUpstreamHandlerOpts {
   absl::AnyInvocable<ChannelMsgHandlerFunc(wire::ChannelOpenMsg&)> on_channel_open_request;
   absl::AnyInvocable<ChannelMsgHandlerFunc(wire::ChannelOpenConfirmationMsg&)> on_channel_accepted;
   absl::AnyInvocable<ChannelMsgHandlerFunc(wire::ChannelOpenFailureMsg&)> on_channel_rejected;
+  absl::AnyInvocable<OnChannelDestroyedFunc(uint32_t)> on_channel_created;
+  absl::AnyInvocable<void(const wire::DisconnectMsg&)> on_disconnect;
 };
 
 class FakeSshUpstreamCallbacks {
