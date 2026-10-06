@@ -74,12 +74,4 @@ def pomerium_envoy_toolchains():
         },
         sha256 = TOOLCHAIN_INTEGRITY.toolchain,
         toolchain_roots = {"": LLVM_PATH} if LLVM_PATH else {},  # for RBE container image
-        # TODO: this file is missing in the macos release tarball
-        extra_compiler_files = None if LLVM_PATH else "@llvm_toolchain_llvm//:lib/clang/%s/share/msan_ignorelist.txt" % LLVM_MAJOR_VERSION,
-        # Include directory to find msan_ignorelist.txt
-        cxx_builtin_include_directories = {
-            "linux-x86_64": ["%workspace%" + "/%s/lib/clang/%s/share" % (LLVM_PATH if LLVM_PATH else "external/llvm_toolchain_llvm", LLVM_MAJOR_VERSION)],
-            "linux-aarch64": ["%workspace%" + "/%s/lib/clang/%s/share" % (LLVM_PATH if LLVM_PATH else "external/llvm_toolchain_llvm", LLVM_MAJOR_VERSION)],
-            "darwin-aarch64": ["%workspace%" + "/%s/lib/clang/%s/share" % (LLVM_PATH if LLVM_PATH else "external/llvm_toolchain_llvm", LLVM_MAJOR_VERSION)],
-        },
     )
