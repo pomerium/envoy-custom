@@ -749,30 +749,38 @@ TEST(ChannelIDManagerTest, PreemptCloseTracking) {
     ASSERT_FALSE(*mgr.processOutgoingChannelMsg(close, Peer::Downstream));
   }
 }
-
-class ChannelIDManagerFormatTest : public testing::TestWithParam<std::tuple<ChannelIDState, ChannelIDState, Peer>> {
-};
-TEST_P(ChannelIDManagerFormatTest, Formatting) {
+TEST(ChannelIDManagerFormatTest, Formatting) {
+  const auto all_channel_states = {
+    ChannelIDState::Unbound,
+    ChannelIDState::Pending,
+    ChannelIDState::Bound,
+    ChannelIDState::Released,
+    ChannelIDState::Preempted,
+    ChannelIDState::Bereft,
+  };
   // the specific format is not worth testing for, but we can make sure that the custom formatter
   // does not crash when constructing its format string
-  auto [stateA, stateB, owner] = GetParam();
-  InternalChannelInfo info{
-    .peer_ids = {1, 2},
-    .peer_states = {stateA, stateB},
-    .owner = owner,
-  };
-  ASSERT_NO_THROW({
-    auto str = fmt::to_string(info);
-    // the string shouldn't contain default-format optionals
-    EXPECT_FALSE(str.contains("optional("));
-  });
+  for (auto stateA : all_channel_states) {
+    for (auto stateB : all_channel_states) {
+      for (auto idA : std::vector<std::optional<uint32_t>>{std::nullopt, 1, channel_id_error}) {
+        for (auto idB : std::vector<std::optional<uint32_t>>{std::nullopt, 2, channel_id_error}) {
+          for (auto owner : {Downstream, Upstream}) {
+            InternalChannelInfo info{
+              .peer_ids = {idA, idB},
+              .peer_states = {stateA, stateB},
+              .owner = owner,
+            };
+            ASSERT_NO_THROW({
+              auto str = fmt::to_string(info);
+              // the string shouldn't contain default-format optionals
+              EXPECT_FALSE(str.contains("optional("));
+            });
+          }
+        }
+      }
+    }
+  }
 }
-
-INSTANTIATE_TEST_SUITE_P(ChannelIDManagerFormat, ChannelIDManagerFormatTest,
-                         testing::Combine(
-                           testing::Values(ChannelIDState::Unbound, ChannelIDState::Bound, ChannelIDState::Released),
-                           testing::Values(ChannelIDState::Unbound, ChannelIDState::Bound, ChannelIDState::Released),
-                           testing::Values(Peer::Downstream, Peer::Upstream)));
 
 } // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
