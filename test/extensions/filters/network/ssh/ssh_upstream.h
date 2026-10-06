@@ -39,12 +39,32 @@ struct codec_traits<SshFakeUpstreamHandlerCodec> {
   static constexpr auto version_exchange_mode = VersionExchangeMode::Server;
 };
 
-class FakeUpstreamChannel : public Channel {
+class FakeUpstreamChannel : public Channel,
+                            public Envoy::Logger::Loggable<Envoy::Logger::Id::filter> {
 public:
-  FakeUpstreamChannel(ChannelMsgHandlerFunc msg_handler)
-      : msg_handler_(std::move(msg_handler)) {}
+  FakeUpstreamChannel(uint32_t internal_id, // for logs and passing to on_channel_created
+                      ChannelMsgHandlerFunc msg_handler,
+                      std::shared_ptr<SshFakeUpstreamHandlerOpts> handler_opts)
+      : msg_handler_(std::move(msg_handler)),
+        handler_opts_(handler_opts) {
+    ENVOY_LOG(trace, "FakeUpstreamChannel {} created", internal_id);
+    if (handler_opts->on_channel_created) {
+      ENVOY_LOG(trace, "FakeUpstreamChannel {}: invoking on_channel_created");
+      on_channel_destroyed_ = handler_opts->on_channel_created(internal_id);
+    }
+  }
+
+  ~FakeUpstreamChannel() {
+    if (on_channel_destroyed_) {
+      ENVOY_LOG(trace, "FakeUpstreamChannel {}: invoking on_channel_destroyed");
+      on_channel_destroyed_();
+    }
+    ENVOY_LOG(trace, "FakeUpstreamChannel destroyed");
+  }
 
   absl::Status readChannelOpen(wire::ChannelOpenMsg&& msg) override {
+    ENVOY_LOG(trace, "FakeUpstreamChannel {}: readChannelOpen called, replying with ChannelOpenConfirmation",
+              callbacks_->channelId());
     callbacks_->sendMessageLocal(
       wire::ChannelOpenConfirmationMsg{
         .recipient_channel = msg.sender_channel,
@@ -56,10 +76,13 @@ public:
   }
 
   absl::Status readMessage(wire::ChannelMessage&& msg) override {
+    ENVOY_LOG(trace, "FakeUpstreamChannel {}: readMessage: {}", callbacks_->channelId(), msg.msg_type());
     return msg_handler_(std::move(msg), *callbacks_);
   }
 
   ChannelMsgHandlerFunc msg_handler_;
+  std::shared_ptr<SshFakeUpstreamHandlerOpts> handler_opts_;
+  absl::AnyInvocable<void()> on_channel_destroyed_;
 };
 
 class SshFakeUpstreamHandler : public SecretsProviderImpl,

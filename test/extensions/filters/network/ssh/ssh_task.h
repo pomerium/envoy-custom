@@ -1,6 +1,7 @@
 #pragma once
 
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
+#include "source/extensions/filters/network/ssh/id_manager.h"
 #include "source/extensions/filters/network/ssh/kex_alg.h"
 #include "source/extensions/filters/network/ssh/message_handler.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
@@ -445,10 +446,13 @@ public:
   const uint32_t port_connected_;
 };
 
+enum class ExpectSuccess : bool {};
+
 class OpenSessionChannel : public Task<OpenSessionChannel, void, Channel> {
 public:
-  OpenSessionChannel(uint32_t local_channel_id)
-      : local_channel_id_(local_channel_id) {}
+  OpenSessionChannel(uint32_t local_channel_id, ExpectSuccess expect_success = ExpectSuccess(true))
+      : local_channel_id_(local_channel_id),
+        expect_success_(expect_success) {}
   void start() override {
     setChannelFilter(Tasks::Channel{
       .local_id = local_channel_id_,
@@ -464,18 +468,29 @@ public:
   MiddlewareResult onMessageReceived(wire::Message& msg) override {
     return msg.visit(
       [&](const wire::ChannelOpenConfirmationMsg& msg) {
-        taskSuccess(Channel{
-          .local_id = local_channel_id_,
-          .remote_id = msg.sender_channel,
-          .initial_window_size = msg.initial_window_size,
-          .max_packet_size = msg.max_packet_size,
-          .upstream_initial_window_size = wire::ChannelWindowSize,
-          .upstream_max_packet_size = wire::ChannelMaxPacketSize,
-        });
+        if (expect_success_ == ExpectSuccess(true)) {
+          taskSuccess(Channel{
+            .local_id = local_channel_id_,
+            .remote_id = msg.sender_channel,
+            .initial_window_size = msg.initial_window_size,
+            .max_packet_size = msg.max_packet_size,
+            .upstream_initial_window_size = wire::ChannelWindowSize,
+            .upstream_max_packet_size = wire::ChannelMaxPacketSize,
+          });
+        } else {
+          taskFailure(absl::InternalError(fmt::format("expected failure, but channel opened successfully")));
+        }
         return Break;
       },
       [&](const wire::ChannelOpenFailureMsg& msg) {
-        taskFailure(absl::InternalError(fmt::format("channel open failed: {}", msg.description)));
+        if (expect_success_ == ExpectSuccess(true)) {
+          taskFailure(absl::InternalError(fmt::format("channel open failed: {}", msg.description)));
+        } else {
+          taskSuccess(Tasks::Channel{
+            .local_id = local_channel_id_,
+            .remote_id = channel_id_error,
+          });
+        }
         return Break;
       },
       [&](const auto&) {
@@ -485,6 +500,7 @@ public:
 
 public:
   uint32_t local_channel_id_;
+  const ExpectSuccess expect_success_;
 };
 
 class WaitForChannelData : public Task<WaitForChannelData, Channel, Channel> {
