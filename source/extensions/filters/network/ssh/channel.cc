@@ -34,9 +34,11 @@ absl::Status ForceCloseChannel::readMessage(wire::ChannelMessage&& msg) {
       return absl::OkStatus();
     },
     [&](wire::ChannelOpenFailureMsg&) {
+      ENVOY_LOG(debug, "channel {}: dropping message: {}", callbacks_->channelId(), msg.msg_type());
       return absl::OkStatus();
     },
-    [](wire::ChannelCloseMsg&) {
+    [&](wire::ChannelCloseMsg&) {
+      ENVOY_LOG(debug, "channel {}: dropping message: {}", callbacks_->channelId(), msg.msg_type());
       return absl::OkStatus();
     },
     [&](auto& msg) {

@@ -7,8 +7,6 @@
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/service.h"
 #include "source/extensions/filters/network/ssh/transport.h"
-#include "source/common/common/linked_object.h"
-#include "source/common/common/callback_impl.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -49,20 +47,34 @@ public:
 
   class ReadDisableHandleImpl : public ReadDisableHandle {
   public:
-    ReadDisableHandleImpl(Envoy::Event::Dispatcher& dispatcher, absl::AnyInvocable<void()> do_read_enable)
+    ReadDisableHandleImpl(Envoy::Event::Dispatcher& dispatcher,
+                          Envoy::Common::CallbackManager<void>& cancel_manager,
+                          absl::AnyInvocable<void()> do_read_enable)
         : dispatcher_(dispatcher),
-          do_read_enable_(std::move(do_read_enable)) {
+          do_read_enable_(std::move(do_read_enable)),
+          cancel_callback_handle_(cancel_manager.add([this] {
+            ASSERT(dispatcher_.isThreadSafe());
+            cancel();
+          })) {
       ASSERT(dispatcher_.isThreadSafe());
     }
 
     ~ReadDisableHandleImpl() {
+      cancel();
+    }
+
+    void cancel() {
       ASSERT(dispatcher_.isThreadSafe());
+      if (do_read_enable_ == nullptr) {
+        return;
+      }
       std::invoke(std::exchange(do_read_enable_, nullptr));
     }
 
   private:
     Envoy::Event::Dispatcher& dispatcher_;
     absl::AnyInvocable<void()> do_read_enable_;
+    Envoy::Common::CallbackHandlePtr cancel_callback_handle_;
   };
 
   class ChannelCallbacksImpl final : public ChannelCallbacks,
@@ -195,6 +207,7 @@ public:
     Stats::ScopeSharedPtr scope_;
     Envoy::Event::TimerPtr close_timer_;
     Envoy::OptRef<ChannelStatsProvider> stats_provider_;
+    std::unique_ptr<Envoy::Common::CallbackManager<void>> read_disable_cancel_callbacks_;
     std::unique_ptr<Envoy::Common::CallbackManager<void, absl::Status, TransportCallbacks&>> interrupt_callbacks_;
 
     // Order is very important here, filters_ must be destroyed before queued_remote_msgs_

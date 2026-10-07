@@ -1,8 +1,6 @@
 #include "source/extensions/filters/network/ssh/stream_tracker.h"
 #include "source/common/visit.h"
 #include "source/extensions/filters/network/ssh/channel.h"
-#include "absl/synchronization/blocking_counter.h"
-#include "source/common/event/deferred_task.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 

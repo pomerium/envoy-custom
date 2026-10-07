@@ -252,19 +252,12 @@ absl::Status ConnectionService::maybeStartNonOwningPassthroughChannel(uint32_t i
   }
   if (auto remoteState = transport_.channelIdManager().peerState(internal_id, remote_peer_);
       remoteState == ChannelIDState::Preempted || remoteState == ChannelIDState::Bereft) {
-    // This is a rare edge-case that can occur as follows:
-    // 1. The downstream opens a channel and forwards a ChannelOpen message to the upstream
-    // 2. Before the upstream server has a chance to respond with a ChannelOpenConfirmation/Failure,
-    //    the downstream preempts the channel.
-    // Then, depending on which side responds first, the remote state may be Preempted or Bereft:
-    // 3a. Before the downstream has a chance to respond with its own ChannelClose, the upstream
-    //     responds with a ChannelOpenConfirmation/Failure (remoteState == Preempted)
-    // 3b. The downstream responds with its own ChannelClose, but the local state is Pending which
-    //     keeps the internal channel ID alive temporarily. Then, the upstream responds with a
-    //     ChannelOpenConfirmation/Failure. (remoteState == Bereft)
+    // This is a special case that can occur if the downstream opens a channel and forwards a
+    // ChannelOpen message to the upstream, then the downstream channel is preempted before the
+    // upstream server has a chance to respond with a ChannelOpenConfirmation/Failure.
     //
-    // In this state, we can't forward anything to the downstream channel, since it's about to be
-    // closed but the internal channel still exists. Additionally, once the downstream releases
+    // In this state, we can't forward anything to the downstream channel since it would have been
+    // sent a ChannelOpenFailure message when preempted. Additionally, once the downstream releases
     // its ID, it still won't be freed because the upstream has bound the ID to this channel.
     // We can't ignore it, because the server might get stuck waiting for a drain callback, but
     // this channel is open, but idle and won't close on its own. So, instead of creating a new
@@ -315,6 +308,7 @@ ConnectionService::ChannelCallbacksImpl::ChannelCallbacksImpl(ConnectionService&
       local_peer_(local_peer),
       remote_peer_(local_peer == Downstream ? Upstream : Downstream),
       scope_(parent.transport_.statsScope().createScope("channel")),
+      read_disable_cancel_callbacks_(std::make_unique<Envoy::Common::CallbackManager<void>>()),
       interrupt_callbacks_(std::make_unique<Envoy::Common::CallbackManager<void, absl::Status, TransportCallbacks&>>()),
       channel_id_release_([this] {
         channel_id_mgr_.releaseChannelID(channel_id_, local_peer_);
@@ -488,8 +482,7 @@ void ConnectionService::ChannelCallbacksImpl::preempt(absl::Status err) {
   preempted_ = true;
   auto prevState = channel_id_mgr_.preempt(channel_id_, local_peer_);
 
-  switch (prevState) {
-  case ChannelIDState::Bound:
+  if (prevState == ChannelIDState::Bound) {
     // Interrupt callbacks are only run if the channel is actually open, because the callbacks
     // should be able to assume they can send messages locally before the channel is closed.
     runInterruptCallbacks(err);
@@ -498,8 +491,11 @@ void ConnectionService::ChannelCallbacksImpl::preempt(absl::Status err) {
     sendMessageLocal(wire::ChannelCloseMsg{
       .recipient_channel = channel_id_,
     });
-    break;
-  case ChannelIDState::Pending:
+
+    // Cancel all active ReadDisableHandle instances to try to make sure the local peer's reply to
+    // the ChannelClose will be read, otherwise the close timer could trigger a disconnect.
+    read_disable_cancel_callbacks_->runCallbacks();
+  } else if (prevState == ChannelIDState::Pending) {
     // If the remote peer has received a ChannelOpenConfirmation, but it has not yet forwarded it
     // to us, we need to send a ChannelClose message manually to the remote peer. If we cause the
     // channel open to fail and drop the ChannelOpenConfirmation, then we can no longer rely on the
@@ -533,10 +529,6 @@ void ConnectionService::ChannelCallbacksImpl::preempt(absl::Status err) {
       .recipient_channel = channel_id_,
     });
     // At this point the Channel and ChannelCallbacks are both deleted
-    break;
-  default:
-    // see ChannelIDManager::isPreemptable
-    IS_ENVOY_BUG(fmt::format("bug: invalid peer state for preempt: {}", prevState));
   }
 }
 
@@ -544,7 +536,7 @@ ReadDisableHandlePtr ConnectionService::ChannelCallbacksImpl::connectionReadDisa
   ASSERT(parent_.transport_.connectionDispatcher()->isThreadSafe());
   parent_.transport_.connectionReadDisable(true);
   read_disable_count_++;
-  return std::make_unique<ReadDisableHandleImpl>(connectionDispatcher(), [this] {
+  return std::make_unique<ReadDisableHandleImpl>(connectionDispatcher(), *read_disable_cancel_callbacks_, [this] {
     ASSERT(parent_.transport_.connectionDispatcher()->isThreadSafe());
 
     // may schedule a read io event for the next event loop cycle
