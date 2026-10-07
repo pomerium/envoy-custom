@@ -26,7 +26,8 @@ def _cxx_cross_libs_impl(rctx):
     rctx.execute(["mkdir", "lib"])
     rctx.execute(["mkdir", "include"])
     rctx.execute(["find", "%s/include" % prefix, "-type", "f", "-exec", "mv", "{}", "include/", ";"])
-    rctx.execute(["find", "%s/lib" % prefix, "-type", "f,l", "-exec", "mv", "{}", "lib/", ";"])
+    # Use portable syntax for finding both files and symlinks (macOS BSD find doesn't support -type f,l)
+    rctx.execute(["find", "%s/lib" % prefix, "(", "-type", "f", "-o", "-type", "l", ")", "-exec", "mv", "{}", "lib/", ";"])
 
     if rctx.attr.os == "macos":
         host_install_name_tool = Label("@llvm_macos_utils_%s//:bin/llvm-install-name-tool" % repo_utils.platform(rctx))
@@ -53,9 +54,10 @@ def _cxx_cross_libs_impl(rctx):
         if res.return_code != 0:
             fail("install_name_tool failed: %s" % res.stderr)
 
-        res = rctx.execute([
-            "sed",
-            "-i",
+        # macOS BSD sed requires an argument after -i (backup extension), while GNU sed does not
+        host_is_macos = repo_utils.platform(rctx).startswith("darwin")
+        sed_args = ["sed", "-i", ""] if host_is_macos else ["sed", "-i"]
+        res = rctx.execute(sed_args + [
             "s/#define _LIBCPP_HAS_VENDOR_AVAILABILITY_ANNOTATIONS 0/#define _LIBCPP_HAS_VENDOR_AVAILABILITY_ANNOTATIONS 1/",
             "include/__config_site",
         ])
