@@ -13,14 +13,13 @@ namespace test {
 SshConnectionDriver::SshConnectionDriver(Network::ClientConnectionPtr client_connection,
                                          Server::Configuration::ServerFactoryContext& context,
                                          std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                                         FakeUpstreamShim& mgmt_upstream)
+                                         FakeUpstreamShim& mgmt_upstream,
+                                         absl::Duration default_timeout)
     : TransportBase(context, config, *this),
       client_connection_(std::move(client_connection)),
-      mgmt_upstream_(mgmt_upstream) {
+      mgmt_upstream_(mgmt_upstream),
+      default_timeout_(absl::ToChronoMilliseconds(default_timeout)) {
   server_version_ = "SSH-2.0-SshConnectionDriver";
-  default_timeout_ = isDebuggerAttached()
-                       ? std::chrono::hours(10)
-                       : std::chrono::seconds(10);
 }
 
 void SshConnectionDriver::connect() {

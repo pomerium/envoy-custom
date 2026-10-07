@@ -51,9 +51,8 @@ enum class ChannelIDState {
   // all bound peers. If a released channel was previously bound with a local ID, it can still be
   // sent messages, but messages will not be sent by it.
   Released = 3,
-  // A channel becomes Preempted when a ChannelClose is sent from one side of the transport to
-  // its local peer. It exists in this state until a corresponding ChannelClose is received,
-  // at which point it transitions to Bereft.
+  // A channel becomes Preempted when calling ChannelIDManager::preempt(). It exists in this state
+  // until the channel is released, at which point it transitions to Bereft.
   // Transitioning from Bound to Preempted does not release the channel. A preempted channel must
   // still be released later for the ID to become freed.
   // Messages may only be sent to the peer for channels in this state until the next ChannelClose,
@@ -173,7 +172,7 @@ public:
   // that peer, and it is in either the Bound or Unbound states for the opposite peer.
   bool isPreemptable(uint32_t internal_id, Peer local_peer);
 
-  // Changes the peer state for a Bound or HalfBound channel to Preempted, and returns the previous
+  // Changes the peer state for a Bound or Pending channel to Preempted, and returns the previous
   // state. The Preempted state has the following effects:
   //
   // 1. Messages are allowed to be sent only until the next ChannelClose or ChannelOpenFailure
