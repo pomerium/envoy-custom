@@ -24,10 +24,11 @@ using ChannelMsgHandlerFunc = absl::AnyInvocable<absl::Status(wire::ChannelMessa
 using OnChannelDestroyedFunc = absl::AnyInvocable<void()>;
 
 struct SshFakeUpstreamHandlerOpts {
+
   absl::AnyInvocable<ChannelMsgHandlerFunc(wire::ChannelOpenMsg&)> on_channel_open_request;
   absl::AnyInvocable<ChannelMsgHandlerFunc(wire::ChannelOpenConfirmationMsg&)> on_channel_accepted;
   absl::AnyInvocable<ChannelMsgHandlerFunc(wire::ChannelOpenFailureMsg&)> on_channel_rejected;
-  absl::AnyInvocable<OnChannelDestroyedFunc(uint32_t)> on_channel_created;
+  absl::AnyInvocable<OnChannelDestroyedFunc(uint32_t, Envoy::Event::Dispatcher&, ChannelCallbacks&)> on_channel_created;
   absl::AnyInvocable<void(const wire::DisconnectMsg&)> on_disconnect;
 };
 
