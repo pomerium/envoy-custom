@@ -83,7 +83,7 @@ public:
   virtual testing::AssertionResult listenForSshConnection(std::shared_ptr<SshFakeUpstreamHandlerOpts> opts,
                                                           Server::Configuration::ServerFactoryContext& ctx) PURE;
 
-  virtual void cleanup() PURE;
+  virtual void cleanup(absl::Duration timeout) PURE;
 };
 
 class SshConnectionDriver : public Envoy::Network::ReadFilter,
@@ -95,7 +95,8 @@ public:
   SshConnectionDriver(Network::ClientConnectionPtr client_connection,
                       Server::Configuration::ServerFactoryContext& context,
                       std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                      FakeUpstreamShim& mgmt_upstream);
+                      FakeUpstreamShim& mgmt_upstream,
+                      absl::Duration default_timeout);
 
   void connect();
 

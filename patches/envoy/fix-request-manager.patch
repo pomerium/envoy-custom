@@ -1,0 +1,14 @@
+diff --git a/source/extensions/filters/network/generic_proxy/router/upstream.h b/source/extensions/filters/network/generic_proxy/router/upstream.h
+index e551596a224..62601408da5 100644
+--- a/source/extensions/filters/network/generic_proxy/router/upstream.h
++++ b/source/extensions/filters/network/generic_proxy/router/upstream.h
+@@ -140,8 +140,8 @@ public:
+ private:
+   Network::Connection& connection_;
+   Upstream::HostDescriptionConstSharedPtr host_;
+-  ClientCodecPtr client_codec_;
+   RequestManager request_manager_{};
++  ClientCodecPtr client_codec_;
+ };
+ 
+ class SharedRequestManager : Logger::Loggable<Logger::Id::upstream> {
