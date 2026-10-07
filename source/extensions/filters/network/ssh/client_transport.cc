@@ -40,6 +40,10 @@ SshClientTransport::SshClientTransport(
   outgoing_ext_info_ = std::move(extInfo);
 }
 
+SshClientTransport::~SshClientTransport() {
+  destroying_ = true;
+}
+
 void SshClientTransport::setCodecCallbacks(GenericProxy::ClientCodecCallbacks& callbacks) {
   TransportBase::setCodecCallbacks(callbacks);
   initServices();
@@ -259,11 +263,19 @@ stream_id_t SshClientTransport::streamId() const {
 
 void SshClientTransport::terminate(absl::Status err) {
   if (been_terminated_) {
+    ENVOY_LOG(debug, "terminate ignored: already called (error: {})", statusToString(err));
     return;
   }
   been_terminated_ = true;
-  ENVOY_LOG(error, "ssh: stream {} closing with error: {}", streamId(), statusToString(err));
 
+  // Some errors may normally trigger a call to terminate(), which forwards a disconnect message
+  // to the downstream. If such errors occur during teardown of the client transport however, we
+  // must avoid the call to onDecodingSuccess, as it would cause envoy to crash.
+  if (destroying_) {
+    ENVOY_LOG(debug, "terminate ignored: filter chain is being torn down (error: {})", statusToString(err));
+    return;
+  }
+  ENVOY_LOG(error, "ssh: stream {} closing with error: {}", streamId(), statusToString(err));
   wire::DisconnectMsg msg;
   msg.reason_code = openssh::statusCodeToDisconnectCode(err.code());
   msg.description = statusToString(err);

@@ -6,6 +6,8 @@
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/transport.h"
+#include <algorithm>
+#include <ranges>
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -313,7 +315,19 @@ ConnectionService::ChannelCallbacksImpl::ChannelCallbacksImpl(ConnectionService&
       local_peer_(local_peer),
       remote_peer_(local_peer == Downstream ? Upstream : Downstream),
       scope_(parent.transport_.statsScope().createScope("channel")),
-      interrupt_callbacks_(std::make_unique<Envoy::Common::CallbackManager<void, absl::Status, TransportCallbacks&>>()) {}
+      interrupt_callbacks_(std::make_unique<Envoy::Common::CallbackManager<void, absl::Status, TransportCallbacks&>>()),
+      channel_id_release_([this] {
+        channel_id_mgr_.releaseChannelID(channel_id_, local_peer_);
+      }),
+      post_filter_cleanup_checks_([this] {
+        // ReadDisableHandles must be directly tied to the lifetime of the channel filters which
+        // created them, because the last ReadDisableHandle to be destroyed triggers a callback
+        // that flushes a message queue, which requires the channel callbacks to be valid.
+        RELEASE_ASSERT(read_disable_count_ == 0 && (flush_queue_error_ || queued_remote_msgs_.empty()),
+                       fmt::format("bug: {} ReadDisableHandle instance(s) were leaked by {} channel filters ({} messages queued: {})",
+                                   read_disable_count_, local_peer_, queued_remote_msgs_.size(),
+                                   queued_remote_msgs_ | std::views::transform(&wire::Message::msg_type)));
+      }) {}
 
 void ConnectionService::ChannelCallbacksImpl::sendMessageLocal(wire::Message&& msg) {
   std::unique_ptr<Channel> deferredDelete;
@@ -486,14 +500,6 @@ void ConnectionService::ChannelCallbacksImpl::preempt(absl::Status err) {
     });
     break;
   case ChannelIDState::Pending:
-    // If a channel open confirmation/failure was never received, send a ChannelOpenFailure instead
-    // of ChannelClose.
-    ENVOY_LOG(debug, "ssh: stream {}: channel {} is not open yet, sending ChannelOpenFailure to {}",
-              streamId(), channel_id_, local_peer_);
-    sendMessageLocal(wire::ChannelOpenFailureMsg{
-      .recipient_channel = channel_id_,
-    });
-
     // If the remote peer has received a ChannelOpenConfirmation, but it has not yet forwarded it
     // to us, we need to send a ChannelClose message manually to the remote peer. If we cause the
     // channel open to fail and drop the ChannelOpenConfirmation, then we can no longer rely on the
@@ -517,6 +523,16 @@ void ConnectionService::ChannelCallbacksImpl::preempt(absl::Status err) {
       // If the channel accounting is done correctly, this should never fail
       ASSERT(stat.ok());
     }
+
+    // If a channel open confirmation/failure was never received, send a ChannelOpenFailure instead
+    // of ChannelClose. Note that this has to be done last, because the Channel and ChannelCallbacks
+    // will both be deleted before sendMessageLocal returns below.
+    ENVOY_LOG(debug, "ssh: stream {}: channel {} is not open yet, sending ChannelOpenFailure to {}",
+              streamId(), channel_id_, local_peer_);
+    sendMessageLocal(wire::ChannelOpenFailureMsg{
+      .recipient_channel = channel_id_,
+    });
+    // At this point the Channel and ChannelCallbacks are both deleted
     break;
   default:
     // see ChannelIDManager::isPreemptable
@@ -525,11 +541,16 @@ void ConnectionService::ChannelCallbacksImpl::preempt(absl::Status err) {
 }
 
 ReadDisableHandlePtr ConnectionService::ChannelCallbacksImpl::connectionReadDisable() {
+  ASSERT(parent_.transport_.connectionDispatcher()->isThreadSafe());
   parent_.transport_.connectionReadDisable(true);
   read_disable_count_++;
   return std::make_unique<ReadDisableHandleImpl>(connectionDispatcher(), [this] {
+    ASSERT(parent_.transport_.connectionDispatcher()->isThreadSafe());
+
+    // may schedule a read io event for the next event loop cycle
     parent_.transport_.connectionReadDisable(false);
-    RELEASE_ASSERT(read_disable_count_ > 0, "bug: ReadDisableHandle destroyed twice");
+
+    ASSERT(read_disable_count_ > 0);
     read_disable_count_--;
     // There may be (a small number of) queued outgoing remote messages that were held because
     // connectionReadDisable() was called by a channel filter from within onMessageForward().
@@ -567,19 +588,29 @@ void ConnectionService::ChannelCallbacksImpl::cleanup() {
   ASSERT(parent_.transport_.connectionDispatcher()->isThreadSafe());
   ENVOY_LOG(debug, "channel {}: cleanup", channel_id_);
   ASSERT(inserted());
-  channel_id_mgr_.releaseChannelID(channel_id_, local_peer_);
   removeFromList(parent_.channel_callbacks_);
 }
 
 absl::Status ConnectionService::ChannelCallbacksImpl::flushRemoteMsgQueue() {
+  ASSERT(parent_.transport_.connectionDispatcher()->isThreadSafe());
+  if (queued_remote_msgs_.empty()) {
+    return absl::OkStatus();
+  }
+  ENVOY_LOG(debug, "flushing remote message queue (size: {})", queued_remote_msgs_.size());
   while (!queued_remote_msgs_.empty()) {
     ENVOY_LOG(debug, "sending queued messsage to remote channel {}: {}",
               channel_id_, queued_remote_msgs_.front().msg_type());
     if (auto stat = sendMessageRemoteDirect(std::move(queued_remote_msgs_.front())); !stat.ok()) {
+      // If the queue was not flushed because of an error, it should not trigger the assert that
+      // would normally occur if the queue is not empty when this object is destroyed.
+      ENVOY_LOG(error, "failed to send queued message, remaining queue entries will be dropped: {}",
+                statusToString(stat));
+      flush_queue_error_ = true;
       return stat;
     }
     queued_remote_msgs_.pop_front();
   }
+  ENVOY_LOG(debug, "remote message queue flushed successfully");
   return absl::OkStatus();
 }
 

@@ -32,6 +32,7 @@ public:
   SshClientTransport(Envoy::Server::Configuration::ServerFactoryContext& context,
                      std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
                      const SecretsProvider& secrets_provider);
+  ~SshClientTransport();
   void setCodecCallbacks(GenericProxy::ClientCodecCallbacks& callbacks) override;
 
   void decode(Envoy::Buffer::Instance& buffer, bool end_stream) final;
@@ -76,6 +77,7 @@ private:
   bool upstream_is_direct_tcpip_{};
   bool response_stream_header_sent_{};
   bool been_terminated_{};
+  bool destroying_{};
   AuthInfoSharedPtr auth_info_;
 
   Envoy::OptRef<Envoy::Event::Dispatcher> connection_dispatcher_;

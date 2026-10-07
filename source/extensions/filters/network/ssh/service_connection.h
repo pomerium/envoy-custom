@@ -191,21 +191,18 @@ public:
     const Peer remote_peer_;
     bool did_forward_channel_open_{false};
     bool preempted_{false};
+    bool flush_queue_error_{false};
     Stats::ScopeSharedPtr scope_;
     Envoy::Event::TimerPtr close_timer_;
     Envoy::OptRef<ChannelStatsProvider> stats_provider_;
     std::unique_ptr<Envoy::Common::CallbackManager<void, absl::Status, TransportCallbacks&>> interrupt_callbacks_;
 
     // Order is very important here, filters_ must be destroyed before queued_remote_msgs_
-    // (see comment in onReadDisableHandleDestroyed())
+    // (see comment in onReadDisableHandleDestroyed()), and the channel id must be released after
+    // the remote message queue is flushed, which would occur during destruction of filters_.
+    const Envoy::Cleanup channel_id_release_;
     std::deque<wire::Message> queued_remote_msgs_;
-#ifndef NDEBUG
-    const Envoy::Cleanup debug_cleanup_{[this] {
-      ASSERT(read_disable_count_ == 0 && queued_remote_msgs_.empty(),
-             fmt::format("bug: {} ReadDisableHandle instance(s) were leaked by channel filters",
-                         read_disable_count_));
-    }};
-#endif
+    const Envoy::Cleanup post_filter_cleanup_checks_;
     std::vector<ChannelFilterPtr> filters_;
   };
 
