@@ -746,6 +746,22 @@ public:
   const std::string message_;
 };
 
+class Call : public Task<Call, Channel, Channel> {
+public:
+  Call(absl::AnyInvocable<void()> fn)
+      : fn_(std::move(fn)) {}
+  void start(Channel channel) override {
+    fn_();
+    taskSuccess(channel);
+  }
+  MiddlewareResult onMessageReceived(wire::Message&) override {
+    return Continue;
+  }
+
+private:
+  absl::AnyInvocable<void()> fn_;
+};
+
 } // namespace Tasks
 
 } // namespace test

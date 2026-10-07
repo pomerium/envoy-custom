@@ -42,24 +42,32 @@ struct codec_traits<SshFakeUpstreamHandlerCodec> {
 class FakeUpstreamChannel : public Channel,
                             public Envoy::Logger::Loggable<Envoy::Logger::Id::filter> {
 public:
-  FakeUpstreamChannel(uint32_t internal_id, // for logs and passing to on_channel_created
+  FakeUpstreamChannel(uint32_t channel_id,                  // for logs and passing to on_channel_created
+                      Envoy::Event::Dispatcher& dispatcher, // for passing to on_channel_created
                       ChannelMsgHandlerFunc msg_handler,
                       std::shared_ptr<SshFakeUpstreamHandlerOpts> handler_opts)
-      : msg_handler_(std::move(msg_handler)),
+      : channel_id_(channel_id),
+        dispatcher_(dispatcher),
+        msg_handler_(std::move(msg_handler)),
         handler_opts_(handler_opts) {
-    ENVOY_LOG(trace, "FakeUpstreamChannel {} created", internal_id);
-    if (handler_opts->on_channel_created) {
-      ENVOY_LOG(trace, "FakeUpstreamChannel {}: invoking on_channel_created");
-      on_channel_destroyed_ = handler_opts->on_channel_created(internal_id);
-    }
   }
 
   ~FakeUpstreamChannel() {
     if (on_channel_destroyed_) {
-      ENVOY_LOG(trace, "FakeUpstreamChannel {}: invoking on_channel_destroyed");
+      ENVOY_LOG(trace, "FakeUpstreamChannel {}: invoking on_channel_destroyed",
+                callbacks_->channelId());
       on_channel_destroyed_();
     }
     ENVOY_LOG(trace, "FakeUpstreamChannel destroyed");
+  }
+
+  void setChannelCallbacks(ChannelCallbacks& callbacks) override {
+    Channel::setChannelCallbacks(callbacks);
+    ENVOY_LOG(trace, "FakeUpstreamChannel {} created", channel_id_);
+    if (handler_opts_->on_channel_created) {
+      ENVOY_LOG(trace, "FakeUpstreamChannel {}: invoking on_channel_created", channel_id_);
+      on_channel_destroyed_ = handler_opts_->on_channel_created(channel_id_, dispatcher_, callbacks);
+    }
   }
 
   absl::Status readChannelOpen(wire::ChannelOpenMsg&& msg) override {
@@ -80,6 +88,8 @@ public:
     return msg_handler_(std::move(msg), *callbacks_);
   }
 
+  uint32_t channel_id_;
+  Envoy::Event::Dispatcher& dispatcher_;
   ChannelMsgHandlerFunc msg_handler_;
   std::shared_ptr<SshFakeUpstreamHandlerOpts> handler_opts_;
   absl::AnyInvocable<void()> on_channel_destroyed_;
