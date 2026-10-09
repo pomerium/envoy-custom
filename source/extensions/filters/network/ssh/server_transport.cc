@@ -40,8 +40,8 @@ void setRequestedServerName(const StreamInfo::FilterStateSharedPtr& filter_state
 }
 
 void setDownstreamSourceAddress(const StreamInfo::FilterStateSharedPtr& filter_state, const Network::Address::InstanceConstSharedPtr& addr) {
-  filter_state->setData(DownstreamSourceAddressFilterStateFactory::key(),
-                        std::make_shared<Network::AddressObject>(addr),
+  filter_state->setData(DownstreamSourceAddress::key(),
+                        std::make_shared<DownstreamSourceAddress>(addr),
                         StreamInfo::FilterState::StateType::ReadOnly,
                         StreamInfo::FilterState::LifeSpan::Request,
                         StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);

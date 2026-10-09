@@ -28,6 +28,7 @@ SshIntegrationTest::SshIntegrationTest(std::vector<std::string> ssh_routes, Netw
     // custom clusters
     for (const auto& route : ssh_routes) {
       auto c = ConfigHelper::buildStaticCluster("ssh_upstream_" + route, 0, localhost);
+      c.set_connection_pool_per_downstream_connection(true);
       c.mutable_per_connection_buffer_limit_bytes()->set_value(2 * wire::MaxPacketSize);
       bootstrap.mutable_static_resources()->add_clusters()->CopyFrom(c);
     }
