@@ -11,6 +11,45 @@
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
+class ReadDisableHandleImpl : public ReadDisableHandle {
+public:
+  ReadDisableHandleImpl(Envoy::Event::Dispatcher& dispatcher,
+                        Envoy::Common::CallbackManager<void>& cancel_manager,
+                        absl::AnyInvocable<void()> do_read_enable)
+      : dispatcher_(dispatcher),
+        do_read_enable_(std::move(do_read_enable)),
+        cancel_callback_handle_(cancel_manager.add([this] {
+          ASSERT(dispatcher_.isThreadSafe());
+          cancel();
+        })) {
+    ASSERT(dispatcher_.isThreadSafe());
+  }
+
+  ~ReadDisableHandleImpl() {
+    cancel();
+  }
+
+  // This can be called more than once. The callback is only removed from the manager when
+  // cancel_callback_handle_ is destroyed.
+  void cancel() {
+    ASSERT(dispatcher_.isThreadSafe());
+    if (do_read_enable_ == nullptr) {
+      return;
+    }
+    std::invoke(std::exchange(do_read_enable_, nullptr));
+  }
+
+private:
+  Envoy::Event::Dispatcher& dispatcher_;
+  absl::AnyInvocable<void()> do_read_enable_;
+  Envoy::Common::CallbackHandlePtr cancel_callback_handle_;
+};
+
+class NoopReadDisableHandle : public ReadDisableHandle {
+public:
+  ~NoopReadDisableHandle() {}
+};
+
 // ConnectionService
 
 ConnectionService::ConnectionService(
@@ -282,14 +321,17 @@ void ConnectionService::shutdown(absl::Status err) {
     transport_.terminate(err);
   });
 
-  for (auto& cb : channel_callbacks_) {
-    auto channelId = cb->channelId();
+  for (auto it = channel_callbacks_.begin(); it != channel_callbacks_.end();) {
+    auto next = std::next(it);
+    auto channelId = (*it)->channelId();
     if (!channelIdMgr.isPreemptable(channelId, local_peer_)) {
       ENVOY_LOG(debug, "ssh: stream {}: channel {} is not eligible for preemption, ignoring",
                 transport_.streamId(), channelId);
+      it = next;
       continue;
     }
-    cb->preempt(err);
+    (*it)->preempt(err);
+    it = next;
   }
 }
 
@@ -463,6 +505,7 @@ bool ConnectionService::ChannelCallbacksImpl::interruptChannel(absl::Status err)
   ENVOY_LOG(debug, "ssh: stream {}: interrupt requested for channel {} by a channel filter",
             parent_.transport_.streamId(), channel_id_);
   if (!channel_id_mgr_.isPreemptable(channel_id_, local_peer_)) {
+    ENVOY_LOG(debug, "not interrupting channel: the channel is not eligible for preemption");
     return false;
   }
   preempt(err);
@@ -473,7 +516,6 @@ void ConnectionService::ChannelCallbacksImpl::preempt(absl::Status err) {
   ASSERT(channel_id_mgr_.isPreemptable(channel_id_, local_peer_));
   ENVOY_LOG(debug, "ssh: stream {}: preempting channel {} (err: {})",
             streamId(), channel_id_, statusToString(err));
-  preempted_ = true;
   auto prevState = channel_id_mgr_.preempt(channel_id_, local_peer_);
 
   if (prevState == ChannelIDState::Bound) {
@@ -481,14 +523,14 @@ void ConnectionService::ChannelCallbacksImpl::preempt(absl::Status err) {
     // should be able to assume they can send messages locally before the channel is closed.
     runInterruptCallbacks(err);
 
+    // Cancel all active ReadDisableHandle instances to try to make sure the local peer's reply to
+    // the ChannelClose will be read, otherwise the close timer could trigger a disconnect.
+    read_disable_cancel_callbacks_->runCallbacks();
+
     // If the peer has received a channel open confirmation/failure, send a ChannelClose
     sendMessageLocal(wire::ChannelCloseMsg{
       .recipient_channel = channel_id_,
     });
-
-    // Cancel all active ReadDisableHandle instances to try to make sure the local peer's reply to
-    // the ChannelClose will be read, otherwise the close timer could trigger a disconnect.
-    read_disable_cancel_callbacks_->runCallbacks();
   } else if (prevState == ChannelIDState::Pending) {
     // If the remote peer has received a ChannelOpenConfirmation, but it has not yet forwarded it
     // to us, we need to send a ChannelClose message manually to the remote peer. If we cause the
@@ -528,6 +570,14 @@ void ConnectionService::ChannelCallbacksImpl::preempt(absl::Status err) {
 
 ReadDisableHandlePtr ConnectionService::ChannelCallbacksImpl::connectionReadDisable() {
   ASSERT(parent_.transport_.connectionDispatcher()->isThreadSafe());
+  if (server_draining_) {
+    ENVOY_LOG(debug, "not disabling reads: server is draining");
+    return std::make_unique<NoopReadDisableHandle>();
+  }
+  if (preempted_) {
+    ENVOY_LOG(debug, "not disabling reads: server is draining");
+    return std::make_unique<NoopReadDisableHandle>();
+  }
   parent_.transport_.connectionReadDisable(true);
   read_disable_count_++;
   return std::make_unique<ReadDisableHandleImpl>(connectionDispatcher(), *read_disable_cancel_callbacks_, [this] {
@@ -565,6 +615,16 @@ ReadDisableHandlePtr ConnectionService::ChannelCallbacksImpl::connectionReadDisa
       }
     }
   });
+}
+
+void ConnectionService::ChannelCallbacksImpl::onServerDraining() {
+  server_draining_ = true;
+  if (read_disable_count_ > 0) {
+    ENVOY_LOG(debug, "channel {}: re-enabling reads from {} connection due to server drain (previous count: {})",
+              channel_id_, local_peer_, read_disable_count_);
+    read_disable_cancel_callbacks_->runCallbacks();
+  }
+  ASSERT(read_disable_count_ == 0);
 }
 
 void ConnectionService::ChannelCallbacksImpl::cleanup() {
@@ -615,6 +675,11 @@ absl::Status UpstreamConnectionService::onServiceAccepted() {
 Envoy::Common::CallbackHandlePtr UpstreamConnectionService::onServerDraining(std::chrono::milliseconds,
                                                                              Envoy::Event::Dispatcher& dispatcher,
                                                                              std::function<void()> complete_cb) {
+  for (auto it = channel_callbacks_.begin(); it != channel_callbacks_.end();) {
+    auto next = std::next(it);
+    (*it)->onServerDraining();
+    it = next;
+  }
   dispatcher.post(std::move(complete_cb));
   return nullptr;
 }
@@ -995,6 +1060,11 @@ Envoy::Common::CallbackHandlePtr DownstreamConnectionService::onServerDraining(s
                                                                                Envoy::Event::Dispatcher& dispatcher,
                                                                                std::function<void()> complete_cb) {
   ENVOY_LOG(debug, "ssh: stream {}: handling graceful shutdown (delay: {})", transport_.streamId(), delay);
+  for (auto it = channel_callbacks_.begin(); it != channel_callbacks_.end();) {
+    auto next = std::next(it);
+    (*it)->onServerDraining();
+    it = next;
+  }
   shutdown(absl::UnavailableError("server shutting down"));
   return transport_.channelIdManager().startDrain(dispatcher, complete_cb);
 }

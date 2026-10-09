@@ -24,7 +24,7 @@ using ChannelMsgHandlerFunc = absl::AnyInvocable<absl::Status(wire::ChannelMessa
 using OnChannelDestroyedFunc = absl::AnyInvocable<void()>;
 
 struct SshFakeUpstreamHandlerOpts {
-
+  std::function<bool(uint32_t)> should_accept_channel = [](uint32_t) { return true; };
   absl::AnyInvocable<ChannelMsgHandlerFunc(wire::ChannelOpenMsg&)> on_channel_open_request;
   absl::AnyInvocable<ChannelMsgHandlerFunc(wire::ChannelOpenConfirmationMsg&)> on_channel_accepted;
   absl::AnyInvocable<ChannelMsgHandlerFunc(wire::ChannelOpenFailureMsg&)> on_channel_rejected;
