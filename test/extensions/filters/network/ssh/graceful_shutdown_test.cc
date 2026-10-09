@@ -5,7 +5,6 @@
 #include "gtest/gtest.h"
 #include "test/extensions/filters/network/ssh/ssh_task.h"
 #include "test/test_common/test_common.h"
-#include "test/extensions/filters/network/ssh/test_mocks.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 namespace test {
