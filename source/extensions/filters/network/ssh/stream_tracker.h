@@ -44,12 +44,22 @@ public:
   virtual Envoy::Common::CallbackHandlePtr onServerDraining(std::chrono::milliseconds delay, Envoy::Event::Dispatcher& dispatcher, std::function<void()> complete_cb) PURE;
 };
 
+namespace detail {
+enum StreamType {
+  Downstream = 0,
+  Upstream = 1,
+};
+}
+
 class StreamContext {
 public:
-  StreamContext(stream_id_t stream_id, Network::Connection& connection, StreamCallbacks& stream_callbacks, ChannelEventCallbacks& event_callbacks)
+  StreamContext(stream_id_t stream_id,
+                Network::Connection& downstream_connection,
+                StreamCallbacks& downstream_callbacks,
+                ChannelEventCallbacks& event_callbacks)
       : stream_id_(stream_id),
-        connection_(connection),
-        stream_callbacks_(stream_callbacks),
+        downstream_connection_(downstream_connection),
+        downstream_callbacks_(downstream_callbacks),
         event_callbacks_(event_callbacks) {}
   StreamContext(StreamContext&&) noexcept = default;
   StreamContext& operator=(StreamContext&&) noexcept = delete;
@@ -57,15 +67,28 @@ public:
   StreamContext& operator=(const StreamContext&) = delete;
 
   stream_id_t streamId() { return stream_id_; }
-  Network::Connection& connection() { return connection_; }
-  StreamCallbacks& streamCallbacks() { return stream_callbacks_; }
+  Network::Connection& downstreamConnection() { return downstream_connection_; }
+  StreamCallbacks& downstreamCallbacks() { return downstream_callbacks_; }
   ChannelEventCallbacks& eventCallbacks() { return event_callbacks_; }
+
+  void setUpstream(Network::Connection& connection, StreamCallbacks& callbacks) {
+    upstream_connection_.emplace(connection);
+    upstream_callbacks_.emplace(callbacks);
+  }
+  void clearUpstream() {
+    upstream_connection_.reset();
+    upstream_callbacks_.reset();
+  }
+  Envoy::OptRef<Network::Connection> upstreamConnection() { return upstream_connection_; }
+  Envoy::OptRef<StreamCallbacks> upstreamCallbacks() { return upstream_callbacks_; }
 
 private:
   stream_id_t stream_id_;
-  Network::Connection& connection_;
-  StreamCallbacks& stream_callbacks_;
+  Network::Connection& downstream_connection_;
+  StreamCallbacks& downstream_callbacks_;
   ChannelEventCallbacks& event_callbacks_;
+  Envoy::OptRef<Network::Connection> upstream_connection_;
+  Envoy::OptRef<StreamCallbacks> upstream_callbacks_;
 };
 
 #define ALL_STREAM_TRACKER_STATS(COUNTER, GAUGE, HISTOGRAM, TEXT_READOUT, STATNAME) \
@@ -104,6 +127,18 @@ public:
                                               ChannelEventCallbacks& event_callbacks,
                                               const std::function<void()>& on_sync_complete = nullptr);
 
+  // Attaches upstream connection and callbacks to an existing tracked stream, and returns a handle
+  // which removes the upstream info (but does not remove the tracked stream) when deleted. The
+  // caller must arrange for the handle to live no longer than the connection or the callback
+  // references passed to this function.
+  // This function must be called from the same thread as the given connection, and the stream
+  // handle must also be deleted in the same thread.
+  // If the stream does not exist or the downstream has been disconnected, this does nothing and
+  // returns a null stream handle.
+  [[nodiscard]] StreamHandlePtr setUpstream(stream_id_t stream_id,
+                                            Network::Connection& connection,
+                                            StreamCallbacks& stream_callbacks);
+
   StreamTrackerStats& stats() { return stats_; }
 
 private:
@@ -116,7 +151,8 @@ private:
     StreamTable data_;
   };
 
-  void onStreamEnd(stream_id_t stream_id);
+  void onDownstreamEnd(stream_id_t stream_id);
+  void onUpstreamEnd(stream_id_t stream_id);
   void startGracefulShutdown(std::chrono::milliseconds delay, std::function<void()> complete_cb);
 
   ThreadLocal::TypedSlot<ThreadLocalStreamTable> thread_local_stream_table_;
@@ -129,7 +165,7 @@ private:
   Envoy::Common::CallbackHandlePtr drain_mgr_cb_;
 
   absl::Mutex drain_cb_mu_;
-  std::unordered_map<stream_id_t, Envoy::Common::CallbackHandlePtr> channel_id_mgr_drain_cbs_ ABSL_GUARDED_BY(drain_cb_mu_);
+  std::map<std::pair<stream_id_t, detail::StreamType>, Envoy::Common::CallbackHandlePtr> channel_id_mgr_drain_cbs_ ABSL_GUARDED_BY(drain_cb_mu_);
   std::vector<Envoy::Event::PostCb> inflight_shutdown_guards_;
   bool shutdown_started_{false};
   bool shutdown_completed_{false};
@@ -152,9 +188,10 @@ public:
   stream_id_t streamId() const { return id_; }
 
 private:
-  StreamHandle(stream_id_t id, std::weak_ptr<StreamTracker> parent);
+  StreamHandle(stream_id_t id, detail::StreamType type, std::weak_ptr<StreamTracker> parent);
 
   stream_id_t id_;
+  detail::StreamType type_;
   std::weak_ptr<StreamTracker> parent_;
 };
 

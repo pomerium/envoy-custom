@@ -49,6 +49,13 @@ public:
              "expected channel count to equal {} (actual: callbacks={}, channels={})",
              count, channel_callbacks_.size(), channels_.size());
   }
+
+  Envoy::Common::CallbackHandlePtr onServerDraining(std::chrono::milliseconds,
+                                                    Envoy::Event::Dispatcher& dispatcher,
+                                                    std::function<void()> complete_cb) override {
+    dispatcher.post(complete_cb);
+    return nullptr;
+  }
 };
 
 class ConnectionServiceTest : public testing::TestWithParam<Peer> {
@@ -480,21 +487,31 @@ TEST_P(ConnectionServiceTest, InterruptInternalChannel) {
     .recipient_channel = id,
     .sender_channel = 1, // local peer's ID
   }));
-  EXPECT_CALL(transport_, sendMessageToConnection(MSG(wire::ChannelDataMsg,
-                                                      FIELD_EQ(recipient_channel, 1u),
-                                                      FIELD_EQ(data, "testing"_bytes))))
-    .WillOnce(Return(0));
-  EXPECT_CALL(transport_, sendMessageToConnection(MSG(wire::ChannelCloseMsg,
-                                                      FIELD_EQ(recipient_channel, 1u))))
-    .WillOnce(InvokeWithoutArgs([&]() {
-      EXPECT_OK(service_.handleMessage(wire::ChannelCloseMsg{
-        .recipient_channel = id,
+
+  bool close_sent{};
+  {
+    IN_SEQUENCE;
+    EXPECT_CALL(transport_, sendMessageToConnection(MSG(wire::ChannelDataMsg,
+                                                        FIELD_EQ(recipient_channel, 1u),
+                                                        FIELD_EQ(data, "testing"_bytes))))
+      .WillOnce(Return(0));
+    EXPECT_CALL(transport_, sendMessageToConnection(MSG(wire::ChannelCloseMsg,
+                                                        FIELD_EQ(recipient_channel, 1u))))
+      .WillOnce(InvokeWithoutArgs([&]() {
+        // shouldn't send the reply here because receiving the channel close will destroy the channel,
+        // but sendMessageLocal(ChannelCloseMsg) doesn't normally do that. The close message will be
+        // received separately.
+        close_sent = true;
+        return 0;
       }));
-      return 0;
-    }));
+  }
 
   ASSERT_TRUE(channel_id_manager_.isPreemptable(id, LocalPeer()));
   service_.GetChannelCallbacks(id).interruptChannel(absl::InternalError("test error"));
+  ASSERT_TRUE(close_sent);
+  EXPECT_OK(service_.handleMessage(wire::ChannelCloseMsg{
+    .recipient_channel = id,
+  }));
 }
 
 TEST_P(ConnectionServiceTest, InterruptLocalPassthroughChannelBeforeChannelOpenConfirmation) {
@@ -525,12 +542,13 @@ TEST_P(ConnectionServiceTest, InterruptLocalPassthroughChannelBeforeChannelOpenC
 
   // The local channel should be closed with a ChannelOpenFailure, and the remote channel should
   // be closed manually with a ChannelClose, since it would otherwise never receive one.
-  EXPECT_CALL(transport_, sendMessageToConnection(MSG(wire::ChannelOpenFailureMsg,
-                                                      FIELD_EQ(recipient_channel, 1u))))
-    .WillOnce(Return(0));
+  // The ChannelOpenFailure must be sent last because it will destroy the local channel.
   EXPECT_CALL(transport_, forward(MSG(wire::ChannelCloseMsg,
                                       FIELD_EQ(recipient_channel, 2u)),
                                   _));
+  EXPECT_CALL(transport_, sendMessageToConnection(MSG(wire::ChannelOpenFailureMsg,
+                                                      FIELD_EQ(recipient_channel, 1u))))
+    .WillOnce(Return(0));
 
   ASSERT_TRUE(channel_id_manager_.isPreemptable(100, LocalPeer()));
   service_.GetChannelCallbacks(100).interruptChannel(absl::InternalError("test error"));
@@ -581,18 +599,17 @@ TEST_P(ConnectionServiceTest, InterruptLocalPassthroughChannelAfterChannelOpenCo
     .WillOnce(Return(0));
   EXPECT_CALL(transport_, sendMessageToConnection(MSG(wire::ChannelCloseMsg,
                                                       FIELD_EQ(recipient_channel, 1u))))
-    .WillOnce(InvokeWithoutArgs([&]() {
-      EXPECT_OK(service_.handleMessage(wire::ChannelCloseMsg{
-        .recipient_channel = 100,
-      }));
-      return 0;
-    }));
+    .WillOnce(Return(0));
+
   EXPECT_CALL(transport_, forward(MSG(wire::ChannelCloseMsg,
                                       FIELD_EQ(recipient_channel, 2u)),
                                   _));
 
   ASSERT_TRUE(channel_id_manager_.isPreemptable(100, LocalPeer()));
   service_.GetChannelCallbacks(100).interruptChannel(absl::InternalError("test error"));
+  EXPECT_OK(service_.handleMessage(wire::ChannelCloseMsg{
+    .recipient_channel = 100,
+  }));
 }
 
 TEST_P(ConnectionServiceTest, InterruptRemotePassthroughChannel) {
@@ -636,18 +653,17 @@ TEST_P(ConnectionServiceTest, InterruptRemotePassthroughChannel) {
     .WillOnce(Return(0));
   EXPECT_CALL(transport_, sendMessageToConnection(MSG(wire::ChannelCloseMsg,
                                                       FIELD_EQ(recipient_channel, 1u))))
-    .WillOnce(InvokeWithoutArgs([&]() {
-      EXPECT_OK(service_.handleMessage(wire::ChannelCloseMsg{
-        .recipient_channel = internalChannel,
-      }));
-      return 0;
-    }));
+    .WillOnce(Return(0));
+
   EXPECT_CALL(transport_, forward(MSG(wire::ChannelCloseMsg,
                                       FIELD_EQ(recipient_channel, upstreamId)),
                                   _));
 
   ASSERT_TRUE(channel_id_manager_.isPreemptable(internalChannel, LocalPeer()));
   service_.GetChannelCallbacks(internalChannel).interruptChannel(absl::InternalError("test error"));
+  EXPECT_OK(service_.handleMessage(wire::ChannelCloseMsg{
+    .recipient_channel = internalChannel,
+  }));
 }
 
 TEST(ConnectionServiceMiscTest, TestForceCloseChannel_ReadChannelOpen) {

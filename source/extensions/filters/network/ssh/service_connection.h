@@ -38,44 +38,11 @@ public:
   // have not done so already (i.e. if the ChannelClose was received as an expected response to
   // one sent previously).
   absl::Status startChannel(std::unique_ptr<Channel> channel, StartChannelOpts opts = {}) final;
-  Envoy::Common::CallbackHandlePtr onServerDraining(std::chrono::milliseconds delay, Envoy::Event::Dispatcher& dispatcher, std::function<void()> complete_cb) final;
-
   absl::Status handleMessage(wire::Message&& ssh_msg) override;
   absl::Status maybeStartNonOwningPassthroughChannel(uint32_t internal_id);
   void registerMessageHandlers(SshMessageDispatcher& dispatcher) override;
+
   void shutdown(absl::Status err);
-
-  class ReadDisableHandleImpl : public ReadDisableHandle {
-  public:
-    ReadDisableHandleImpl(Envoy::Event::Dispatcher& dispatcher,
-                          Envoy::Common::CallbackManager<void>& cancel_manager,
-                          absl::AnyInvocable<void()> do_read_enable)
-        : dispatcher_(dispatcher),
-          do_read_enable_(std::move(do_read_enable)),
-          cancel_callback_handle_(cancel_manager.add([this] {
-            ASSERT(dispatcher_.isThreadSafe());
-            cancel();
-          })) {
-      ASSERT(dispatcher_.isThreadSafe());
-    }
-
-    ~ReadDisableHandleImpl() {
-      cancel();
-    }
-
-    void cancel() {
-      ASSERT(dispatcher_.isThreadSafe());
-      if (do_read_enable_ == nullptr) {
-        return;
-      }
-      std::invoke(std::exchange(do_read_enable_, nullptr));
-    }
-
-  private:
-    Envoy::Event::Dispatcher& dispatcher_;
-    absl::AnyInvocable<void()> do_read_enable_;
-    Envoy::Common::CallbackHandlePtr cancel_callback_handle_;
-  };
 
   class ChannelCallbacksImpl final : public ChannelCallbacks,
                                      public ChannelFilterCallbacks,
@@ -114,6 +81,7 @@ public:
       return *parent_.transport_.connectionDispatcher();
     }
     ReadDisableHandlePtr connectionReadDisable() override;
+    void onServerDraining();
 
   private:
     friend class ConnectionService;
@@ -203,6 +171,7 @@ public:
     const Peer remote_peer_;
     bool did_forward_channel_open_{false};
     bool preempted_{false};
+    bool server_draining_{false};
     bool flush_queue_error_{false};
     Stats::ScopeSharedPtr scope_;
     Envoy::Event::TimerPtr close_timer_;
@@ -265,6 +234,10 @@ public:
   void registerMessageHandlers(StreamMgmtServerMessageDispatcher& dispatcher) override;
   absl::Status handleMessage(Grpc::ResponsePtr<ServerMessage>&& message) override;
 
+  Envoy::Common::CallbackHandlePtr onServerDraining(std::chrono::milliseconds delay,
+                                                    Envoy::Event::Dispatcher& dispatcher,
+                                                    std::function<void()> complete_cb) override;
+
 private:
   void onStatsTimerFired();
 
@@ -279,10 +252,28 @@ private:
 class UpstreamConnectionService final : public ConnectionService,
                                         public UpstreamService {
 public:
-  UpstreamConnectionService(const ConnectionServiceOptions& options, UpstreamTransportCallbacks& callbacks)
-      : ConnectionService(options, callbacks, Peer::Upstream) {}
+  UpstreamConnectionService(const ConnectionServiceOptions& options,
+                            UpstreamTransportCallbacks& callbacks,
+                            std::shared_ptr<StreamTracker> stream_tracker)
+      : ConnectionService(options, callbacks, Peer::Upstream),
+        stream_tracker_(stream_tracker) {}
   absl::Status requestService() override;
   absl::Status onServiceAccepted() override;
+
+  void onStreamBegin(Network::Connection& connection) {
+    stream_handle_ = stream_tracker_->setUpstream(transport_.streamId(), connection, *this);
+  }
+  void onStreamEnd() {
+    stream_handle_.reset();
+  }
+
+  Envoy::Common::CallbackHandlePtr onServerDraining(std::chrono::milliseconds delay,
+                                                    Envoy::Event::Dispatcher& dispatcher,
+                                                    std::function<void()> complete_cb) override;
+
+private:
+  std::shared_ptr<StreamTracker> stream_tracker_;
+  std::unique_ptr<StreamHandle> stream_handle_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

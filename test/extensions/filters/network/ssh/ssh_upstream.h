@@ -73,13 +73,18 @@ public:
   absl::Status readChannelOpen(wire::ChannelOpenMsg&& msg) override {
     ENVOY_LOG(trace, "FakeUpstreamChannel {}: readChannelOpen called, replying with ChannelOpenConfirmation",
               callbacks_->channelId());
-    callbacks_->sendMessageLocal(
-      wire::ChannelOpenConfirmationMsg{
+    if (handler_opts_->should_accept_channel(msg.sender_channel)) {
+      callbacks_->sendMessageLocal(wire::ChannelOpenConfirmationMsg{
         .recipient_channel = msg.sender_channel,
         .sender_channel = callbacks_->channelId(),
         .initial_window_size = msg.initial_window_size,
         .max_packet_size = msg.max_packet_size,
       });
+    } else {
+      return callbacks_->sendMessageRemote(wire::ChannelOpenFailureMsg{
+        .recipient_channel = msg.sender_channel,
+      });
+    }
     return absl::OkStatus();
   }
 
@@ -158,6 +163,12 @@ protected:
   public:
     FakeUpstreamConnectionService(SshFakeUpstreamHandler& parent);
     absl::Status handleMessage(wire::Message&& msg) override;
+    Envoy::Common::CallbackHandlePtr onServerDraining(std::chrono::milliseconds,
+                                                      Envoy::Event::Dispatcher& dispatcher,
+                                                      std::function<void()> complete_cb) override {
+      dispatcher.post(complete_cb);
+      return nullptr;
+    }
 
   private:
     SshFakeUpstreamHandler& parent_;

@@ -1,3 +1,4 @@
+#include "envoy/common/optref.h"
 #include "source/extensions/filters/network/ssh/channel.h"
 #include "source/extensions/filters/network/ssh/common.h"
 #include "source/extensions/filters/network/ssh/stream_tracker.h"
@@ -39,18 +40,22 @@ TEST_F(StreamTrackerTest, FromContext) {
   ASSERT_EQ(st, st2);
 }
 
-class TestStreamCallbacks : public StreamCallbacks, public ChannelEventCallbacks {
+class MockStreamCallbacks : public StreamCallbacks {
 public:
-  virtual ~TestStreamCallbacks() = default;
   MOCK_METHOD(absl::Status, startChannel, (std::unique_ptr<Channel>, StreamCallbacks::StartChannelOpts));
-  MOCK_METHOD(void, sendChannelEvent, (const pomerium::extensions::ssh::ChannelEvent&));
-  MOCK_METHOD(void, onServerDraining, (std::chrono::milliseconds delay));
   MOCK_METHOD(Envoy::Common::CallbackHandlePtr, onServerDraining, (std::chrono::milliseconds, Envoy::Event::Dispatcher&, std::function<void()>));
 };
 
+class TestCallbacks : public MockStreamCallbacks, public ChannelEventCallbacks {
+public:
+  virtual ~TestCallbacks() = default;
+  MOCK_METHOD(absl::Status, startChannel, (std::unique_ptr<Channel>, StreamCallbacks::StartChannelOpts));
+  MOCK_METHOD(void, sendChannelEvent, (const pomerium::extensions::ssh::ChannelEvent&));
+};
+
 TEST_F(StreamTrackerTest, TryLock) {
-  auto testCallbacks1 = std::make_shared<TestStreamCallbacks>();
-  auto testCallbacks2 = std::make_shared<TestStreamCallbacks>();
+  auto testCallbacks1 = std::make_shared<TestCallbacks>();
+  auto testCallbacks2 = std::make_shared<TestCallbacks>();
 
   testing::NiceMock<Network::MockConnection> conn1;
   testing::NiceMock<Network::MockConnection> conn2;
@@ -67,9 +72,9 @@ TEST_F(StreamTrackerTest, TryLock) {
       CALLED;
       ASSERT_TRUE(sc.has_value());
       EXPECT_EQ(1, sc->streamId());
-      EXPECT_EQ(&sc->streamCallbacks(), &static_cast<StreamCallbacks&>(*testCallbacks1));
+      EXPECT_EQ(&sc->downstreamCallbacks(), &static_cast<StreamCallbacks&>(*testCallbacks1));
       EXPECT_EQ(&sc->eventCallbacks(), &static_cast<ChannelEventCallbacks&>(*testCallbacks1));
-      EXPECT_EQ(&sc->connection(), &static_cast<Network::Connection&>(conn1));
+      EXPECT_EQ(&sc->downstreamConnection(), &static_cast<Network::Connection&>(conn1));
     });
   });
   CHECK_CALLED({
@@ -132,12 +137,47 @@ TEST_F(StreamTrackerTest, TryLock) {
   });
 }
 
+TEST_F(StreamTrackerTest, SetUpstream) {
+  auto downstreamCallbacks = std::make_shared<TestCallbacks>();
+  auto upstreamCallbacks = std::make_shared<TestCallbacks>();
+
+  testing::NiceMock<Network::MockConnection> downstreamConn;
+  testing::NiceMock<Network::MockConnection> upstreamConn;
+
+  auto handle1 = st->onStreamBegin(1, downstreamConn, *downstreamCallbacks, *downstreamCallbacks);
+  ASSERT_EQ(1, active_streams_->value());
+  ASSERT_EQ(1, handle1->streamId());
+  st->tryLock(1, [](Envoy::OptRef<StreamContext> ctx) {
+    EXPECT_FALSE(ctx->upstreamCallbacks().has_value());
+    EXPECT_FALSE(ctx->upstreamConnection().has_value());
+  });
+  auto handle2 = st->setUpstream(1, upstreamConn, *upstreamCallbacks);
+  ASSERT_EQ(1, active_streams_->value()); // should not change
+  ASSERT_EQ(1, handle2->streamId());
+  st->tryLock(1, [&](Envoy::OptRef<StreamContext> ctx) {
+    EXPECT_TRUE(ctx->upstreamCallbacks().has_value());
+    EXPECT_TRUE(ctx->upstreamConnection().has_value());
+    EXPECT_EQ(ctx->upstreamCallbacks().ptr(), upstreamCallbacks.get());
+    EXPECT_EQ(ctx->upstreamConnection().ptr(), &upstreamConn);
+  });
+  handle2.reset();
+  ASSERT_EQ(1, active_streams_->value()); // should not change
+  st->tryLock(1, [&](Envoy::OptRef<StreamContext> ctx) {
+    EXPECT_FALSE(ctx->upstreamCallbacks().has_value());
+    EXPECT_EQ(&ctx->downstreamCallbacks(), downstreamCallbacks.get());
+    EXPECT_EQ(&ctx->downstreamConnection(), &downstreamConn);
+  });
+}
+
 // When onStreamBegin or onStreamEnd is called, a callback is posted to the main thread which
 // will broadcast the update to all worker threads. If the StreamTracker is destroyed or
 // threading is shut down before the main thread has a chance to run that callback, it should
 // do nothing. This should cover all branches in the main thread callbacks.
-class StreamTrackerShutdownTest : public testing::Test, public Envoy::Event::TestUsingSimulatedTime {
+class StreamTrackerShutdownTest : public testing::TestWithParam<bool>, public Envoy::Event::TestUsingSimulatedTime {
 public:
+  StreamTrackerShutdownTest()
+      : with_upstream_(GetParam()) {}
+
   void SetUp() {
     api_ = Api::createApiForTest();
     dispatcher_ = api_->allocateDispatcher("test_thread");
@@ -146,70 +186,102 @@ public:
     stream_tracker_ = StreamTracker::fromContext(context_);
   }
 
+  const bool with_upstream_;
+
   Api::ApiPtr api_;
   Envoy::Event::DispatcherPtr dispatcher_;
   testing::NiceMock<Server::Configuration::MockServerFactoryContext> context_;
 
   StreamTrackerSharedPtr stream_tracker_;
-  TestStreamCallbacks stream_callbacks_;
-  testing::NiceMock<Network::MockConnection> conn_;
+  TestCallbacks downstream_callbacks_;
+  TestCallbacks upstream_callbacks_;
+  testing::NiceMock<Network::MockConnection> downstream_conn_;
+  testing::NiceMock<Network::MockConnection> upstream_conn_;
 };
 
-TEST_F(StreamTrackerShutdownTest, OnStreamBegin_StreamTrackerDeleteRace) {
-  std::atomic_bool called{};
-  auto handle = stream_tracker_->onStreamBegin(1, conn_, stream_callbacks_, stream_callbacks_, [&called] {
-    called.store(true);
+TEST_P(StreamTrackerShutdownTest, OnStreamBegin_StreamTrackerDeleteRace) {
+  std::atomic_bool called_downstream{};
+  auto handle = stream_tracker_->onStreamBegin(1, downstream_conn_, downstream_callbacks_, downstream_callbacks_, [&called_downstream] {
+    called_downstream.store(true);
   });
+  StreamHandlePtr handle2;
+  if (with_upstream_) {
+    handle2 = stream_tracker_->setUpstream(1, upstream_conn_, upstream_callbacks_);
+  }
   // Destroy the stream tracker
   stream_tracker_.reset();
   dispatcher_->run(Envoy::Event::Dispatcher::RunType::Block);
-  EXPECT_FALSE(called);
+  EXPECT_FALSE(called_downstream);
 }
 
-TEST_F(StreamTrackerShutdownTest, OnStreamEnd_StreamTrackerDeleteRace) {
+TEST_P(StreamTrackerShutdownTest, OnStreamEnd_StreamTrackerDeleteRace) {
   std::atomic_bool called{};
-  auto handle = stream_tracker_->onStreamBegin(1, conn_, stream_callbacks_, stream_callbacks_, [&called] {
+  auto handle = stream_tracker_->onStreamBegin(1, downstream_conn_, downstream_callbacks_, downstream_callbacks_, [&called] {
     called.store(true);
   });
   dispatcher_->run(Envoy::Event::Dispatcher::RunType::Block);
   EXPECT_TRUE(called);
+
+  StreamHandlePtr handle2;
+  if (with_upstream_) {
+    handle2 = stream_tracker_->setUpstream(1, upstream_conn_, upstream_callbacks_);
+  }
+  dispatcher_->run(Envoy::Event::Dispatcher::RunType::Block);
   // Destroy the stream tracker
   handle.reset();
+  handle2.reset();
   stream_tracker_.reset();
   dispatcher_->run(Envoy::Event::Dispatcher::RunType::Block);
 }
 
-TEST_F(StreamTrackerShutdownTest, OnStreamBegin_ThreadLocalShutdownRace) {
+TEST_P(StreamTrackerShutdownTest, OnStreamBegin_ThreadLocalShutdownRace) {
   std::atomic_bool called{};
-  auto handle = stream_tracker_->onStreamBegin(1, conn_, stream_callbacks_, stream_callbacks_, [&called] {
+  auto handle = stream_tracker_->onStreamBegin(1, downstream_conn_, downstream_callbacks_, downstream_callbacks_, [&called] {
     called.store(true);
   });
+  StreamHandlePtr handle2;
+  if (with_upstream_) {
+    handle2 = stream_tracker_->setUpstream(1, upstream_conn_, upstream_callbacks_);
+  }
+
   // Shut down threading
   context_.threadLocal().shutdownGlobalThreading();
   dispatcher_->run(Envoy::Event::Dispatcher::RunType::Block);
   EXPECT_FALSE(called);
 }
 
-TEST_F(StreamTrackerShutdownTest, OnStreamEnd_ThreadLocalShutdownRace) {
+TEST_P(StreamTrackerShutdownTest, OnStreamEnd_ThreadLocalShutdownRace) {
   std::atomic_bool called{};
-  auto handle = stream_tracker_->onStreamBegin(1, conn_, stream_callbacks_, stream_callbacks_, [&called] {
+  auto handle = stream_tracker_->onStreamBegin(1, downstream_conn_, downstream_callbacks_, downstream_callbacks_, [&called] {
     called.store(true);
   });
   dispatcher_->run(Envoy::Event::Dispatcher::RunType::Block);
   EXPECT_TRUE(called);
+
+  StreamHandlePtr handle2;
+  if (with_upstream_) {
+    handle2 = stream_tracker_->setUpstream(1, upstream_conn_, upstream_callbacks_);
+  }
+  dispatcher_->run(Envoy::Event::Dispatcher::RunType::Block);
+
   // Shut down threading
   handle.reset();
   context_.threadLocal().shutdownGlobalThreading();
   dispatcher_->run(Envoy::Event::Dispatcher::RunType::Block);
 }
 
-class StreamTrackerThreadingTest : public testing::Test,
+INSTANTIATE_TEST_SUITE_P(StreamTrackerShutdown, StreamTrackerShutdownTest,
+                         testing::Values(false, true),
+                         TestParameterNames({"WithoutUpstream", "WithUpstream"}));
+
+class StreamTrackerThreadingTest : public testing::TestWithParam<bool>,
                                    public Envoy::Event::TestUsingSimulatedTime,
                                    public Thread::RealThreadsTestHelper {
 public:
   static constexpr size_t num_threads = 4;
   StreamTrackerThreadingTest()
-      : Envoy::Thread::RealThreadsTestHelper(num_threads) {
+      : Envoy::Thread::RealThreadsTestHelper(num_threads),
+        with_upstream_(GetParam()) {
     ON_CALL(context.server_factory_context_, threadLocal())
       .WillByDefault(testing::ReturnRef(tls()));
     ON_CALL(context.server_factory_context_, api()).WillByDefault(testing::ReturnRef(api()));
@@ -231,13 +303,15 @@ public:
     });
   }
 
+  const bool with_upstream_;
+
   std::shared_ptr<StreamTracker> stream_tracker_;
   testing::NiceMock<Server::Configuration::MockFactoryContext> context;
   Stats::GaugeOptConstRef active_streams_;
   Stats::CounterOptConstRef total_streams_;
 };
 
-TEST_F(StreamTrackerThreadingTest, ThreadSafety_Serial) {
+TEST_P(StreamTrackerThreadingTest, ThreadSafety_Serial) {
   // Test creating all streams at once and deleting all streams at once
 
   absl::Mutex mu;
@@ -249,20 +323,30 @@ TEST_F(StreamTrackerThreadingTest, ThreadSafety_Serial) {
 
   for (Envoy::Event::DispatcherPtr& thread_dispatcher : thread_dispatchers_) {
     thread_dispatcher->post([&] {
-      auto testCallbacks = std::make_shared<TestStreamCallbacks>();
-      testing::NiceMock<Network::MockConnection> conn;
-      ON_CALL(conn, dispatcher).WillByDefault(ReturnRef(*thread_dispatcher));
-      mu.Lock();
+      auto downstreamCallbacks = std::make_shared<TestCallbacks>();
+      auto upstreamCallbacks = std::make_shared<TestCallbacks>();
+      testing::NiceMock<Network::MockConnection> downstreamConn;
+      testing::NiceMock<Network::MockConnection> upstreamConn;
+      ON_CALL(downstreamConn, dispatcher).WillByDefault(ReturnRef(*thread_dispatcher));
+      ON_CALL(upstreamConn, dispatcher).WillByDefault(ReturnRef(*thread_dispatcher));
+      mu.lock();
       auto id = absl::Uniform<stream_id_t>(rng);
-      mu.Unlock();
+      mu.unlock();
       beginStreams.wait();
 
-      auto handle = stream_tracker_->onStreamBegin(id, conn, *testCallbacks, *testCallbacks);
+      auto handle = stream_tracker_->onStreamBegin(id, downstreamConn, *downstreamCallbacks, *downstreamCallbacks);
       EXPECT_EQ(id, handle->streamId());
+
+      StreamHandlePtr handle2;
+      if (with_upstream_) {
+        handle2 = stream_tracker_->setUpstream(id, upstreamConn, *upstreamCallbacks);
+        EXPECT_EQ(id, handle2->streamId());
+      }
       beginWait.DecrementCount();
 
       endStreams.wait();
       handle.reset();
+      handle2.reset();
       endWait.DecrementCount();
     });
   }
@@ -280,7 +364,7 @@ TEST_F(StreamTrackerThreadingTest, ThreadSafety_Serial) {
   EXPECT_EQ(num_threads, total_streams_->get().value());
 }
 
-TEST_F(StreamTrackerThreadingTest, ThreadSafety_Mixed) {
+TEST_P(StreamTrackerThreadingTest, ThreadSafety_Mixed) {
   // Test mixed create and delete operations at the same time
 
   absl::Mutex mu;
@@ -290,17 +374,33 @@ TEST_F(StreamTrackerThreadingTest, ThreadSafety_Mixed) {
   absl::BlockingCounter endWait(static_cast<int>(thread_dispatchers_.size()));
   for (Envoy::Event::DispatcherPtr& thread_dispatcher : thread_dispatchers_) {
     thread_dispatcher->post([&] {
-      auto testCallbacks = std::make_shared<TestStreamCallbacks>();
-      testing::NiceMock<Network::MockConnection> conn;
-      ON_CALL(conn, dispatcher).WillByDefault(ReturnRef(*thread_dispatcher));
-      mu.Lock();
+      auto downstreamCallbacks = std::make_shared<TestCallbacks>();
+      auto upstreamCallbacks = std::make_shared<TestCallbacks>();
+      testing::NiceMock<Network::MockConnection> downstreamConn;
+      testing::NiceMock<Network::MockConnection> upstreamConn;
+      ON_CALL(downstreamConn, dispatcher).WillByDefault(ReturnRef(*thread_dispatcher));
+      ON_CALL(upstreamConn, dispatcher).WillByDefault(ReturnRef(*thread_dispatcher));
+      mu.lock();
       auto id = absl::Uniform<stream_id_t>(rng);
-      mu.Unlock();
+      mu.unlock();
       beginStreams.wait();
 
       for (int i = 0; i < 100; i++) {
-        auto handle = stream_tracker_->onStreamBegin(id, conn, *testCallbacks, *testCallbacks);
-        EXPECT_NE(nullptr, handle); // let the handle go out of scope immediately
+        auto handle = stream_tracker_->onStreamBegin(id, downstreamConn, *downstreamCallbacks, *downstreamCallbacks);
+        StreamHandlePtr handle2;
+        EXPECT_NE(nullptr, handle);
+        if (with_upstream_) {
+          handle2 = stream_tracker_->setUpstream(id, upstreamConn, *upstreamCallbacks);
+          EXPECT_NE(nullptr, handle2);
+        }
+
+        if (i % 2 == 0) {
+          handle.reset();
+          handle2.reset();
+        } else {
+          handle2.reset();
+          handle.reset();
+        }
       }
 
       endWait.DecrementCount();
@@ -312,17 +412,17 @@ TEST_F(StreamTrackerThreadingTest, ThreadSafety_Mixed) {
   EXPECT_EQ(100 * num_threads, total_streams_->get().value());
 }
 
-TEST_F(StreamTrackerThreadingTest, ThreadSafety_TryLockRace) {
+TEST_P(StreamTrackerThreadingTest, ThreadSafety_TryLockRace) {
   // Ensure that if an active connection handle is deleted between the time it is fetched in tryLock
   // and the time the callback is invoked in the connection's thread, the callback will be passed
   // an empty context.
   absl::Notification handleCreated;
   absl::Notification destroyHandle;
   thread_dispatchers_[0]->post([&] {
-    auto testCallbacks = std::make_shared<TestStreamCallbacks>();
+    auto testCallbacks = std::make_shared<TestCallbacks>();
     testing::NiceMock<Network::MockConnection> conn;
     ON_CALL(conn, dispatcher).WillByDefault(ReturnRef(*thread_dispatchers_[0]));
-    auto testCallbacks1 = std::make_shared<TestStreamCallbacks>();
+    auto testCallbacks1 = std::make_shared<TestCallbacks>();
     testing::NiceMock<Network::MockConnection> conn1;
     auto handle1 = stream_tracker_->onStreamBegin(1, conn1, *testCallbacks1, *testCallbacks1);
     handleCreated.Notify();
@@ -358,13 +458,13 @@ TEST_F(StreamTrackerThreadingTest, ThreadSafety_TryLockRace) {
 
 struct TestThreadLocalData : ThreadLocal::ThreadLocalObject {
   testing::NiceMock<Network::MockConnection> conn;
-  std::shared_ptr<TestStreamCallbacks> callbacks;
+  std::shared_ptr<TestCallbacks> callbacks;
   stream_id_t id{};
 
   StreamHandlePtr handle_;
 };
 
-TEST_F(StreamTrackerThreadingTest, NonBlockingTryLock) {
+TEST_P(StreamTrackerThreadingTest, NonBlockingTryLock) {
   auto slot = ThreadLocal::TypedSlot<TestThreadLocalData>::makeUnique(tls());
 
   auto ids = std::make_shared<std::unordered_map<Envoy::Event::Dispatcher*, stream_id_t>>();
@@ -376,7 +476,7 @@ TEST_F(StreamTrackerThreadingTest, NonBlockingTryLock) {
   // Set up thread-local state on each worker
   slot->set([ids = std::shared_ptr<const std::unordered_map<Envoy::Event::Dispatcher*, stream_id_t>>(ids)](Envoy::Event::Dispatcher& d) {
     auto tld = std::make_shared<TestThreadLocalData>();
-    tld->callbacks = std::make_shared<TestStreamCallbacks>();
+    tld->callbacks = std::make_shared<TestCallbacks>();
     ON_CALL(tld->conn, dispatcher).WillByDefault(ReturnRef(d));
     tld->id = ids->at(&d);
     return tld;
@@ -440,6 +540,10 @@ TEST_F(StreamTrackerThreadingTest, NonBlockingTryLock) {
   // The tryLock events should all run (order is not guaranteed)
   endRunWait.Wait();
 }
+
+INSTANTIATE_TEST_SUITE_P(StreamTrackerThreading, StreamTrackerThreadingTest,
+                         testing::Values(false, true),
+                         TestParameterNames({"WithoutUpstream", "WithUpstream"}));
 
 } // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

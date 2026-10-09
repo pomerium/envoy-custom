@@ -78,7 +78,7 @@ public:
         server_host_key_(*openssh::SSHKey::generate(KEY_ED25519, 256)),
         downstream_client_key_(*openssh::SSHKey::generate(KEY_ED25519, 256)),
         secrets_provider_(*config_),
-        transport_(server_factory_context_, config_, secrets_provider_) {}
+        transport_(server_factory_context_, config_, std::make_shared<StreamTracker>(server_factory_context_), secrets_provider_) {}
 
   const wire::KexInitMsg kex_init_ = {
     .cookie = {{16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1}},
@@ -1286,6 +1286,12 @@ TEST_F(ClientTransportTest, DirectTcpipMode_WrongMessageTypeReceived) {
   GenericProxy::MockEncodingContext ctx;
   ASSERT_EQ(absl::InvalidArgumentError("unexpected message of type Debug (4) on direct-tcpip channel"),
             transport_.encode(frame, ctx).status());
+}
+
+TEST_F(ClientTransportTest, NoopConnectionCallbacksMethodsTest) {
+  // no-op Network::ConnectionCallbacks methods, for coverage only
+  transport_.onAboveWriteBufferHighWatermark();
+  transport_.onBelowWriteBufferLowWatermark();
 }
 
 } // namespace test

@@ -57,6 +57,15 @@ public:
   // be used to apply backpressure if the filter can't keep up, to avoid blocking the worker thread.
   // It is strongly recommended to accompany this with a separate timer to avoid keeping the
   // connection disabled for too long.
+  //
+  // If this is called from within onMessageForward(), the message that is currently being handled
+  // will not be forwarded until reads are re-enabled. The message will not be passed to
+  // onMessageForward() a second time.
+  //
+  // TODO: this is a bit of a hack. The proper way to support this would be to suppress channel
+  // window updates (the way it is handled for reverse tunnels) and use an internal buffer to allow
+  // other channels to receive messages, but we currently don't manage flow control ourselves for
+  // normal channels.
   [[nodiscard]]
   virtual ReadDisableHandlePtr connectionReadDisable() PURE;
 };

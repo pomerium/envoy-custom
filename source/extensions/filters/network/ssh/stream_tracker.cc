@@ -6,6 +6,8 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 SINGLETON_MANAGER_REGISTRATION(ssh_stream_tracker); // NOLINT
 
+using detail::StreamType;
+
 StreamTrackerSharedPtr StreamTracker::fromContext(Server::Configuration::ServerFactoryContext& context) {
   ASSERT_IS_MAIN_OR_TEST_THREAD();
   return context.singletonManager().getTyped<StreamTracker>(
@@ -98,15 +100,17 @@ void StreamTracker::startGracefulShutdown(std::chrono::milliseconds delay, std::
           [](Envoy::Event::Dispatcher*) {},
           [this, delay, wg](StreamContext& ctx) {
             auto id = ctx.streamId();
-            auto& dispatcher = ctx.connection().dispatcher();
+            auto& dispatcher = ctx.downstreamConnection().dispatcher();
 
-            auto handle = ctx.streamCallbacks().onServerDraining(
+            auto downstreamHandle = ctx.downstreamCallbacks().onServerDraining(
               delay, dispatcher,
               [this, wg, id, dispatcher = &dispatcher] {
-                ENVOY_LOG(info, "ssh: stream {}: shutdown complete", id);
-                drain_cb_mu_.Lock();
-                auto deferredDelete = channel_id_mgr_drain_cbs_.extract(id);
-                drain_cb_mu_.Unlock();
+                ENVOY_LOG(info, "ssh: stream {}: downstream shutdown complete", id);
+                drain_cb_mu_.lock();
+                auto deferredDelete = channel_id_mgr_drain_cbs_.extract({id, StreamType::Downstream});
+                drain_cb_mu_.unlock();
+                ASSERT(!deferredDelete.empty(), "do not invoke the callback directly, post it to the dispatcher instead");
+
                 // It is not safe to delete the callback handle from within the callback, as it can
                 // cause an internal deadlock in the ThreadSafeCallbackManager. Normally we can just
                 // ignore these handles, but they need to be explicitly deleted because the closure
@@ -114,10 +118,30 @@ void StreamTracker::startGracefulShutdown(std::chrono::milliseconds delay, std::
                 dispatcher->deferredDelete(std::make_unique<DeferredDeleteHandle>(std::move(deferredDelete.mapped())));
               });
 
+            // Do the same thing for the upstream, if available
+            std::optional<Envoy::Common::CallbackHandlePtr> upstreamHandle;
+            if (auto upstream = ctx.upstreamCallbacks(); upstream.has_value()) {
+              auto& dispatcher = ctx.upstreamConnection()->dispatcher();
+              upstreamHandle = ctx.upstreamCallbacks()->onServerDraining(
+                delay, dispatcher,
+                [this, wg, id, dispatcher = &dispatcher] {
+                  ENVOY_LOG(info, "ssh: stream {}: upstream shutdown complete", id);
+                  drain_cb_mu_.lock();
+                  auto deferredDelete = channel_id_mgr_drain_cbs_.extract({id, StreamType::Upstream});
+                  drain_cb_mu_.unlock();
+                  ASSERT(!deferredDelete.empty(), "do not invoke the callback directly, post it to the dispatcher instead");
+
+                  dispatcher->deferredDelete(std::make_unique<DeferredDeleteHandle>(std::move(deferredDelete.mapped())));
+                });
+            }
+
             // Note: order is important here when acquiring this lock.
-            drain_cb_mu_.Lock();
-            channel_id_mgr_drain_cbs_[id] = std::move(handle);
-            drain_cb_mu_.Unlock();
+            drain_cb_mu_.lock();
+            channel_id_mgr_drain_cbs_[{id, StreamType::Downstream}] = std::move(downstreamHandle);
+            if (upstreamHandle.has_value()) {
+              channel_id_mgr_drain_cbs_[{id, StreamType::Upstream}] = std::move(upstreamHandle).value();
+            }
+            drain_cb_mu_.unlock();
           });
       }
     },
@@ -146,12 +170,12 @@ void StreamTracker::tryLock(stream_id_t key, absl::AnyInvocable<void(Envoy::OptR
 }
 
 std::unique_ptr<StreamHandle> StreamTracker::onStreamBegin(stream_id_t stream_id,
-                                                           Network::Connection& connection,
-                                                           StreamCallbacks& stream_callbacks,
+                                                           Network::Connection& downstream_connection,
+                                                           StreamCallbacks& downstream_callbacks,
                                                            ChannelEventCallbacks& event_callbacks,
                                                            const std::function<void()>& on_sync_complete) {
   ASSERT(thread_local_stream_table_.get().has_value());
-  ASSERT(connection.dispatcher().isThreadSafe());
+  ASSERT(downstream_connection.dispatcher().isThreadSafe());
 
   ENVOY_LOG(debug, "tracking new ssh stream: id={}", stream_id);
   stats_.total_streams_.inc();
@@ -159,9 +183,9 @@ std::unique_ptr<StreamHandle> StreamTracker::onStreamBegin(stream_id_t stream_id
 
   // Note: stream IDs are random, not sequential
   thread_local_stream_table_->get()
-    .try_emplace(stream_id, StreamContext(stream_id, connection, stream_callbacks, event_callbacks));
+    .try_emplace(stream_id, StreamContext(stream_id, downstream_connection, downstream_callbacks, event_callbacks));
 
-  main_thread_dispatcher_.post([self = weak_from_this(), stream_id, dispatcher = &connection.dispatcher(), on_sync_complete] {
+  main_thread_dispatcher_.post([self = weak_from_this(), stream_id, dispatcher = &downstream_connection.dispatcher(), on_sync_complete] {
     auto st = self.lock();
     if (st == nullptr || st->thread_local_stream_table_.isShutdown()) {
       return;
@@ -175,10 +199,10 @@ std::unique_ptr<StreamHandle> StreamTracker::onStreamBegin(stream_id_t stream_id
       st->thread_local_stream_table_.runOnAllThreads(update, on_sync_complete);
     }
   });
-  return absl::WrapUnique(new StreamHandle(stream_id, weak_from_this()));
+  return absl::WrapUnique(new StreamHandle(stream_id, StreamType::Downstream, weak_from_this()));
 }
 
-void StreamTracker::onStreamEnd(stream_id_t stream_id) {
+void StreamTracker::onDownstreamEnd(stream_id_t stream_id) {
   ASSERT(thread_local_stream_table_.get().has_value());
   auto n = thread_local_stream_table_->get().erase(stream_id);
   ASSERT(n == 1);
@@ -197,14 +221,51 @@ void StreamTracker::onStreamEnd(stream_id_t stream_id) {
   });
 }
 
-StreamHandle::StreamHandle(stream_id_t id, std::weak_ptr<StreamTracker> parent)
+void StreamTracker::onUpstreamEnd(stream_id_t stream_id) {
+  ASSERT(thread_local_stream_table_.get().has_value());
+  auto& tab = thread_local_stream_table_->get();
+
+  auto&& it = tab.find(stream_id);
+  if (it != tab.end()) {
+    auto& ctx = std::get<StreamContext>(tab.at(stream_id));
+    ctx.clearUpstream();
+  }
+}
+
+StreamHandlePtr StreamTracker::setUpstream(stream_id_t stream_id,
+                                           Network::Connection& upstream_connection,
+                                           StreamCallbacks& upstream_callbacks) {
+  ASSERT(thread_local_stream_table_.get().has_value());
+  ASSERT(upstream_connection.dispatcher().isThreadSafe());
+
+  auto& tab = thread_local_stream_table_->get();
+  auto&& it = tab.find(stream_id);
+  if (it != tab.end()) {
+    // Because this must be the same thread that is handling the downstream, the variant will contain
+    // the stream context.
+    auto& ctx = std::get<StreamContext>(tab.at(stream_id));
+    ctx.setUpstream(upstream_connection, upstream_callbacks);
+    return absl::WrapUnique(new StreamHandle(stream_id, detail::Upstream, weak_from_this()));
+  }
+  return nullptr;
+}
+
+StreamHandle::StreamHandle(stream_id_t id, StreamType type, std::weak_ptr<StreamTracker> parent)
     : id_(id),
+      type_(type),
       parent_(std::move(parent)) {
 }
 
 StreamHandle::~StreamHandle() {
   if (auto st = parent_.lock(); st != nullptr) {
-    st->onStreamEnd(id_);
+    switch (type_) {
+    case StreamType::Downstream:
+      st->onDownstreamEnd(id_);
+      break;
+    case StreamType::Upstream:
+      st->onUpstreamEnd(id_);
+      break;
+    }
   }
 }
 

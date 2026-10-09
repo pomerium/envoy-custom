@@ -1268,8 +1268,8 @@ public:
           RemoteStreamHandler::detach(std::move(remoteStreamHandler));
           return;
         }
-        ASSERT(ctx->connection().dispatcher().isThreadSafe());
-        auto c = std::make_unique<InternalDownstreamChannel>(ctx->connection().dispatcher(),
+        ASSERT(ctx->downstreamConnection().dispatcher().isThreadSafe());
+        auto c = std::make_unique<InternalDownstreamChannel>(ctx->downstreamConnection().dispatcher(),
                                                              std::move(remoteStreamHandler),
                                                              ctx->eventCallbacks(),
                                                              hostContext->hostMetadata(),
@@ -1281,7 +1281,7 @@ public:
         // It's simpler for the channel to construct its own ChannelOpenMsg, otherwise we would have
         // to duplicate obtaining metadata and downstream address here, which the channel already
         // needs for other things. Setting channel_open below triggers the readChannelOpen callback.
-        auto stat = ctx->streamCallbacks().startChannel(
+        auto stat = ctx->downstreamCallbacks().startChannel(
           std::move(c),
           {
             .channel_open = wire::ChannelOpenMsg{},
