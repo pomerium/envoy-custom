@@ -882,6 +882,38 @@ TEST_P(ConnectionServiceTest, UnknownMessage) {
             service_.handleMessage(wire::KexInitMsg{}));
 }
 
+TEST_P(ConnectionServiceTest, SendMessageLocalWhileReadingChannelOpen) {
+  // calling sendMessageLocal with a ChannelOpenFailure message during readChannelOpen should
+  // correctly destroy the channel
+  auto ch1 = std::make_unique<testing::StrictMock<MockChannel>>();
+  ChannelCallbacks* callbacks{};
+  IN_SEQUENCE;
+  EXPECT_CALL(*ch1, setChannelCallbacks)
+    .WillOnce([&, ch1 = ch1.get()](ChannelCallbacks& cb) {
+      ch1->Channel::setChannelCallbacks(cb);
+      callbacks = &cb;
+    });
+  EXPECT_CALL(*ch1, readChannelOpen)
+    .WillOnce([&, ch1 = ch1.get()](wire::ChannelOpenMsg&&) {
+      callbacks->sendMessageLocal(wire::ChannelOpenFailureMsg{});
+      // sendMessageLocal shouldn't destroy the channel in this case, it should not be deleted
+      // until after readChannelOpen returns
+      EXPECT_CALL(*ch1, Die);
+      return absl::OkStatus();
+    });
+  EXPECT_CALL(transport_, sendMessageToConnection(MSG(wire::ChannelOpenFailureMsg, _)))
+    .WillOnce(Return(0));
+  ASSERT_OK(service_.startChannel(std::move(ch1), {
+                                                    .channel_open = wire::ChannelOpenMsg{
+                                                      .sender_channel = 1,
+                                                      .request = wire::SessionChannelOpenMsg{},
+                                                    },
+                                                  }));
+  testing::MockFunction<void()> check;
+  EXPECT_CALL(check, Call());
+  check.Call();
+}
+
 TEST_P(ConnectionServiceTest, PreemptChannelCloseSequenceLocal) {
   EXPECT_CALL(transport_, streamId)
     .WillRepeatedly(Return(1));
@@ -1463,6 +1495,9 @@ TEST_P(ChannelOpenLocalPreemptRaceTest, TestPreemptDuringChannelOpen) {
                                                      .request = wire::SessionChannelOpenMsg{},
                                                    }}));
   // At this point, the channel should have been destroyed and its ID should be freed.
+  testing::MockFunction<void()> check;
+  EXPECT_CALL(check, Call());
+  check.Call();
   EXPECT_FALSE(channel_id_manager_.owner(internal_id_).has_value());
 }
 
@@ -1503,6 +1538,9 @@ TEST_P(ChannelOpenLocalPreemptRaceTest, TestPreemptAndErrorDuringChannelOpen) {
                                                      .request = wire::SessionChannelOpenMsg{},
                                                    }}));
   // At this point, the channel should have been destroyed and its ID should be freed.
+  testing::MockFunction<void()> check;
+  EXPECT_CALL(check, Call());
+  check.Call();
   EXPECT_FALSE(channel_id_manager_.owner(internal_id_).has_value());
 }
 
@@ -1555,6 +1593,9 @@ TEST_P(ChannelOpenLocalPreemptRaceTest, TestChannelAlreadySentFailureOnChannelOp
                                                      .request = wire::SessionChannelOpenMsg{},
                                                    }}));
   // At this point, the channel should have been destroyed and its ID should be freed.
+  testing::MockFunction<void()> check;
+  EXPECT_CALL(check, Call());
+  check.Call();
   EXPECT_FALSE(channel_id_manager_.owner(internal_id_).has_value());
 }
 

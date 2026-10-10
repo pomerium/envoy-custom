@@ -354,6 +354,10 @@ testing::AssertionResult SshConnectionDriver::wait(UntypedTaskCallbacksHandle& h
     connectionDispatcher()->run(Envoy::Event::Dispatcher::RunType::RunUntilExit);
     if (weak_token.expired()) {
       timeout->disableTimer();
+      if (!testing::Test::HasFailure()) {
+        // If everything succeeded, run the dispatcher again to flush any pending events
+        connectionDispatcher()->run(Envoy::Event::Dispatcher::RunType::NonBlock);
+      }
       return AssertionResult(!testing::Test::HasFailure());
     }
     if (timed_out) {
@@ -391,6 +395,7 @@ SshConnectionDriver::TaskCallbacksImpl::TaskCallbacksImpl(SshConnectionDriver& d
 }
 
 void SshConnectionDriver::TaskCallbacksImpl::taskSuccess(std::any output, std::function<void(const std::any&, void*)> apply_fn) {
+  ENVOY_LOG(trace, "task success (name: {})", task_->name());
   RELEASE_ASSERT(!testing::Test::HasFailure(), "");
   if (timeout_timer_ != nullptr) {
     timeout_timer_->disableTimer();
@@ -410,6 +415,7 @@ void SshConnectionDriver::TaskCallbacksImpl::taskSuccess(std::any output, std::f
 }
 
 void SshConnectionDriver::TaskCallbacksImpl::taskFailure(absl::Status stat) {
+  ENVOY_LOG(trace, "task failure (name: {}, err: {})", task_->name(), stat);
   if (timeout_timer_ != nullptr) {
     timeout_timer_->disableTimer();
   }
@@ -434,6 +440,7 @@ openssh::SSHKey& SshConnectionDriver::clientKey() {
 }
 
 void SshConnectionDriver::TaskCallbacksImpl::setTimeout(std::chrono::milliseconds timeout, std::optional<std::string> name) {
+  ENVOY_LOG(trace, "setting timeout: (task name: {}, timeout name: {}, duration: {})", task_->name(), name, timeout);
   if (timeout_timer_ != nullptr) {
     timeout_timer_->disableTimer();
   }

@@ -69,6 +69,7 @@ http_archive(
         "//patches/envoy:fix-allow-dev-shm.patch",  # exists in upstream main but not in 1.38.x
         "//patches/envoy:fix-lua-wrappers-test.patch",  # https://github.com/envoyproxy/envoy/pull/45665
         "//patches/envoy:fix-request-manager.patch",
+        "//patches/envoy:fix-frame-handlers.patch",
     ],
     sha256 = "f9c679f4e6b40eb3acdd864249b62c24da64be3bd7c02abf8be75d02f56ad415",
     strip_prefix = "envoy-" + envoy_version,

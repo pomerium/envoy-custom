@@ -11,6 +11,9 @@
 #include "absl/synchronization/notification.h"
 #include "gtest/gtest.h"
 
+namespace Envoy {
+class WaitForPayloadReader;
+}
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 using testing::AssertionResult;
@@ -184,7 +187,7 @@ protected:
   }
 
   stream_id_t streamId() const override {
-    return 42; // unused, except in logs
+    return 24; // unused, except in logs
   }
 
   void onKexCompleted(std::shared_ptr<KexResult> kex_result, bool initial_kex) override;

@@ -135,26 +135,8 @@ TEST_P(GracefulShutdownIntegrationTest, ServerDrainThenShutdown) {
   ASSERT_TRUE(driver_->wait(th));
 }
 
-class WaitForChannelCloseAndDoNotReply : public Task<WaitForChannelCloseAndDoNotReply, Tasks::Channel, Tasks::Channel> {
-public:
-  void start(Tasks::Channel channel) override {
-    channel_ = channel;
-    setChannelFilter(channel);
-    callbacks_->setTimeout(default_timeout_, "WaitForChannelCloseAndDoNotReply");
-  }
-  MiddlewareResult onMessageReceived(wire::Message& msg) override {
-    return msg.visit(
-      [&](const wire::ChannelCloseMsg&) {
-        taskSuccess(channel_);
-        return Break;
-      },
-      DEFAULT_CONTINUE);
-  }
-  Tasks::Channel channel_{};
-};
-
 TEST_P(GracefulShutdownIntegrationTest, ServerShutdown_CloseTimeout) {
-  auto th = driver_->createTask<WaitForChannelCloseAndDoNotReply>()
+  auto th = driver_->createTask<Tasks::WaitForChannelCloseAndDoNotReply>()
               .then(driver_->createTask<Tasks::WaitForDisconnectWithError>("timed out waiting for channel close response from Downstream"))
               .start(channel_);
   EXPECT_CALL(channel_recv_, Call(MSG(wire::ChannelCloseMsg, _)))

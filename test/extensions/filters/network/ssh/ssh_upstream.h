@@ -81,7 +81,7 @@ public:
         .max_packet_size = msg.max_packet_size,
       });
     } else {
-      return callbacks_->sendMessageRemote(wire::ChannelOpenFailureMsg{
+      callbacks_->sendMessageLocal(wire::ChannelOpenFailureMsg{
         .recipient_channel = msg.sender_channel,
       });
     }
@@ -102,6 +102,7 @@ public:
 
 class SshFakeUpstreamHandler : public SecretsProviderImpl,
                                public FakeSshUpstreamCallbacks,
+                               public FakeSshUpstreamHandlerApi,
                                public Envoy::Network::ConnectionCallbacks,
                                public Envoy::Event::DispatcherThreadDeletable,
                                public TransportBase<SshFakeUpstreamHandlerCodec> {
@@ -145,6 +146,10 @@ public:
     user_auth_service_ = std::make_unique<FakeUpstreamUserAuthService>(*this);
     read_filter_ = std::make_shared<ReadFilter>(*this);
     connection.addReadFilter(read_filter_);
+
+    if (opts_->set_upstream_api) {
+      opts_->set_upstream_api(*this);
+    }
   }
 
   void onEvent(Envoy::Network::ConnectionEvent event) override {
@@ -158,6 +163,16 @@ public:
   void onAboveWriteBufferHighWatermark() override {}
   void onBelowWriteBufferLowWatermark() override {}
 
+  void requestChannelOpen() override {
+    connection_service_->requestChannelOpen();
+  }
+
+  void closeConnection(Network::ConnectionCloseType type) override {
+    connection_->dispatcher().post([this, type] {
+      connection_->close(type);
+    });
+  }
+
 protected:
   class FakeUpstreamConnectionService : public ConnectionService {
   public:
@@ -168,6 +183,23 @@ protected:
                                                       std::function<void()> complete_cb) override {
       dispatcher.post(complete_cb);
       return nullptr;
+    }
+
+    void requestChannelOpen() {
+      parent_.dispatcher_->post([this] {
+        auto internalId = *transport_.channelIdManager()
+                             .allocateNewChannel(Peer::Downstream);
+
+        wire::ChannelOpenMsg open{
+          .sender_channel = internalId,
+          .initial_window_size = wire::ChannelWindowSize,
+          .max_packet_size = wire::ChannelMaxPacketSize,
+          .request = wire::ForwardedTcpipChannelOpenMsg{
+            .originator_address = "127.0.0.1"s,
+          },
+        };
+        THROW_IF_NOT_OK(transport_.sendMessageToConnection(std::move(open)).status());
+      });
     }
 
   private:
