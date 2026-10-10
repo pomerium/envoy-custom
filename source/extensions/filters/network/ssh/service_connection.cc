@@ -136,9 +136,8 @@ absl::Status ConnectionService::startChannel(std::unique_ptr<Channel> channel, S
     }
 
     auto stat = channel->readChannelOpen(std::move(opts.channel_open).value());
-    auto preempted = channelCallbacks->preempted();
-    if (!stat.ok() || preempted) {
-      // In either of these cases, the channel will be destroyed when this function returns. Before
+    if (!stat.ok() || channelCallbacks->preempted() || channelCallbacks->pendingDelete()) {
+      // In any of these cases, the channel will be destroyed when this function returns. Before
       // doing so, we may need to release the remote peer's channel ID. If the channel expected
       // to send a ChannelOpen message to the remote peer, but did not get a chance to, the remote
       // peer's channel ID state would be stuck in Pending indefinitely.
@@ -146,7 +145,9 @@ absl::Status ConnectionService::startChannel(std::unique_ptr<Channel> channel, S
       // Check if we need to send a ChannelOpenFailure locally. This relies on isPreemptable which
       // would be affected by releasing the remote peer's ID, so do this first. isPreemptable is
       // used because it indicates if sending a ChannelOpenFailure would be valid in the current
-      // state, as that is what happens when preempting a pending channel.
+      // state, as that is what happens when preempting a pending channel. Note that even if the
+      // channel was not preempted, if it was in the Pending state and had a ChannelOpenFailure
+      // sent to it for another reason, that still makes it ineligible for preemption.
       if (channelIdManager.peerState(*channelId, local_peer_) == ChannelIDState::Pending &&
           channelIdManager.isPreemptable(*channelId, local_peer_)) {
         // If opening the channel failed, and the channel wasn't preempted (which would have sent
@@ -372,7 +373,12 @@ void ConnectionService::ChannelCallbacksImpl::sendMessageLocal(wire::Message&& m
       msg.recipient_channel = channel_id_;
       auto sendOk = channel_id_mgr_.processOutgoingChannelMsg(msg, local_peer_);
       // This should always succeed, since we just set the recipient_channel ourselves.
-      THROW_IF_NOT_OK(sendOk.status());
+      if (!sendOk.ok()) {
+        // The only way to get here would be to send a ChannelClose instead of a ChannelOpenFailure
+        IS_ENVOY_BUG(statusToString(sendOk.status()));
+        return false;
+      }
+
       if (!*sendOk) {
         return false;
       }
@@ -397,10 +403,14 @@ void ConnectionService::ChannelCallbacksImpl::sendMessageLocal(wire::Message&& m
     [&](wire::ChannelOpenFailureMsg& msg) {
       msg.recipient_channel = channel_id_;
       auto sendOk = channel_id_mgr_.processOutgoingChannelMsg(msg, local_peer_);
-      // This should always succeed, since we just set the recipient_channel ourselves.
+      // This should always succeed, since we just set the recipient_channel ourselves and it is
+      // not possible to send two ChannelOpenFailure messages in succession.
       THROW_IF_NOT_OK(sendOk.status());
 
       if (!*sendOk) {
+        // The only way to get here would be to send a ChannelClose then a ChannelOpenFailure
+        parent_.transport_.terminate(absl::InternalError(
+          fmt::format("invalid message received: {}", msg.msg_type())));
         return false;
       }
 
@@ -416,6 +426,14 @@ void ConnectionService::ChannelCallbacksImpl::sendMessageLocal(wire::Message&& m
       // stored yet. If so, the caller must arrange for the Channel to be deleted.
       if (auto ch = parent_.channels_.extract(channel_id_); !ch.empty()) {
         deferredDelete.swap(ch.mapped());
+      } else {
+        // This needs its own flag separate from preempted_, since preempted_ is used in other
+        // places and doesn't always imply that a ChannelOpenFailure was sent.
+        // If the caller is readChannelOpen, then preempted_=true _does_ imply a ChannelOpenFailure
+        // was sent, but the converse is not necessarily true. Preemption is not the only way for
+        // this to be reached, so it is not sufficient for readChannelOpen to check if the channel
+        // was preempted in order to detect this state.
+        pending_delete_ = true;
       }
 
       return true;
@@ -516,6 +534,7 @@ void ConnectionService::ChannelCallbacksImpl::preempt(absl::Status err) {
   ASSERT(channel_id_mgr_.isPreemptable(channel_id_, local_peer_));
   ENVOY_LOG(debug, "ssh: stream {}: preempting channel {} (err: {})",
             streamId(), channel_id_, statusToString(err));
+  preempted_ = true;
   auto prevState = channel_id_mgr_.preempt(channel_id_, local_peer_);
 
   if (prevState == ChannelIDState::Bound) {
@@ -575,7 +594,7 @@ ReadDisableHandlePtr ConnectionService::ChannelCallbacksImpl::connectionReadDisa
     return std::make_unique<NoopReadDisableHandle>();
   }
   if (preempted_) {
-    ENVOY_LOG(debug, "not disabling reads: server is draining");
+    ENVOY_LOG(debug, "not disabling reads: channel was preempted");
     return std::make_unique<NoopReadDisableHandle>();
   }
   parent_.transport_.connectionReadDisable(true);

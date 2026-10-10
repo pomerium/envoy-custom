@@ -122,7 +122,8 @@ public:
   UntypedTaskCallbacksHandle& untyped_;
 };
 
-class UntypedTask : public SshMessageMiddleware {
+class UntypedTask : public SshMessageMiddleware,
+                    public Envoy::Logger::Loggable<Envoy::Logger::Id::testing> {
   friend class SshConnectionDriver;
   template <typename, typename, typename>
   friend class Task;
@@ -169,6 +170,7 @@ protected:
 
 private:
   void startInternalUntyped(std::any input) {
+    ENVOY_LOG(trace, "task started: {}", name());
     startUntyped(std::move(input));
     if (testing::Test::HasFailure()) {
       taskFailure(absl::InternalError(fmt::format("task failed via assertion ({})", errorDetails())));
@@ -274,7 +276,13 @@ public:
 
 private:
   Task() {
-    setName(std::string(type_name<CRTP>()));
+    auto namespaceName = type_name<UntypedTask>();
+    namespaceName.remove_suffix("UntypedTask"sv.size());
+    auto name = type_name<CRTP>();
+    if (name.starts_with(namespaceName)) {
+      name.remove_prefix(namespaceName.size());
+    }
+    setName(std::string(name));
   }
 };
 
@@ -503,6 +511,26 @@ public:
   const ExpectSuccess expect_success_;
 };
 
+class SendChannelOpenAndDoNotWait : public Task<SendChannelOpenAndDoNotWait, void> {
+public:
+  SendChannelOpenAndDoNotWait(uint32_t local_channel_id)
+      : local_channel_id_(local_channel_id) {}
+
+  void start() override {
+    callbacks_->sendMessage(wire::ChannelOpenMsg{
+      .sender_channel = local_channel_id_,
+      .initial_window_size = wire::ChannelWindowSize,
+      .max_packet_size = wire::ChannelMaxPacketSize,
+      .request = wire::SessionChannelOpenMsg{},
+    });
+    taskSuccess();
+  }
+  MiddlewareResult onMessageReceived(wire::Message&) override {
+    return Continue;
+  }
+  const uint32_t local_channel_id_;
+};
+
 class WaitForChannelData : public Task<WaitForChannelData, Channel, Channel> {
 public:
   explicit WaitForChannelData(const std::string& expected_data)
@@ -680,6 +708,24 @@ public:
   Channel channel_{};
 };
 
+class WaitForChannelCloseAndDoNotReply : public Task<WaitForChannelCloseAndDoNotReply, Tasks::Channel, Tasks::Channel> {
+public:
+  void start(Tasks::Channel channel) override {
+    channel_ = channel;
+    setChannelFilter(channel);
+    callbacks_->setTimeout(default_timeout_, "WaitForChannelCloseAndDoNotReply");
+  }
+  MiddlewareResult onMessageReceived(wire::Message& msg) override {
+    return msg.visit(
+      [&](const wire::ChannelCloseMsg&) {
+        taskSuccess(channel_);
+        return Break;
+      },
+      DEFAULT_CONTINUE);
+  }
+  Tasks::Channel channel_{};
+};
+
 class SendChannelCloseAndWait : public Task<SendChannelCloseAndWait, Channel> {
 public:
   SendChannelCloseAndWait(SendEOF send_eof = SendEOF(false), ExpectEOF expect_eof = ExpectEOF::Optional)
@@ -719,6 +765,27 @@ public:
   const SendEOF send_eof_;
   bool eof_received_{false};
   const ExpectEOF eof_requirement_;
+};
+
+class SendChannelCloseAndDoNotWait : public Task<SendChannelCloseAndDoNotWait, Channel> {
+public:
+  SendChannelCloseAndDoNotWait(SendEOF send_eof = SendEOF(false))
+      : send_eof_(send_eof) {}
+  void start(Channel channel) override {
+    if (send_eof_ == SendEOF(true)) {
+      callbacks_->sendMessage(wire::ChannelEOFMsg{
+        .recipient_channel = channel.remote_id,
+      });
+    }
+    callbacks_->sendMessage(wire::ChannelCloseMsg{
+      .recipient_channel = channel.remote_id,
+    });
+    taskSuccess();
+  }
+  MiddlewareResult onMessageReceived(wire::Message&) override {
+    return Continue;
+  }
+  const SendEOF send_eof_;
 };
 
 class WaitForDisconnectWithError : public Task<WaitForDisconnectWithError> {

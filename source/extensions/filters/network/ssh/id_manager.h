@@ -1,6 +1,5 @@
 #pragma once
 
-#include "fmt/args.h"
 #include "source/common/id_alloc.h"
 #include "source/extensions/filters/network/ssh/common.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
@@ -79,31 +78,10 @@ struct PeerLocalID {
 struct InternalChannelInfo {
   std::array<std::optional<uint32_t>, 2> peer_ids;
   std::array<ChannelIDState, 2> peer_states;
-
-  std::array<bool, 2> preempted_closed{};
   Peer owner{};
 };
 
-constexpr auto format_as(const InternalChannelInfo& info) {
-  fmt::dynamic_format_arg_store<fmt::format_context> args;
-  for (auto peer : {Peer::Upstream, Peer::Downstream}) {
-    args.push_back(info.owner == peer ? "*" : "");
-    args.push_back(info.peer_states[peer]);
-    if (info.peer_ids[peer].has_value()) {
-      const auto id = info.peer_ids[peer].value();
-      args.push_back(":");
-      if (id == channel_id_error) {
-        args.push_back("<err>");
-      } else {
-        args.push_back(id);
-      }
-    } else {
-      args.push_back("");
-      args.push_back("");
-    }
-  }
-  return fmt::vformat("U{}:{}{}{}|D{}:{}{}{}", args);
-}
+std::string format_as(const InternalChannelInfo& info); // NOLINT(readability-identifier-naming)
 
 // Manages channel ID mappings.
 // Channel IDs for proxied SSH connections are managed as follows:

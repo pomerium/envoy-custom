@@ -1,5 +1,6 @@
 #include "source/extensions/filters/network/ssh/id_manager.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
+#include "fmt/args.h"
 #include <utility>
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
@@ -198,14 +199,14 @@ absl::StatusOr<bool> ChannelIDManager::processOutgoingChannelMsgImpl(wire::field
     recipient_channel = info.peer_ids[dest].value();
     return true;
   case ChannelIDState::Preempted:
-    if (!info.preempted_closed[dest]) {
+    if (info.peer_ids[dest].value_or(channel_id_error) != channel_id_error) {
       // While the channel is in the Preempted state, messages can be sent only until the next
-      // ChannelClose (or ChannelOpenFailure if never opened), which will set preempted_closed=true.
+      // ChannelClose (or ChannelOpenFailure if never opened), which will clear the id.
       recipient_channel = *info.peer_ids[dest];
 
       if (msg_type == wire::SshMessageType::ChannelClose ||
           msg_type == wire::SshMessageType::ChannelOpenFailure) {
-        info.preempted_closed[dest] = true;
+        info.peer_ids[dest] = channel_id_error;
         ENVOY_LOG(debug, "channel {}: preempted {} ID is closed [{}]", internalId, dest, info);
       }
       return true;
@@ -233,6 +234,32 @@ Envoy::Common::CallbackHandlePtr ChannelIDManager::startDrain(Envoy::Event::Disp
     drain_cb_->runCallbacks();
   }
   return handle;
+}
+
+std::string format_as(const InternalChannelInfo& info) {
+  fmt::dynamic_format_arg_store<fmt::format_context> args;
+  for (auto peer : {Peer::Upstream, Peer::Downstream}) {
+    args.push_back(info.owner == peer ? "*" : "");
+    args.push_back(info.peer_states[peer]);
+    if (info.peer_ids[peer].has_value()) {
+      const auto id = info.peer_ids[peer].value();
+      args.push_back(":");
+      if (id == channel_id_error) {
+        if (auto state = info.peer_states[peer];
+            state == ChannelIDState::Preempted || state == ChannelIDState::Bereft) {
+          args.push_back("<closed>");
+        } else {
+          args.push_back("<err>");
+        }
+      } else {
+        args.push_back(id);
+      }
+    } else {
+      args.push_back("");
+      args.push_back("");
+    }
+  }
+  return fmt::vformat("U{}:{}{}{}|D{}:{}{}{}", args);
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
