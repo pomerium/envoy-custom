@@ -1,0 +1,18 @@
+diff --git a/source/extensions/filters/network/generic_proxy/proxy.h b/source/extensions/filters/network/generic_proxy/proxy.h
+index 45e6735b89..f6f86cb251 100644
+--- a/source/extensions/filters/network/generic_proxy/proxy.h
++++ b/source/extensions/filters/network/generic_proxy/proxy.h
+@@ -476,12 +476,12 @@ private:
+   Runtime::Loader& runtime_;
+   Upstream::ClusterManager& cluster_manager_;
+ 
++  absl::flat_hash_map<uint64_t, ActiveStream*> frame_handlers_;
+   ServerCodecPtr server_codec_;
+ 
+   Buffer::OwnedImpl response_buffer_;
+ 
+   std::list<ActiveStreamPtr> active_streams_;
+-  absl::flat_hash_map<uint64_t, ActiveStream*> frame_handlers_;
+ };
+ 
+ } // namespace GenericProxy

@@ -154,13 +154,11 @@ public:
 
     void cleanup() override;
     absl::Status flushRemoteMsgQueue();
-    bool didForwardChannelOpen() {
-      return did_forward_channel_open_;
-    }
-    bool preempted() {
-      return preempted_;
-    }
     absl::Status sendMessageRemoteDirect(wire::Message&& msg);
+
+    bool didForwardChannelOpen() { return did_forward_channel_open_; }
+    bool preempted() { return preempted_; }
+    bool pendingDelete() { return pending_delete_; }
 
     ConnectionService& parent_;
     ChannelIDManager& channel_id_mgr_;
@@ -173,6 +171,7 @@ public:
     bool preempted_{false};
     bool server_draining_{false};
     bool flush_queue_error_{false};
+    bool pending_delete_{false};
     Stats::ScopeSharedPtr scope_;
     Envoy::Event::TimerPtr close_timer_;
     Envoy::OptRef<ChannelStatsProvider> stats_provider_;
