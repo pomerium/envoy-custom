@@ -434,6 +434,7 @@ envoy_cc_test(
     repository = "@envoy",
     deps = [
         ":integration_lib",
+        ":test_mocks",
     ],
 )
 

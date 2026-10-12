@@ -2,6 +2,7 @@
 
 #include "source/extensions/filters/network/ssh/channel.h"
 #include "source/extensions/filters/network/ssh/channel_filter.h"
+#include "source/extensions/filters/network/ssh/id_manager.h"
 #include "source/extensions/filters/network/ssh/stream_tracker.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
@@ -82,6 +83,8 @@ public:
     }
     ReadDisableHandlePtr connectionReadDisable() override;
     void onServerDraining();
+
+    ChannelIDManager& channelIDManagerForTest() { return channel_id_mgr_; }
 
   private:
     friend class ConnectionService;

@@ -372,7 +372,6 @@ void ConnectionService::ChannelCallbacksImpl::sendMessageLocal(wire::Message&& m
     [&](wire::ChannelCloseMsg& msg) {
       msg.recipient_channel = channel_id_;
       auto sendOk = channel_id_mgr_.processOutgoingChannelMsg(msg, local_peer_);
-      // This should always succeed, since we just set the recipient_channel ourselves.
       if (!sendOk.ok()) {
         // The only way to get here would be to send a ChannelClose instead of a ChannelOpenFailure
         IS_ENVOY_BUG(statusToString(sendOk.status()));
@@ -408,9 +407,10 @@ void ConnectionService::ChannelCallbacksImpl::sendMessageLocal(wire::Message&& m
       THROW_IF_NOT_OK(sendOk.status());
 
       if (!*sendOk) {
-        // The only way to get here would be to send a ChannelClose then a ChannelOpenFailure
-        parent_.transport_.terminate(absl::InternalError(
-          fmt::format("invalid message received: {}", msg.msg_type())));
+        // The only way to get here would be to send a ChannelClose then a ChannelOpenFailure,
+        // which can only happen by calling sendMessageLocal with the ChannelOpenFailure after
+        // preempting an open channel to send the ChannelClose, and before the reply is received.
+        IS_ENVOY_BUG("invalid ChannelOpenFailure message sent after ChannelClose");
         return false;
       }
 

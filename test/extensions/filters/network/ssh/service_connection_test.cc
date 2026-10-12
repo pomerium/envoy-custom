@@ -666,6 +666,82 @@ TEST_P(ConnectionServiceTest, InterruptRemotePassthroughChannel) {
   }));
 }
 
+TEST_P(ConnectionServiceTest, InvalidLocalChannelCloseSent) {
+  EXPECT_CALL(transport_, streamId)
+    .WillRepeatedly(Return(1));
+
+  auto ch1 = std::make_unique<testing::StrictMock<MockChannel>>();
+  IN_SEQUENCE;
+  ChannelCallbacks* callbacks{};
+  EXPECT_CALL(*ch1, setChannelCallbacks)
+    .WillOnce([&callbacks, ch1 = ch1.get()](ChannelCallbacks& cb) {
+      ch1->Channel::setChannelCallbacks(cb);
+      callbacks = &cb;
+      return absl::OkStatus();
+    });
+  EXPECT_CALL(*ch1, readChannelOpen)
+    .WillOnce([&](wire::ChannelOpenMsg&&) {
+      auto err = fmt::format("error processing outgoing message of type ChannelClose (97): internal channel {} is not known to {} (state: Pending)",
+                             callbacks->channelId(), LocalPeer());
+      [&] {
+        EXPECT_ENVOY_BUG({ callbacks->sendMessageLocal(wire::ChannelCloseMsg{}); }, err);
+      }();
+      return absl::OkStatus();
+    });
+  EXPECT_CALL(*ch1, Die);
+  auto id = service_.startChannel(std::move(ch1), {
+                                                    .channel_open = wire::ChannelOpenMsg{
+                                                      .sender_channel = 1,
+                                                      .request = wire::SessionChannelOpenMsg{},
+                                                    },
+                                                    .bind_expect_remote = false,
+                                                  });
+}
+
+TEST_P(ConnectionServiceTest, InvalidLocalChannelOpenFailureSentAfterChannelCloseFromPreempt) {
+  EXPECT_CALL(transport_, streamId)
+    .WillRepeatedly(Return(1));
+
+  // This will never happen in practice, but because some types of channels can be controlled by
+  // remote grpc servers, a bug in that server which sends invalid messages should typically not
+  // crash envoy if ENVOY_BUG can be used instead and no invariants are otherwise broken.
+  auto ch1 = std::make_unique<testing::StrictMock<MockChannel>>();
+  testing::MockFunction<void()> check;
+  IN_SEQUENCE;
+  ChannelCallbacks* callbacks{};
+  EXPECT_CALL(*ch1, setChannelCallbacks)
+    .WillOnce([&callbacks, ch1 = ch1.get()](ChannelCallbacks& cb) {
+      ch1->Channel::setChannelCallbacks(cb);
+      callbacks = &cb;
+      return absl::OkStatus();
+    });
+  EXPECT_CALL(*ch1, readChannelOpen)
+    .WillOnce([&](wire::ChannelOpenMsg&&) -> absl::Status {
+      callbacks->sendMessageLocal(wire::ChannelOpenConfirmationMsg{});
+      service_.GetChannelCallbacks(callbacks->channelId()).interruptChannel(absl::InternalError("test error"));
+      check.Call();
+      [&] {
+        auto err = "invalid ChannelOpenFailure message sent after ChannelClose";
+        EXPECT_ENVOY_BUG({ callbacks->sendMessageLocal(wire::ChannelOpenFailureMsg{}); }, err);
+      }();
+      return absl::OkStatus();
+    });
+  EXPECT_CALL(transport_, sendMessageToConnection(MSG(wire::ChannelOpenConfirmationMsg, _)))
+    .WillOnce(Return(0));
+  EXPECT_CALL(transport_, sendMessageToConnection(MSG(wire::ChannelCloseMsg, _)))
+    .WillOnce(Return(0));
+  EXPECT_CALL(check, Call());
+
+  EXPECT_CALL(*ch1, Die);
+  auto id = service_.startChannel(std::move(ch1), {
+                                                    .channel_open = wire::ChannelOpenMsg{
+                                                      .sender_channel = 1,
+                                                      .request = wire::SessionChannelOpenMsg{},
+                                                    },
+                                                    .bind_expect_remote = false,
+                                                  });
+}
+
 TEST(ConnectionServiceMiscTest, TestForceCloseChannel_ReadChannelOpen) {
   // ForceCloseChannel::readChannelOpen should not be called.
   ForceCloseChannel c;
@@ -1602,15 +1678,6 @@ TEST_P(ChannelOpenLocalPreemptRaceTest, TestChannelAlreadySentFailureOnChannelOp
 INSTANTIATE_TEST_SUITE_P(ChannelOpenLocalPreemptRace, ChannelOpenLocalPreemptRaceTest,
                          testing::Values(Peer::Downstream, Peer::Upstream),
                          TestParameterNames({"Local_Downstream", "Local_Upstream"}));
-
-// Test interrupting the downstream channel filter during onMessageForward where the message is a
-// ChannelOpenConfirmationMsg, ChannelOpenFailureMsg, or ChannelCloseMsg coming from the upstream
-// connection
-
-// Test two channel filters both calling interruptChannel
-
-// Test that if both downstream and upstream are pending but only downstream has an ID, that upstream
-// can't be preempted
 
 } // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
