@@ -39,8 +39,7 @@ enum class ChannelIDState {
   // message in reply to a ChannelOpen message. Pending is equivalent to Unbound except that it will
   // prevent the channel from being freed. If a peer is awaiting its opposite peer to bind the same
   // internal channel, the opposite peer is also moved to the Pending state.
-  // Pending channels may or may not have an associated peer-local ID. If a Pending channel does
-  // have one, it may be
+  // Pending channels may or may not have an associated peer-local ID.
   Pending = 1,
   // A channel is Bound when the peer knows about this channel ID and it has received a
   // ChannelOpenConfirmation message for the channel.
