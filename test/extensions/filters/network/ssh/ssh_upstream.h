@@ -71,9 +71,9 @@ public:
   }
 
   absl::Status readChannelOpen(wire::ChannelOpenMsg&& msg) override {
-    ENVOY_LOG(trace, "FakeUpstreamChannel {}: readChannelOpen called, replying with ChannelOpenConfirmation",
-              callbacks_->channelId());
     if (handler_opts_->should_accept_channel(msg.sender_channel)) {
+      ENVOY_LOG(trace, "FakeUpstreamChannel {}: readChannelOpen called, replying with ChannelOpenConfirmation",
+                callbacks_->channelId());
       callbacks_->sendMessageLocal(wire::ChannelOpenConfirmationMsg{
         .recipient_channel = msg.sender_channel,
         .sender_channel = callbacks_->channelId(),
@@ -81,6 +81,8 @@ public:
         .max_packet_size = msg.max_packet_size,
       });
     } else {
+      ENVOY_LOG(trace, "FakeUpstreamChannel {}: readChannelOpen called, replying with ChannelOpenFailure",
+                callbacks_->channelId());
       callbacks_->sendMessageLocal(wire::ChannelOpenFailureMsg{
         .recipient_channel = msg.sender_channel,
       });
