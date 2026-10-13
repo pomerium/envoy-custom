@@ -486,8 +486,11 @@ absl::Status ConnectionService::ChannelCallbacksImpl::sendMessageRemoteDirect(wi
     [&](wire::ChannelOpenMsg& msg) -> absl::StatusOr<bool> {
       ASSERT(!channel_type_.has_value());
       channel_type_ = msg.channel_type();
+      if (preempted_) {
+        ENVOY_LOG(debug, "not forwarding ChannelOpen message for preempted channel {}", channel_id_);
+        return false;
+      }
       did_forward_channel_open_ = true;
-
       msg.sender_channel = channel_id_;
       return true;
     },

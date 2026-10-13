@@ -4,6 +4,7 @@
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include <chrono>
 #include "test/extensions/filters/network/ssh/ssh_integration_common.h"
 #include "test/extensions/filters/network/ssh/ssh_task.h"
 #include "test/extensions/filters/network/ssh/test_mocks.h"
@@ -442,43 +443,6 @@ public:
 
   bool upstream_accepts_channels_{true};
 };
-
-TEST_F(ChannelFilterInterruptIntegrationTest, TestReadFilterInterruptInChannelOpen) {
-  // Test interrupting the read filter while it is handling an outgoing ChannelOpen message
-
-  // In this scenario, no messages should be forwarded after ChannelOpen. The downstream will send
-  // ChannelOpenFailure locally, then the upstream will send ChannelClose locally via a
-  // ForceCloseChannel created after receiving the upstream ChannelOpenConfirmation.
-
-  IN_SEQUENCE;
-  EXPECT_CALL(on_channel_filter_factory_created_fn_, Call(0));
-  EXPECT_CALL(on_channel_filter_created_fn_, Call(_, 0, 0, "driver1", Read));
-  EXPECT_CALL(on_message_forward_fn_, Call(_, 0, 0, "driver1", Read, MSG(wire::ChannelOpenMsg, _)))
-    .WillOnce([](TestChannelFilter* self, uint32_t, uint32_t, std::string, Direction, const wire::Message&) {
-      auto ok = self->Callbacks().interruptChannel(absl::InternalError("test error"));
-      EXPECT_TRUE(ok);
-      return absl::OkStatus();
-    });
-  EXPECT_CALL(on_channel_filter_created_fn_, Call(_, 0, 0, "driver1", Write));
-
-  ASSERT_TRUE(StartListeningForNewSshConnection());
-  driver1_ = makeSshConnectionDriver();
-  driver1_->connect();
-  ASSERT_TRUE(driver1_->waitForKex());
-  ASSERT_TRUE(WaitForDriver1Authenticated());
-
-  EXPECT_TRUE(driver1_->wait(
-    driver1_->createTask<Tasks::OpenSessionChannel>(1, Tasks::ExpectSuccess(false))
-      .start()));
-
-  // Wait until the upstream is able to process the ChannelOpen, then receives the ChannelClose
-  // and is destroyed
-  auto upstreamChannel = WaitForNextUpstreamChannel(default_timeout_);
-  ASSERT_OK(upstreamChannel);
-  ASSERT_TRUE(upstreamChannel.value().on_channel_destroyed->WaitForNotificationWithTimeout(default_timeout_));
-
-  ASSERT_TRUE(driver1_->disconnect());
-}
 
 TEST_F(ChannelFilterInterruptIntegrationTest, TestReadFilterInterruptBeforeChannelOpenConfirmation) {
   // Test interrupting the read filter after forwarding ChannelOpen, but before the write filter
@@ -1850,6 +1814,79 @@ TEST_F(ChannelFilterInterruptIntegrationTest, TestUpstreamDisconnectWhileChannel
   ASSERT_TRUE(!HasFailure());
 
   upstreamApi->closeConnection(Network::ConnectionCloseType::AbortReset);
+  ASSERT_TRUE(driver1_->disconnect());
+}
+
+TEST_F(ChannelFilterInterruptIntegrationTest, TestInterruptChannelOpenDoesNotForward) {
+  // Test that interrupting a channel when the channel filter is handling a ChannelOpen message
+  // results in the sender receiving a ChannelOpenFailure and the original ChannelOpen message not
+  // being forwarded to the remote.
+
+  IN_SEQUENCE;
+  EXPECT_CALL(on_channel_filter_factory_created_fn_, Call(0));
+
+  EXPECT_CALL(on_channel_filter_created_fn_, Call(_, 0, 0, "driver1", Read));
+  EXPECT_CALL(on_message_forward_fn_, Call(_, 0, 0, "driver1", Read, MSG(wire::ChannelOpenMsg, _)))
+    .WillOnce([](TestChannelFilter* read_filter, uint32_t, uint32_t, std::string, Direction, const wire::Message&) {
+      read_filter->Callbacks().interruptChannel(absl::InternalError("test error"));
+      return absl::OkStatus();
+    });
+
+  auto opts = NewDefaultFakeUpstreamHandlerOpts();
+  opts.on_channel_open_request = [](wire::ChannelOpenMsg&) -> ChannelMsgHandlerFunc {
+    ADD_FAILURE() << "received unexpected ChannelOpenMsg";
+    return [](wire::ChannelMessage&&, ChannelCallbacks&) { return absl::OkStatus(); };
+  };
+  ASSERT_TRUE(listenForSshConnection(std::move(opts)));
+
+  driver1_ = makeSshConnectionDriver();
+  driver1_->connect();
+  ASSERT_TRUE(driver1_->waitForKex());
+  ASSERT_TRUE(WaitForDriver1Authenticated());
+
+  ASSERT_TRUE(driver1_->wait(
+    driver1_->createTask<Tasks::OpenSessionChannel>(1, Tasks::ExpectSuccess(false))
+      .start()));
+  ASSERT_TRUE(!HasFailure());
+  ASSERT_TRUE(driver1_->disconnect());
+}
+
+TEST_F(ChannelFilterInterruptIntegrationTest, TestInterruptDoesNotForwardQueuedChannelOpen) {
+  // Test that interrupting a paused channel when the ChannelOpen message has been queued results
+  // in the sender receiving a ChannelOpenFailure and the original ChannelOpen message not being
+  // forwarded to the remote.
+
+  IN_SEQUENCE;
+  Envoy::Event::TimerPtr timer;
+  EXPECT_CALL(on_channel_filter_factory_created_fn_, Call(0));
+
+  EXPECT_CALL(on_channel_filter_created_fn_, Call(_, 0, 0, "driver1", Read));
+  EXPECT_CALL(on_message_forward_fn_, Call(_, 0, 0, "driver1", Read, MSG(wire::ChannelOpenMsg, _)))
+    .WillOnce([&timer](TestChannelFilter* read_filter, uint32_t, uint32_t, std::string, Direction, const wire::Message&) {
+      read_filter->TakeReadDisableHandle(read_filter->Callbacks().connectionReadDisable());
+      timer = read_filter->Callbacks().connectionDispatcher().createTimer([read_filter] {
+        read_filter->Callbacks().interruptChannel(absl::InternalError("test error"));
+      });
+      timer->enableTimer(std::chrono::milliseconds{500});
+      return absl::OkStatus();
+    });
+
+  auto opts = NewDefaultFakeUpstreamHandlerOpts();
+  opts.on_channel_open_request = [](wire::ChannelOpenMsg&) -> ChannelMsgHandlerFunc {
+    ADD_FAILURE() << "received unexpected ChannelOpenMsg";
+    return [](wire::ChannelMessage&&, ChannelCallbacks&) { return absl::OkStatus(); };
+  };
+  ASSERT_TRUE(listenForSshConnection(std::move(opts)));
+
+  driver1_ = makeSshConnectionDriver();
+  driver1_->connect();
+  ASSERT_TRUE(driver1_->waitForKex());
+  ASSERT_TRUE(WaitForDriver1Authenticated());
+
+  ASSERT_TRUE(driver1_->wait(
+    driver1_->createTask<Tasks::OpenSessionChannel>(1, Tasks::ExpectSuccess(false))
+      .start()));
+  ASSERT_TRUE(!HasFailure());
   ASSERT_TRUE(driver1_->disconnect());
 }
 
