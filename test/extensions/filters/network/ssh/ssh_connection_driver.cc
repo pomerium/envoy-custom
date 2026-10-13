@@ -58,11 +58,14 @@ AssertionResult SshConnectionDriver::disconnect() {
       .reason_code = SSH2_DISCONNECT_BY_APPLICATION,
     });
     // Run the event loop to process the disconnect message.
-    while (!disconnected_) {
+    Envoy::Event::TestTimeSystem::RealTimeBound bound(defaultTimeout());
+    while (!testing::Test::HasFailure() && bound.withinBound() && !disconnected_) {
       if (auto res = run(Envoy::Event::Dispatcher::RunType::NonBlock, default_timeout_); !res) {
         return res;
       }
     }
+    EXPECT_TRUE(!testing::Test::HasFailure() && bound.withinBound() && disconnected_)
+      << "timed out waiting for client to disconnect";
   }
   close();
   return AssertionResult(true);
