@@ -217,8 +217,8 @@ protected:
     {"http_cluster_2", &grpc_cluster_eds_},
     {"tcp_cluster", &tcp_cluster_eds_},
   };
-  static inline const absl::Duration default_timeout_ = absl::Seconds(10);
-  // isDebuggerAttached() ? absl::Hours(10) : absl::Seconds(10);
+  static inline const absl::Duration default_timeout_ =
+    isDebuggerAttached() ? absl::Hours(10) : absl::Seconds(10);
 };
 
 } // namespace test

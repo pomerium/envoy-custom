@@ -1,0 +1,35 @@
+From 4f3a1a25d2bbefa024caf4cf22fc16a3e174456d Mon Sep 17 00:00:00 2001
+From: Joe Kralicky <joekralicky@gmail.com>
+Date: Tue, 13 Oct 2026 22:24:49 +0000
+Subject: [PATCH] generic proxy: fix server codec deletion order in Filter
+
+Adjust field order in GenericProxy::Filter so that active_streams_ and
+frame_handlers_ are deleted after the server codec. If the server codec
+calls onDecodingSuccess or onDecodingFailure while the filter is being
+destroyed, it will attempt to reference frame_handlers_ or
+active_streams_, which will already have been deleted.
+
+Signed-off-by: Joe Kralicky <joekralicky@gmail.com>
+---
+ source/extensions/filters/network/generic_proxy/proxy.h | 5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/source/extensions/filters/network/generic_proxy/proxy.h b/source/extensions/filters/network/generic_proxy/proxy.h
+index 45e6735b895b1..06127bcd05d0c 100644
+--- a/source/extensions/filters/network/generic_proxy/proxy.h
++++ b/source/extensions/filters/network/generic_proxy/proxy.h
+@@ -476,12 +476,11 @@ class Filter : public Envoy::Network::ReadFilter,
+   Runtime::Loader& runtime_;
+   Upstream::ClusterManager& cluster_manager_;
+
++  absl::flat_hash_map<uint64_t, ActiveStream*> frame_handlers_;
++  std::list<ActiveStreamPtr> active_streams_;
+   ServerCodecPtr server_codec_;
+
+   Buffer::OwnedImpl response_buffer_;
+-
+-  std::list<ActiveStreamPtr> active_streams_;
+-  absl::flat_hash_map<uint64_t, ActiveStream*> frame_handlers_;
+ };
+
+ } // namespace GenericProxy

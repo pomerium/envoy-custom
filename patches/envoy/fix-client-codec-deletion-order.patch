@@ -1,0 +1,31 @@
+From 58b243a4f0cb90f46d93a38df23d1e755b5b8386 Mon Sep 17 00:00:00 2001
+From: Joe Kralicky <joekralicky@gmail.com>
+Date: Wed, 7 Oct 2026 20:44:09 +0000
+Subject: [PATCH] generic proxy: ensure request manager is destroyed after
+ client codec
+
+If the client codec calls onDecodingSuccess or onDecodingFailure at any
+point during destruction, it should log an error and do nothing. This
+would previously crash however, since the request manager was being
+destroyed before the client codec. This changes the field order so that
+the client codec is destroyed first.
+
+Signed-off-by: Joe Kralicky <joekralicky@gmail.com>
+---
+ .../extensions/filters/network/generic_proxy/router/upstream.h  | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/source/extensions/filters/network/generic_proxy/router/upstream.h b/source/extensions/filters/network/generic_proxy/router/upstream.h
+index 3530f44a38960..9c43a30c5bd64 100644
+--- a/source/extensions/filters/network/generic_proxy/router/upstream.h
++++ b/source/extensions/filters/network/generic_proxy/router/upstream.h
+@@ -140,8 +140,8 @@ class EncoderDecoder : public ClientCodecCallbacks,
+ private:
+   Network::Connection& connection_;
+   Upstream::HostDescriptionConstSharedPtr host_;
+-  ClientCodecPtr client_codec_;
+   RequestManager request_manager_{};
++  ClientCodecPtr client_codec_;
+ };
+
+ class SharedRequestManager : Logger::Loggable<Logger::Id::upstream> {
