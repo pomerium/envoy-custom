@@ -113,6 +113,9 @@ public:
   bool closed() const {
     return closed_;
   }
+  bool disconnected() const {
+    return disconnected_;
+  }
 
   void sendMessage(wire::Message&& msg);
 
