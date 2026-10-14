@@ -1,7 +1,10 @@
 #include "source/extensions/filters/network/ssh/id_manager.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
-#include "test/test_common/test_common.h"
+
 #include "test/mocks/event/mocks.h"
+
+#include "test/test_common/test_common.h"
+
 #include "gtest/gtest.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {

@@ -1,20 +1,23 @@
+#include <chrono>
+
 #include "source/extensions/filters/network/ssh/message_handler.h"
 #include "source/extensions/filters/network/ssh/reverse_tunnel.h"
-#include "source/extensions/filters/network/ssh/service_connection.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
-#include "test/extensions/filters/network/ssh/ssh_connection_driver.h"
-#include "test/extensions/filters/network/ssh/ssh_integration_test.h"
+#include "source/extensions/filters/network/ssh/wire/messages.h"
+
+#include "api/extensions/filters/network/ssh/ssh.pb.h"
+
 #include "envoy/extensions/transport_sockets/raw_buffer/v3/raw_buffer.pb.h"
 #include "envoy/extensions/transport_sockets/internal_upstream/v3/internal_upstream.pb.h"
 #include "envoy/config/endpoint/v3/endpoint.pb.h"
 #include "envoy/config/endpoint/v3/endpoint.pb.validate.h"
-#include "api/extensions/filters/network/ssh/ssh.pb.h"
-#include "gtest/gtest.h"
-#include <chrono>
 
-#include "source/extensions/filters/network/ssh/wire/messages.h"
+#include "test/extensions/filters/network/ssh/ssh_connection_driver.h"
+#include "test/extensions/filters/network/ssh/ssh_integration_test.h"
 #include "test/extensions/filters/network/ssh/ssh_task.h"
 #include "test/test_common/test_common.h"
+
+#include "gtest/gtest.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 namespace test {

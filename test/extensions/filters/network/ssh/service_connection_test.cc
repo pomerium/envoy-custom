@@ -1,9 +1,6 @@
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
 #include <algorithm>
 #include <cstdlib>
 
-#include "envoy/common/exception.h"
 #include "source/common/types.h"
 #include "source/extensions/filters/network/ssh/channel.h"
 #include "source/extensions/filters/network/ssh/channel_filter_config.h"
@@ -11,10 +8,16 @@
 #include "source/extensions/filters/network/ssh/id_manager.h"
 #include "source/extensions/filters/network/ssh/service_connection.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
+
+#include "envoy/common/exception.h"
+#include "test/mocks/event/mocks.h"
+
 #include "test/extensions/filters/network/ssh/test_mocks.h"
 #include "test/extensions/filters/network/ssh/wire/test_field_reflect.h"
-#include "test/mocks/event/mocks.h"
 #include "test/test_common/test_common.h"
+
+#include "gtest/gtest.h"
+#include "gmock/gmock.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
