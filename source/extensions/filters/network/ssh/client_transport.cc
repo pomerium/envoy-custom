@@ -33,8 +33,10 @@ private:
 SshClientTransport::SshClientTransport(
   Envoy::Server::Configuration::ServerFactoryContext& context,
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
+  StreamTrackerSharedPtr stream_tracker,
   const SecretsProvider& secrets_provider)
-    : TransportBase(context, std::move(config), secrets_provider) {
+    : TransportBase(context, std::move(config), secrets_provider),
+      stream_tracker_(stream_tracker) {
   wire::ExtInfoMsg extInfo;
   extInfo.extensions->emplace_back(wire::PingExtension{.version = "0"s});
   outgoing_ext_info_ = std::move(extInfo);
@@ -47,7 +49,7 @@ void SshClientTransport::setCodecCallbacks(GenericProxy::ClientCodecCallbacks& c
 
 void SshClientTransport::initServices() {
   user_auth_svc_ = std::make_unique<UpstreamUserAuthService>(*this, api_);
-  connection_svc_ = std::make_unique<UpstreamConnectionService>(config_->connection_service_options(), *this);
+  connection_svc_ = std::make_unique<UpstreamConnectionService>(config_->connection_service_options(), *this, stream_tracker_);
   ping_handler_ = std::make_unique<PingExtensionHandler>(*this);
 
   services_[user_auth_svc_->name()] = user_auth_svc_.get();
@@ -87,9 +89,10 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
                                                         GenericProxy::EncodingContext&) {
   switch (frame.frameFlags().frameTags() & FrameTags::FrameTypeMask) {
   case FrameTags::RequestHeader: {
-    auto& filterState = callbacks_->connection()->streamInfo().filterState();
-    connection_dispatcher_ = callbacks_->connection()->dispatcher();
+    auto connection = callbacks_->connection();
+    connection_dispatcher_ = connection->dispatcher();
 
+    auto& filterState = connection->streamInfo().filterState();
     ASSERT(filterState->hasDataWithName(ChannelIDManagerFilterStateKey));
     ASSERT(filterState->hasDataWithName(ChannelFilterManagerFilterStateKey));
     ASSERT(filterState->hasDataWithName(AuthInfoFilterStateKey));
@@ -102,6 +105,10 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
       filterState->getDataSharedMutableGeneric(ChannelIDManagerFilterStateKey));
     channel_filter_manager_ = std::dynamic_pointer_cast<ChannelFilterManager>(
       filterState->getDataSharedMutableGeneric(ChannelFilterManagerFilterStateKey));
+
+    connection_svc_->onStreamBegin(connection.ref());
+    connection->addConnectionCallbacks(*this);
+
     if (auth_info_->channel_mode == ChannelMode::Handoff) {
       if (auth_info_->allow_response->has_upstream()) {
         ASSERT(auth_info_->handoff_info.handoff_in_progress);
@@ -258,15 +265,22 @@ stream_id_t SshClientTransport::streamId() const {
 
 void SshClientTransport::terminate(absl::Status err) {
   if (been_terminated_) {
+    ENVOY_LOG(debug, "terminate ignored: already called (error: {})", statusToString(err));
     return;
   }
   been_terminated_ = true;
-  ENVOY_LOG(error, "ssh: stream {} closing with error: {}", streamId(), statusToString(err));
 
+  ENVOY_LOG(error, "ssh: stream {} closing with error: {}", streamId(), statusToString(err));
   wire::DisconnectMsg msg;
   msg.reason_code = openssh::statusCodeToDisconnectCode(err.code());
   msg.description = statusToString(err);
   forwardHeader(std::move(msg), Error);
+}
+
+void SshClientTransport::onEvent(Network::ConnectionEvent event) {
+  if (event == Network::ConnectionEvent::LocalClose || event == Network::ConnectionEvent::RemoteClose) {
+    connection_svc_->onStreamEnd();
+  }
 }
 
 // Handoff Middleware
@@ -367,7 +381,7 @@ absl::StatusOr<MiddlewareResult> HandoffMiddleware::interceptMessage(wire::Messa
           .channel_open = open,
           .skip_auto_bind = true,
         });
-      ASSERT(internalId.ok()); // should not be able to fail
+      ASSERT(internalId.ok()); // should not be able to fail, readChannelOpen never returns an error
 
       // this message won't be dispatched to the upstream userauth service, so we need to handle a
       // couple of post-auth-success actions that it would normally do

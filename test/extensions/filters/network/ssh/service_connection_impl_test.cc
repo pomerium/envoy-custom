@@ -32,7 +32,7 @@ class UpstreamConnectionServiceTest : public testing::Test {
 public:
   UpstreamConnectionServiceTest() {
     transport_ = std::make_unique<testing::StrictMock<MockUpstreamTransportCallbacks>>();
-    service_ = std::make_unique<UpstreamConnectionService>(ConnectionServiceOptions{}, *transport_);
+    service_ = std::make_unique<UpstreamConnectionService>(ConnectionServiceOptions{}, *transport_, std::make_shared<StreamTracker>(context_));
     channel_filter_manager_ = std::make_unique<ChannelFilterManager>(ExtensionConfigList{}, context_);
     service_->registerMessageHandlers(msg_dispatcher_);
     EXPECT_CALL(*transport_, streamId)
