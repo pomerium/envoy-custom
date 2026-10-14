@@ -126,7 +126,7 @@ ServerCodecPtr SshCodecFactory::createServerCodec() const {
 }
 
 ClientCodecPtr SshCodecFactory::createClientCodec() const {
-  return std::make_unique<SshClientTransport>(context_, config_, *this);
+  return std::make_unique<SshClientTransport>(context_, config_, stream_tracker_, *this);
 }
 
 ProtobufTypes::MessagePtr SshCodecFactoryConfig::createEmptyConfigProto() {
