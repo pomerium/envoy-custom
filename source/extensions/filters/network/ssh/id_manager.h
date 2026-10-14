@@ -193,11 +193,7 @@ public:
   absl::StatusOr<bool> processOutgoingChannelMsg(M& msg, Peer dest) {
     return processOutgoingChannelMsgImpl(msg.recipient_channel, msg.msg_type(), dest);
   }
-  absl::StatusOr<bool> processOutgoingChannelMsg(wire::ChannelMessage& msg, Peer dest) {
-    return msg.visit([this, dest](wire::ChannelMsg auto& msg) {
-      return processOutgoingChannelMsg(msg, dest);
-    });
-  }
+  absl::StatusOr<bool> processOutgoingChannelMsg(wire::ChannelMessage& msg, Peer dest);
 
   size_t numActiveChannels() const { return internal_channels_.size(); }
   uint32_t nextInternalIdForTest() const { return id_alloc_.peekNext(); }

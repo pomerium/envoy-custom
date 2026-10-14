@@ -1,7 +1,10 @@
 #include "source/extensions/filters/network/ssh/id_manager.h"
-#include "source/extensions/filters/network/ssh/wire/common.h"
-#include "fmt/args.h"
+
 #include <utility>
+
+#include "source/extensions/filters/network/ssh/wire/common.h"
+
+#include "fmt/args.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -136,6 +139,12 @@ ChannelIDState ChannelIDManager::preempt(uint32_t internal_id, Peer local_peer) 
   ASSERT(isPreemptable(internal_id, local_peer));
   auto& internalChannel = internal_channels_[internal_id];
   return std::exchange(internalChannel.peer_states[local_peer], ChannelIDState::Preempted);
+}
+
+absl::StatusOr<bool> ChannelIDManager::processOutgoingChannelMsg(wire::ChannelMessage& msg, Peer dest) {
+  return msg.visit([this, dest](wire::ChannelMsg auto& msg) {
+    return processOutgoingChannelMsg(msg, dest);
+  });
 }
 
 std::optional<ChannelIDState> ChannelIDManager::peerState(uint32_t internal_id, Peer peer) {
