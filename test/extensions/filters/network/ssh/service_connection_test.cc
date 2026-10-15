@@ -805,7 +805,7 @@ TEST_P(ConnectionServiceTest, CloseLocalPassthroughChannelWithRemoteRef) {
 
 TEST_P(ConnectionServiceTest, CloseUnknownChannel) {
   ASSERT_EQ(
-    absl::InvalidArgumentError("received message for unknown channel 100: ChannelClose (97)"),
+    absl::InvalidArgumentError(fmt::format("received message from {} for unknown channel 100: ChannelClose (97)", LocalPeer())),
     service_.handleMessage(wire::ChannelCloseMsg{
       .recipient_channel = 100,
     }));
@@ -935,12 +935,12 @@ TEST_P(ConnectionServiceTest, HandleMessageWithUnknownChannel) {
                      },
     BindMode::PendingRemoteConfirmation));
   ASSERT_EQ(
-    absl::InvalidArgumentError(fmt::format("received message for unknown channel {}: ChannelData (94)", internalChannel)),
+    absl::InvalidArgumentError(fmt::format("received message from {} for unknown channel {}: ChannelData (94)", LocalPeer(), internalChannel)),
     service_.handleMessage(wire::ChannelDataMsg{
       .recipient_channel = internalChannel,
     }));
   ASSERT_EQ(
-    absl::InvalidArgumentError(fmt::format("received message for unknown channel {}: ChannelData (94)", internalChannel + 1)),
+    absl::InvalidArgumentError(fmt::format("received message from {} for unknown channel {}: ChannelData (94)", LocalPeer(), internalChannel + 1)),
     service_.handleMessage(wire::ChannelDataMsg{
       .recipient_channel = internalChannel + 1,
     }));
@@ -950,7 +950,7 @@ TEST_P(ConnectionServiceTest, HandleMessageWithUnknownChannel) {
     .sender_channel = 1u,
   }));
   ASSERT_EQ(
-    absl::InvalidArgumentError(fmt::format("received message for unknown channel {}: ChannelData (94)", internalChannel + 1)),
+    absl::InvalidArgumentError(fmt::format("received message from {} for unknown channel {}: ChannelData (94)", LocalPeer(), internalChannel + 1)),
     service_.handleMessage(wire::ChannelDataMsg{
       .recipient_channel = internalChannel + 1,
     }));
