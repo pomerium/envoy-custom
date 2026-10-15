@@ -51,21 +51,27 @@ Envoy::OptRef<Envoy::Event::Dispatcher> SshConnectionDriver::connectionDispatche
   return client_connection_->dispatcher();
 }
 
-AssertionResult SshConnectionDriver::disconnect() {
+AssertionResult SshConnectionDriver::disconnect(bool close_connection, std::optional<std::chrono::milliseconds> timeout) {
   if (!disconnected_) {
     codec_callbacks_->expect_decoding_failure_ = true;
     sendMessage(wire::DisconnectMsg{
       .reason_code = SSH2_DISCONNECT_BY_APPLICATION,
+      .description = "disconnecting"s,
     });
+    if (close_connection) {
+      client_connection_->close(Network::ConnectionCloseType::FlushWrite);
+    }
     // Run the event loop to process the disconnect message.
-    Envoy::Event::TestTimeSystem::RealTimeBound bound(defaultTimeout());
+    Envoy::Event::TestTimeSystem::RealTimeBound bound(timeout.value_or(default_timeout_));
     while (!testing::Test::HasFailure() && bound.withinBound() && !disconnected_) {
-      if (auto res = run(Envoy::Event::Dispatcher::RunType::NonBlock, default_timeout_); !res) {
+      if (auto res = run(Envoy::Event::Dispatcher::RunType::NonBlock, timeout.value_or(default_timeout_)); !res) {
         return res;
       }
     }
-    EXPECT_TRUE(!testing::Test::HasFailure() && bound.withinBound() && disconnected_)
-      << "timed out waiting for client to disconnect";
+    if (testing::Test::HasFailure() || !bound.withinBound() || !disconnected_) {
+      return AssertionResult(!testing::Test::HasFailure() && bound.withinBound() && disconnected_)
+             << "timed out waiting for client to disconnect";
+    }
   }
   close();
   return AssertionResult(true);
@@ -75,7 +81,9 @@ void SshConnectionDriver::close() {
   if (!closed_) {
     auto& dispatcher = client_connection_->dispatcher();
     closed_ = true;
-    client_connection_->close(Network::ConnectionCloseType::AbortReset);
+    if (!disconnected_) {
+      client_connection_->close(Network::ConnectionCloseType::AbortReset);
+    }
     client_connection_.reset(); // IMPORTANT: client_connection_ holds a shared_ptr to this
     ASSERT(disconnected_ == true);
     dispatcher.clearDeferredDeleteList();

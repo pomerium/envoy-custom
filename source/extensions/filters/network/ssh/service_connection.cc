@@ -253,7 +253,8 @@ absl::Status ConnectionService::handleMessage(wire::Message&& msg) {
       auto node = channels_.extract(msg.recipient_channel);
       if (node.empty()) {
         // protocol error; end the connection
-        return absl::InvalidArgumentError(fmt::format("received message for unknown channel {}: {}", msg.recipient_channel, msg.msg_type()));
+        return absl::InvalidArgumentError(fmt::format("received message from {} for unknown channel {}: {}",
+                                                      local_peer_, msg.recipient_channel, msg.msg_type()));
       }
       // allow node to go out of scope
       auto stat = node.mapped()->readMessage(std::move(msg));
@@ -265,7 +266,8 @@ absl::Status ConnectionService::handleMessage(wire::Message&& msg) {
         return it->second->readMessage(std::move(msg));
       }
       // protocol error; end the connection
-      return absl::InvalidArgumentError(fmt::format("received message for unknown channel {}: {}", msg.recipient_channel, msg.msg_type()));
+      return absl::InvalidArgumentError(fmt::format("received message from {} for unknown channel {}: {}",
+                                                    local_peer_, msg.recipient_channel, msg.msg_type()));
     },
     [](auto&) {
       return absl::InternalError("unknown message");
