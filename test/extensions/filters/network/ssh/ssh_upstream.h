@@ -113,6 +113,12 @@ public:
                          std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
                          std::shared_ptr<SshFakeUpstreamHandlerOpts> opts);
 
+  ~SshFakeUpstreamHandler() {
+    if (close_callback_ != nullptr && close_callback_->enabled()) {
+      close_callback_->cancel();
+      close_callback_ = nullptr;
+    }
+  }
   class CodecCallbacks : public SshFakeUpstreamHandlerCodecCallbacks {
   public:
     explicit CodecCallbacks(Network::Connection& connection);
@@ -148,6 +154,9 @@ public:
     user_auth_service_ = std::make_unique<FakeUpstreamUserAuthService>(*this);
     read_filter_ = std::make_shared<ReadFilter>(*this);
     connection.addReadFilter(read_filter_);
+    close_callback_ = connection_->dispatcher().createSchedulableCallback([this] {
+      connection_->close(connection_close_type_);
+    });
 
     if (opts_->set_upstream_api) {
       opts_->set_upstream_api(*this);
@@ -157,6 +166,10 @@ public:
   void onEvent(Envoy::Network::ConnectionEvent event) override {
     if (event == Envoy::Network::ConnectionEvent::LocalClose ||
         event == Envoy::Network::ConnectionEvent::RemoteClose) {
+      if (close_callback_ != nullptr && close_callback_->enabled()) {
+        close_callback_->cancel();
+        close_callback_ = nullptr;
+      }
       connection_->removeReadFilter(read_filter_);
       // IMPORTANT: do not reset the dispatcher. It is needed during cleanup
     }
@@ -170,9 +183,8 @@ public:
   }
 
   void closeConnection(Network::ConnectionCloseType type) override {
-    connection_->dispatcher().post([this, type] {
-      connection_->close(type);
-    });
+    connection_close_type_ = type;
+    close_callback_->scheduleCallbackNextIteration();
   }
 
 protected:
@@ -252,6 +264,8 @@ private:
   ChannelIDManager channel_id_manager_{10};
   ChannelFilterManager channel_filter_manager_{ChannelFilterManager::unused_in_this_test{}};
   MessageDispatcher<wire::Message>* msg_dispatcher_{};
+  Envoy::Event::SchedulableCallbackPtr close_callback_;
+  Network::ConnectionCloseType connection_close_type_{};
   std::shared_ptr<SshFakeUpstreamHandlerOpts> opts_;
   std::unique_ptr<CodecCallbacks> codec_callbacks_;
   std::shared_ptr<ReadFilter> read_filter_;

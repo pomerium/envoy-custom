@@ -108,7 +108,7 @@ public:
 
   Envoy::OptRef<Envoy::Event::Dispatcher> connectionDispatcher() const override;
 
-  AssertionResult disconnect();
+  AssertionResult disconnect(bool close_connection = false, std::optional<std::chrono::milliseconds> timeout = std::nullopt);
   void close();
   bool closed() const {
     return closed_;
