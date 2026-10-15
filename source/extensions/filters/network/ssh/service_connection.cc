@@ -1,5 +1,8 @@
 #include "source/extensions/filters/network/ssh/service_connection.h"
 
+#include <algorithm>
+#include <ranges>
+
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "source/common/status.h"
 #include "source/extensions/filters/network/ssh/id_manager.h"
@@ -9,6 +12,45 @@
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
+class ReadDisableHandleImpl : public ReadDisableHandle {
+public:
+  ReadDisableHandleImpl(Envoy::Event::Dispatcher& dispatcher,
+                        Envoy::Common::CallbackManager<void>& cancel_manager,
+                        absl::AnyInvocable<void()> do_read_enable)
+      : dispatcher_(dispatcher),
+        do_read_enable_(std::move(do_read_enable)),
+        cancel_callback_handle_(cancel_manager.add([this] {
+          ASSERT(dispatcher_.isThreadSafe());
+          cancel();
+        })) {
+    ASSERT(dispatcher_.isThreadSafe());
+  }
+
+  ~ReadDisableHandleImpl() {
+    cancel();
+  }
+
+  // This can be called more than once. The callback is only removed from the manager when
+  // cancel_callback_handle_ is destroyed.
+  void cancel() {
+    ASSERT(dispatcher_.isThreadSafe());
+    if (do_read_enable_ == nullptr) {
+      return;
+    }
+    std::invoke(std::exchange(do_read_enable_, nullptr));
+  }
+
+private:
+  Envoy::Event::Dispatcher& dispatcher_;
+  absl::AnyInvocable<void()> do_read_enable_;
+  Envoy::Common::CallbackHandlePtr cancel_callback_handle_;
+};
+
+class NoopReadDisableHandle : public ReadDisableHandle {
+public:
+  ~NoopReadDisableHandle() {}
+};
+
 // ConnectionService
 
 ConnectionService::ConnectionService(
@@ -17,7 +59,8 @@ ConnectionService::ConnectionService(
   Peer direction)
     : options_(options),
       transport_(callbacks),
-      local_peer_(direction) {}
+      local_peer_(direction),
+      remote_peer_(direction == Downstream ? Upstream : Downstream) {}
 
 void ConnectionService::registerMessageHandlers(SshMessageDispatcher& dispatcher) {
   msg_dispatcher_ = dispatcher;
@@ -34,10 +77,11 @@ void ConnectionService::registerMessageHandlers(SshMessageDispatcher& dispatcher
   dispatcher.registerHandler(wire::SshMessageType::ChannelFailure, this);
 }
 
-absl::StatusOr<uint32_t> ConnectionService::startChannel(std::unique_ptr<Channel> channel, StartChannelOpts opts) {
+absl::Status ConnectionService::startChannel(std::unique_ptr<Channel> channel, StartChannelOpts opts) {
+  auto& channelIdManager = transport_.channelIdManager();
   auto channelId = opts.allocated_channel_id;
   if (!channelId.has_value()) {
-    auto internalId = transport_.channelIdManager().allocateNewChannel(local_peer_);
+    auto internalId = channelIdManager.allocateNewChannel(local_peer_);
     if (!internalId.ok()) {
       return internalId.status();
     }
@@ -75,32 +119,65 @@ absl::StatusOr<uint32_t> ConnectionService::startChannel(std::unique_ptr<Channel
   // Note: order is important here; if readChannelOpen below fails, the callbacks cleanup routine
   // is invoked when the channel is destroyed, which will unlink it from channel_callbacks_.
   LinkedList::moveIntoList(std::move(callbacks), channel_callbacks_);
+  auto* channelCallbacks = channel_callbacks_.front().get();
 
   if (opts.channel_open.has_value()) {
     if (!opts.skip_auto_bind) {
-      auto stat = transport_.channelIdManager().bindChannelID(
-        *channelId, PeerLocalID{
-                      .channel_id = opts.channel_open->sender_channel,
-                      .local_peer = local_peer_,
-                    },
-        opts.bind_expect_remote.value_or(true));
+      auto bindMode = opts.bind_expect_remote.value_or(true)
+                        ? BindMode::PendingRemoteConfirmation
+                        : BindMode::PendingInternalConfirmation;
+      auto stat = channelIdManager.bindChannelID(
+        *channelId,
+        PeerLocalID{
+          .channel_id = opts.channel_open->sender_channel,
+          .local_peer = local_peer_,
+        },
+        bindMode);
       ASSERT(stat.ok());
     }
 
-    if (auto stat = channel->readChannelOpen(std::move(opts.channel_open).value()); !stat.ok()) {
-      // If sending the channel open message fails, the peer's ID may still be in the Pending state,
-      // but it will never have received the channel open, so the ID will not be released.
-      if (!opts.skip_auto_bind && opts.bind_expect_remote.value_or(true)) {
+    auto stat = channel->readChannelOpen(std::move(opts.channel_open).value());
+    if (!stat.ok() || channelCallbacks->preempted() || channelCallbacks->pendingDelete()) {
+      // In any of these cases, the channel will be destroyed when this function returns. Before
+      // doing so, we may need to release the remote peer's channel ID. If the channel expected
+      // to send a ChannelOpen message to the remote peer, but did not get a chance to, the remote
+      // peer's channel ID state would be stuck in Pending indefinitely.
 
-        transport_.channelIdManager().releaseChannelID(*channelId,
-                                                       local_peer_ == Downstream ? Upstream : Downstream);
+      // Check if we need to send a ChannelOpenFailure locally. This relies on isPreemptable which
+      // would be affected by releasing the remote peer's ID, so do this first. isPreemptable is
+      // used because it indicates if sending a ChannelOpenFailure would be valid in the current
+      // state, as that is what happens when preempting a pending channel. Note that even if the
+      // channel was not preempted, if it was in the Pending state and had a ChannelOpenFailure
+      // sent to it for another reason, that still makes it ineligible for preemption.
+      if (channelIdManager.peerState(*channelId, local_peer_) == ChannelIDState::Pending &&
+          channelIdManager.isPreemptable(*channelId, local_peer_)) {
+        // If opening the channel failed, and the channel wasn't preempted (which would have sent
+        // a ChannelOpenFailure message already), send the ChannelOpenFailure. This will not
+        // destroy the channel as it was never added to this->channels_ (see comments in
+        // ChannelCallbacksImpl::sendMessageLocal).
+        // Note that returning an error from startChannel does not necessarily result in a
+        // disconnect (although it is likely), but it doesn't hurt to send this even if it is
+        // immediately followed by a Disconnect message.
+        channelCallbacks->sendMessageLocal(wire::ChannelOpenFailureMsg{
+          .recipient_channel = *channelId,
+        });
       }
-      return statusf("error opening channel: {}", stat);
+
+      if (channelIdManager.peerState(*channelId, remote_peer_) == ChannelIDState::Pending &&
+          !channelCallbacks->didForwardChannelOpen()) {
+        channelIdManager.releaseChannelID(*channelId, remote_peer_);
+      }
+
+      if (!stat.ok()) {
+        ENVOY_LOG(debug, "failed to open channel {}: {}", *channelId, stat);
+        return statusf("error opening channel: {}", stat);
+      }
+      return absl::OkStatus();
     }
   }
 
   channels_[*channelId] = std::move(channel);
-  return *channelId;
+  return absl::OkStatus();
 }
 
 absl::Status ConnectionService::handleMessage(wire::Message&& msg) {
@@ -108,9 +185,9 @@ absl::Status ConnectionService::handleMessage(wire::Message&& msg) {
     [&](wire::ChannelOpenMsg& msg) {
       ENVOY_LOG(debug, "starting new passthrough channel");
       auto passthrough = std::make_unique<PassthroughChannel>();
-      auto id = startChannel(std::move(passthrough), {.channel_open{std::move(msg)}});
-      if (!id.ok()) {
-        return statusf("error starting passthrough channel: {}", id.status());
+      auto stat = startChannel(std::move(passthrough), {.channel_open{std::move(msg)}});
+      if (!stat.ok()) {
+        return statusf("error starting passthrough channel: {}", stat);
       }
       return absl::OkStatus();
     },
@@ -120,19 +197,12 @@ absl::Status ConnectionService::handleMessage(wire::Message&& msg) {
                 local_peer_,
                 *msg.sender_channel);
 
-      auto owner = transport_.channelIdManager().owner(msg.recipient_channel);
-      bool expect_remote = true;
-      if (owner.has_value() && owner.value() == local_peer_) {
-        // If this channel id was allocated and confirmed both locally, then don't set the peer
-        // channel id to Pending
-        expect_remote = false;
-      }
       auto stat = transport_.channelIdManager().bindChannelID(msg.recipient_channel,
                                                               PeerLocalID{
                                                                 .channel_id = msg.sender_channel,
                                                                 .local_peer = local_peer_,
                                                               },
-                                                              expect_remote);
+                                                              BindMode::Confirmed);
       if (!stat.ok()) {
         return statusf("received invalid ChannelOpenConfirmation message: {}", stat);
       }
@@ -183,7 +253,8 @@ absl::Status ConnectionService::handleMessage(wire::Message&& msg) {
       auto node = channels_.extract(msg.recipient_channel);
       if (node.empty()) {
         // protocol error; end the connection
-        return absl::InvalidArgumentError(fmt::format("received message for unknown channel {}: {}", msg.recipient_channel, msg.msg_type()));
+        return absl::InvalidArgumentError(fmt::format("received message from {} for unknown channel {}: {}",
+                                                      local_peer_, msg.recipient_channel, msg.msg_type()));
       }
       // allow node to go out of scope
       auto stat = node.mapped()->readMessage(std::move(msg));
@@ -195,7 +266,8 @@ absl::Status ConnectionService::handleMessage(wire::Message&& msg) {
         return it->second->readMessage(std::move(msg));
       }
       // protocol error; end the connection
-      return absl::InvalidArgumentError(fmt::format("received message for unknown channel {}: {}", msg.recipient_channel, msg.msg_type()));
+      return absl::InvalidArgumentError(fmt::format("received message from {} for unknown channel {}: {}",
+                                                    local_peer_, msg.recipient_channel, msg.msg_type()));
     },
     [](auto&) {
       return absl::InternalError("unknown message");
@@ -206,7 +278,6 @@ absl::Status ConnectionService::maybeStartNonOwningPassthroughChannel(uint32_t i
   if (channels_.contains(internal_id)) {
     return absl::OkStatus();
   }
-  auto remotePeer = local_peer_ == Peer::Upstream ? Peer::Downstream : Peer::Upstream;
   auto owner = transport_.channelIdManager().owner(internal_id);
   if (!owner.has_value()) {
     // The only scenario where this should occur is if the ssh client/server is misbehaving. In
@@ -220,33 +291,26 @@ absl::Status ConnectionService::maybeStartNonOwningPassthroughChannel(uint32_t i
   }
   if (owner.value() == local_peer_) {
     return absl::InvalidArgumentError(fmt::format("expected channel {} to exist or be owned by the {} transport",
-                                                  internal_id, remotePeer));
+                                                  internal_id, remote_peer_));
   }
-  if (auto remoteState = transport_.channelIdManager().peerState(internal_id, remotePeer);
+  if (auto remoteState = transport_.channelIdManager().peerState(internal_id, remote_peer_);
       remoteState == ChannelIDState::Preempted || remoteState == ChannelIDState::Bereft) {
-    // This is a rare edge-case that can occur as follows:
-    // 1. The downstream opens a channel and forwards a ChannelOpen message to the upstream
-    // 2. Before the upstream server has a chance to respond with a ChannelOpenConfirmation/Failure,
-    //    the downstream preempts the channel.
-    // Then, depending on which side responds first, the remote state may be Preempted or Bereft:
-    // 3a. Before the downstream has a chance to respond with its own ChannelClose, the upstream
-    //     responds with a ChannelOpenConfirmation/Failure (remoteState == Preempted)
-    // 3b. The downstream responds with its own ChannelClose, but the local state is Pending which
-    //     keeps the internal channel ID alive temporarily. Then, the upstream responds with a
-    //     ChannelOpenConfirmation/Failure. (remoteState == Bereft)
+    // This is a special case that can occur if the downstream opens a channel and forwards a
+    // ChannelOpen message to the upstream, then the downstream channel is preempted before the
+    // upstream server has a chance to respond with a ChannelOpenConfirmation/Failure.
     //
-    // In this state, we can't forward anything to the downstream channel, since it's about to be
-    // closed but the internal channel still exists. Additionally, once the downstream releases
+    // In this state, we can't forward anything to the downstream channel since it would have been
+    // sent a ChannelOpenFailure message when preempted. Additionally, once the downstream releases
     // its ID, it still won't be freed because the upstream has bound the ID to this channel.
     // We can't ignore it, because the server might get stuck waiting for a drain callback, but
     // this channel is open, but idle and won't close on its own. So, instead of creating a new
     // PassthroughChannel, use a special channel type called ForceCloseChannel which will, upon
     // being started, simply attempt to close itself. Once it is closed, then the channel ID will
     // be released and freed (since at this point, the downstream channel will be bereft).
-    return startChannel(std::make_unique<ForceCloseChannel>(), {.allocated_channel_id = internal_id}).status();
+    return startChannel(std::make_unique<ForceCloseChannel>(), {.allocated_channel_id = internal_id});
   }
   auto passthrough = std::make_unique<PassthroughChannel>();
-  return startChannel(std::move(passthrough), {.allocated_channel_id = internal_id}).status();
+  return startChannel(std::move(passthrough), {.allocated_channel_id = internal_id});
 }
 
 void ConnectionService::shutdown(absl::Status err) {
@@ -261,14 +325,17 @@ void ConnectionService::shutdown(absl::Status err) {
     transport_.terminate(err);
   });
 
-  for (auto& cb : channel_callbacks_) {
-    auto channelId = cb->channelId();
+  for (auto it = channel_callbacks_.begin(); it != channel_callbacks_.end();) {
+    auto next = std::next(it);
+    auto channelId = (*it)->channelId();
     if (!channelIdMgr.isPreemptable(channelId, local_peer_)) {
       ENVOY_LOG(debug, "ssh: stream {}: channel {} is not eligible for preemption, ignoring",
                 transport_.streamId(), channelId);
+      it = next;
       continue;
     }
-    preempt(*cb, err);
+    (*it)->preempt(err);
+    it = next;
   }
 }
 
@@ -279,8 +346,22 @@ ConnectionService::ChannelCallbacksImpl::ChannelCallbacksImpl(ConnectionService&
       channel_id_mgr_(parent_.transport_.channelIdManager()),
       channel_id_(channel_id),
       local_peer_(local_peer),
+      remote_peer_(local_peer == Downstream ? Upstream : Downstream),
       scope_(parent.transport_.statsScope().createScope("channel")),
-      interrupt_callbacks_(std::make_unique<Envoy::Common::CallbackManager<void, absl::Status, TransportCallbacks&>>()) {}
+      read_disable_cancel_callbacks_(std::make_unique<Envoy::Common::CallbackManager<void>>()),
+      interrupt_callbacks_(std::make_unique<Envoy::Common::CallbackManager<void, absl::Status, TransportCallbacks&>>()),
+      channel_id_release_([this] {
+        channel_id_mgr_.releaseChannelID(channel_id_, local_peer_);
+      }),
+      post_filter_cleanup_checks_([this] {
+        // ReadDisableHandles must be directly tied to the lifetime of the channel filters which
+        // created them, because the last ReadDisableHandle to be destroyed triggers a callback
+        // that flushes a message queue, which requires the channel callbacks to be valid.
+        RELEASE_ASSERT(read_disable_count_ == 0 && (flush_queue_error_ || queued_remote_msgs_.empty()),
+                       fmt::format("bug: {} ReadDisableHandle instance(s) were leaked by {} channel filters ({} messages queued: {})",
+                                   read_disable_count_, local_peer_, queued_remote_msgs_.size(),
+                                   queued_remote_msgs_ | std::views::transform(&wire::Message::msg_type)));
+      }) {}
 
 void ConnectionService::ChannelCallbacksImpl::sendMessageLocal(wire::Message&& msg) {
   std::unique_ptr<Channel> deferredDelete;
@@ -294,8 +375,12 @@ void ConnectionService::ChannelCallbacksImpl::sendMessageLocal(wire::Message&& m
     [&](wire::ChannelCloseMsg& msg) {
       msg.recipient_channel = channel_id_;
       auto sendOk = channel_id_mgr_.processOutgoingChannelMsg(msg, local_peer_);
-      // This should always succeed, since we just set the recipient_channel ourselves.
-      THROW_IF_NOT_OK(sendOk.status());
+      if (!sendOk.ok()) {
+        // The only way to get here would be to send a ChannelClose instead of a ChannelOpenFailure
+        IS_ENVOY_BUG(statusToString(sendOk.status()));
+        return false;
+      }
+
       if (!*sendOk) {
         return false;
       }
@@ -320,17 +405,41 @@ void ConnectionService::ChannelCallbacksImpl::sendMessageLocal(wire::Message&& m
     [&](wire::ChannelOpenFailureMsg& msg) {
       msg.recipient_channel = channel_id_;
       auto sendOk = channel_id_mgr_.processOutgoingChannelMsg(msg, local_peer_);
-      // This should always succeed, since we just set the recipient_channel ourselves.
+      // This should always succeed, since we just set the recipient_channel ourselves and it is
+      // not possible to send two ChannelOpenFailure messages in succession.
       THROW_IF_NOT_OK(sendOk.status());
+
+      if (!*sendOk) {
+        // The only way to get here would be to send a ChannelClose then a ChannelOpenFailure,
+        // which can only happen by calling sendMessageLocal with the ChannelOpenFailure after
+        // preempting an open channel to send the ChannelClose, and before the reply is received.
+        IS_ENVOY_BUG("invalid ChannelOpenFailure message sent after ChannelClose");
+        return false;
+      }
 
       // If the channel open failure originates from the local peer's Channel (e.g. for hijacked
       // channels), send the failure message to the local peer then immediately destroy the channel.
+      //
       // Note: it likely doesn't matter if the channel is deleted before or after the message is
       // sent since sendMessageToConnection is a lower level api. But to keep things consistent
       // it is deleted afterwards.
-      deferredDelete.swap(parent_.channels_.extract(channel_id_).mapped());
+      //
+      // Note: parent_.channels_ may not actually contain the channel; this can be reached during
+      // processing of the initial ChannelOpen message, in which case the channel will not have been
+      // stored yet. If so, the caller must arrange for the Channel to be deleted.
+      if (auto ch = parent_.channels_.extract(channel_id_); !ch.empty()) {
+        deferredDelete.swap(ch.mapped());
+      } else {
+        // This needs its own flag separate from preempted_, since preempted_ is used in other
+        // places and doesn't always imply that a ChannelOpenFailure was sent.
+        // If the caller is readChannelOpen, then preempted_=true _does_ imply a ChannelOpenFailure
+        // was sent, but the converse is not necessarily true. Preemption is not the only way for
+        // this to be reached, so it is not sufficient for readChannelOpen to check if the channel
+        // was preempted in order to detect this state.
+        pending_delete_ = true;
+      }
 
-      return *sendOk;
+      return true;
     },
     [&](wire::ChannelMsg auto& msg) {
       msg.recipient_channel = channel_id_;
@@ -358,19 +467,39 @@ void ConnectionService::ChannelCallbacksImpl::sendMessageLocal(wire::Message&& m
 }
 
 absl::Status ConnectionService::ChannelCallbacksImpl::sendMessageRemote(wire::Message&& msg) {
+  for (auto& filter : filters_) {
+    auto stat = filter->onMessageForward(std::as_const(msg));
+    if (!stat.ok()) [[unlikely]] {
+      return stat;
+    }
+  }
+
+  if (read_disable_count_ > 0) [[unlikely]] {
+    ENVOY_LOG(debug, "message for remote channel {} queued while connection is read-disabled: {}",
+              channel_id_, msg.msg_type());
+    queued_remote_msgs_.emplace_back(std::move(msg));
+    return absl::OkStatus();
+  }
+
+  return sendMessageRemoteDirect(std::move(msg));
+}
+
+absl::Status ConnectionService::ChannelCallbacksImpl::sendMessageRemoteDirect(wire::Message&& msg) {
   auto sendOk = msg.visit(
     [&](wire::ChannelOpenMsg& msg) -> absl::StatusOr<bool> {
       ASSERT(!channel_type_.has_value());
       channel_type_ = msg.channel_type();
-
+      if (preempted_) {
+        ENVOY_LOG(debug, "not forwarding ChannelOpen message for preempted channel {}", channel_id_);
+        return false;
+      }
+      did_forward_channel_open_ = true;
       msg.sender_channel = channel_id_;
       return true;
     },
     [&](wire::ChannelMsg auto& msg) -> absl::StatusOr<bool> {
       msg.recipient_channel = channel_id_;
-      return channel_id_mgr_.processOutgoingChannelMsg(msg, local_peer_ == Peer::Downstream
-                                                              ? Peer::Upstream
-                                                              : Peer::Downstream);
+      return channel_id_mgr_.processOutgoingChannelMsg(msg, remote_peer_);
     },
     [](auto&) -> absl::StatusOr<bool> {
       throw Envoy::EnvoyException("bug: invalid message passed to sendMessageRemote()");
@@ -383,13 +512,6 @@ absl::Status ConnectionService::ChannelCallbacksImpl::sendMessageRemote(wire::Me
   if (!*sendOk) {
     ENVOY_LOG(debug, "message for remote channel {} dropped: {}", channel_id_, msg.msg_type());
     return absl::OkStatus();
-  }
-
-  for (auto& filter : filters_) {
-    auto stat = filter->onMessageForward(std::as_const(msg));
-    if (!stat.ok()) [[unlikely]] {
-      return stat;
-    }
   }
 
   ENVOY_LOG(trace, "sending messsage to remote channel {}: {}", channel_id_, msg.msg_type());
@@ -406,24 +528,128 @@ bool ConnectionService::ChannelCallbacksImpl::interruptChannel(absl::Status err)
   ASSERT(parent_.transport_.connectionDispatcher()->isThreadSafe());
   ENVOY_LOG(debug, "ssh: stream {}: interrupt requested for channel {} by a channel filter",
             parent_.transport_.streamId(), channel_id_);
-  if (channel_id_mgr_.isPreemptable(channel_id_, local_peer_)) {
-    parent_.preempt(*this, err);
-    return true;
+  if (!channel_id_mgr_.isPreemptable(channel_id_, local_peer_)) {
+    ENVOY_LOG(debug, "not interrupting channel: the channel is not eligible for preemption");
+    return false;
   }
-  return false;
+  preempt(err);
+  return true;
 }
 
-void ConnectionService::preempt(ChannelCallbacks& ccb, absl::Status err) {
-  ASSERT(transport_.channelIdManager().isPreemptable(ccb.channelId(), local_peer_));
+void ConnectionService::ChannelCallbacksImpl::preempt(absl::Status err) {
+  ASSERT(channel_id_mgr_.isPreemptable(channel_id_, local_peer_));
   ENVOY_LOG(debug, "ssh: stream {}: preempting channel {} (err: {})",
-            transport_.streamId(), ccb.channelId(), statusToString(err));
+            streamId(), channel_id_, statusToString(err));
+  preempted_ = true;
+  auto prevState = channel_id_mgr_.preempt(channel_id_, local_peer_);
 
-  transport_.channelIdManager().preempt(ccb.channelId(), local_peer_);
+  if (prevState == ChannelIDState::Bound) {
+    // Interrupt callbacks are only run if the channel is actually open, because the callbacks
+    // should be able to assume they can send messages locally before the channel is closed.
+    runInterruptCallbacks(err);
 
-  ccb.runInterruptCallbacks(err);
-  ccb.sendMessageLocal(wire::ChannelCloseMsg{
-    .recipient_channel = ccb.channelId(),
+    // Cancel all active ReadDisableHandle instances to try to make sure the local peer's reply to
+    // the ChannelClose will be read, otherwise the close timer could trigger a disconnect.
+    read_disable_cancel_callbacks_->runCallbacks();
+
+    // If the peer has received a channel open confirmation/failure, send a ChannelClose
+    sendMessageLocal(wire::ChannelCloseMsg{
+      .recipient_channel = channel_id_,
+    });
+  } else if (prevState == ChannelIDState::Pending) {
+    // If the remote peer has received a ChannelOpenConfirmation, but it has not yet forwarded it
+    // to us, we need to send a ChannelClose message manually to the remote peer. If we cause the
+    // channel open to fail and drop the ChannelOpenConfirmation, then we can no longer rely on the
+    // local channel forwarding a ChannelClose to close the remote channel, so we have to do it
+    // manually.
+    // This can happen if we were preempted by a channel filter while it was handling the
+    // ChannelOpenConfirmation, or if the channel filter paused reads for the remote peer while
+    // handling the ChannelOpenConfirmation which would buffer the message until reads are reusmed.
+    // To detect this scenario we can check if the remote peer is in the Bound state. Since the
+    // local peer is Pending, that means the remote peer has already received the confirmation and
+    // bound its ID but it has not forwarded the message yet.
+    if (channel_id_mgr_.peerState(channel_id_, remote_peer_) == ChannelIDState::Bound) {
+      ENVOY_LOG(debug, "ssh: stream {}: closing {} channel {} internally due to interrupted ChannelOpenConfirmation",
+                streamId(), remote_peer_, channel_id_);
+      // Note: any local channel filters also get a chance to handle this message as well. They
+      // could theoretically decide to pause reads, buffering _this_ message too, but it would
+      // eventually be sent.
+      auto stat = sendMessageRemote(wire::ChannelCloseMsg{
+        .recipient_channel = channel_id_,
+      });
+      // If the channel accounting is done correctly, this should never fail
+      ASSERT(stat.ok());
+    }
+
+    // If a channel open confirmation/failure was never received, send a ChannelOpenFailure instead
+    // of ChannelClose. Note that this has to be done last, because the Channel and ChannelCallbacks
+    // will both be deleted before sendMessageLocal returns below.
+    ENVOY_LOG(debug, "ssh: stream {}: channel {} is not open yet, sending ChannelOpenFailure to {}",
+              streamId(), channel_id_, local_peer_);
+    sendMessageLocal(wire::ChannelOpenFailureMsg{
+      .recipient_channel = channel_id_,
+    });
+    // At this point the Channel and ChannelCallbacks are both deleted
+  }
+}
+
+ReadDisableHandlePtr ConnectionService::ChannelCallbacksImpl::connectionReadDisable() {
+  ASSERT(parent_.transport_.connectionDispatcher()->isThreadSafe());
+  if (server_draining_) {
+    ENVOY_LOG(debug, "not disabling reads: server is draining");
+    return std::make_unique<NoopReadDisableHandle>();
+  }
+  if (preempted_) {
+    ENVOY_LOG(debug, "not disabling reads: channel was preempted");
+    return std::make_unique<NoopReadDisableHandle>();
+  }
+  parent_.transport_.connectionReadDisable(true);
+  read_disable_count_++;
+  return std::make_unique<ReadDisableHandleImpl>(connectionDispatcher(), *read_disable_cancel_callbacks_, [this] {
+    ASSERT(parent_.transport_.connectionDispatcher()->isThreadSafe());
+
+    // may schedule a read io event for the next event loop cycle
+    parent_.transport_.connectionReadDisable(false);
+
+    ASSERT(read_disable_count_ > 0);
+    read_disable_count_--;
+    // There may be (a small number of) queued outgoing remote messages that were held because
+    // connectionReadDisable() was called by a channel filter from within onMessageForward().
+    // All complete messages that were decoded in that particular read event will have been queued
+    // instead of forwarding them on. Once the read becomes unblocked, the queued messages, if any,
+    // are sent right away.
+    //
+    // Note: in the event a ChannelClose message is queued in this way, it will happen in the
+    // following sequence:
+    // 1. Channel::readMessage(ChannelCloseMsg) is called by the ConnectionService
+    // 2. sendMessageRemote(ChannelCloseMsg) is called by the Channel
+    // 3. The message is passed through channel filters, if any
+    // 4. The message is placed in the queue
+    // 5. The Channel is destroyed by the ConnectionService after readMessage returns,
+    //    ...which destroys the ChannelCallbacksImpl,
+    //     ...which destroys the ChannelFilters,
+    //      ...which destroys any outstanding ReadDisableHandles,
+    //       ...which calls this function as the last one is destroyed,
+    //        ...which flushes the queue, including the ChannelCloseMsg that was queued in (4).
+    //
+    // Note: If the remote peer's channel is preempted before all ReadDisableHandles are destroyed,
+    // any messages in the queue will end up being dropped when it is flushed.
+    if (read_disable_count_ == 0) {
+      if (auto stat = flushRemoteMsgQueue(); !stat.ok()) {
+        parent_.transport_.terminate(stat);
+      }
+    }
   });
+}
+
+void ConnectionService::ChannelCallbacksImpl::onServerDraining() {
+  server_draining_ = true;
+  if (read_disable_count_ > 0) {
+    ENVOY_LOG(debug, "channel {}: re-enabling reads from {} connection due to server drain (previous count: {})",
+              channel_id_, local_peer_, read_disable_count_);
+    read_disable_cancel_callbacks_->runCallbacks();
+  }
+  ASSERT(read_disable_count_ == 0);
 }
 
 void ConnectionService::ChannelCallbacksImpl::cleanup() {
@@ -433,8 +659,30 @@ void ConnectionService::ChannelCallbacksImpl::cleanup() {
   ASSERT(parent_.transport_.connectionDispatcher()->isThreadSafe());
   ENVOY_LOG(debug, "channel {}: cleanup", channel_id_);
   ASSERT(inserted());
-  channel_id_mgr_.releaseChannelID(channel_id_, local_peer_);
   removeFromList(parent_.channel_callbacks_);
+}
+
+absl::Status ConnectionService::ChannelCallbacksImpl::flushRemoteMsgQueue() {
+  ASSERT(parent_.transport_.connectionDispatcher()->isThreadSafe());
+  if (queued_remote_msgs_.empty()) {
+    return absl::OkStatus();
+  }
+  ENVOY_LOG(debug, "flushing remote message queue (size: {})", queued_remote_msgs_.size());
+  while (!queued_remote_msgs_.empty()) {
+    ENVOY_LOG(debug, "sending queued messsage to remote channel {}: {}",
+              channel_id_, queued_remote_msgs_.front().msg_type());
+    if (auto stat = sendMessageRemoteDirect(std::move(queued_remote_msgs_.front())); !stat.ok()) {
+      // If the queue was not flushed because of an error, it should not trigger the assert that
+      // would normally occur if the queue is not empty when this object is destroyed.
+      ENVOY_LOG(error, "failed to send queued message, remaining queue entries will be dropped: {}",
+                statusToString(stat));
+      flush_queue_error_ = true;
+      return stat;
+    }
+    queued_remote_msgs_.pop_front();
+  }
+  ENVOY_LOG(debug, "remote message queue flushed successfully");
+  return absl::OkStatus();
 }
 
 // UpstreamConnectionService
@@ -452,6 +700,11 @@ absl::Status UpstreamConnectionService::onServiceAccepted() {
 Envoy::Common::CallbackHandlePtr UpstreamConnectionService::onServerDraining(std::chrono::milliseconds,
                                                                              Envoy::Event::Dispatcher& dispatcher,
                                                                              std::function<void()> complete_cb) {
+  for (auto it = channel_callbacks_.begin(); it != channel_callbacks_.end();) {
+    auto next = std::next(it);
+    (*it)->onServerDraining();
+    it = next;
+  }
   dispatcher.post(std::move(complete_cb));
   return nullptr;
 }
@@ -763,12 +1016,12 @@ absl::StatusOr<MiddlewareResult> OpenHijackedChannelMiddleware::interceptMessage
       auto client = std::make_unique<ChannelStreamServiceClient>(grpc_client_);
 
       auto channel = std::make_unique<HijackedChannel>(hijack_callbacks_, std::move(client), config_);
-      auto internalId = parent_.startChannel(std::move(channel), {
-                                                                   .channel_open{std::move(msg)},
-                                                                   .bind_expect_remote = false,
-                                                                 });
-      if (!internalId.ok()) {
-        return statusf("error starting channel: {}", internalId.status());
+      auto stat = parent_.startChannel(std::move(channel), {
+                                                             .channel_open{std::move(msg)},
+                                                             .bind_expect_remote = false,
+                                                           });
+      if (!stat.ok()) {
+        return statusf("error starting channel: {}", stat);
       }
 
       return MiddlewareResult::Break;
@@ -832,6 +1085,11 @@ Envoy::Common::CallbackHandlePtr DownstreamConnectionService::onServerDraining(s
                                                                                Envoy::Event::Dispatcher& dispatcher,
                                                                                std::function<void()> complete_cb) {
   ENVOY_LOG(debug, "ssh: stream {}: handling graceful shutdown (delay: {})", transport_.streamId(), delay);
+  for (auto it = channel_callbacks_.begin(); it != channel_callbacks_.end();) {
+    auto next = std::next(it);
+    (*it)->onServerDraining();
+    it = next;
+  }
   shutdown(absl::UnavailableError("server shutting down"));
   return transport_.channelIdManager().startDrain(dispatcher, complete_cb);
 }
