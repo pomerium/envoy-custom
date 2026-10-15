@@ -432,6 +432,7 @@ envoy_cc_test(
         "filter_manager_test.cc",
     ],
     repository = "@envoy",
+    shard_count = 8,
     deps = [
         ":integration_lib",
         ":test_mocks",
