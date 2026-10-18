@@ -1,4 +1,5 @@
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
+#include "source/extensions/filters/network/ssh/wire/field.h"
 #include "source/extensions/filters/network/ssh/wire/message_traits.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
@@ -286,6 +287,144 @@ TEST(MessagesTest, EncodeEmpty) {
   ASSERT_OK(s.status());
   ASSERT_EQ(0, *s);
   ASSERT_EQ(0, buf.length());
+}
+
+TEST(MessagesTest, MsgEqualityComparison) {
+  wire::ChannelOpenMsg lhs;
+  populateFields(lhs);
+  wire::ChannelOpenMsg rhs{
+    .sender_channel = lhs.sender_channel,
+    .initial_window_size = lhs.initial_window_size,
+    .max_packet_size = lhs.max_packet_size,
+    .request = lhs.request,
+  };
+  EXPECT_TRUE(lhs == rhs);
+  EXPECT_FALSE(lhs != rhs);
+
+  {
+    rhs.sender_channel = ~*rhs.sender_channel;
+    EXPECT_FALSE(lhs == rhs);
+    EXPECT_TRUE(lhs != rhs);
+    rhs.sender_channel = lhs.sender_channel;
+  }
+  {
+    rhs.initial_window_size = ~*rhs.initial_window_size;
+    EXPECT_FALSE(lhs == rhs);
+    EXPECT_TRUE(lhs != rhs);
+    rhs.initial_window_size = lhs.initial_window_size;
+  }
+  {
+    rhs.max_packet_size = ~*rhs.max_packet_size;
+    EXPECT_FALSE(lhs == rhs);
+    EXPECT_TRUE(lhs != rhs);
+    rhs.max_packet_size = lhs.max_packet_size;
+  }
+  {
+    lhs.request.visit(
+      [&](const SessionChannelOpenMsg&) {
+        rhs.request = X11ChannelOpenMsg{};
+      },
+      [&](const X11ChannelOpenMsg&) {
+        rhs.request = ForwardedTcpipChannelOpenMsg{};
+      },
+      [&](const ForwardedTcpipChannelOpenMsg&) {
+        rhs.request = DirectTcpipChannelOpenMsg{};
+      },
+      [&](const DirectTcpipChannelOpenMsg&) {
+        rhs.request = SessionChannelOpenMsg{};
+      },
+      [&](const auto&) {
+        FAIL() << "update this test";
+      });
+    EXPECT_FALSE(lhs == rhs);
+    EXPECT_TRUE(lhs != rhs);
+    rhs.request = lhs.request;
+  }
+  {
+    auto prev = lhs.request;
+    lhs.request = X11ChannelOpenMsg{
+      .originator_address = "a"s,
+      .originator_port = 1u,
+    };
+    rhs.request = X11ChannelOpenMsg{
+      .originator_address = "a"s,
+      .originator_port = 1u,
+    };
+    EXPECT_TRUE(lhs == rhs);
+    EXPECT_FALSE(lhs != rhs);
+    rhs.request = X11ChannelOpenMsg{
+      .originator_address = "b"s,
+      .originator_port = 1u,
+    };
+    EXPECT_FALSE(lhs == rhs);
+    EXPECT_TRUE(lhs != rhs);
+
+    lhs.request = prev;
+    rhs.request = X11ChannelOpenMsg{
+      .originator_address = "a"s,
+      .originator_port = 2u,
+    };
+    EXPECT_FALSE(lhs == rhs);
+    EXPECT_TRUE(lhs != rhs);
+
+    lhs.request = prev;
+    rhs.request = prev;
+    EXPECT_TRUE(lhs == rhs);
+    EXPECT_FALSE(lhs != rhs);
+  }
+
+  {
+    wire::ChannelOpenMsg lhs;
+    wire::ChannelOpenMsg rhs;
+    EXPECT_TRUE(lhs == rhs);
+    EXPECT_FALSE(lhs != rhs);
+  }
+}
+
+TEST(MessagesTest, SubMsgEqualityComparison) {
+  {
+    ExecChannelRequestMsg lhs{.command = "a"s};
+    ExecChannelRequestMsg rhs{.command = "a"s};
+    EXPECT_TRUE(lhs == rhs);
+    EXPECT_FALSE(lhs != rhs);
+  }
+  {
+    ExecChannelRequestMsg lhs{};
+    ExecChannelRequestMsg rhs{};
+    EXPECT_TRUE(lhs == rhs);
+    EXPECT_FALSE(lhs != rhs);
+  }
+  {
+    ExecChannelRequestMsg lhs{.command = "a"s};
+    ExecChannelRequestMsg rhs{.command = "b"s};
+    EXPECT_FALSE(lhs == rhs);
+    EXPECT_TRUE(lhs != rhs);
+  }
+  {
+    ExecChannelRequestMsg lhs{.command = "a"s};
+    ExecChannelRequestMsg rhs{};
+    EXPECT_FALSE(lhs == rhs);
+    EXPECT_TRUE(lhs != rhs);
+  }
+}
+
+TEST(MessagesTest, EmptyMsgEqualityComparison) {
+  {
+    ShellChannelRequestMsg lhs{};
+    ShellChannelRequestMsg rhs{};
+    EXPECT_TRUE(lhs == rhs);
+    EXPECT_FALSE(lhs != rhs);
+  }
+  {
+    ChannelRequestMsg lhs{
+      .request = ShellChannelRequestMsg{},
+    };
+    ChannelRequestMsg rhs{
+      .request = ShellChannelRequestMsg{},
+    };
+    EXPECT_TRUE(lhs == rhs);
+    EXPECT_FALSE(lhs != rhs);
+  }
 }
 
 TEST(ExtInfoMsgTest, GetExtension) {
@@ -645,6 +784,242 @@ KexInitMsg:
   EXPECT_EQ(R"(["a", "b"])"s, testing::PrintToString(m.kex_algorithms));
 
   EXPECT_THAT(m, Field(&KexInitMsg::kex_algorithms, Eq(string_list{"a", "b"})));
+}
+
+struct TestMessage1 : Msg<SshMessageType(201)> {
+  field<uint32_t> a;
+  field<std::string, LengthPrefixed> b;
+};
+
+struct TestMessage2 : Msg<SshMessageType(202)> {
+  field<uint32_t> a;
+  field<std::string, LengthPrefixed> b;
+};
+
+struct TestSubMessage1 : SubMsg<SshMessageType(203), "one"> {
+  field<uint32_t> a;
+  field<std::string, LengthPrefixed> b;
+};
+
+struct TestSubMessage2 : SubMsg<SshMessageType(203), "two"> {
+  field<uint32_t> a;
+  field<std::string, LengthPrefixed> b;
+};
+
+struct TestSubMessage3 : SubMsg<SshMessageType(203), "three"> {
+  field<uint32_t> a;
+  field<std::string, LengthPrefixed> b;
+};
+
+struct TestMessage3 : Msg<SshMessageType(203)> {
+  field<uint32_t> a;
+  field<std::string, LengthPrefixed> b;
+  sub_message<TestSubMessage1, TestSubMessage2, TestSubMessage3> c;
+};
+
+static_assert(wire::detail::is_msg<TestMessage1>);
+static_assert(!wire::detail::is_sub_msg<TestMessage1>);
+
+static_assert(wire::detail::is_msg<TestMessage2>);
+static_assert(!wire::detail::is_sub_msg<TestMessage2>);
+
+static_assert(wire::detail::is_msg<TestMessage3>);
+static_assert(!wire::detail::is_sub_msg<TestMessage3>);
+
+static_assert(!wire::detail::is_msg<TestSubMessage1>);
+static_assert(wire::detail::is_sub_msg<TestSubMessage1>);
+
+static_assert(!wire::detail::is_msg<TestSubMessage2>);
+static_assert(wire::detail::is_sub_msg<TestSubMessage2>);
+
+static_assert(!wire::detail::is_msg<TestSubMessage3>);
+static_assert(wire::detail::is_sub_msg<TestSubMessage3>);
+
+static_assert(TestMessage1{} == TestMessage1{});
+static_assert(TestMessage1{.a = 1} != TestMessage1{.a = 2});
+static_assert(TestMessage2{} == TestMessage2{});
+static_assert(TestMessage3{.c = TestSubMessage1{.a = 1}} != TestMessage3{.c = TestSubMessage1{.a = 2}});
+static_assert(TestMessage3{.c = TestSubMessage1{.a = 1}} != TestMessage3{.c = TestSubMessage2{.a = 1}});
+
+struct TestDefaultEncodeDecode : Msg<SshMessageType(207)> {
+  field<uint32_t> a;
+  field<std::string, LengthPrefixed> b;
+};
+
+struct TestOverrideEncode : Msg<SshMessageType(208)> {
+  field<uint32_t> a;
+  field<std::string, LengthPrefixed> b;
+
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance&) const noexcept {
+    return 0;
+  }
+};
+
+struct TestOverrideDecode : Msg<SshMessageType(209)> {
+  field<uint32_t> a;
+  field<std::string, LengthPrefixed> b;
+
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance&, size_t) noexcept {
+    return 0;
+  }
+};
+
+struct TestOverrideEncodeDecode : Msg<SshMessageType(210)> {
+  field<uint32_t> a;
+  field<std::string, LengthPrefixed> b;
+
+  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance&) const noexcept {
+    return 0;
+  }
+  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance&, size_t) noexcept {
+    return 0;
+  }
+};
+
+static_assert(!wire::detail::has_override_encode<TestMessage1>);
+static_assert(!wire::detail::has_override_decode<TestMessage1>);
+
+static_assert(wire::detail::has_override_encode<TestOverrideEncode>);
+static_assert(!wire::detail::has_override_decode<TestOverrideEncode>);
+
+static_assert(!wire::detail::has_override_encode<TestOverrideDecode>);
+static_assert(wire::detail::has_override_decode<TestOverrideDecode>);
+
+static_assert(wire::detail::has_override_encode<TestOverrideEncodeDecode>);
+static_assert(wire::detail::has_override_decode<TestOverrideEncodeDecode>);
+
+TEST(MethodOverridesTest, TestOverrideEncodeDecodeOperators) {
+  {
+    constexpr auto encoded = "\xCF"
+                             "\x00\x00\x00\x02"
+                             "\x00\x00\x00\x01"
+                             "2"sv;
+    TestDefaultEncodeDecode msg{
+      .a = 2u,
+      .b = "2"s,
+    };
+    Envoy::Buffer::OwnedImpl buffer;
+    EXPECT_EQ(10uz, *msg.encode(buffer));
+    EXPECT_EQ(encoded, buffer.toString());
+    TestDefaultEncodeDecode msg2;
+    EXPECT_EQ(10uz, *msg2.decode(buffer, buffer.length()));
+    EXPECT_EQ(0, buffer.length());
+    EXPECT_EQ(msg, msg2);
+  }
+  {
+    constexpr auto encoded = "\xD0"
+                             "\x00\x00\x00\x02"
+                             "\x00\x00\x00\x01"
+                             "2"sv;
+    TestOverrideEncode msg{
+      .a = 2u,
+      .b = "2"s,
+    };
+    Envoy::Buffer::OwnedImpl buffer;
+    EXPECT_EQ(0uz, *msg.encode(buffer));
+    EXPECT_EQ("", buffer.toString());
+
+    buffer.add(encoded);
+    TestOverrideEncode msg2;
+    EXPECT_EQ(10uz, *msg2.decode(buffer, buffer.length()));
+    EXPECT_EQ(0, buffer.length());
+    EXPECT_EQ(msg, msg2);
+  }
+  {
+    constexpr auto encoded = "\xD1"
+                             "\x00\x00\x00\x02"
+                             "\x00\x00\x00\x01"
+                             "2"sv;
+    TestOverrideDecode msg{
+      .a = 2u,
+      .b = "2"s,
+    };
+    Envoy::Buffer::OwnedImpl buffer;
+    EXPECT_EQ(10uz, *msg.encode(buffer));
+    EXPECT_EQ(encoded, buffer.toString());
+    TestOverrideDecode msg2;
+    EXPECT_EQ(0uz, *msg2.decode(buffer, buffer.length()));
+    EXPECT_EQ(10, buffer.length());
+    EXPECT_EQ(TestOverrideDecode{}, msg2);
+  }
+  {
+    constexpr auto encoded = "\xD2"
+                             "\x00\x00\x00\x02"
+                             "\x00\x00\x00\x01"
+                             "2"sv;
+    TestOverrideEncodeDecode msg{
+      .a = 2u,
+      .b = "2"s,
+    };
+    Envoy::Buffer::OwnedImpl buffer;
+    EXPECT_EQ(0uz, *msg.encode(buffer));
+    EXPECT_EQ("", buffer.toString());
+
+    buffer.add(encoded);
+    TestOverrideEncodeDecode msg2;
+    EXPECT_EQ(0uz, *msg2.decode(buffer, buffer.length()));
+    EXPECT_EQ(10, buffer.length());
+    EXPECT_EQ(TestOverrideEncodeDecode{}, msg2);
+  }
+}
+
+struct TestNoOperatorOverrides : Msg<SshMessageType(211)> {
+};
+
+struct TestOverrideOperatorEq : Msg<SshMessageType(212)> {
+  constexpr bool operator==(const TestOverrideOperatorEq&) const { return false; }
+};
+
+struct TestOverrideOperatorNe : Msg<SshMessageType(213)> {
+  constexpr bool operator!=(const TestOverrideOperatorNe&) const { return true; }
+};
+
+struct TestOverrideOperatorEqNe : Msg<SshMessageType(214)> {
+  constexpr bool operator==(const TestOverrideOperatorEqNe&) const { return false; }
+  constexpr bool operator!=(const TestOverrideOperatorEqNe&) const { return true; }
+};
+
+static_assert(!wire::detail::has_override_operator_eq<TestMessage1>);
+static_assert(!wire::detail::has_override_operator_ne<TestMessage1>);
+
+static_assert(wire::detail::has_override_operator_eq<TestOverrideOperatorEq>);
+static_assert(!wire::detail::has_override_operator_ne<TestOverrideOperatorEq>);
+
+static_assert(!wire::detail::has_override_operator_eq<TestOverrideOperatorNe>);
+static_assert(wire::detail::has_override_operator_ne<TestOverrideOperatorNe>);
+
+static_assert(wire::detail::has_override_operator_eq<TestOverrideOperatorEqNe>);
+static_assert(wire::detail::has_override_operator_ne<TestOverrideOperatorEqNe>);
+
+TEST(MethodOverridesTest, TestOverrideEqualityOperators) {
+  {
+    TestNoOperatorOverrides a;
+    TestNoOperatorOverrides b;
+    EXPECT_TRUE(a == b);
+    EXPECT_FALSE(a != b);
+    static_assert(TestNoOperatorOverrides{} == TestNoOperatorOverrides{});
+  }
+  {
+    TestOverrideOperatorEq a;
+    TestOverrideOperatorEq b;
+    EXPECT_FALSE(a == b);
+    EXPECT_TRUE(a != b); // the default operator!= is implemented in terms of operator==
+    static_assert(TestOverrideOperatorEq{} != TestOverrideOperatorEq{});
+  }
+  {
+    TestOverrideOperatorNe a;
+    TestOverrideOperatorNe b;
+    EXPECT_TRUE(a == b);
+    EXPECT_TRUE(a != b);
+    static_assert(TestOverrideOperatorNe{} != TestOverrideOperatorNe{});
+  }
+  {
+    TestOverrideOperatorEqNe a;
+    TestOverrideOperatorEqNe b;
+    EXPECT_FALSE(a == b);
+    EXPECT_TRUE(a != b);
+    static_assert(TestOverrideOperatorEqNe{} != TestOverrideOperatorEqNe{});
+  }
 }
 
 } // namespace wire::test
