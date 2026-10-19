@@ -66,8 +66,8 @@ message StreamMetadata {
   string                    user_id                       = 8;
   string                    session_binding_id            = 9;
   map<string, string>       access_request_metadata       = 10;
-  string                    request_type                  = 11; // "shell" or "exec"
-  string                    exec_command                  = 12; // if request_type is "exec"
+  string                    request_type                  = 11; // "shell", "exec", or "subsystem"
+  string                    request_data                  = 12; // type-specific data (exec command, subsystem name)
   bool                      has_pty                       = 13;
   string                    term_env                      = 14;
   uint32                    width_columns                 = 15;
