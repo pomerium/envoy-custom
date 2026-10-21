@@ -5,7 +5,6 @@
 #include "source/common/concepts.h"
 #include "source/common/math.h"
 #include "source/common/type_traits.h"
-#include "source/common/visit.h"
 #include <concepts>
 #include <cstddef>
 #include <cstdint>

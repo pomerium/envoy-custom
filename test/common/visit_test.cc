@@ -92,23 +92,31 @@ TEST(VisitTest, Visit) {
   // the commented-out lines below would each trigger compile-time errors; corresponding validators follow
 
   // make_overloads<basic_visitor, decltype(as_nonconst(oneof))>(constMsg1, autoRef);
-  EXPECT_STATIC_ASSERT(!overload_validator<basic_visitor, decltype(as_nonconst(oneof))>::validate<decltype(constMsg1), decltype(autoRef)>());
+  EXPECT_STATIC_ASSERT(overload_validator<basic_visitor, decltype(as_nonconst(oneof))>::validate<decltype(constMsg1), decltype(autoRef)>().message() ==
+                       "invalid visit: function with argument 'const test::Msg1 &' would never be called because the catch-all function is a better candidate");
   // make_overloads<basic_visitor, decltype(as_nonconst(oneof))>(constMsg1, constMsg2, autoRef);
-  EXPECT_STATIC_ASSERT(!overload_validator<basic_visitor, decltype(as_nonconst(oneof))>::validate<decltype(constMsg1), decltype(constMsg2), decltype(autoRef)>());
+  EXPECT_STATIC_ASSERT(overload_validator<basic_visitor, decltype(as_nonconst(oneof))>::validate<decltype(constMsg1), decltype(constMsg2), decltype(autoRef)>().message() ==
+                       "invalid visit: function with argument 'const test::Msg1 &' would never be called because the catch-all function is a better candidate");
   // make_overloads<basic_visitor, decltype(as_nonconst(oneof))>(constMsg1, constMsg2, universalRef);
-  EXPECT_STATIC_ASSERT(!overload_validator<basic_visitor, decltype(as_nonconst(oneof))>::validate<decltype(constMsg1), decltype(constMsg2), decltype(universalRef)>());
+  EXPECT_STATIC_ASSERT(overload_validator<basic_visitor, decltype(as_nonconst(oneof))>::validate<decltype(constMsg1), decltype(constMsg2), decltype(universalRef)>().message() ==
+                       "invalid visit: function with argument 'const test::Msg1 &' would never be called because the catch-all function is a better candidate");
 
   // make_overloads<basic_visitor, decltype(as_nonconst(oneof))>(rvalueRefMsg1, autoRef);
-  EXPECT_STATIC_ASSERT(!overload_validator<basic_visitor, decltype(as_nonconst(oneof))>::validate<decltype(rvalueRefMsg1), decltype(autoRef)>());
+  EXPECT_STATIC_ASSERT(overload_validator<basic_visitor, decltype(as_nonconst(oneof))>::validate<decltype(rvalueRefMsg1), decltype(autoRef)>().message() ==
+                       "invalid visit: function with argument 'test::Msg1 &&' would never be called because the catch-all function is a better candidate");
   // make_overloads<basic_visitor, decltype(as_nonconst(oneof))>(rvalueRefMsg1, constAutoRef);
-  EXPECT_STATIC_ASSERT(!overload_validator<basic_visitor, decltype(as_nonconst(oneof))>::validate<decltype(rvalueRefMsg1), decltype(constAutoRef)>());
+  EXPECT_STATIC_ASSERT(overload_validator<basic_visitor, decltype(as_nonconst(oneof))>::validate<decltype(rvalueRefMsg1), decltype(constAutoRef)>().message() ==
+                       "invalid visit: function with argument 'test::Msg1 &&' would never be called because the catch-all function is a better candidate");
   // make_overloads<basic_visitor, decltype(as_nonconst(oneof))>(rvalueRefMsg1, universalRef);
-  EXPECT_STATIC_ASSERT(!overload_validator<basic_visitor, decltype(as_nonconst(oneof))>::validate<decltype(rvalueRefMsg1), decltype(universalRef)>());
+  EXPECT_STATIC_ASSERT(overload_validator<basic_visitor, decltype(as_nonconst(oneof))>::validate<decltype(rvalueRefMsg1), decltype(universalRef)>().message() ==
+                       "invalid visit: function with argument 'test::Msg1 &&' would never be called because the catch-all function is a better candidate");
   // make_overloads<basic_visitor, decltype(as_nonconst(oneof))>(rvalueRefMsg1, autoNoRef);
-  EXPECT_STATIC_ASSERT(!overload_validator<basic_visitor, decltype(as_nonconst(oneof))>::validate<decltype(rvalueRefMsg1), decltype(autoNoRef)>());
+  EXPECT_STATIC_ASSERT(overload_validator<basic_visitor, decltype(as_nonconst(oneof))>::validate<decltype(rvalueRefMsg1), decltype(autoNoRef)>().message() ==
+                       "invalid visit: function with argument 'test::Msg1 &&' would never be called because the catch-all function is a better candidate");
 
   // make_overloads<basic_visitor, decltype(oneof)>(msg1, universalRef);
-  EXPECT_STATIC_ASSERT(!const_validator<true, decltype(msg1)>::validate());
+  EXPECT_STATIC_ASSERT(const_validator<decltype(oneof), decltype(msg1)>::validate().message() ==
+                       "visited message is const-qualified, but handler has non-const argument type 'test::Msg1'");
 }
 
 } // namespace test

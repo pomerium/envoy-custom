@@ -1,17 +1,14 @@
 #pragma once
 
 #include "envoy/registry/registry.h"
-#include "source/common/fixed_string.h"
-#include "fmt/compile.h"
+#include "source/common/static_string.h"
 
 namespace detail {
-template <fixed_string Name>
+template <static_string Name>
 struct use_factory_guard {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wc++26-extensions"
-  static_assert(false, fixed_fmt_string{FMT_STATIC_FORMAT(
-                         "missing required declaration: `DYNAMIC_EXTENSION_USE_FACTORY_BASE({});`",
-                         Name.to_string())});
+  static_assert(false, static_errorf<"missing required declaration: `DYNAMIC_EXTENSION_USE_FACTORY_BASE({});`", Name.to_string()>());
 #pragma clang diagnostic pop
 };
 } // namespace detail

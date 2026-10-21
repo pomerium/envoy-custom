@@ -12,6 +12,7 @@ Checks: >
   -bugprone-branch-clone,
   -bugprone-easily-swappable-parameters,
   -bugprone-lambda-function-name,
+  -bugprone-std-exception-baseclass,
   clang-analyzer-core.DivideZero,
   misc-unused-using-decls,
   modernize-*
