@@ -100,21 +100,6 @@ concept FieldReflectable = requires(T t) {
   };                                                                                           \
   FORMAT_FIELDS(msg, __VA_ARGS__)
 
-template <typename... Overloads>
-struct wire::test_field_reflect<wire::OverloadSet<Overloads...>> {
-  static constexpr void visit_fields(OverloadSet<Overloads...>& m, auto visitor) {
-    auto random_index = absl::Uniform<size_t>(test::detail::rng, 0, sizeof...(Overloads));
-    // choose one of the overloads at random
-    using visitor_type = decltype(visitor);
-    auto resolvers = {+[](OverloadSet<Overloads...>& m, visitor_type visitor) {
-      Overloads o;
-      visitor("", o);
-      m.reset(std::move(o));
-    }...};
-    (*std::next(std::begin(resolvers), random_index))(m, visitor);
-  };
-};
-
 template <typename... Options>
 struct wire::test_field_reflect<wire::sub_message<Options...>> {
   static constexpr void visit_fields(sub_message<Options...>& m, auto visitor) {
@@ -148,22 +133,6 @@ struct fmt::formatter<wire::sub_message<Options...>> : formatter<string_view> {
 namespace wire {
 template <typename... Options>
 std::ostream& operator<<(std::ostream& os, const wire::sub_message<Options...>& msg) {
-  return os << fmt::to_string(msg);
-}
-} // namespace wire
-
-template <typename... Args>
-struct fmt::formatter<wire::OverloadSet<Args...>> : formatter<string_view> {
-  auto format(const wire::OverloadSet<Args...>&, format_context& ctx) const
-    -> format_context::iterator {
-    return formatter<string_view>::format(
-      fmt::format("[overloaded message: {}]", std::vector<string_view>{type_name<Args>()...}), ctx);
-  }
-};
-
-namespace wire {
-template <typename... Args>
-std::ostream& operator<<(std::ostream& os, const OverloadSet<Args...>& msg) {
   return os << fmt::to_string(msg);
 }
 } // namespace wire
@@ -298,6 +267,14 @@ TEST_FIELDS(PongMsg,
             data);
 
 // overloaded message types
+TEST_FIELDS(KexAlgInitMsg,
+            message);
+TEST_FIELDS(KexAlgReplyMsg,
+            message);
+TEST_FIELDS(UserAuthMethodSpecificClientMsg,
+            message);
+TEST_FIELDS(UserAuthMethodSpecificServerMsg,
+            message);
 TEST_FIELDS(KexEcdhInitMsg,
             client_pub_key);
 TEST_FIELDS(KexEcdhReplyMsg,
@@ -510,12 +487,12 @@ public:
 
   template <typename Overloaded>
   bool MatchAndExplain(Overloaded ov, testing::MatchResultListener* listener) const {
-    opt_ref<T> t = ov.template resolve<T>();
-    if (!t.has_value()) {
-      *listener << "which did not resolve";
+    auto t = ov.template resolve<T>();
+    if (!t.ok()) {
+      *listener << "which failed to resolve due to error: " << t.status();
       return false;
     }
-    return MatchPrintAndExplain(t.value().get(), this->matcher_, listener);
+    return MatchPrintAndExplain(t.value(), this->matcher_, listener);
   }
 
 protected:
@@ -528,18 +505,14 @@ WhenResolvedAs(const testing::Matcher<T>& inner_matcher) {
   return testing::MakePolymorphicMatcher(WhenResolvedAsMatcher<T>{inner_matcher});
 }
 
-#define MSG(msg_type, ...)                                                                                                               \
-  [&] {                                                                                                                                  \
-    using MsgType_ = msg_type;                                                                                                           \
-    if constexpr (wire::detail::is_overloaded_message<std::decay_t<MsgType_>>) {                                                         \
-      return VariantWith<wire::detail::overload_set_for_t<std::remove_const_t<MsgType_>>>(WhenResolvedAs<MsgType_>(AllOf(__VA_ARGS__))); \
-    } else {                                                                                                                             \
-      return VariantWith<MsgType_>(AllOf(__VA_ARGS__));                                                                                  \
-    }                                                                                                                                    \
+#define MSG(msg_type, ...)                            \
+  [&] {                                               \
+    using MsgType_ = msg_type;                        \
+    return VariantWith<MsgType_>(AllOf(__VA_ARGS__)); \
   }()
 
 #define SUB_MSG(submsg_type, ...) \
-  VariantWith<submsg_type>(AllOf(__VA_ARGS__))
+  MSG(submsg_type, __VA_ARGS__)
 
 // NOLINTEND(readability-identifier-naming)
 

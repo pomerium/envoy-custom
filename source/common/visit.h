@@ -5,6 +5,7 @@
 #include <variant>
 
 #include "source/common/concepts.h"
+#include "source/common/fixed_string.h"
 #include "source/common/type_traits.h"
 
 namespace tags {

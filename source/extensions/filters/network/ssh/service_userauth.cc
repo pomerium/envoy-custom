@@ -92,10 +92,14 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
 
           if (!pubkey_req.has_signature) {
             // any public key is acceptable
-            wire::UserAuthPubKeyOkMsg pubkey_ok;
-            pubkey_ok.public_key_alg = pubkey_req.public_key_alg;
-            pubkey_ok.public_key = pubkey_req.public_key;
-            return transport_.sendMessageToConnection(std::move(pubkey_ok)).status();
+            return transport_.sendMessageToConnection(
+                               wire::UserAuthMethodSpecificServerMsg{
+                                 .message = wire::UserAuthPubKeyOkMsg{
+                                   .public_key_alg = pubkey_req.public_key_alg,
+                                   .public_key = pubkey_req.public_key,
+                                 },
+                               })
+              .status();
           }
 
           // verify the signature
@@ -159,16 +163,16 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
           return transport_.sendMessageToConnection(std::move(failure)).status();
         });
     },
-    [&](opt_ref<wire::UserAuthInfoResponseMsg> opt_msg) {
-      if (!opt_msg.has_value()) {
+    [&](wire::UserAuthMethodSpecificClientMsg& msg) {
+      auto value = msg.resolve<wire::UserAuthInfoResponseMsg>();
+      if (!value.ok()) {
         return absl::InvalidArgumentError("invalid auth response");
       }
       // SSH_MSG_USERAUTH_INFO_RESPONSE is sent only for the keyboard-interactive method.
-      auto& msg = opt_msg->get();
       InfoResponse info_resp;
       info_resp.set_method("keyboard-interactive");
       KeyboardInteractiveInfoPromptResponses info_method_resp;
-      for (const auto& resp : *msg.responses) {
+      for (const auto& resp : *value->responses) {
         info_method_resp.add_responses(resp);
       }
       auto ok = info_resp.mutable_response()->PackFrom(info_method_resp);
@@ -277,7 +281,10 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
           p.echo = prompt.echo();
           client_req.prompts->push_back(std::move(p));
         }
-        return transport_.sendMessageToConnection(std::move(client_req)).status();
+        return transport_.sendMessageToConnection(wire::UserAuthMethodSpecificServerMsg{
+                                                    .message = std::move(client_req),
+                                                  })
+          .status();
       }
       return absl::InvalidArgumentError("unknown method");
     }

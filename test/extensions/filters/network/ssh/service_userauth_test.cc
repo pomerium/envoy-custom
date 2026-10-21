@@ -1,4 +1,5 @@
 #include "gtest/gtest.h"
+#include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "test/test_common/utility.h"
 
 #include "source/extensions/filters/network/ssh/service_userauth.h"
@@ -194,11 +195,11 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyNoSignature) {
   ASSERT_EQ(absl::UnknownError("sentinel"), r);
 
   resp.visit(
-    [&](opt_ref<wire::UserAuthPubKeyOkMsg> opt_msg) {
-      ASSERT_TRUE(opt_msg.has_value());
-      auto& pubkey_ok_msg = opt_msg.value().get();
-      ASSERT_EQ("ssh-ed25519", pubkey_ok_msg.public_key_alg);
-      ASSERT_EQ(public_key_blob, pubkey_ok_msg.public_key);
+    [&](wire::UserAuthMethodSpecificServerMsg& msg) {
+      auto value = msg.resolve<wire::UserAuthPubKeyOkMsg>();
+      ASSERT_OK(value);
+      ASSERT_EQ("ssh-ed25519", value->public_key_alg);
+      ASSERT_EQ(public_key_blob, value->public_key);
     },
     [](auto&) {
       FAIL() << "expected UserAuthPubKeyOkMsg";
@@ -257,7 +258,10 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKeyAlgorithmRsa) {
     ASSERT_OK(service_->handleMessage(wire::Message{req}));
 
     resp.visit(
-      [&](opt_ref<wire::UserAuthPubKeyOkMsg>) {},
+      [&](wire::UserAuthMethodSpecificServerMsg& msg) {
+        auto value = msg.resolve<wire::UserAuthPubKeyOkMsg>();
+        ASSERT_OK(value);
+      },
       [](auto&) {
         FAIL() << "expected UserAuthPubKeyOkMsg";
       });
@@ -287,7 +291,10 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshPubKey_TooManyAttempts_NoS
     ASSERT_OK(service_->handleMessage(wire::Message{req}));
 
     resp.visit(
-      [&](opt_ref<wire::UserAuthPubKeyOkMsg>) {},
+      [&](wire::UserAuthMethodSpecificServerMsg& msg) {
+        auto value = msg.resolve<wire::UserAuthPubKeyOkMsg>();
+        ASSERT_OK(value);
+      },
       [](auto&) {
         FAIL() << "expected UserAuthPubKeyOkMsg";
       });
@@ -455,7 +462,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageSshKeyboardInteractiveRespons
   EXPECT_CALL(*transport_, sendMgmtClientMessage(_))
     .WillOnce(SaveArg<0>(&client_msg));
 
-  auto r = service_->handleMessage(wire::Message{resp});
+  auto r = service_->handleMessage(wire::Message{wire::UserAuthMethodSpecificClientMsg{.message = resp}});
   ASSERT_OK(r);
 
   ASSERT_TRUE(client_msg.has_info_response());
@@ -644,13 +651,15 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerInfoRequest) {
   prompt2->set_prompt("password");
   ASSERT_TRUE(req->mutable_request()->PackFrom(prompts));
 
-  auto matcher = MSG(wire::UserAuthInfoRequestMsg,
-                     AllOf(FIELD_EQ(name, "prompts-name"),
-                           FIELD_EQ(instruction, "prompts-instruction"),
-                           FIELD_EQ(prompts,
-                                    std::vector{
-                                      wire::UserAuthInfoPrompt{.prompt = "username"s, .echo = true},
-                                      wire::UserAuthInfoPrompt{.prompt = "password"s, .echo = false}})));
+  auto matcher =
+    MSG(wire::UserAuthMethodSpecificServerMsg,
+        FIELD(message, MSG(wire::UserAuthInfoRequestMsg,
+                           AllOf(FIELD_EQ(name, "prompts-name"),
+                                 FIELD_EQ(instruction, "prompts-instruction"),
+                                 FIELD_EQ(prompts,
+                                          std::vector{
+                                            wire::UserAuthInfoPrompt{.prompt = "username"s, .echo = true},
+                                            wire::UserAuthInfoPrompt{.prompt = "password"s, .echo = false}})))));
   EXPECT_CALL(*transport_, sendMessageToConnection(matcher))
     .WillOnce(Return(absl::UnknownError("sentinel")));
 

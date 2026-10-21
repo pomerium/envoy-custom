@@ -175,6 +175,10 @@ enum EncodingOptions : uint32_t {
   ListLengthPrefixed = 1 << 3,
 
   NameListFormat = CommaDelimited | ListLengthPrefixed,
+
+  // Omit will skip encoding and decoding the field. It will be treated as if the field is not
+  // part of the message. This cannot be used in conjunction with any other encoding options.
+  Omit = 1u << 31,
 };
 
 consteval EncodingOptions operator|(EncodingOptions lhs, EncodingOptions rhs) {
@@ -214,10 +218,18 @@ constexpr size_t size_or_sizeof(const T& t) {
   }
 }
 
+template <EncodingOptions Opt, typename T>
+  requires ((Opt & EncodingOptions::Omit) != 0)
+size_t read_opt(Envoy::Buffer::Instance&, T&, explicit_size_t auto) { // NOLINT(readability-identifier-naming)
+  static_assert(Opt == EncodingOptions::Omit, "Omit cannot be used with other encoding options");
+  return 0;
+}
+
 // read_opt is a wrapper around read() that supports additional encoding options.
 // This specialization handles non-list types as well as strings and 'bytes' (vector<uint8_t>).
 template <EncodingOptions Opt, typename T>
-  requires (!is_vector_v<T> || is_bytes_v<T>)
+  requires (!is_vector_v<T> || is_bytes_v<T>) &&
+           ((Opt & EncodingOptions::Omit) == 0)
 size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, explicit_size_t auto limit) { // NOLINT(readability-identifier-naming)
   detail::check_supported_options<LengthPrefixed, Opt>();
 
@@ -243,10 +255,18 @@ size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, explicit_size_t auto 
   }
 }
 
+template <EncodingOptions Opt, typename T>
+  requires ((Opt & EncodingOptions::Omit) != 0)
+size_t write_opt(Envoy::Buffer::Instance&, const T&) { // NOLINT(readability-identifier-naming)
+  static_assert(Opt == EncodingOptions::Omit, "Omit cannot be used with other encoding options");
+  return 0;
+}
+
 // write_opt is a wrapper around write() that supports additional encoding options.
 // This specialization handles non-list types as well as strings and 'bytes' (vector<uint8_t>).
 template <EncodingOptions Opt, typename T>
-  requires (!is_vector_v<T> || is_bytes_v<T>)
+  requires (!is_vector_v<T> || is_bytes_v<T>) &&
+           ((Opt & EncodingOptions::Omit) == 0)
 size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT(readability-identifier-naming)
   detail::check_supported_options<LengthPrefixed, Opt>();
 
@@ -272,7 +292,8 @@ size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT(re
 //   length. This option cannot be used together with CommaDelimited.
 template <EncodingOptions Opt, typename T>
   requires Reader<typename T::value_type> &&
-           (is_vector_v<T> && !is_bytes_v<T>)
+           (is_vector_v<T> && !is_bytes_v<T>) &&
+           ((Opt & EncodingOptions::Omit) == 0)
 size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NOLINT(readability-identifier-naming)
   detail::check_supported_options<(CommaDelimited | LengthPrefixed | ListSizePrefixed | ListLengthPrefixed), Opt>();
   detail::check_incompatible_options<(CommaDelimited | LengthPrefixed), Opt>();
@@ -394,7 +415,8 @@ size_t read_opt(Envoy::Buffer::Instance& buffer, T& value, size_t limit) { // NO
 // write function for fields of list types
 template <EncodingOptions Opt, typename T>
   requires Writer<typename T::value_type> &&
-           (is_vector_v<T> && !is_bytes_v<T>)
+           (is_vector_v<T> && !is_bytes_v<T>) &&
+           ((Opt & EncodingOptions::Omit) == 0)
 size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT(readability-identifier-naming)
   detail::check_supported_options<(CommaDelimited | LengthPrefixed | ListSizePrefixed | ListLengthPrefixed), Opt>();
   detail::check_incompatible_options<(CommaDelimited | LengthPrefixed), Opt>();
@@ -449,15 +471,16 @@ size_t write_opt(Envoy::Buffer::Instance& buffer, const T& value) { // NOLINT(re
   }
   return total;
 }
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wc++26-extensions"
 
 // Utility function to decode a list of Decoder objects in order. The size passed to each Decoder's
 // decode method will be adjusted after each is read. Returns the total number of bytes read.
-template <Decoder... Args>
+template <typename... Args>
   requires (sizeof...(Args) > 0)
 absl::StatusOr<size_t> decodeSequence(Envoy::Buffer::Instance& buffer, explicit_size_t auto limit, Args&&... args) noexcept {
-  if constexpr (!contains_tag_no_validation<Args...>) {
-    detail::check_sub_message_field_order<Args...>();
-  }
+  static constinit auto subMsgIndex = detail::sub_message_index<Args...>();
+  detail::check_sub_message_field_order(subMsgIndex);
 
   if (buffer.length() < limit) {
     return absl::InvalidArgumentError("short read");
@@ -465,9 +488,13 @@ absl::StatusOr<size_t> decodeSequence(Envoy::Buffer::Instance& buffer, explicit_
   size_t n = 0;
   absl::Status stat{};
 
-  auto decodeOne = [&](Decoder auto&& field) -> bool {
-    if constexpr (is_tag_no_validation<decltype(field)>) {
-      return true;
+  auto decodeOne = [&](this auto&& decode_one, auto&& field) -> bool {
+    if constexpr (is_key_field_v<std::decay_t<decltype(field)>>) {
+      if constexpr (subMsgIndex.index != -1) {
+        return decode_one(args...[subMsgIndex.index].key_field());
+      } else {
+        static_assert(false, "key field exists but corresponding sub_message is missing");
+      }
     } else {
       // NB: (limit-n) is allowed to be zero here
       auto r = field.decode(buffer, limit - n);
@@ -497,19 +524,22 @@ inline absl::StatusOr<size_t> decodeSequence(Envoy::Buffer::Instance&, explicit_
 
 // Utility function to encode a list of Encoder objects in order. Returns the total number of bytes
 // written.
-template <Encoder... Args>
+template <typename... Args>
   requires (sizeof...(Args) > 0)
 absl::StatusOr<size_t> encodeSequence(Envoy::Buffer::Instance& buffer, const Args&... args) noexcept {
-  if constexpr (!contains_tag_no_validation<Args...>) {
-    detail::check_sub_message_field_order<Args...>();
-  }
+  static constinit auto subMsgIndex = detail::sub_message_index<Args...>();
+  detail::check_sub_message_field_order(subMsgIndex);
 
   size_t n = 0;
   absl::Status stat{};
 
-  auto encodeOne = [&](Encoder auto& field) -> bool {
-    if constexpr (is_tag_no_validation<decltype(field)>) {
-      return true;
+  auto encodeOne = [&](this auto&& encode_one, auto& field) -> bool {
+    if constexpr (is_key_field_v<std::decay_t<decltype(field)>>) {
+      if constexpr (subMsgIndex.index != -1) {
+        return encode_one(args...[subMsgIndex.index].key_field());
+      } else {
+        static_assert(false, "key field exists but corresponding sub_message is missing");
+      }
     } else {
       auto r = field.encode(buffer);
       if (!r.ok()) [[unlikely]] {
@@ -537,5 +567,7 @@ absl::StatusOr<size_t> encodeSequence(Envoy::Buffer::Instance& buffer, const Arg
 }
 
 absl::StatusOr<size_t> encodeSequence(Envoy::Buffer::Instance&);
+
+#pragma clang diagnostic pop
 
 } // namespace wire

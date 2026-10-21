@@ -15,8 +15,7 @@ template <typename R, typename T, typename Arg>
 struct callable_info<R (T::*)(Arg) const> {
   using return_type = R;
   using raw_arg_type = Arg;
-  using arg_type_with_cv_optref = std::remove_reference_t<Arg>;
-  using arg_type_with_cv = remove_optref_t<arg_type_with_cv_optref>;
+  using arg_type_with_cv = std::remove_reference_t<Arg>;
   using arg_type = std::remove_cv_t<arg_type_with_cv>;
 };
 
@@ -24,7 +23,6 @@ template <typename R, typename T>
 struct callable_info<R (T::*)() const> {
   using return_type = R;
   using raw_arg_type = void;
-  using arg_type_with_cv_optref = void;
   using arg_type_with_cv = void;
   using arg_type = void;
 };
@@ -233,3 +231,4 @@ constexpr std::string_view type_name() {
   fn.remove_suffix(std::char_traits<char>::length(detail::type_name_suffix_str));
   return fn;
 }
+static_assert(type_name<void>() == "void");
