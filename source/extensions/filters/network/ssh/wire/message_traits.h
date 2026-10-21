@@ -1,49 +1,14 @@
 #pragma once
 
-#include "source/common/type_traits.h"
-#include "source/common/visit.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 
 namespace wire::detail {
 
-// overloaded messages
-template <SshMessageType MT>
-struct OverloadGroup {};
+template <typename T>
+using submsg_group_t = T::submsg_group;
 
 template <typename T>
-struct is_overloadgroup : std::false_type {};
-
-template <SshMessageType MT>
-struct is_overloadgroup<OverloadGroup<MT>> : std::true_type {};
-
-template <typename T>
-constexpr bool is_overloadgroup_v = is_overloadgroup<T>::value;
-
-// specializations of overload_set_for are defined in messages.h
-template <DecayedType T>
-struct overload_set_for : std::type_identity<T> {};
-
-template <DecayedType T>
-using overload_set_for_t = typename overload_set_for<T>::type;
-
-template <DecayedType T>
-constexpr bool is_overloaded_message = !std::is_same_v<T, overload_set_for_t<T>>;
-
-template <bool IsConst, typename F>
-struct opt_ref_validator {
-  consteval static bool validate() {
-    using info_t = callable_info_t<std::remove_reference_t<F>>;
-    return std::is_same_v<typename info_t::raw_arg_type,
-                          opt_ref<typename info_t::arg_type_with_cv>>;
-  }
-};
-
-// specializations of is_overloaded_message are defined in messages.h
-template <DecayedType T>
-struct is_overload_set : std::false_type {};
-
-template <DecayedType T>
-constexpr bool is_overload_set_v = is_overload_set<T>::value;
+concept SubmsgGroupMember = requires(T) { typename submsg_group_t<T>; };
 
 // sub-messages
 template <SshMessageType MT>
@@ -60,94 +25,5 @@ constexpr bool is_submsggroup_v = is_submsggroup<T>::value;
 
 // top level messages
 enum class TopLevelMessageGroup {};
-
-// specializations of is_top_level_message are defined in messages.h
-template <DecayedType T>
-struct is_top_level_message : std::false_type {};
-
-template <DecayedType T>
-constexpr bool is_top_level_message_v = is_top_level_message<T>::value;
-
-template <typename T>
-concept TopLevelMessage = is_top_level_message_v<T>;
-
-template <bool IsConst, typename F>
-struct top_level_visitor : F {
-  static constexpr bool is_catchall_visitor = true;
-  template <typename T>
-  using arg_type_transform = T;
-
-  static consteval void validate() {}
-  using F::operator();
-};
-
-template <bool IsConst, typename F>
-  requires TopLevelMessage<callable_arg_type_t<F>>
-struct top_level_visitor<IsConst, F> : F {
-  constexpr top_level_visitor(F f)
-      : F(f) {}
-  static constexpr bool is_catchall_visitor = false;
-  template <typename T>
-  using arg_type_transform = T;
-
-  static consteval void validate() {
-    if constexpr (!const_validator<IsConst, F>::validate()) {
-      static_assert(false,
-                    "visited message is const-qualified, but handler has non-const argument type");
-    }
-  }
-
-  using F::operator();
-};
-
-template <bool IsConst, typename F>
-  requires TopLevelMessage<callable_arg_type_t<F>> && is_overloaded_message<callable_arg_type_t<F>>
-struct top_level_visitor<IsConst, F> : private F {
-  constexpr top_level_visitor(F f)
-      : F(f) {}
-  static constexpr bool is_catchall_visitor = false;
-  template <typename T>
-  using arg_type_transform = overload_set_for_t<T>;
-
-  static consteval void validate() {
-    if constexpr (!const_validator<IsConst, F>::validate()) {
-      static_assert(false, "visited message is const-qualified, but handler has non-const argument type");
-    }
-    if constexpr (!opt_ref_validator<IsConst, F>::validate()) {
-      static_assert(false, "overloaded messages must be visited as `opt_ref<T>` or `opt_ref<const T>` (by value)");
-    }
-  }
-
-  // This call operator wraps a lambda provided to visit() to handle overloaded message types. It
-  // resolves the overloaded message to the requested type, then passes it to the original lambda
-  // as an opt_ref.
-  //
-  // Example: if the sub-message type is OverloadSet<Foo, Bar>, and the caller writes:
-  //
-  //  visit([](opt_ref<Foo> msg) {
-  //    ...
-  //  });
-  //
-  // Then it is effectively transformed into:
-  //
-  //  visit([](OverloadSet<Foo, Bar> o) {
-  //           ^^^^^^^^^^^^^^^^^^^^^ overload_set_for_t<Foo>
-  //    auto f = [](opt_ref<Foo> msg) { ... };
-  //                        ^^^ decayed_arg, aka callable_arg_type_t<F>
-  //             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ F (the original lambda)
-  //    opt_ref<Foo> resolved = o.resolve<Foo>();
-  //                                      ^^^ decayed_arg
-  //    return f(resolved);
-  //  });
-  //
-  using decayed_arg = callable_arg_type_t<F>;
-  using overload_set = overload_set_for_t<decayed_arg>;
-  decltype(auto) operator()(overload_set& o) const {
-    return F::operator()(o.template resolve<decayed_arg>());
-  }
-};
-
-template <typename T>
-using submsg_group_t = T::submsg_group;
 
 } // namespace wire::detail

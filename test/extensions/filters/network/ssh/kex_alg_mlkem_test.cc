@@ -48,10 +48,10 @@ TEST_F(KexAlgMlkem768x25519TestSuite, ServerReplyMessageTypes) {
 TEST_F(KexAlgMlkem768x25519TestSuite, BuildClientInit) {
   auto init = alg_->buildClientInit();
   init.visit(
-    [](opt_ref<wire::KexHybridInitMsg> opt_msg) {
-      ASSERT_TRUE(opt_msg.has_value());
-      auto& msg = opt_msg.value().get();
-      EXPECT_EQ(MLKEM768_PUBLIC_KEY_BYTES + X25519_PUBLIC_VALUE_LEN, msg.client_init->size());
+    [](wire::KexAlgInitMsg& msg) {
+      auto value = msg.resolve<wire::KexHybridInitMsg>();
+      ASSERT_OK(value);
+      EXPECT_EQ(MLKEM768_PUBLIC_KEY_BYTES + X25519_PUBLIC_VALUE_LEN, value->client_init->size());
     },
     [](auto&) {
       FAIL() << "invalid message type";
@@ -65,12 +65,12 @@ TEST_F(KexAlgMlkem768x25519TestSuite, BuildServerReply) {
   fake_result.signature = randomBytes(32);
   auto msg = alg_->buildServerReply(fake_result);
   msg.visit(
-    [&](opt_ref<wire::KexHybridReplyMsg> opt_msg) {
-      ASSERT_TRUE(opt_msg.has_value());
-      auto& msg = opt_msg.value().get();
-      EXPECT_EQ(msg.host_key, fake_result.host_key_blob);
-      EXPECT_EQ(msg.server_reply, fake_result.server_ephemeral_pub_key);
-      EXPECT_EQ(msg.signature, fake_result.signature);
+    [&](wire::KexAlgReplyMsg& msg) {
+      auto value = msg.resolve<wire::KexHybridReplyMsg>();
+      ASSERT_OK(value);
+      EXPECT_EQ(value->host_key, fake_result.host_key_blob);
+      EXPECT_EQ(value->server_reply, fake_result.server_ephemeral_pub_key);
+      EXPECT_EQ(value->signature, fake_result.signature);
     },
     [](auto&) {
       FAIL() << "invalid message type";
@@ -110,13 +110,13 @@ TEST_F(KexAlgMlkem768x25519TestSuite, HandleServerRecv_WrongOverloadedMessageTyp
   ASSERT_OK(msg.decode(buf, buf.length()).status());
 
   auto r = alg_->handleServerRecv(msg);
-  EXPECT_EQ(absl::InvalidArgumentError("invalid key exchange init"), r.status());
+  EXPECT_THAT(r.status().message(), HasSubstr("invalid key exchange init"));
 }
 
 TEST_F(KexAlgMlkem768x25519TestSuite, HandleServerRecv_WrongPublicKeySize) {
   wire::KexHybridInitMsg init;
   init.client_init->resize(1215);
-  auto msg = wire::Message{init};
+  auto msg = wire::Message{wire::KexAlgInitMsg{.message = init}};
   auto r = alg_->handleServerRecv(msg);
   EXPECT_EQ(absl::InvalidArgumentError("invalid client init size (expected 1216, got 1215)"), r.status());
 }
@@ -132,7 +132,7 @@ TEST_F(KexAlgMlkem768x25519TestSuite, HandleServerRecv_LowOrderInput) {
   MLKEM768_private_key priv;
   MLKEM768_generate_key(std::span{*init.client_init}.first<MLKEM768_PUBLIC_KEY_BYTES>().data(), nullptr, &priv);
   std::ranges::copy(curve25519_low_order_point, std::span{*init.client_init}.last<X25519_PUBLIC_VALUE_LEN>().begin());
-  auto msg = wire::Message{init};
+  auto msg = wire::Message{wire::KexAlgInitMsg{.message = init}};
   auto r = alg_->handleServerRecv(msg);
   EXPECT_EQ(absl::InvalidArgumentError("x25519 error"), r.status());
 }
@@ -142,7 +142,7 @@ TEST_F(KexAlgMlkem768x25519TestSuite, HandleServerRecv_ZeroInput) {
   init.client_init->resize(MLKEM768_PUBLIC_KEY_BYTES + X25519_PUBLIC_VALUE_LEN);
   MLKEM768_private_key priv;
   MLKEM768_generate_key(std::span{*init.client_init}.first<MLKEM768_PUBLIC_KEY_BYTES>().data(), nullptr, &priv);
-  auto msg = wire::Message{init};
+  auto msg = wire::Message{wire::KexAlgInitMsg{.message = init}};
   auto r = alg_->handleServerRecv(msg);
   EXPECT_EQ(absl::InvalidArgumentError("x25519 error"), r.status());
 }
@@ -150,7 +150,7 @@ TEST_F(KexAlgMlkem768x25519TestSuite, HandleServerRecv_ZeroInput) {
 TEST_F(KexAlgMlkem768x25519TestSuite, HandleServerRecv_InvalidMlkemPublicKey) {
   wire::KexHybridInitMsg init;
   init.client_init = randomBytes(MLKEM768_PUBLIC_KEY_BYTES + X25519_PUBLIC_VALUE_LEN);
-  auto msg = wire::Message{init};
+  auto msg = wire::Message{wire::KexAlgInitMsg{.message = init}};
   auto r = alg_->handleServerRecv(msg);
   EXPECT_EQ(absl::InvalidArgumentError("invalid peer public key"), r.status());
 }
@@ -190,13 +190,13 @@ TEST_F(KexAlgMlkem768x25519TestSuite, HandleClientRecv_WrongOverloadedMessageTyp
   ASSERT_OK(msg.decode(buf, buf.length()).status());
 
   auto r = alg_->handleClientRecv(msg);
-  EXPECT_EQ(absl::InvalidArgumentError("invalid key exchange reply"), r.status());
+  EXPECT_THAT(r.status().message(), HasSubstr("invalid key exchange reply"));
 }
 
 TEST_F(KexAlgMlkem768x25519TestSuite, HandleClientRecv_WrongPublicKeySize) {
   wire::KexHybridReplyMsg reply;
   reply.server_reply->resize(1119);
-  auto msg = wire::Message{reply};
+  auto msg = wire::Message{wire::KexAlgReplyMsg{.message = reply}};
   auto r = alg_->handleClientRecv(msg);
   EXPECT_EQ(absl::InvalidArgumentError("invalid server reply size (expected 1120, got 1119)"), r.status());
 }
@@ -215,7 +215,7 @@ TEST_F(KexAlgMlkem768x25519TestSuite, HandleClientRecv_LowOrderInput) {
                  sharedSecret.data(),
                  &pub);
   std::ranges::copy(curve25519_low_order_point, std::span{*reply.server_reply}.last<X25519_PUBLIC_VALUE_LEN>().begin());
-  auto msg = wire::Message{reply};
+  auto msg = wire::Message{wire::KexAlgReplyMsg{.message = reply}};
   auto r = alg_->handleClientRecv(msg);
   EXPECT_EQ(absl::InvalidArgumentError("x25519 error"), r.status());
 }
@@ -225,7 +225,7 @@ TEST_F(KexAlgMlkem768x25519TestSuite, HandleClientRecv_ZeroInput) {
   {
     wire::KexHybridReplyMsg reply;
     reply.server_reply->resize(1120);
-    auto msg = wire::Message{reply};
+    auto msg = wire::Message{wire::KexAlgReplyMsg{.message = reply}};
     auto r = alg_->handleClientRecv(msg);
     EXPECT_EQ(absl::InvalidArgumentError("x25519 error"), r.status());
   }
@@ -236,12 +236,12 @@ TEST_F(KexAlgMlkem768x25519TestSuite, HandleClientRecv_ZeroInput) {
     X25519_keypair(std::span{*reply.server_reply}.last<X25519_PUBLIC_VALUE_LEN>().data(), priv.data());
     // Key exchange operations should be complete.
     // Try without setting the host key
-    auto msg = wire::Message{reply};
+    auto msg = wire::Message{wire::KexAlgReplyMsg{.message = reply}};
     auto r = alg_->handleClientRecv(msg);
     EXPECT_EQ(absl::InvalidArgumentError("error reading host key blob: invalid format"), r.status());
     // It should then fail signature validation
     reply.host_key = server_host_key_->toPublicKeyBlob();
-    msg = wire::Message{reply};
+    msg = wire::Message{wire::KexAlgReplyMsg{.message = reply}};
     r = alg_->handleClientRecv(msg);
     EXPECT_EQ(absl::InvalidArgumentError("signature failed verification: invalid argument"), r.status());
   }
@@ -254,9 +254,10 @@ TEST_F(KexAlgMlkem768x25519TestSuite, HandleClientRecv_ComputeClientResultError1
   ASSERT_TRUE(r1->has_value());
   auto reply = alg_->buildServerReply(***r1);
   reply.visit(
-    [](opt_ref<wire::KexHybridReplyMsg> opt_msg) {
-      auto& msg = opt_msg.value().get();
-      msg.signature[0] = 0xFF; // modify the signature length
+    [](wire::KexAlgReplyMsg& msg) {
+      auto value = msg.resolve<wire::KexHybridReplyMsg>();
+      ASSERT_OK(value);
+      value->signature[0] = 0xFF; // modify the signature length
     },
     [](auto&) { FAIL() << "invalid message type"; });
   auto r = alg_->handleClientRecv(reply);
@@ -270,9 +271,10 @@ TEST_F(KexAlgMlkem768x25519TestSuite, HandleClientRecv_ComputeClientResultError2
   ASSERT_TRUE(r1->has_value());
   auto reply = alg_->buildServerReply(***r1);
   reply.visit(
-    [](opt_ref<wire::KexHybridReplyMsg> opt_msg) {
-      auto& msg = opt_msg.value().get();
-      msg.signature->back() = ~msg.signature->back(); // modify the signature payload
+    [](wire::KexAlgReplyMsg& msg) {
+      auto value = msg.resolve<wire::KexHybridReplyMsg>();
+      ASSERT_OK(value);
+      value->signature->back() = ~value->signature->back(); // modify the signature payload
     },
     [](auto&) { FAIL() << "invalid message type"; });
   auto r = alg_->handleClientRecv(reply);

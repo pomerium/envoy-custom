@@ -3,66 +3,6 @@
 
 namespace wire {
 
-// ChannelOpenMsg
-absl::StatusOr<size_t> ChannelOpenMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
-  return decodeMsg(buffer, type, payload_size,
-                   request.key_field(),
-                   sender_channel,
-                   initial_window_size,
-                   max_packet_size,
-                   request);
-}
-absl::StatusOr<size_t> ChannelOpenMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
-  return encodeMsg(buffer, type,
-                   request.key_field(),
-                   sender_channel,
-                   initial_window_size,
-                   max_packet_size,
-                   request);
-}
-
-// ChannelRequestMsg
-absl::StatusOr<size_t> ChannelRequestMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
-  return decodeMsg(buffer, type, payload_size,
-                   recipient_channel,
-                   request.key_field(),
-                   want_reply,
-                   request);
-}
-absl::StatusOr<size_t> ChannelRequestMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
-  return encodeMsg(buffer, type,
-                   recipient_channel,
-                   request.key_field(),
-                   want_reply,
-                   request);
-}
-
-// GlobalRequestMsg
-absl::StatusOr<size_t> GlobalRequestMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
-  return decodeMsg(buffer, type, payload_size,
-                   request.key_field(),
-                   want_reply,
-                   request);
-}
-absl::StatusOr<size_t> GlobalRequestMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
-  return encodeMsg(buffer, type,
-                   request.key_field(),
-                   want_reply,
-                   request);
-}
-
-// GlobalRequestSuccessMsg (non-standard)
-absl::StatusOr<size_t> GlobalRequestSuccessMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
-  return decodeMsg(buffer, type, payload_size,
-                   wire::tags::no_validation{},
-                   response);
-}
-absl::StatusOr<size_t> GlobalRequestSuccessMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
-  return encodeMsg(buffer, type,
-                   wire::tags::no_validation{},
-                   response);
-}
-
 // PubKeyUserAuthRequestMsg (non-standard)
 absl::StatusOr<size_t> PubKeyUserAuthRequestMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
   auto n = decodeSequence(buffer, payload_size,
@@ -88,22 +28,6 @@ absl::StatusOr<size_t> PubKeyUserAuthRequestMsg::encode(Envoy::Buffer::Instance&
     return *n + *signature.encode(buffer);
   }
   return n;
-}
-
-// UserAuthRequestMsg
-absl::StatusOr<size_t> UserAuthRequestMsg::decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
-  return decodeMsg(buffer, type, payload_size,
-                   username,
-                   service_name,
-                   request.key_field(),
-                   request);
-}
-absl::StatusOr<size_t> UserAuthRequestMsg::encode(Envoy::Buffer::Instance& buffer) const noexcept {
-  return encodeMsg(buffer, type,
-                   username,
-                   service_name,
-                   request.key_field(),
-                   request);
 }
 
 // UserAuthInfoPrompt
@@ -143,7 +67,7 @@ size_t read(Envoy::Buffer::Instance& buffer, Extension& ext, size_t payload_size
   return n;
 }
 size_t write(Envoy::Buffer::Instance& buffer, const Extension& ext) {
-  auto n = encodeSequence(buffer, ext.extension.key_field(), ext.extension);
+  auto n = encodeSequence(buffer, ext.extension_key, ext.extension);
   if (!n.ok()) {
     throw Envoy::EnvoyException(fmt::format("error encoding extension: {}", statusToString(n.status())));
   }

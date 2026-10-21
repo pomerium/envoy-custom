@@ -1,5 +1,4 @@
 #include "source/common/type_traits.h"
-#include "source/common/optref.h"
 #include "test/test_common/test_common.h"
 #include "gtest/gtest.h"
 
@@ -10,30 +9,35 @@ TEST(TypeTraitsTest, CallableInfo) {
   class Message2 {};
   class Message3 {};
 
-  auto non_overload = [&](const Message1& _) {
+  auto const_ref_arg = [&](const Message1& _) {
     return 1;
   };
-  auto overload = [&](opt_ref<const Message2> _) {
-    return 2;
+  auto lvalue_ref_arg = [&](Message1& _) {
+    return 1;
+  };
+  auto rvalue_ref_arg = [&](Message1&& _) {
+    return 1;
   };
   auto no_args = [&]() {
     return 3;
   };
 
-  EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(non_overload)>::raw_arg_type, const Message1&>);
-  EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(non_overload)>::arg_type_with_cv, const Message1>);
-  EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(non_overload)>::arg_type, Message1>);
-  EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(non_overload)>::arg_type_with_cv_optref, const Message1>);
-  EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(non_overload)>::return_type, int>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(const_ref_arg)>::raw_arg_type, const Message1&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(const_ref_arg)>::arg_type_with_cv, const Message1>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(const_ref_arg)>::arg_type, Message1>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(const_ref_arg)>::return_type, int>);
 
-  EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(overload)>::raw_arg_type, opt_ref<const Message2>>);
-  EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(overload)>::arg_type_with_cv_optref, opt_ref<const Message2>>);
-  EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(overload)>::arg_type_with_cv, const Message2>);
-  EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(overload)>::arg_type, Message2>);
-  EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(overload)>::return_type, int>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(lvalue_ref_arg)>::raw_arg_type, Message1&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(lvalue_ref_arg)>::arg_type_with_cv, Message1>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(lvalue_ref_arg)>::arg_type, Message1>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(lvalue_ref_arg)>::return_type, int>);
+
+  EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(rvalue_ref_arg)>::raw_arg_type, Message1&&>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(rvalue_ref_arg)>::arg_type_with_cv, Message1>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(rvalue_ref_arg)>::arg_type, Message1>);
+  EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(rvalue_ref_arg)>::return_type, int>);
 
   EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(no_args)>::raw_arg_type, void>);
-  EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(no_args)>::arg_type_with_cv_optref, void>);
   EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(no_args)>::arg_type_with_cv, void>);
   EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(no_args)>::arg_type, void>);
   EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(no_args)>::return_type, int>);

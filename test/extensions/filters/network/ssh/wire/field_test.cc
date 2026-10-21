@@ -282,18 +282,19 @@ struct TestSubMsg2 {
 struct TestMessage {
   using SubMsgType = sub_message<TestSubMsg1, TestSubMsg2>;
   field<std::string, LengthPrefixed> foo;
+  [[no_unique_address]] key_field<SubMsgType> request_key;
   SubMsgType request;
 
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
     return decodeMsg(buffer, SshMessageType(200), payload_size,
                      foo,
-                     request.key_field(),
+                     request_key,
                      request);
   }
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept {
     return encodeMsg(buffer, SshMessageType(200),
                      foo,
-                     request.key_field(),
+                     request_key,
                      request);
   }
 };
@@ -310,14 +311,14 @@ TEST(SubMessageTest, CompileTimeChecks) {
 
   {
     static constinit auto idx = wire::detail::sub_message_index<decltype(test_msg.foo),
-                                                                decltype(test_msg.request)::key_field_type,
+                                                                key_field<decltype(test_msg.request)>,
                                                                 decltype(test_msg.request)>();
     static_assert(idx.index == 2);
     static_assert(idx.key_field_index == 1);
   }
 
   {
-    static constinit auto idx = wire::detail::sub_message_index<decltype(test_msg.request)::key_field_type,
+    static constinit auto idx = wire::detail::sub_message_index<key_field<decltype(test_msg.request)>,
                                                                 decltype(test_msg.foo),
                                                                 decltype(test_msg.request)>();
     static_assert(idx.index == 2);
@@ -334,7 +335,7 @@ TEST(SubMessageTest, CompileTimeChecks) {
   static_assert(!TestMessage::SubMsgType::has_option<TestMessage::SubMsgType>());
 
   static_assert(std::is_same_v<typename TestMessage::SubMsgType::key_field_type,
-                               wire::detail::key_field_t<field<uint32_t, None>, TestMessage::SubMsgType>>);
+                               field<uint32_t, None>>);
 }
 
 TEST(SubMessageTest, Reset) {
