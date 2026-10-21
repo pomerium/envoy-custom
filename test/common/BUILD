@@ -8,10 +8,11 @@ envoy_cc_test(
     srcs = [
         "bytes_view_test.cc",
         "factory_test.cc",
-        "fixed_string_test.cc",
         "id_alloc_test.cc",
         "math_test.cc",
         "span_test.cc",
+        "static_error_test.cc",
+        "static_string_test.cc",
         "status_test.cc",
         "type_traits_test.cc",
         "visit_test.cc",
