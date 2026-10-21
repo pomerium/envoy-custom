@@ -1,6 +1,7 @@
 #pragma once
 
 #include <concepts>
+#include <cstddef>
 
 // explicit_t can be used to prevent implicit conversions in non-constructor function args, by
 // requiring that the type of the value passed by the caller is exactly the same as the requested

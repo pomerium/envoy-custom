@@ -95,21 +95,22 @@ void remove(std::vector<T>& v, const T& value) {
   EXPECT_CALL(*transport_callbacks_, sendMessageDirect(MSG(type, __VA_ARGS__))) \
     .WillOnce(Return(static_cast<size_t>(0)))
 
-// The <typename = void> parameter below is used to ensure the static_assert expressions reachable
-// from the else block are discarded, which only occurs in a dependent context. We are using macro
-// substitution to insert the typename here, so the condition is otherwise not dependent.
+// The <typename T = type> parameter below is used to ensure the block within the if statement that
+// is not selected is discarded, which only occurs in a dependent context. If we substitute the
+// typename directly using the macro argument, the condition would not be dependent and the blocks
+// for both branches would be instantiated, which may cause an error.
 // See https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2022/p2593r0.html for more details.
-#define EXPECT_SERVER_REPLY_VAR(var, type, ...)                                            \
-  EXPECT_CALL(*transport_callbacks_, sendMessageDirect(MSG(type, __VA_ARGS__)))            \
-    .WillOnce(Invoke([&]<typename = void>(wire::Message&& msg) -> absl::StatusOr<size_t> { \
-      if constexpr (wire::detail::is_overloaded_message<std::decay_t<type>>) {             \
-        msg.visit([&](opt_ref<type> m) { var = m.value(); },                               \
-                  [](auto&) { FAIL(); });                                                  \
-      } else {                                                                             \
-        msg.visit([&](type m) { var = m; },                                                \
-                  [](auto&) { FAIL(); });                                                  \
-      }                                                                                    \
-      return 0;                                                                            \
+#define EXPECT_SERVER_REPLY_VAR(var, type, ...)                                              \
+  EXPECT_CALL(*transport_callbacks_, sendMessageDirect(MSG(type, __VA_ARGS__)))              \
+    .WillOnce(Invoke([&]<typename T = type>(wire::Message&& msg) -> absl::StatusOr<size_t> { \
+      if constexpr (wire::detail::has_unkeyed_sub_message<std::decay_t<T>>()) {              \
+        msg.visit([&](T& m) { var = *m.template resolve<std::decay_t<decltype(var)>>(); },   \
+                  [](auto&) { FAIL(); });                                                    \
+      } else {                                                                               \
+        msg.visit([&](T& m) { var = m; },                                                    \
+                  [](auto&) { FAIL(); });                                                    \
+      }                                                                                      \
+      return 0;                                                                              \
     }))
 
 static const wire::KexInitMsg normal_client_kex_init_msg = [] {
@@ -225,7 +226,14 @@ struct KexSequence {
     ASSERT(coro != nullptr);
     ASSERT(coro.done());
     EXPECT_TRUE(coro.promise().result.has_value());
-    return testing::Test::HasFailure() ? absl::InternalError("test failure") : coro.promise().result.value();
+    if (testing::Test::HasFailure()) {
+      if (auto res = coro.promise().result; res.has_value()) {
+        return absl::InternalError(fmt::format("test failure (promise result: {})", res));
+      } else {
+        return absl::InternalError("test failure (no promise result)");
+      }
+    }
+    return coro.promise().result.value();
   }
 
   handle_type coro;
@@ -503,30 +511,31 @@ protected:
 
     // ECDH
     wire::Message clientInit = alg->buildClientInit();
-    using set_type = wire::OverloadSet<wire::KexEcdhInitMsg, wire::KexHybridInitMsg>;
-    auto initMsg = clientInit.message.get<set_type>();
+    auto& initMsg = clientInit.message.get<wire::KexAlgInitMsg>();
     bool is_hybrid{};
-    if (initMsg.messageForTest().holds_alternative<set_type::overload_opt_for<wire::KexEcdhInitMsg>>()) {
-      sequence.client_ecdh_init_ = initMsg.resolve<wire::KexEcdhInitMsg>()->get();
+    if (initMsg.message.holds_alternative<wire::KexEcdhInitMsg>()) {
+      sequence.client_ecdh_init_ = initMsg.message.get<wire::KexEcdhInitMsg>();
       co_yield BeforeEcdhInitSent;
-      clientInit = sequence.client_ecdh_init_;
+      clientInit = wire::KexAlgInitMsg{.message = sequence.client_ecdh_init_};
       if (!sequence.expecting_error_) {
         EXPECT_SERVER_REPLY_VAR(sequence.server_ecdh_reply_,
-                                wire::KexEcdhReplyMsg,
-                                FIELD_EQ(host_key, host_key_blobs_["ssh-ed25519"]));
+                                wire::KexAlgReplyMsg,
+                                FIELD(message, SUB_MSG(wire::KexEcdhReplyMsg,
+                                                       FIELD_EQ(host_key, host_key_blobs_["ssh-ed25519"]))));
         EXPECT_SERVER_REPLY(wire::NewKeysMsg, _);
         EXPECT_CALL(*transport_callbacks_, resetWriteSequenceNumber())
           .WillOnce(Return(3)); // KexInitMsg, KexEcdhReplyMsg, NewKeysMsg
       }
-    } else if (initMsg.messageForTest().holds_alternative<set_type::overload_opt_for<wire::KexHybridInitMsg>>()) {
+    } else if (initMsg.message.holds_alternative<wire::KexHybridInitMsg>()) {
       is_hybrid = true;
-      sequence.client_hybrid_init_ = initMsg.resolve<wire::KexHybridInitMsg>()->get();
+      sequence.client_hybrid_init_ = initMsg.message.get<wire::KexHybridInitMsg>();
       co_yield BeforeEcdhInitSent;
-      clientInit = sequence.client_hybrid_init_;
+      clientInit = wire::KexAlgInitMsg{.message = sequence.client_hybrid_init_};
       if (!sequence.expecting_error_) {
         EXPECT_SERVER_REPLY_VAR(sequence.server_hybrid_reply_,
-                                wire::KexHybridReplyMsg,
-                                FIELD_EQ(host_key, host_key_blobs_["ssh-ed25519"]));
+                                wire::KexAlgReplyMsg,
+                                FIELD(message, SUB_MSG(wire::KexHybridReplyMsg,
+                                                       FIELD_EQ(host_key, host_key_blobs_["ssh-ed25519"]))));
         EXPECT_SERVER_REPLY(wire::NewKeysMsg, _);
         EXPECT_CALL(*transport_callbacks_, resetWriteSequenceNumber())
           .WillOnce(Return(3)); // KexInitMsg, KexEcdhReplyMsg, NewKeysMsg
@@ -539,8 +548,8 @@ protected:
     }
     co_yield AfterEcdhInitSent;
 
-    auto tmp = is_hybrid ? wire::Message{sequence.server_hybrid_reply_}
-                         : wire::Message{sequence.server_ecdh_reply_};
+    auto tmp = is_hybrid ? wire::Message{wire::KexAlgReplyMsg{.message = sequence.server_hybrid_reply_}}
+                         : wire::Message{wire::KexAlgReplyMsg{.message = sequence.server_ecdh_reply_}};
     auto r = alg->handleClientRecv(tmp);
     if (!r.ok()) {
       co_return r.status();
@@ -664,7 +673,7 @@ INSTANTIATE_TEST_SUITE_P(BeforeKexInit, StrictModeEnforcementBeforeKexInitTest,
                              wire::Message{wire::IgnoreMsg{}},
                              wire::Message{wire::DebugMsg{}},
                              wire::Message{wire::UnimplementedMsg{}},
-                             wire::Message{wire::KexEcdhReplyMsg{}},
+                             wire::Message{wire::KexAlgReplyMsg{.message = wire::KexEcdhReplyMsg{}}},
                              wire::Message{wire::ExtInfoMsg{}},
                              wire::Message{wire::NewKeysMsg{}},
                            }),
@@ -690,7 +699,7 @@ INSTANTIATE_TEST_SUITE_P(BeforeEcdhInit, StrictModeEnforcementBeforeEcdhInitTest
                              wire::Message{wire::DebugMsg{}},
                              wire::Message{wire::UnimplementedMsg{}},
                              wire::Message{wire::KexInitMsg{}},
-                             wire::Message{wire::KexEcdhReplyMsg{}},
+                             wire::Message{wire::KexAlgReplyMsg{.message = wire::KexEcdhReplyMsg{}}},
                              wire::Message{wire::ExtInfoMsg{}},
                              wire::Message{wire::NewKeysMsg{}},
                            }),
@@ -715,7 +724,7 @@ INSTANTIATE_TEST_SUITE_P(BeforeNewKeys, StrictModeEnforcementBeforeNewKeysTest,
                              wire::Message{wire::DebugMsg{}},
                              wire::Message{wire::UnimplementedMsg{}},
                              wire::Message{wire::KexInitMsg{}},
-                             wire::Message{wire::KexEcdhReplyMsg{}},
+                             wire::Message{wire::KexAlgReplyMsg{.message = wire::KexEcdhReplyMsg{}}},
                              wire::Message{wire::ExtInfoMsg{}},
                            }),
                            testing::ValuesIn(AllAlgorithmOptions)));
@@ -891,7 +900,7 @@ TEST_P(ServerKexTest, IncorrectClientGuess_NeitherAlgorithmMatches) {
   // send bogus packet that would otherwise not work. it should be dropped
   wire::KexEcdhInitMsg ecdhInit;
   ecdhInit.client_pub_key = wire::test::random_value<bytes>();
-  EXPECT_OK(peer_reply_->dispatch(wire::Message{ecdhInit}));
+  EXPECT_OK(peer_reply_->dispatch(wire::Message{wire::KexAlgInitMsg{.message = ecdhInit}}));
 
   ContinueUntilEnd();
 }
@@ -931,7 +940,7 @@ TEST_P(ServerKexTest, IncorrectClientGuess_KexAlgMatchesButHostKeyDoesnt) {
 
   wire::KexEcdhInitMsg ecdhInit;
   ecdhInit.client_pub_key = wire::test::random_value<bytes>();
-  EXPECT_OK(peer_reply_->dispatch(wire::Message{ecdhInit}));
+  EXPECT_OK(peer_reply_->dispatch(wire::Message{wire::KexAlgInitMsg{.message = ecdhInit}}));
 
   ContinueUntilEnd();
 }
@@ -961,7 +970,7 @@ TEST_P(ServerKexTest, IncorrectClientGuess_HostKeyMatchesButKexAlgDoesnt) {
 
   wire::KexEcdhInitMsg ecdhInit;
   ecdhInit.client_pub_key = wire::test::random_value<bytes>();
-  EXPECT_OK(peer_reply_->dispatch(wire::Message{ecdhInit}));
+  EXPECT_OK(peer_reply_->dispatch(wire::Message{wire::KexAlgInitMsg{.message = ecdhInit}}));
 
   ContinueUntilEnd();
 }
@@ -1011,7 +1020,7 @@ TEST_P(ServerKexTest, CorrectClientGuess_KexAlgAlternateName) {
 
   wire::KexEcdhInitMsg ecdhInit;
   ecdhInit.client_pub_key = wire::test::random_value<bytes>();
-  EXPECT_OK(peer_reply_->dispatch(wire::Message{ecdhInit}));
+  EXPECT_OK(peer_reply_->dispatch(wire::Message{wire::KexAlgInitMsg{.message = ecdhInit}}));
 
   ContinueUntilEnd();
 }
@@ -1127,7 +1136,7 @@ TEST_P(ServerKexTest, EcdhFailure_Mlkem) {
 
 TEST_P(ServerKexTest, SendReplyFail) {
   ContinueUntil(BeforeEcdhInitSent);
-  EXPECT_CALL(*transport_callbacks_, sendMessageDirect(VariantWith<wire::detail::overload_set_for_t<wire::KexEcdhReplyMsg>>(_)))
+  EXPECT_CALL(*transport_callbacks_, sendMessageDirect(MSG(wire::KexAlgReplyMsg, _)))
     .WillOnce(Return(absl::InternalError("test error")));
   ContinueAndExpectError(absl::InternalError("test error"));
 }
@@ -1135,7 +1144,7 @@ TEST_P(ServerKexTest, SendReplyFail) {
 TEST_P(ServerKexTest, SendNewKeysFail) {
   ContinueUntil(BeforeEcdhInitSent);
   IN_SEQUENCE;
-  EXPECT_CALL(*transport_callbacks_, sendMessageDirect(VariantWith<wire::detail::overload_set_for_t<wire::KexEcdhReplyMsg>>(_)))
+  EXPECT_CALL(*transport_callbacks_, sendMessageDirect(MSG(wire::KexAlgReplyMsg, _)))
     .WillOnce(Return(static_cast<size_t>(0)));
   EXPECT_CALL(*transport_callbacks_, sendMessageDirect(VariantWith<wire::NewKeysMsg>(_)))
     .WillOnce(Return(absl::InternalError("test error")));
@@ -1171,7 +1180,7 @@ public:
   using Curve25519Sha256KexAlgorithm::Curve25519Sha256KexAlgorithm;
 
   const MessageTypeList& clientInitMessageTypes() const override {
-    static MessageTypeList list{wire::KexEcdhInitMsg::type, wire::DebugMsg::type};
+    static MessageTypeList list{wire::KexAlgInitMsg::type, wire::DebugMsg::type};
     return list;
   }
 
@@ -1181,7 +1190,7 @@ public:
       EXPECT_EQ(msg.msg_type(), wire::DebugMsg::type);
       return std::optional<KexResultSharedPtr>{};
     }
-    EXPECT_EQ(msg.msg_type(), wire::KexEcdhInitMsg::type);
+    EXPECT_EQ(msg.msg_type(), wire::KexAlgInitMsg::type);
     return Curve25519Sha256KexAlgorithm::handleServerRecv(msg);
   }
 
@@ -1194,7 +1203,7 @@ class TestMultiStepKexAlgorithm<KexMode::Server> : public Curve25519Sha256KexAlg
   using Curve25519Sha256KexAlgorithm::Curve25519Sha256KexAlgorithm;
 
   const MessageTypeList& serverReplyMessageTypes() const override {
-    static MessageTypeList list{wire::KexEcdhReplyMsg::type, wire::DebugMsg::type};
+    static MessageTypeList list{wire::KexAlgReplyMsg::type, wire::DebugMsg::type};
     return list;
   }
 
@@ -1204,7 +1213,7 @@ class TestMultiStepKexAlgorithm<KexMode::Server> : public Curve25519Sha256KexAlg
       EXPECT_EQ(msg.msg_type(), wire::DebugMsg::type);
       return std::optional<KexResultSharedPtr>{};
     }
-    EXPECT_EQ(msg.msg_type(), wire::KexEcdhReplyMsg::type);
+    EXPECT_EQ(msg.msg_type(), wire::KexAlgReplyMsg::type);
     return Curve25519Sha256KexAlgorithm::handleClientRecv(msg);
   }
 
@@ -1481,16 +1490,15 @@ protected:
     bool is_hybrid{};
     if (!sequence.expecting_error_) {
       EXPECT_CALL(*kex_callbacks_, onKexStarted(initial_kex));
-      using set_type = wire::OverloadSet<wire::KexEcdhInitMsg, wire::KexHybridInitMsg>;
 
-      EXPECT_CALL(*transport_callbacks_, sendMessageDirect(MSG(set_type, _)))
+      EXPECT_CALL(*transport_callbacks_, sendMessageDirect(MSG(wire::KexAlgInitMsg, _)))
         .WillOnce(Invoke([&](wire::Message&& msg) -> absl::StatusOr<size_t> {
-          auto initMsg = msg.message.get<set_type>();
-          if (initMsg.messageForTest().holds_alternative<set_type::overload_opt_for<wire::KexEcdhInitMsg>>()) {
-            sequence.client_ecdh_init_ = initMsg.resolve<wire::KexEcdhInitMsg>()->get();
-          } else if (initMsg.messageForTest().holds_alternative<set_type::overload_opt_for<wire::KexHybridInitMsg>>()) {
+          auto initMsg = msg.message.get<wire::KexAlgInitMsg>();
+          if (initMsg.message.holds_alternative<wire::KexEcdhInitMsg>()) {
+            sequence.client_ecdh_init_ = initMsg.message.get<wire::KexEcdhInitMsg>();
+          } else if (initMsg.message.holds_alternative<wire::KexHybridInitMsg>()) {
             is_hybrid = true;
-            sequence.client_hybrid_init_ = initMsg.resolve<wire::KexHybridInitMsg>()->get();
+            sequence.client_hybrid_init_ = initMsg.message.get<wire::KexHybridInitMsg>();
           } else {
             PANIC("test bug");
           }
@@ -1515,8 +1523,8 @@ protected:
                  ->create(&magics, &pendingState.negotiated_algorithms,
                           kex_->pickHostKey(pendingState.negotiated_algorithms.host_key));
 
-    auto tmp = is_hybrid ? wire::Message{sequence.client_hybrid_init_}
-                         : wire::Message{sequence.client_ecdh_init_};
+    auto tmp = is_hybrid ? wire::Message{wire::KexAlgInitMsg{.message = sequence.client_hybrid_init_}}
+                         : wire::Message{wire::KexAlgInitMsg{.message = sequence.client_ecdh_init_}};
     auto result = alg->handleServerRecv(tmp);
     if (!result.ok()) {
       co_return result.status();
@@ -1538,14 +1546,15 @@ protected:
     }
 
     auto serverReply = alg->buildServerReply(*sequence.server_kex_result_);
-    using set_type = wire::OverloadSet<wire::KexEcdhReplyMsg, wire::KexHybridReplyMsg>;
-    auto replyMsg = serverReply.message.get<set_type>();
-    if (replyMsg.messageForTest().holds_alternative<set_type::overload_opt_for<wire::KexEcdhReplyMsg>>()) {
+    auto replyMsg = serverReply.message.get<wire::KexAlgReplyMsg>();
+    if (replyMsg.message.holds_alternative<wire::KexEcdhReplyMsg>()) {
       EXPECT_FALSE(is_hybrid);
-      sequence.server_ecdh_reply_ = replyMsg.resolve<wire::KexEcdhReplyMsg>()->get();
-    } else if (replyMsg.messageForTest().holds_alternative<set_type::overload_opt_for<wire::KexHybridReplyMsg>>()) {
+      // Note: *replyMsg.resolve<T>() here should be equivalent to replyMsg.message.get<T>(). If
+      // the message already holds that alternative, resolve will just return the reference to it.
+      sequence.server_ecdh_reply_ = *replyMsg.resolve<wire::KexEcdhReplyMsg>();
+    } else if (replyMsg.message.holds_alternative<wire::KexHybridReplyMsg>()) {
       EXPECT_TRUE(is_hybrid);
-      sequence.server_hybrid_reply_ = replyMsg.resolve<wire::KexHybridReplyMsg>()->get();
+      sequence.server_hybrid_reply_ = *replyMsg.resolve<wire::KexHybridReplyMsg>();
     }
     co_yield BeforeServerEcdhReplySent;
     if (!sequence.expecting_error_) {
@@ -1558,8 +1567,8 @@ protected:
         .WillOnce(Return(3)); // KexInitMsg, KexEcdhReplyMsg, NewKeysMsg
     }
 
-    if (auto stat = peer_reply_->dispatch(is_hybrid ? wire::Message{sequence.server_hybrid_reply_}
-                                                    : wire::Message{sequence.server_ecdh_reply_});
+    if (auto stat = peer_reply_->dispatch(is_hybrid ? wire::Message{wire::KexAlgReplyMsg{.message = sequence.server_hybrid_reply_}}
+                                                    : wire::Message{wire::KexAlgReplyMsg{.message = sequence.server_ecdh_reply_}});
         !stat.ok()) {
       co_return stat;
     }
@@ -1736,7 +1745,7 @@ TEST_P(ClientKexTest, EcdhFailure_X25519) {
 TEST_P(ClientKexTest, SendEcdhInitFail) {
   ContinueUntil(BeforeServerKexInitSent);
   EXPECT_CALL(*kex_callbacks_, onKexStarted);
-  EXPECT_CALL(*transport_callbacks_, sendMessageDirect(VariantWith<wire::detail::overload_set_for_t<wire::KexEcdhInitMsg>>(_)))
+  EXPECT_CALL(*transport_callbacks_, sendMessageDirect(MSG(wire::KexAlgInitMsg, _)))
     .WillOnce(Return(absl::InternalError("test error")));
   ContinueAndExpectError(absl::InternalError("test error"));
 }
@@ -1752,7 +1761,7 @@ TEST_P(ClientKexTest, UnexpectedKexInit) {
   ContinueUntil(BeforeServerKexInitSent);
   auto expectedErr = absl::FailedPreconditionError("unexpected KexInit message received");
   EXPECT_CALL(*kex_callbacks_, onKexStarted(true));
-  EXPECT_CALL(*transport_callbacks_, sendMessageDirect(VariantWith<wire::detail::overload_set_for_t<wire::KexEcdhInitMsg>>(_)))
+  EXPECT_CALL(*transport_callbacks_, sendMessageDirect(MSG(wire::KexAlgInitMsg, _)))
     .WillOnce(Return(0));
   ASSERT_OK(peer_reply_->dispatch(auto(sequence.server_kex_init_)));
   ContinueAndExpectError(absl::InvalidArgumentError("unexpected message received: KexInit (20)"));

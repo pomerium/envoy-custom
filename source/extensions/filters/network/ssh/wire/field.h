@@ -1,5 +1,6 @@
 #pragma once
 
+#include "source/extensions/filters/network/ssh/wire/validation.h"
 #include <algorithm>
 #include <concepts>
 #include <cstdint>
@@ -152,16 +153,6 @@ struct canonical_key_type<std::string_view> : std::type_identity<std::string> {}
 template <typename T>
 using canonical_key_type_t = canonical_key_type<T>::type;
 
-namespace detail {
-// Wrapper around sub_message::key_field to mangle the type of the sub_message into the type of
-// the key. Only used for compile-time checks.
-template <typename KeyField, typename SubMessage>
-struct key_field_t : KeyField {
-  using KeyField::KeyField;
-  using KeyField::operator=;
-};
-} // namespace detail
-
 // sub_message is used in place of a [field] for fields that contain one of several potential
 // messages, where the type of the message is indicated by a "key field" in the same message.
 // This is a very common pattern used in SSH messages; messages that are "containers" for other
@@ -193,7 +184,7 @@ struct sub_message {
 
   using key_type = first_type_t<canonical_key_type_t<std::decay_t<decltype(Options::submsg_key)>>...>;
   static constexpr EncodingOptions key_encoding = std::get<0>(std::tuple{Options::submsg_key_encoding...});
-  using key_field_type = detail::key_field_t<field<key_type, key_encoding>, sub_message>;
+  using key_field_type = field<key_type, key_encoding>;
   using option_types = std::tuple<Options...>;
 
   template <typename T>
@@ -399,9 +390,6 @@ template <typename T>
 concept is_sub_msg = is_submsggroup_v<submsg_group_t<T>> && std::is_aggregate_v<T>;
 
 template <typename T>
-concept is_overload_msg = is_overloadgroup_v<submsg_group_t<T>>;
-
-template <typename T>
 concept has_override_encode = std::is_same_v<decltype(&T::encode), absl::StatusOr<size_t> (T::*)(Envoy::Buffer::Instance&) const noexcept>;
 
 template <typename T>
@@ -415,6 +403,17 @@ concept has_override_operator_ne = std::is_same_v<decltype(&T::operator!=), bool
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wc++26-extensions"
+
+template <typename T>
+consteval bool has_unkeyed_sub_message() {
+  const auto& [... fields] = T{};
+  constexpr auto subMsgIndex = sub_message_index<decltype(fields)...>();
+  if constexpr (subMsgIndex.index == -1) {
+    return false;
+  } else {
+    return decltype(fields...[subMsgIndex.index])::key_encoding == EncodingOptions::Omit;
+  }
+}
 
 struct MsgImplDefaults {
   template <typename T>
@@ -446,18 +445,6 @@ struct MsgImplDefaults {
   }
 
   template <typename T>
-    requires is_overload_msg<T>
-  absl::StatusOr<size_t> decode(this T& self, Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
-    return static_cast<typename T::inner_type&>(self).decode(buffer, payload_size);
-  }
-
-  template <typename T>
-    requires is_overload_msg<T>
-  absl::StatusOr<size_t> encode(this T const& self, Envoy::Buffer::Instance& buffer) noexcept {
-    return static_cast<typename T::inner_type const&>(self).encode(buffer);
-  }
-
-  template <typename T>
     requires (is_msg<T> || is_sub_msg<T>) && (!has_override_operator_eq<T>)
   constexpr bool operator==(this T const& self, const T& other) {
     const auto& [... selfFields] = self;
@@ -478,29 +465,29 @@ struct MsgImplDefaults {
     return !(self == other);
   }
 
-  template <typename T>
-    requires is_overload_msg<T>
-  constexpr bool operator==(this T const& self, const T& other) {
-    return static_cast<typename T::inner_type const&>(self) ==
-           static_cast<typename T::inner_type const&>(other);
+  template <typename Msg, typename Self>
+    requires (has_unkeyed_sub_message<Self>())
+  absl::StatusOr<Msg&> resolve(this Self& self) {
+    auto& [... fields] = self;
+    constexpr auto subMsgIndex = sub_message_index<decltype(fields)...>();
+
+    using key_type = decltype(fields...[subMsgIndex.index])::key_type;
+    auto& subMsg = fields...[subMsgIndex.index];
+    if (subMsg.template holds_alternative<Msg>()) {
+      return subMsg.template get<Msg>();
+    }
+    static_assert(subMsg.template has_option<Msg>());
+    subMsg.key_field() = key_type{Msg::submsg_key};
+    if (auto stat = subMsg.decodeUnknown().status(); !stat.ok()) {
+      return stat;
+    }
+    ASSERT(subMsg.template holds_alternative<Msg>());
+    return subMsg.template get<Msg>();
   }
 
-  template <typename T>
-    requires is_overload_msg<T>
-  constexpr bool operator!=(this T const& self, const T& other) {
-    return static_cast<typename T::inner_type const&>(self) !=
-           static_cast<typename T::inner_type const&>(other);
-  }
-
-  template <typename T>
-  constexpr bool operator==(this T const& self, const std::reference_wrapper<T>& other) {
-    return self == other.get();
-  }
-
-  template <typename T>
-  constexpr bool operator!=(this T const& self, const std::reference_wrapper<T>& other) {
-    return self != other.get();
-  }
+  template <typename Msg, typename Self>
+    requires (!has_unkeyed_sub_message<Self>())
+  absl::StatusOr<Msg&> resolve(this Self& self) = delete;
 };
 #pragma clang diagnostic pop
 

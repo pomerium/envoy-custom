@@ -300,7 +300,7 @@ public:
     clientMsg.mutable_info_response()->set_method("keyboard-interactive");
     KeyboardInteractiveInfoPromptResponses promptResp;
     EXPECT_TRUE(clientMsg.mutable_info_response()->mutable_response()->PackFrom(promptResp));
-    return {wire::Message{wire::UserAuthInfoResponseMsg{}}, std::move(clientMsg)};
+    return {wire::Message{wire::UserAuthMethodSpecificClientMsg{.message = wire::UserAuthInfoResponseMsg{}}}, std::move(clientMsg)};
   }
 
   void ExpectHandlePomeriumGrpcAuthRequestNormal(const ClientMessage& client_msg) {
@@ -3177,8 +3177,9 @@ public:
 
     // client receives the info request
     {
-      wire::UserAuthInfoRequestMsg req;
-      ASSERT_OK(ReadMsg(req));
+      wire::UserAuthMethodSpecificServerMsg msg;
+      ASSERT_OK(ReadMsg(msg));
+      auto& req = *msg.resolve<wire::UserAuthInfoRequestMsg>();
       ASSERT_EQ("foo"s, *req.name);
       ASSERT_EQ("bar"s, *req.instruction);
       ASSERT_TRUE(req.prompts->empty());
