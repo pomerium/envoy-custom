@@ -1,5 +1,6 @@
 #pragma once
 
+#include <concepts>
 #include <cstdint>
 #include <type_traits>
 #include <string>
@@ -15,18 +16,17 @@
 namespace wire {
 
 template <SshMessageType MT>
-struct Msg {
+struct Msg : detail::MsgImplDefaults {
   static constexpr SshMessageType type = MT;
   static constexpr SshMessageType msg_type() { return MT; };
   using submsg_group = detail::TopLevelMessageGroup;
   static constexpr SshMessageType submsg_key = MT;
   static constexpr EncodingOptions submsg_key_encoding = None;
-
-  constexpr auto operator<=>(const Msg&) const = default;
 };
 
 template <SshMessageType MT, typename T, size_t Id>
 struct OverloadMsg : T {
+  using inner_type = T;
   using submsg_group = detail::OverloadGroup<MT>;
   static constexpr uint64_t submsg_key = Id; // NB: this must be uint64_t; size_t is not an allowed field type
   static constexpr EncodingOptions submsg_key_encoding = None;
@@ -108,15 +108,20 @@ public:
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept {
     return message_.encode(buffer);
   }
+
+  constexpr bool operator==(const OverloadSet& other) const {
+    return message_ == other.message_;
+  }
+  constexpr bool operator!=(const OverloadSet& other) const {
+    return message_ != other.message_;
+  }
 };
 
 template <SshMessageType MT, fixed_string K>
-struct SubMsg {
+struct SubMsg : detail::MsgImplDefaults {
   using submsg_group = detail::SubMsgGroup<MT>;
   static constexpr std::string_view submsg_key = K.to_string();
   static constexpr EncodingOptions submsg_key_encoding = LengthPrefixed;
-
-  constexpr auto operator<=>(const SubMsg&) const = default;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4253#section-7.1
@@ -134,19 +139,11 @@ struct KexInitMsg final : Msg<SshMessageType::KexInit> {
   field<string_list, NameListFormat> languages_server_to_client;
   field<bool> first_kex_packet_follows;
   field<uint32_t> reserved;
-
-  constexpr auto operator<=>(const KexInitMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc5656#section-4
 struct KexEcdhInitMsg : Msg<SshMessageType::KexECDHInit> {
   field<bytes, LengthPrefixed> client_pub_key;
-
-  constexpr auto operator<=>(const KexEcdhInitMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc5656#section-4
@@ -154,19 +151,11 @@ struct KexEcdhReplyMsg : Msg<SshMessageType::KexECDHReply> {
   field<bytes, LengthPrefixed> host_key;
   field<bytes, LengthPrefixed> ephemeral_pub_key;
   field<bytes, LengthPrefixed> signature;
-
-  constexpr auto operator<=>(const KexEcdhReplyMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/draft-ietf-sshm-mlkem-hybrid-kex-03#name-pq-t-hybrid-key-exchange-me
 struct KexHybridInitMsg : Msg<SshMessageType::KexHybridInit> {
   field<bytes, LengthPrefixed> client_init;
-
-  constexpr auto operator<=>(const KexHybridInitMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/draft-ietf-sshm-mlkem-hybrid-kex-03#name-pq-t-hybrid-key-exchange-me
@@ -174,59 +163,26 @@ struct KexHybridReplyMsg : Msg<SshMessageType::KexHybridReply> {
   field<bytes, LengthPrefixed> host_key;
   field<bytes, LengthPrefixed> server_reply;
   field<bytes, LengthPrefixed> signature;
-
-  constexpr auto operator<=>(const KexHybridReplyMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4253#section-10
 struct ServiceRequestMsg final : Msg<SshMessageType::ServiceRequest> {
   field<std::string, LengthPrefixed> service_name;
-
-  constexpr auto operator<=>(const ServiceRequestMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4253#section-10
 struct ServiceAcceptMsg final : Msg<SshMessageType::ServiceAccept> {
   field<std::string, LengthPrefixed> service_name;
-
-  constexpr auto operator<=>(const ServiceAcceptMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
-};
-
-template <SshMessageType T>
-struct EmptyMsg : Msg<T> {
-  using Msg<T>::type;
-
-  constexpr auto operator<=>(const EmptyMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
-    return decodeMsg(buffer, type, payload_size);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept {
-    buffer.writeByte(type);
-    return 1;
-  }
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-6.1
 struct SessionChannelOpenMsg : SubMsg<SshMessageType::ChannelOpen, "session"> {
-  constexpr auto operator<=>(const SessionChannelOpenMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance&, size_t) noexcept { return 0; }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance&) const noexcept { return 0; }
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-6.3.2
 struct X11ChannelOpenMsg : SubMsg<SshMessageType::ChannelOpen, "x11"> {
   field<std::string, LengthPrefixed> originator_address;
   field<uint32_t> originator_port;
-
-  constexpr auto operator<=>(const X11ChannelOpenMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-7.2
@@ -235,10 +191,6 @@ struct ForwardedTcpipChannelOpenMsg : SubMsg<SshMessageType::ChannelOpen, "forwa
   field<uint32_t> port_connected;
   field<std::string, LengthPrefixed> originator_address;
   field<uint32_t> originator_port;
-
-  constexpr auto operator<=>(const ForwardedTcpipChannelOpenMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-7.2
@@ -247,10 +199,6 @@ struct DirectTcpipChannelOpenMsg : SubMsg<SshMessageType::ChannelOpen, "direct-t
   field<uint32_t> port_to_connect;
   field<std::string, LengthPrefixed> originator_address;
   field<uint32_t> originator_port;
-
-  constexpr auto operator<=>(const DirectTcpipChannelOpenMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-5.1
@@ -265,7 +213,6 @@ struct ChannelOpenMsg final : Msg<SshMessageType::ChannelOpen> {
               DirectTcpipChannelOpenMsg>
     request;
 
-  constexpr auto operator<=>(const ChannelOpenMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -278,33 +225,15 @@ struct PtyReqChannelRequestMsg final : SubMsg<SshMessageType::ChannelRequest, "p
   field<uint32_t> width_px;
   field<uint32_t> height_px;
   field<std::string, LengthPrefixed> modes;
-
-  constexpr auto operator<=>(const PtyReqChannelRequestMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-6.5
 struct ShellChannelRequestMsg final : SubMsg<SshMessageType::ChannelRequest, "shell"> {
-  constexpr auto operator<=>(const ShellChannelRequestMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
-    (void)buffer;
-    (void)payload_size;
-    return 0;
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept {
-    (void)buffer;
-    return 0;
-  }
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-6.5
 struct ExecChannelRequestMsg final : SubMsg<SshMessageType::ChannelRequest, "exec"> {
   field<std::string, LengthPrefixed> command;
-
-  constexpr auto operator<=>(const ExecChannelRequestMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-6.7
@@ -313,29 +242,17 @@ struct WindowDimensionChangeChannelRequestMsg final : SubMsg<SshMessageType::Cha
   field<uint32_t> height_rows;
   field<uint32_t> width_px;
   field<uint32_t> height_px;
-
-  constexpr auto operator<=>(const WindowDimensionChangeChannelRequestMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-6.5
 struct SubsystemChannelRequestMsg final : SubMsg<SshMessageType::ChannelRequest, "subsystem"> {
   field<std::string, LengthPrefixed> subsystem_name;
-
-  constexpr auto operator<=>(const SubsystemChannelRequestMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-6.4
 struct EnvChannelRequestMsg final : SubMsg<SshMessageType::ChannelRequest, "env"> {
   field<std::string, LengthPrefixed> variable_name;
   field<std::string, LengthPrefixed> variable_value;
-
-  constexpr auto operator<=>(const EnvChannelRequestMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-6.3.1
@@ -344,10 +261,6 @@ struct X11ReqChannelRequestMsg final : SubMsg<SshMessageType::ChannelRequest, "x
   field<std::string, LengthPrefixed> x11_authentication_protocol;
   field<std::string, LengthPrefixed> x11_authentication_cookie;
   field<uint32_t> x11_screen_number;
-
-  constexpr auto operator<=>(const X11ReqChannelRequestMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-6.10
@@ -356,47 +269,24 @@ struct ExitSignalChannelRequestMsg final : SubMsg<SshMessageType::ChannelRequest
   field<bool> core_dumped;
   field<std::string, LengthPrefixed> error_message;
   field<std::string, LengthPrefixed> language_tag;
-
-  constexpr auto operator<=>(const ExitSignalChannelRequestMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-6.10
 struct ExitStatusChannelRequestMsg final : SubMsg<SshMessageType::ChannelRequest, "exit-status"> {
   field<uint32_t> exit_status;
-
-  constexpr auto operator<=>(const ExitStatusChannelRequestMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-6.9
 struct SignalChannelRequestMsg final : SubMsg<SshMessageType::ChannelRequest, "signal"> {
   field<std::string, LengthPrefixed> signal_name;
-
-  constexpr auto operator<=>(const SignalChannelRequestMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-6.8
 struct XOnXOffChannelRequestMsg final : SubMsg<SshMessageType::ChannelRequest, "xon-xoff"> {
   field<bool> client_can_do;
-
-  constexpr auto operator<=>(const XOnXOffChannelRequestMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 struct EowChannelRequestMsg final : SubMsg<SshMessageType::ChannelRequest, "eow@openssh.com"> {
-  constexpr auto operator<=>(const EowChannelRequestMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance&, size_t) noexcept {
-    return 0;
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance&) const noexcept {
-    return 0;
-  }
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254
@@ -418,7 +308,6 @@ struct ChannelRequestMsg final : Msg<SshMessageType::ChannelRequest> {
               EowChannelRequestMsg>
     request;
 
-  constexpr auto operator<=>(const ChannelRequestMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -430,10 +319,6 @@ struct ChannelOpenConfirmationMsg final : Msg<SshMessageType::ChannelOpenConfirm
   field<uint32_t> initial_window_size;
   field<uint32_t> max_packet_size;
   field<bytes> extra;
-
-  constexpr auto operator<=>(const ChannelOpenConfirmationMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-5.1
@@ -442,30 +327,18 @@ struct ChannelOpenFailureMsg final : Msg<SshMessageType::ChannelOpenFailure> {
   field<uint32_t> reason_code;
   field<std::string, LengthPrefixed> description;
   field<std::string, LengthPrefixed> language_tag;
-
-  constexpr auto operator<=>(const ChannelOpenFailureMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-5.2
 struct ChannelWindowAdjustMsg final : Msg<SshMessageType::ChannelWindowAdjust> {
   mutable field<uint32_t> recipient_channel;
   field<uint32_t> bytes_to_add;
-
-  constexpr auto operator<=>(const ChannelWindowAdjustMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-5.2
 struct ChannelDataMsg final : Msg<SshMessageType::ChannelData> {
   mutable field<uint32_t> recipient_channel;
   field<bytes, LengthPrefixed> data;
-
-  constexpr auto operator<=>(const ChannelDataMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-5.2
@@ -473,82 +346,46 @@ struct ChannelExtendedDataMsg final : Msg<SshMessageType::ChannelExtendedData> {
   mutable field<uint32_t> recipient_channel;
   field<uint32_t> data_type_code;
   field<bytes, LengthPrefixed> data;
-
-  constexpr auto operator<=>(const ChannelExtendedDataMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-5.3
 struct ChannelEOFMsg final : Msg<SshMessageType::ChannelEOF> {
   mutable field<uint32_t> recipient_channel;
-
-  constexpr auto operator<=>(const ChannelEOFMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-5.3
 struct ChannelCloseMsg final : Msg<SshMessageType::ChannelClose> {
   mutable field<uint32_t> recipient_channel;
-
-  constexpr auto operator<=>(const ChannelCloseMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-5.4
 struct ChannelSuccessMsg final : Msg<SshMessageType::ChannelSuccess> {
   mutable field<uint32_t> recipient_channel;
-
-  constexpr auto operator<=>(const ChannelSuccessMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-5.4
 struct ChannelFailureMsg final : Msg<SshMessageType::ChannelFailure> {
   mutable field<uint32_t> recipient_channel;
-
-  constexpr auto operator<=>(const ChannelFailureMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 struct HostKeysProveRequestMsg final : SubMsg<SshMessageType::GlobalRequest, "hostkeys-prove-00@openssh.com"> {
   field<bytes_list, LengthPrefixed> hostkeys;
-
-  constexpr auto operator<=>(const HostKeysProveRequestMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t len) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 struct HostKeysMsg final : SubMsg<SshMessageType::GlobalRequest, "hostkeys-00@openssh.com"> {
   field<bytes_list, LengthPrefixed> hostkeys;
-
-  constexpr auto operator<=>(const HostKeysMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t len) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-7.1
 struct TcpipForwardMsg final : SubMsg<SshMessageType::GlobalRequest, "tcpip-forward"> {
   field<std::string, LengthPrefixed> remote_address;
   field<uint32_t> remote_port;
-
-  constexpr auto operator<=>(const TcpipForwardMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t len) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-7.1
 struct CancelTcpipForwardMsg final : SubMsg<SshMessageType::GlobalRequest, "cancel-tcpip-forward"> {
   field<std::string, LengthPrefixed> remote_address;
   field<uint32_t> remote_port;
-
-  constexpr auto operator<=>(const CancelTcpipForwardMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t len) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-4
@@ -561,25 +398,16 @@ struct GlobalRequestMsg final : Msg<SshMessageType::GlobalRequest> {
               CancelTcpipForwardMsg>
     request;
 
-  constexpr auto operator<=>(const GlobalRequestMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 struct HostKeysProveResponseMsg final : SubMsg<SshMessageType::RequestSuccess, "hostkeys-prove-00@openssh.com"> {
   field<bytes_list, LengthPrefixed> signatures;
-
-  constexpr auto operator<=>(const HostKeysProveResponseMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t len) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 struct TcpipForwardResponseMsg final : SubMsg<SshMessageType::RequestSuccess, "tcpip-forward"> {
   field<uint32_t> server_port;
-
-  constexpr auto operator<=>(const TcpipForwardResponseMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t len) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // // https://datatracker.ietf.org/doc/html/rfc4254#section-4
@@ -596,21 +424,17 @@ struct GlobalRequestSuccessMsg final : Msg<SshMessageType::RequestSuccess> {
     return response.decodeUnknown().status();
   }
 
-  constexpr auto operator<=>(const GlobalRequestSuccessMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // // https://datatracker.ietf.org/doc/html/rfc4254#section-4
-struct GlobalRequestFailureMsg final : EmptyMsg<SshMessageType::RequestFailure> {};
+struct GlobalRequestFailureMsg final : Msg<SshMessageType::RequestFailure> {
+};
 
 // https://datatracker.ietf.org/doc/html/rfc4253#section-11.2
 struct IgnoreMsg final : Msg<SshMessageType::Ignore> {
   field<bytes, LengthPrefixed> data;
-
-  constexpr auto operator<=>(const IgnoreMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4253#section-11.3
@@ -618,20 +442,12 @@ struct DebugMsg final : Msg<SshMessageType::Debug> {
   field<bool> always_display;
   field<std::string, LengthPrefixed> message;
   field<std::string, LengthPrefixed> language_tag;
-
-  constexpr auto operator<=>(const DebugMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4253#section-11.4
 struct UnimplementedMsg final : Msg<SshMessageType::Unimplemented> {
   // FIXME: the sequence numbers in this message are likely going to be wrong, need to adjust them
   field<uint32_t> sequence_number;
-
-  constexpr auto operator<=>(const UnimplementedMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4252#section-7
@@ -641,7 +457,6 @@ struct PubKeyUserAuthRequestMsg final : SubMsg<SshMessageType::UserAuthRequest, 
   field<bytes, LengthPrefixed> public_key;
   field<bytes, LengthPrefixed> signature;
 
-  constexpr auto operator<=>(const PubKeyUserAuthRequestMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -650,21 +465,10 @@ struct PubKeyUserAuthRequestMsg final : SubMsg<SshMessageType::UserAuthRequest, 
 struct KeyboardInteractiveUserAuthRequestMsg final : SubMsg<SshMessageType::UserAuthRequest, "keyboard-interactive"> {
   field<std::string, LengthPrefixed> language_tag;
   field<string_list, NameListFormat> submethods;
-
-  constexpr auto operator<=>(const KeyboardInteractiveUserAuthRequestMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4252#section-5.2
 struct NoneAuthRequestMsg final : SubMsg<SshMessageType::UserAuthRequest, "none"> {
-  constexpr auto operator<=>(const NoneAuthRequestMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance&, size_t) noexcept {
-    return 0;
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance&) const noexcept {
-    return 0;
-  }
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4252#section-5
@@ -677,7 +481,6 @@ struct UserAuthRequestMsg final : Msg<SshMessageType::UserAuthRequest> {
               NoneAuthRequestMsg>
     request;
 
-  constexpr auto operator<=>(const UserAuthRequestMsg&) const = default;
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
   absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
@@ -686,7 +489,9 @@ struct UserAuthInfoPrompt {
   field<std::string, LengthPrefixed> prompt;
   field<bool> echo;
 
-  constexpr auto operator<=>(const UserAuthInfoPrompt&) const = default;
+  constexpr bool operator==(const UserAuthInfoPrompt&) const = default;
+  constexpr bool operator!=(const UserAuthInfoPrompt&) const = default;
+
   // implements Reader
   friend size_t read(Envoy::Buffer::Instance& buffer, UserAuthInfoPrompt& prompt, size_t payload_size);
   // implements Writer
@@ -699,39 +504,23 @@ struct UserAuthInfoRequestMsg : Msg<SshMessageType::UserAuthInfoRequest> {
   field<std::string, LengthPrefixed> instruction;
   field<std::string, LengthPrefixed> language_tag;
   field<std::vector<UserAuthInfoPrompt>, ListSizePrefixed> prompts;
-
-  constexpr auto operator<=>(const UserAuthInfoRequestMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4256#section-3.2
 struct UserAuthInfoResponseMsg : Msg<SshMessageType::UserAuthInfoResponse> {
   field<string_list, LengthPrefixed | ListSizePrefixed> responses;
-
-  constexpr auto operator<=>(const UserAuthInfoResponseMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4252#section-5.4
 struct UserAuthBannerMsg final : Msg<SshMessageType::UserAuthBanner> {
   field<std::string, LengthPrefixed> message;
   field<std::string, LengthPrefixed> language_tag;
-
-  constexpr auto operator<=>(const UserAuthBannerMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4252#section-5.1
 struct UserAuthFailureMsg final : Msg<SshMessageType::UserAuthFailure> {
   field<string_list, NameListFormat> methods;
   field<bool> partial;
-
-  constexpr auto operator<=>(const UserAuthFailureMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4253#section-11.1
@@ -739,55 +528,33 @@ struct DisconnectMsg final : Msg<SshMessageType::Disconnect> {
   field<uint32_t> reason_code;
   field<std::string, LengthPrefixed> description;
   field<std::string, LengthPrefixed> language_tag;
-
-  constexpr auto operator<=>(const DisconnectMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4252#section-5.1
-struct UserAuthSuccessMsg final : EmptyMsg<SshMessageType::UserAuthSuccess> {
-  constexpr auto operator<=>(const UserAuthSuccessMsg&) const = default;
+struct UserAuthSuccessMsg final : Msg<SshMessageType::UserAuthSuccess> {
 };
 
 // // https://datatracker.ietf.org/doc/html/rfc4253#section-7.3
-struct NewKeysMsg final : EmptyMsg<SshMessageType::NewKeys> {
-  constexpr auto operator<=>(const NewKeysMsg&) const = default;
+struct NewKeysMsg final : Msg<SshMessageType::NewKeys> {
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4252#section-7
 struct UserAuthPubKeyOkMsg : Msg<SshMessageType::UserAuthPubKeyOk> {
   field<std::string, LengthPrefixed> public_key_alg;
   field<bytes, LengthPrefixed> public_key;
-
-  constexpr auto operator<=>(const UserAuthPubKeyOkMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc8308#section-3.1
 struct ServerSigAlgsExtension final : SubMsg<SshMessageType::ExtInfo, "server-sig-algs"> {
   field<string_list, NameListFormat> public_key_algorithms_accepted;
-
-  constexpr auto operator<=>(const ServerSigAlgsExtension&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 struct PingExtension final : SubMsg<SshMessageType::ExtInfo, "ping@openssh.com"> {
   field<std::string, LengthPrefixed> version;
-
-  constexpr auto operator<=>(const PingExtension&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 struct ExtInfoInAuthExtension final : SubMsg<SshMessageType::ExtInfo, "ext-info-in-auth@openssh.com"> {
   field<std::string, LengthPrefixed> version;
-
-  constexpr auto operator<=>(const ExtInfoInAuthExtension&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 // The Extension struct itself is a Reader/Writer, since it is used as the value type of a field.
@@ -807,7 +574,9 @@ struct Extension {
     extension.reset(std::forward<T>(ext));
   }
 
-  constexpr auto operator<=>(const Extension&) const = default;
+  constexpr bool operator==(const Extension&) const = default;
+  constexpr bool operator!=(const Extension&) const = default;
+
   // implements Reader
   friend size_t read(Envoy::Buffer::Instance& buffer, Extension& ext, size_t payload_size);
   // implements Writer
@@ -836,26 +605,14 @@ struct ExtInfoMsg final : Msg<SshMessageType::ExtInfo> {
     }
     return std::nullopt;
   }
-
-  constexpr auto operator<=>(const ExtInfoMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 struct PingMsg final : Msg<SshMessageType::Ping> {
   field<std::string, LengthPrefixed> data;
-
-  constexpr auto operator<=>(const PingMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 struct PongMsg final : Msg<SshMessageType::Pong> {
   field<std::string, LengthPrefixed> data;
-
-  constexpr auto operator<=>(const PongMsg&) const = default;
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
 };
 
 namespace detail {
@@ -928,7 +685,7 @@ struct BasicMessage final {
 
   template <typename Subset>
     requires strict_subset_v<typename TopLevel::option_types, typename Subset::option_types>
-  BasicMessage(BasicMessage<Subset>&& other)
+  constexpr BasicMessage(BasicMessage<Subset>&& other)
       : message(std::move(other.message)) {}
 
   // This constructor is explicit when 'msg' is an lvalue reference to avoid unexpected copying
@@ -941,18 +698,18 @@ struct BasicMessage final {
   // The conditional explicit specifier turns the incorrect case into a compiler error.
   template <typename T>
     requires (!std::same_as<std::decay_t<T>, BasicMessage>)
-  explicit(std::is_lvalue_reference_v<T>) BasicMessage(T&& msg) {
+  constexpr explicit(std::is_lvalue_reference_v<T>) BasicMessage(T&& msg) {
     reset(std::forward<T>(msg));
   }
 
   template <typename T>
-  BasicMessage& operator=(T&& msg) {
+  constexpr BasicMessage& operator=(T&& msg) {
     reset(std::forward<T>(msg));
     return *this;
   }
 
   template <typename T>
-  void reset(T&& msg) {
+  constexpr void reset(T&& msg) {
     if constexpr (!std::is_same_v<std::decay_t<T>, detail::overload_set_for_t<std::decay_t<T>>>) {
       message.reset(detail::overload_set_for_t<std::decay_t<T>>{std::forward<T>(msg)});
     } else {
@@ -960,11 +717,11 @@ struct BasicMessage final {
     }
   }
 
-  void reset() {
+  constexpr void reset() {
     message = TopLevel{};
   }
 
-  bool has_value() const {
+  constexpr bool has_value() const {
     return message.oneof.has_value();
   }
 
