@@ -14,6 +14,7 @@ pomerium_extensions = [
     "//source/extensions/http/early_header_mutation/trace_context:pomerium_trace_context",
     "//source/extensions/request_id/uuidx:pomerium_uuidx",
     "//source/extensions/tracers/pomerium_otel",
+    "//source/extensions/transport_sockets/initial_metadata:pomerium_initial_metadata",
 ]
 
 envoy_cc_binary(
