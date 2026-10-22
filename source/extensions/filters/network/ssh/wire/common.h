@@ -100,24 +100,31 @@ concept SshStringType =
   std::same_as<T, std::string> ||
   std::same_as<T, std::vector<uint8_t>>;
 
-template <typename T>
-struct key_field {
-  using type = T;
+enum EncodingOptions : uint32_t {
+  None = 0,
+  LengthPrefixed = 1 << 0,
+  CommaDelimited = 1 << 1,
+  ListSizePrefixed = 1 << 2,
+  ListLengthPrefixed = 1 << 3,
+
+  NameListFormat = CommaDelimited | ListLengthPrefixed,
+
+  // Omit will skip encoding and decoding the field. It will be treated as if the field is not
+  // part of the message. This cannot be used in conjunction with any other encoding options.
+  Omit = 1u << 31,
 };
 
-template <typename T>
-inline constexpr bool operator==(const key_field<T>&, const key_field<T>&) {
-  return true;
+consteval EncodingOptions operator|(EncodingOptions lhs, EncodingOptions rhs) {
+  return static_cast<EncodingOptions>(std::to_underlying(lhs) | std::to_underlying(rhs));
 }
 
-template <typename T>
-struct is_key_field : std::false_type {};
+consteval EncodingOptions operator&(EncodingOptions lhs, EncodingOptions rhs) {
+  return static_cast<EncodingOptions>(std::to_underlying(lhs) & std::to_underlying(rhs));
+}
 
-template <typename T>
-struct is_key_field<key_field<T>> : std::true_type {};
-
-template <typename T>
-static constexpr bool is_key_field_v = is_key_field<T>::value;
+consteval EncodingOptions operator~(EncodingOptions opt) {
+  return static_cast<EncodingOptions>(~std::to_underlying(opt));
+}
 
 } // namespace wire
 

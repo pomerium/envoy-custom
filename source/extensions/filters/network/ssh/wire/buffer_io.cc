@@ -1,4 +1,4 @@
-#include "source/extensions/filters/network/ssh/wire/encoding.h"
+#include "source/extensions/filters/network/ssh/wire/buffer_io.h"
 
 namespace wire {
 
@@ -23,10 +23,6 @@ size_t writeBignum(Envoy::Buffer::Instance& buffer, std::span<const uint8_t> in)
   buffer.add(in.data(), in_size);
   n += in_size;
   return n;
-}
-
-absl::StatusOr<size_t> encodeSequence(Envoy::Buffer::Instance&) {
-  return 0;
 }
 
 size_t read(Envoy::Buffer::Instance& buffer, bool& t, size_t limit) {

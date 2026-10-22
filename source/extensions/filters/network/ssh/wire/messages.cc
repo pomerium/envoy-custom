@@ -1,5 +1,6 @@
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/common/status.h"
+#include "source/extensions/filters/network/ssh/wire/encoding.h"
 
 namespace wire {
 

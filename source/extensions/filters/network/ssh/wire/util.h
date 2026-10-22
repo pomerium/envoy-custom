@@ -4,8 +4,12 @@
 
 #pragma clang unsafe_buffer_usage begin
 #include "source/common/buffer/buffer_impl.h"
+#include "absl/status/statusor.h"
 #pragma clang unsafe_buffer_usage end
 
+#include "source/extensions/filters/network/ssh/wire/common.h"
+
+namespace wire {
 namespace {
 
 class BytesViewBufferFragment : public Envoy::Buffer::BufferFragment {
@@ -71,3 +75,26 @@ decltype(auto) with_buffer_view(const T& b, F func) { // NOLINT(readability-iden
   buffer.addBufferFragment(fragment);
   return func(buffer);
 }
+
+template <SshStringType T>
+absl::StatusOr<T> encodeTo(auto& encoder) {
+  Envoy::Buffer::OwnedImpl tmp;
+  auto r = encoder.encode(tmp);
+  if (!r.ok()) {
+    return r.status();
+  }
+  return flushTo<T>(tmp);
+}
+
+template <SshStringType T>
+absl::StatusOr<size_t> encodeTo(auto& encoder, T& out) {
+  Envoy::Buffer::OwnedImpl tmp;
+  auto r = encoder.encode(tmp);
+  if (!r.ok()) {
+    return r.status();
+  }
+  flushTo(tmp, out);
+  return *r;
+}
+
+} // namespace wire
