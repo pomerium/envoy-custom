@@ -8,7 +8,7 @@ namespace wire::test {
 TEST(UtilTest, WithBufferView) {
   const auto b = random_value<bytes>();
   auto sz = b.size();
-  with_buffer_view(b, [&](Envoy::Buffer::Instance& buffer) {
+  wire::with_buffer_view(b, [&](Envoy::Buffer::Instance& buffer) {
     ASSERT_EQ(buffer.length(), b.size());
     ASSERT_EQ(b.data(), buffer.frontSlice().mem_);
     ASSERT_EQ(b.size(), buffer.frontSlice().len_);
@@ -22,7 +22,7 @@ TEST(UtilTest, WithBufferView) {
 TEST(UtilTest, WithBufferView_MovePanic) {
   const auto b = random_value<bytes>();
   Envoy::Buffer::OwnedImpl buf;
-  EXPECT_DEATH(with_buffer_view(b, [&](Envoy::Buffer::Instance& buffer) {
+  EXPECT_DEATH(wire::with_buffer_view(b, [&](Envoy::Buffer::Instance& buffer) {
                  buf.move(buffer);
                }),
                "bug: buffer fragment was not released before it was destroyed");

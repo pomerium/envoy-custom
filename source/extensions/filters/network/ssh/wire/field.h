@@ -1,103 +1,32 @@
 #pragma once
 
-#include <algorithm>
-#include <concepts>
-#include <cstdint>
-#include <tuple>
-#include <type_traits>
-#include <utility>
-#include <variant>
-
 #pragma clang unsafe_buffer_usage begin
 #include "absl/strings/escaping.h"
 #include "fmt/ranges.h"
 #pragma clang unsafe_buffer_usage end
 
-#include "source/common/common/fmt.h" // IWYU pragma: keep
 #include "source/common/visit.h"
+#include "source/common/types.h"
+#include "source/common/type_traits.h"
+
+#include "source/extensions/filters/network/ssh/wire/buffer_io.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
-#include "source/extensions/filters/network/ssh/wire/encoding.h"
+#include "source/extensions/filters/network/ssh/wire/internal/field_impl.h"
 #include "source/extensions/filters/network/ssh/wire/util.h"
-#include "source/extensions/filters/network/ssh/wire/message_traits.h"
+
+// Contains types used to construct wire messages
 
 namespace wire {
 
-template <typename T, EncodingOptions Opt>
-struct field_base {
-  T value{};
-
-  using value_type = T;
-  static constexpr EncodingOptions encoding_options = Opt;
-
-  field_base() = default;
-  field_base(const field_base& other) = default;
-  field_base(field_base&& other) noexcept = default;
-  field_base& operator=(const field_base&) = default;
-  field_base& operator=(field_base&&) noexcept = default;
-
-  constexpr field_base(const T& t)
-      : value(t) {}
-  constexpr field_base(T&& t)
-      : value(std::move(t)) {}
-
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t limit) noexcept {
-    try {
-      return read_opt<Opt>(buffer, value, limit);
-    } catch (const Envoy::EnvoyException& e) {
-      return absl::InvalidArgumentError(e.what());
-    }
-  }
-
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept {
-    return write_opt<Opt>(buffer, value);
-  }
-
-  // implicit conversion operator: allow field<T> to be treated as T in some contexts
-  constexpr operator T(this auto& self) { return self.value; }
-
-  // arrow operator: allow using -> to access the value stored in a field
-  constexpr auto* operator->(this auto& self) { return std::addressof(self.value); }
-
-  // dereference operator: allow using * to access the value stored in a field
-  constexpr auto& operator*(this auto& self) { return self.value; }
-
-  // index operator: allow using [] to index into the vector of a field<vector<T>>
-  constexpr auto& operator[](this auto& self, int i) { return self.value[i]; }
-
-  // default comparison operators: comparing fields will compare their values
-  constexpr auto operator<=>(const field_base& other) const = default;
-  constexpr bool operator==(const field_base& other) const = default;
-
-  // assignments to field<T> will assign T using its own assignment operators
-  constexpr field_base& operator=(const T& rhs) {
-    value = rhs;
-    return *this;
-  }
-
-  // moves to field<T> will assign T using its own move assignment operators
-  constexpr field_base& operator=(T&& rhs) {
-    value = std::move(rhs);
-    return *this;
-  }
-
-  // comparisons between field<T> and T will compare the values directly
-  constexpr auto operator<=>(const T& other) const {
-    return value <=> other;
-  }
-
-  // equality comparison between field<T> and T will compare the values directly
-  constexpr bool operator==(const T& t) const {
-    return value == t;
-  }
-};
+// field
 
 template <typename T, EncodingOptions Opt = None>
   requires ReadWriter<type_or_value_type_t<T>>
-struct field : field_base<T, Opt> {
-  static_assert(sizeof(field_base<T, Opt>) == sizeof(T));
-  using field_base<T, Opt>::field_base;
-  using field_base<T, Opt>::value;
-  using field_base<T, Opt>::operator=;
+struct field : internal::field_base<T, Opt> {
+  static_assert(sizeof(internal::field_base<T, Opt>) == sizeof(T));
+  using internal::field_base<T, Opt>::field_base;
+  using internal::field_base<T, Opt>::value;
+  using internal::field_base<T, Opt>::operator=;
 };
 
 template <typename T>
@@ -109,48 +38,7 @@ struct is_field<field<T, Opt>> : std::true_type {};
 template <typename T>
 static constexpr bool is_field_v = is_field<T>::value;
 
-// Utility function to decode a message, including a message type and a list of fields. The decoded
-// message type is validated to ensure it matches the expected type. Returns the total number of
-// bytes read (including the message type byte).
-template <typename... Fields>
-absl::StatusOr<size_t> decodeMsg(Envoy::Buffer::Instance& buffer, SshMessageType msg_type, explicit_size_t auto limit, Fields&&... fields) noexcept {
-  if (limit == 0) {
-    return 0;
-  }
-  if (buffer.length() < limit) {
-    return absl::InvalidArgumentError("short read");
-  }
-  if (auto mt = buffer.drainInt<SshMessageType>(); mt != msg_type) {
-    return absl::InvalidArgumentError(
-      fmt::format("decoded unexpected message type {}, expected {}", mt, msg_type));
-  }
-  auto n = decodeSequence(buffer, limit - 1, std::forward<Fields>(fields)...);
-  if (n.ok()) {
-    return 1 + *n;
-  }
-  return n;
-}
-
-// Utility function to encode a message, including a message type and a list of fields. Returns
-// the total number of bytes written (including the message type byte).
-template <typename... Fields>
-absl::StatusOr<size_t> encodeMsg(Envoy::Buffer::Instance& buffer, SshMessageType msg_type, const Fields&... fields) noexcept {
-  buffer.writeByte(msg_type);
-  auto n = encodeSequence(buffer, fields...);
-  if (n.ok()) {
-    return 1 + *n;
-  }
-  return n;
-}
-
-template <typename T>
-struct canonical_key_type : std::type_identity<T> {};
-
-template <>
-struct canonical_key_type<std::string_view> : std::type_identity<std::string> {};
-
-template <typename T>
-using canonical_key_type_t = canonical_key_type<T>::type;
+// sub_message
 
 // sub_message is used in place of a [field] for fields that contain one of several potential
 // messages, where the type of the message is indicated by a "key field" in the same message.
@@ -181,7 +69,7 @@ struct sub_message {
   static_assert(all_values_unique({Options::submsg_key...}),
                 "all sub-message keys must be unique");
 
-  using key_type = first_type_t<canonical_key_type_t<std::decay_t<decltype(Options::submsg_key)>>...>;
+  using key_type = first_type_t<internal::canonical_key_type_t<std::decay_t<decltype(Options::submsg_key)>>...>;
   static constexpr EncodingOptions key_encoding = std::get<0>(std::tuple{Options::submsg_key_encoding...});
   using key_field_type = field<key_type, key_encoding>;
   using option_types = std::tuple<Options...>;
@@ -375,126 +263,14 @@ private:
     }...};
 };
 
-namespace detail {
+template <typename T>
+struct is_sub_message : std::false_type {};
+
 template <typename... Options>
 struct is_sub_message<sub_message<Options...>> : std::true_type {};
-} // namespace detail
-
-namespace detail {
-
-template <typename T>
-concept is_msg = std::same_as<submsg_group_t<T>, TopLevelMessageGroup> && std::is_aggregate_v<T>;
-
-template <typename T>
-concept is_sub_msg = is_submsggroup_v<submsg_group_t<T>> && std::is_aggregate_v<T>;
-
-template <typename T>
-concept has_override_encode = std::is_same_v<decltype(&T::encode), absl::StatusOr<size_t> (T::*)(Envoy::Buffer::Instance&) const noexcept>;
-
-template <typename T>
-concept has_override_decode = std::is_same_v<decltype(&T::decode), absl::StatusOr<size_t> (T::*)(Envoy::Buffer::Instance&, size_t) noexcept>;
-
-template <typename T>
-concept has_override_operator_eq = std::is_same_v<decltype(&T::operator==), bool (T::*)(const T&) const>;
-
-template <typename T>
-concept has_override_operator_ne = std::is_same_v<decltype(&T::operator!=), bool (T::*)(const T&) const>;
-
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wc++26-extensions"
-
-template <typename T>
-consteval bool has_unkeyed_sub_message() {
-  const auto& [... fields] = T{};
-  constexpr auto subMsgIndex = sub_message_index<decltype(fields)...>();
-  if constexpr (subMsgIndex.index == -1) {
-    return false;
-  } else {
-    return decltype(fields...[subMsgIndex.index])::key_encoding == EncodingOptions::Omit;
-  }
-}
-
-struct MsgImplDefaults {
-  template <typename T>
-    requires is_msg<T> && (!has_override_decode<T>)
-  absl::StatusOr<size_t> decode(this T& self, Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
-    auto& [... fields] = self;
-    return decodeMsg(buffer, self.msg_type(), payload_size, fields...);
-  }
-
-  template <typename T>
-    requires is_msg<T> && (!has_override_encode<T>)
-  absl::StatusOr<size_t> encode(this T const& self, Envoy::Buffer::Instance& buffer) noexcept {
-    const auto& [... fields] = self;
-    return encodeMsg(buffer, self.msg_type(), fields...);
-  }
-
-  template <typename T>
-    requires is_sub_msg<T> && (!has_override_decode<T>)
-  absl::StatusOr<size_t> decode(this T& self, Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
-    auto& [... fields] = self;
-    return decodeSequence(buffer, payload_size, fields...);
-  }
-
-  template <typename T>
-    requires is_sub_msg<T> && (!has_override_encode<T>)
-  absl::StatusOr<size_t> encode(this T const& self, Envoy::Buffer::Instance& buffer) noexcept {
-    const auto& [... fields] = self;
-    return encodeSequence(buffer, fields...);
-  }
-
-  template <typename T>
-    requires (is_msg<T> || is_sub_msg<T>) && (!has_override_operator_eq<T>)
-  constexpr bool operator==(this T const& self, const T& other) {
-    const auto& [... selfFields] = self;
-    const auto& [... otherFields] = other;
-    static_assert(sizeof...(selfFields) == sizeof...(otherFields));
-    // TODO: in c++26 mode, index sequences can be destructured
-    // (see https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2025/p1789r3.pdf section 2)
-    // Note: clang already implements this, but it is not available with -std=c++23
-    return [&]<size_t... I>(std::index_sequence<I...>) {
-      static_assert(sizeof...(I) == sizeof...(selfFields));
-      return ((selfFields...[I] == otherFields...[I]) && ...);
-    }(std::make_index_sequence<sizeof...(selfFields)>());
-  }
-
-  template <typename T>
-    requires (is_msg<T> || is_sub_msg<T>) && (!has_override_operator_ne<T>)
-  constexpr bool operator!=(this T const& self, const T& other) {
-    return !(self == other);
-  }
-
-  template <typename Msg, typename Self>
-    requires (has_unkeyed_sub_message<Self>())
-  absl::StatusOr<Msg&> resolve(this Self& self) {
-    auto& [... fields] = self;
-    constexpr auto subMsgIndex = sub_message_index<decltype(fields)...>();
-
-    using key_type = decltype(fields...[subMsgIndex.index])::key_type;
-    auto& subMsg = fields...[subMsgIndex.index];
-    if (subMsg.template holds_alternative<Msg>()) {
-      return subMsg.template get<Msg>();
-    }
-    static_assert(subMsg.template has_option<Msg>());
-    subMsg.key_field() = key_type{Msg::submsg_key};
-    if (auto stat = subMsg.decodeUnknown().status(); !stat.ok()) {
-      return stat;
-    }
-    ASSERT(subMsg.template holds_alternative<Msg>());
-    return subMsg.template get<Msg>();
-  }
-
-  template <typename Msg, typename Self>
-    requires (!has_unkeyed_sub_message<Self>())
-  absl::StatusOr<Msg&> resolve(this Self& self) = delete;
-};
-#pragma clang diagnostic pop
-
-} // namespace detail
 
 } // namespace wire
 
-// fmt::formatter specialization for field types - formats the value contained in the field.
 template <typename T, wire::EncodingOptions Opt>
   requires (!is_vector_v<T> || is_bytes_v<T>)
 struct fmt::formatter<wire::field<T, Opt>> : fmt::formatter<T> {

@@ -1,4 +1,5 @@
 #include "source/common/visit.h"
+#include "source/extensions/filters/network/ssh/wire/encoding.h"
 #include "source/extensions/filters/network/ssh/wire/field.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 
@@ -303,24 +304,24 @@ TEST(SubMessageTest, CompileTimeChecks) {
   TestMessage test_msg;
 
   {
-    static constinit auto idx = wire::detail::sub_message_index<decltype(test_msg.foo),
-                                                                decltype(test_msg.request)>();
+    static constinit auto idx = wire::internal::sub_message_index<decltype(test_msg.foo),
+                                                                  decltype(test_msg.request)>();
     static_assert(idx.index == 1);
     static_assert(idx.key_field_index == -1);
   }
 
   {
-    static constinit auto idx = wire::detail::sub_message_index<decltype(test_msg.foo),
-                                                                key_field<decltype(test_msg.request)>,
-                                                                decltype(test_msg.request)>();
+    static constinit auto idx = wire::internal::sub_message_index<decltype(test_msg.foo),
+                                                                  key_field<decltype(test_msg.request)>,
+                                                                  decltype(test_msg.request)>();
     static_assert(idx.index == 2);
     static_assert(idx.key_field_index == 1);
   }
 
   {
-    static constinit auto idx = wire::detail::sub_message_index<key_field<decltype(test_msg.request)>,
-                                                                decltype(test_msg.foo),
-                                                                decltype(test_msg.request)>();
+    static constinit auto idx = wire::internal::sub_message_index<key_field<decltype(test_msg.request)>,
+                                                                  decltype(test_msg.foo),
+                                                                  decltype(test_msg.request)>();
     static_assert(idx.index == 2);
     static_assert(idx.key_field_index == 0);
   }

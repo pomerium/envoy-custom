@@ -5,6 +5,7 @@
 #include "source/extensions/filters/network/ssh/id_manager.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
+#include "source/extensions/filters/network/ssh/wire/util.h"
 #include "source/extensions/filters/network/ssh/transport.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
@@ -586,7 +587,7 @@ private:
     switch (msg->message_case()) {
     case pomerium::extensions::ssh::ChannelMessage::kRawBytes: {
       wire::Message anyMsg{};
-      auto stat = with_buffer_view(msg->raw_bytes().value(), [&anyMsg](Envoy::Buffer::Instance& buffer) {
+      auto stat = wire::with_buffer_view(msg->raw_bytes().value(), [&anyMsg](Envoy::Buffer::Instance& buffer) {
         return anyMsg.decode(buffer, buffer.length());
       });
       if (!stat.ok()) {
