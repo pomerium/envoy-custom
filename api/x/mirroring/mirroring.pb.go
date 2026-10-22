@@ -362,8 +362,8 @@ type StreamMetadata struct {
 	UserId                     string                 `protobuf:"bytes,8,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	SessionBindingId           string                 `protobuf:"bytes,9,opt,name=session_binding_id,json=sessionBindingId,proto3" json:"session_binding_id,omitempty"`
 	AccessRequestMetadata      map[string]string      `protobuf:"bytes,10,rep,name=access_request_metadata,json=accessRequestMetadata,proto3" json:"access_request_metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	RequestType                string                 `protobuf:"bytes,11,opt,name=request_type,json=requestType,proto3" json:"request_type,omitempty"` // "shell" or "exec"
-	ExecCommand                string                 `protobuf:"bytes,12,opt,name=exec_command,json=execCommand,proto3" json:"exec_command,omitempty"` // if request_type is "exec"
+	RequestType                string                 `protobuf:"bytes,11,opt,name=request_type,json=requestType,proto3" json:"request_type,omitempty"` // "shell", "exec", or "subsystem"
+	RequestData                string                 `protobuf:"bytes,12,opt,name=request_data,json=requestData,proto3" json:"request_data,omitempty"` // type-specific data (exec command, subsystem name)
 	HasPty                     bool                   `protobuf:"varint,13,opt,name=has_pty,json=hasPty,proto3" json:"has_pty,omitempty"`
 	TermEnv                    string                 `protobuf:"bytes,14,opt,name=term_env,json=termEnv,proto3" json:"term_env,omitempty"`
 	WidthColumns               uint32                 `protobuf:"varint,15,opt,name=width_columns,json=widthColumns,proto3" json:"width_columns,omitempty"`
@@ -484,9 +484,9 @@ func (x *StreamMetadata) GetRequestType() string {
 	return ""
 }
 
-func (x *StreamMetadata) GetExecCommand() string {
+func (x *StreamMetadata) GetRequestData() string {
 	if x != nil {
-		return x.ExecCommand
+		return x.RequestData
 	}
 	return ""
 }
@@ -1077,7 +1077,7 @@ const file_github_com_pomerium_envoy_custom_api_x_mirroring_mirroring_proto_rawD
 	"\x17access_request_metadata\x18\n" +
 	" \x03(\v2?.pomerium.x.mirroring.StreamMetadata.AccessRequestMetadataEntryR\x15accessRequestMetadata\x12!\n" +
 	"\frequest_type\x18\v \x01(\tR\vrequestType\x12!\n" +
-	"\fexec_command\x18\f \x01(\tR\vexecCommand\x12\x17\n" +
+	"\frequest_data\x18\f \x01(\tR\vrequestData\x12\x17\n" +
 	"\ahas_pty\x18\r \x01(\bR\x06hasPty\x12\x19\n" +
 	"\bterm_env\x18\x0e \x01(\tR\atermEnv\x12#\n" +
 	"\rwidth_columns\x18\x0f \x01(\rR\fwidthColumns\x12\x1f\n" +
