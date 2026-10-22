@@ -10,18 +10,26 @@ licenses(["notice"])
 envoy_cc_library(
     name = "wire_lib",
     srcs = [
-        "encoding.cc",
+        "buffer_io.cc",
         "messages.cc",
     ],
     hdrs = [
+        "buffer_io.h",
         "common.h",
         "encoding.h",
         "field.h",
-        "message_traits.h",
+        "key_field.h",
+        "message_types.h",
         "messages.h",
         "packet.h",
         "util.h",
-        "validation.h",
+    ] + [
+        "internal/field_impl.h",
+        "internal/message_groups.h",
+        "internal/message_impl.h",
+        "internal/message_traits.h",
+        "internal/top_level_visitor.h",
+        "internal/validation.h",
     ],
     copts = [
         "-Wimplicit-fallthrough",

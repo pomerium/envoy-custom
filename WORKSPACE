@@ -27,7 +27,7 @@ load("@hedron_compile_commands//:workspace_setup_transitive_transitive_transitiv
 
 hedron_compile_commands_setup_transitive_transitive_transitive()
 
-envoy_version = "ef2d997c1b022cf8b849a1d3521fbf234d79ca26" # v1.38.4
+envoy_version = "ef2d997c1b022cf8b849a1d3521fbf234d79ca26"  # v1.38.4
 
 openssh_version = "V_10_3_P1"
 
@@ -60,6 +60,7 @@ http_archive(
         "//patches/envoy:0012-generic-proxy-trace-logs.patch",
         "//patches/envoy:0013-fuzz-toolchain-path.patch",
         "//patches/envoy:0014-disable-coverage-report-rounding.patch",
+        "//patches/envoy:0015-remove-string-view-formatter.patch",
         "//patches/envoy:fix-antlr4-cpp-runtime.patch",
         "//patches/envoy:fix-integration-test-server-exit.patch",
         "//patches/envoy:fix-missing-symbolizer-env.patch",
