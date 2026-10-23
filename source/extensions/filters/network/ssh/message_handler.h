@@ -27,7 +27,7 @@ public:
   virtual void registerMessageHandlers(MessageDispatcher<T>& dispatcher) PURE;
 };
 
-enum MiddlewareResult {
+enum [[clang::flag_enum]] MiddlewareResult : uint32_t {
   // Dispatch the message as normal.
   Continue = 0,
   // Do not dispatch the message and do not invoke any subsequent middlewares.
