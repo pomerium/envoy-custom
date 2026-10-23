@@ -33,7 +33,7 @@ using frame_tags_type = method_info<decltype(&GenericProxy::FrameFlags::frameTag
 // ChannelOpenConfirmationMsg) would be sent as a SSHResponseCommonFrame with EffectiveHeader.
 //
 // See [StreamFrame::frameFlags] and [FrameFlags::frameTags] for details on how this is used.
-enum FrameTags : frame_tags_type {
+enum [[clang::flag_enum]] FrameTags : frame_tags_type {
   ResponseCommon = 0b00, // The frame has concrete type SSHResponseCommonFrame
   RequestCommon = 0b01,  // The frame has concrete type SSHRequestCommonFrame
   ResponseHeader = 0b10, // The frame has concrete type SSHResponseHeaderFrame
