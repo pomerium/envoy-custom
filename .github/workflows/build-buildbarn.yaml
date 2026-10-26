@@ -29,6 +29,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
 
       - name: setup bazel
         uses: bazel-contrib/setup-bazel@e8776f58fb6a6e9055cbaf1b38c52ccc5247e9c4
@@ -37,11 +39,13 @@ jobs:
 
       - name: Configure registry credentials
         if: github.event_name != 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Set up Docker config so crane (used by update_index) can push.
           # crane reads ~/.docker/config.json for registry auth.
           mkdir -p ~/.docker
-          echo '{"auths":{"ghcr.io":{"auth":"'"$(echo -n '${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}' | base64 -w0)"'"}}}' > ~/.docker/config.json
+          echo '{"auths":{"ghcr.io":{"auth":"'"$(echo -n "$GITHUB_ACTOR:$GITHUB_TOKEN" | base64 -w0)"'"}}}' > ~/.docker/config.json
 
       - name: Build (${{ matrix.arch }})
         run: |
