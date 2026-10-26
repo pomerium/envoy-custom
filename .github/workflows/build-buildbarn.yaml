@@ -2,7 +2,7 @@ name: Build & Publish Images
 
 on:
   push:
-    branches: [main]
+    branches: [main, "pomerium-0-*"]
   pull_request:
   workflow_dispatch:
 
@@ -10,8 +10,9 @@ jobs:
   build-image:
     # Skip if PR has ci-not-ready label
     if: >-
-      github.event_name != 'pull_request'
-      || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready')
+      !github.event.created
+      && (github.event_name != 'pull_request'
+      || !contains(github.event.pull_request.labels.*.name, 'ci-not-ready'))
     strategy:
       fail-fast: false
       max-parallel: 1
