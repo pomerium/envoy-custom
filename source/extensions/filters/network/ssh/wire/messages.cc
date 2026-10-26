@@ -47,34 +47,6 @@ size_t write(Envoy::Buffer::Instance& buffer, const UserAuthInfoPrompt& prompt) 
   return *n;
 }
 
-// Extension
-size_t read(Envoy::Buffer::Instance& buffer, Extension& ext, size_t payload_size) {
-  size_t n = 0;
-  if (auto r = ext.extension.key_field().decode(buffer, payload_size); !r.ok()) {
-    throw Envoy::EnvoyException(fmt::format("error decoding extension name: {}", statusToString(r.status())));
-  } else {
-    n += *r;
-  }
-  // extension values are always strings, and thus will always have a length prefix
-  auto extDataLen = buffer.peekBEInt<uint32_t>() + 4uz;
-  if (extDataLen > payload_size) {
-    throw Envoy::EnvoyException(fmt::format("error decoding extension: invalid message length: {}", extDataLen));
-  }
-  if (auto r = ext.extension.decode(buffer, extDataLen); !r.ok()) {
-    throw Envoy::EnvoyException(fmt::format("error decoding extension: {}", statusToString(r.status())));
-  } else {
-    n += *r;
-  }
-  return n;
-}
-size_t write(Envoy::Buffer::Instance& buffer, const Extension& ext) {
-  auto n = encodeSequence(buffer, ext.extension_key, ext.extension);
-  if (!n.ok()) {
-    throw Envoy::EnvoyException(fmt::format("error encoding extension: {}", statusToString(n.status())));
-  }
-  return *n;
-}
-
 template struct BasicMessage<detail::top_level_message>;
 
 } // namespace wire

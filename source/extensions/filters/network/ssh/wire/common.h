@@ -63,6 +63,36 @@ enum class SshMessageType : uint8_t {
   // OpenSSH ping extension
   Ping = 192,
   Pong = 193,
+
+  // SFTP message types
+  // https://datatracker.ietf.org/doc/html/draft-ietf-secsh-filexfer-02
+  FxpInit = 1,
+  FxpVersion = 2,
+  FxpOpen = 3,
+  FxpClose = 4,
+  FxpRead = 5,
+  FxpWrite = 6,
+  FxpLstat = 7,
+  FxpFstat = 8,
+  FxpSetstat = 9,
+  FxpFsetstat = 10,
+  FxpOpendir = 11,
+  FxpReaddir = 12,
+  FxpRemove = 13,
+  FxpMkdir = 14,
+  FxpRmdir = 15,
+  FxpRealpath = 16,
+  FxpStat = 17,
+  FxpRename = 18,
+  FxpReadlink = 19,
+  FxpSymlink = 20,
+  FxpStatus = 101,
+  FxpHandle = 102,
+  FxpData = 103,
+  FxpName = 104,
+  FxpAttrs = 105,
+  FxpExtended = 200,
+  FxpExtendedReply = 201,
 };
 
 constexpr inline SshMessageType operator~(SshMessageType t) {

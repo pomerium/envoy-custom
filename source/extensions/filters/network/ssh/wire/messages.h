@@ -461,29 +461,57 @@ struct ExtInfoInAuthExtension final : SubMsg<SshMessageType::ExtInfo, "ext-info-
 // The Extension struct itself is a Reader/Writer, since it is used as the value type of a field.
 // Sub-messages can't appear more than once, as they do not encode their own size information.
 // Extension is implemented in terms of a sub_message, but that is only an implementation detail.
-struct Extension {
-  using extension_type = sub_message<ServerSigAlgsExtension,
-                                     PingExtension,
-                                     ExtInfoInAuthExtension>;
+template <typename... Options>
+struct BasicExtension {
+  using extension_type = sub_message<Options...>;
   constexpr std::string& extension_name() { return *extension.key_field(); }
   [[no_unique_address]] key_field<extension_type> extension_key;
   extension_type extension;
 
-  Extension() = default;
+  BasicExtension() = default;
   template <typename T>
-    requires (decltype(extension)::has_option<T>())
-  explicit Extension(T&& ext) {
+    requires (decltype(extension)::template has_option<T>())
+  explicit BasicExtension(T&& ext) {
     extension.reset(std::forward<T>(ext));
   }
 
-  constexpr bool operator==(const Extension&) const = default;
-  constexpr bool operator!=(const Extension&) const = default;
+  constexpr bool operator==(const BasicExtension&) const = default;
+  constexpr bool operator!=(const BasicExtension&) const = default;
 
   // implements Reader
-  friend size_t read(Envoy::Buffer::Instance& buffer, Extension& ext, size_t payload_size);
+  friend size_t read(Envoy::Buffer::Instance& buffer, BasicExtension& ext, size_t payload_size) {
+    size_t n = 0;
+    if (auto r = ext.extension.key_field().decode(buffer, payload_size); !r.ok()) {
+      throw Envoy::EnvoyException(fmt::format("error decoding extension name: {}", statusToString(r.status())));
+    } else {
+      n += *r;
+    }
+    // extension values are always strings, and thus will always have a length prefix
+    auto extDataLen = buffer.peekBEInt<uint32_t>() + 4uz;
+    if (extDataLen > payload_size) {
+      throw Envoy::EnvoyException(fmt::format("error decoding extension: invalid message length: {}", extDataLen));
+    }
+    if (auto r = ext.extension.decode(buffer, extDataLen); !r.ok()) {
+      throw Envoy::EnvoyException(fmt::format("error decoding extension: {}", statusToString(r.status())));
+    } else {
+      n += *r;
+    }
+    return n;
+  }
+
   // implements Writer
-  friend size_t write(Envoy::Buffer::Instance& buffer, const Extension& ext);
+  friend size_t write(Envoy::Buffer::Instance& buffer, const BasicExtension& ext) {
+    auto n = encodeSequence(buffer, ext.extension_key, ext.extension);
+    if (!n.ok()) {
+      throw Envoy::EnvoyException(fmt::format("error encoding extension: {}", statusToString(n.status())));
+    }
+    return *n;
+  }
 };
+
+using Extension = BasicExtension<ServerSigAlgsExtension,
+                                 PingExtension,
+                                 ExtInfoInAuthExtension>;
 
 struct ExtInfoMsg final : Msg<SshMessageType::ExtInfo> {
   field<std::vector<Extension>, ListSizePrefixed> extensions;
