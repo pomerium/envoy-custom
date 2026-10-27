@@ -56,6 +56,17 @@ message CodecConfig {
   ConnectionServiceOptions connection_service_options = 8;
 
   repeated envoy.config.core.v3.TypedExtensionConfig enabled_channel_filter_factories = 9;
+
+  // Maximum duration to wait for the initial version exchange and key exchange to complete before
+  // closing the connection.
+  // Default is 10 seconds. Set to 0 for no timeout.
+  google.protobuf.Duration handshake_timeout = 10;
+
+  // Maximum duration to wait for user auth to complete. This timer is paused while auth is being
+  // controlled by the StreamManagement service, allowing it to manage timeouts for interactive
+  // login flows. Starts as soon as the handshake timer ends.
+  // Default is 10 seconds. Set to 0 for no timeout.
+  google.protobuf.Duration auth_timeout = 11;
 }
 
 message AlgorithmOptions {

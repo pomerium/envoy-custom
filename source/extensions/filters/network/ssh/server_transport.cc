@@ -134,6 +134,8 @@ void SshServerTransport::onConnected() {
   envoy::config::core::v3::Address protoAddress;
   Network::Utility::addressToProtobufAddress(*downstreamAddr, protoAddress);
   mgmt_client_->connect(streamId(), protoAddress);
+
+  startHandshakeTimer();
 }
 
 void SshServerTransport::initServices() {

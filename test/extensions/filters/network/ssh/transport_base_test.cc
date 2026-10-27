@@ -328,10 +328,10 @@ public:
     client_transport_.setCodecCallbacks(client_codec_callbacks_);
   }
 
-  void Start() {
-    auto timeout = defaultTimeout();
-    server_thread_ = server_transport_.StartThread(timeout);
-    client_thread_ = client_transport_.StartThread(timeout);
+  void Start(std::optional<absl::Duration> timeout = std::nullopt) {
+    auto dt = defaultTimeout();
+    server_thread_ = server_transport_.StartThread(timeout.value_or(dt));
+    client_thread_ = client_transport_.StartThread(timeout.value_or(dt));
   }
 
   void Join() {
@@ -389,6 +389,11 @@ public:
   }
 
   void InitiateVersionExchange() {
+    Server().Post([](auto& self) {
+      // This normally happens when the client connects, which is shortly before the client version
+      // is received
+      self.TransportBase::startHandshakeTimer();
+    });
     // The constraint that the client initiates the handshake doesn't apply at this abstraction level
     Client().Post([](auto& t) {
       t.InitiateVersionExchange();
@@ -567,6 +572,60 @@ TYPED_TEST_P(TransportBaseTest, TestVersionExchangeIncomplete) {
 
   this->Start();
   this->InitiateVersionExchange();
+  this->Join();
+}
+
+TYPED_TEST_P(TransportBaseTest, TestVersionExchangeTimeout) {
+  this->ServerConfig().mutable_handshake_timeout()->set_seconds(1);
+
+  EXPECT_CALL(this->ClientCallbacks(), writeToConnection)
+    .WillOnce(Invoke([&](Envoy::Buffer::Instance& input) {
+      // send a half finished version exchange but don't complete it
+      Buffer::OwnedImpl buffer1; // "SSH-2.0-"
+      buffer1.add(input.linearize(input.length()), input.length() / 2);
+      this->Server().Post([buffer = std::move(buffer1)](auto& self) mutable {
+        self.decode(buffer, false);
+      });
+    }));
+
+  EXPECT_CALL(this->ServerCallbacks(), onDecodingFailure("version exchange timed out"sv))
+    .WillOnce([this](std::string_view) {
+      this->Client().Exit();
+      this->Server().Exit();
+    });
+
+  this->Client().SetVersion("SSH-2.0-aaaaaa");
+
+  this->Start(absl::Seconds(2));
+  this->InitiateVersionExchange();
+
+  this->Join();
+}
+
+TYPED_TEST_P(TransportBaseTest, TestKeyExchangeTimeout) {
+  this->ServerConfig().mutable_handshake_timeout()->set_seconds(1);
+  EXPECT_CALL(this->Server(), onKexStarted(true));
+
+  EXPECT_CALL(this->Client(), onKexStarted(true))
+    .WillOnce(Invoke([this](bool initial) {
+      // After the client starts the key exchange, it will not send anything else until the timeout.
+      ON_CALL(this->ClientCallbacks(), writeToConnection)
+        .WillByDefault(Invoke([](Envoy::Buffer::Instance& input) {
+          // do nothing
+          input.drain(input.length());
+        }));
+      return this->Client().TransportBase::onKexStarted(initial);
+    }));
+
+  EXPECT_CALL(this->ServerCallbacks(), onDecodingFailure("key exchange timed out"sv))
+    .WillOnce([this](std::string_view) {
+      this->Client().Exit();
+      this->Server().Exit();
+    });
+
+  this->Start(absl::Seconds(2));
+  this->InitiateVersionExchange();
+
   this->Join();
 }
 
@@ -1604,6 +1663,8 @@ REGISTER_TYPED_TEST_SUITE_P(TransportBaseTest,
                             TestHandshakeWithExtInfo,
                             TestVersionExchangeInvalidVersion,
                             TestVersionExchangeIncomplete,
+                            TestVersionExchangeTimeout,
+                            TestKeyExchangeTimeout,
                             TestKexInitFailureAfterVersionExchange,
                             TestDecryptPacketFailure,
                             TestReadIncompletePacket,
