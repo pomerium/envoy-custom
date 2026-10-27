@@ -669,9 +669,11 @@ absl::Status ConnectionService::ChannelCallbacksImpl::flushRemoteMsgQueue() {
   }
   ENVOY_LOG(debug, "flushing remote message queue (size: {})", queued_remote_msgs_.size());
   while (!queued_remote_msgs_.empty()) {
+    auto msg = std::move(queued_remote_msgs_.front());
+    queued_remote_msgs_.pop_front();
     ENVOY_LOG(debug, "sending queued messsage to remote channel {}: {}",
-              channel_id_, queued_remote_msgs_.front().msg_type());
-    if (auto stat = sendMessageRemoteDirect(std::move(queued_remote_msgs_.front())); !stat.ok()) {
+              channel_id_, msg.msg_type());
+    if (auto stat = sendMessageRemoteDirect(std::move(msg)); !stat.ok()) {
       // If the queue was not flushed because of an error, it should not trigger the assert that
       // would normally occur if the queue is not empty when this object is destroyed.
       ENVOY_LOG(error, "failed to send queued message, remaining queue entries will be dropped: {}",
@@ -679,7 +681,6 @@ absl::Status ConnectionService::ChannelCallbacksImpl::flushRemoteMsgQueue() {
       flush_queue_error_ = true;
       return stat;
     }
-    queued_remote_msgs_.pop_front();
   }
   ENVOY_LOG(debug, "remote message queue flushed successfully");
   return absl::OkStatus();
