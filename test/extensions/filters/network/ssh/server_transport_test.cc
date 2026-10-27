@@ -2,6 +2,7 @@
 #include "source/extensions/filters/network/ssh/id_manager.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
 #include "source/extensions/filters/network/ssh/server_transport.h"
+#include "source/extensions/filters/network/ssh/transport_base.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "test/extensions/filters/network/generic_proxy/mocks/codec.h"
@@ -19,6 +20,7 @@
 #include "source/extensions/filters/network/ssh/service_userauth.h"   // IWYU pragma: keep
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include <chrono>
 
 extern "C" {
 #include "openssh/ssh2.h"
@@ -125,10 +127,10 @@ public:
     mgr->~ChannelIDManager();
     new (mgr) ChannelIDManager(100, 100);
 
-    doInitialKeyExchange();
+    DoInitialKeyExchange();
   }
 
-  void doInitialKeyExchange() {
+  void DoInitialKeyExchange() {
     // Perform a manual key exchange as the client and set up a packet cipher
     input_buffer_.add("SSH-2.0-TestClient\r\n");
     transport_.decode(input_buffer_, false);
@@ -191,6 +193,9 @@ public:
     if (auto stat = client_cipher_->encryptPacket(write_seqnum_++, input_buffer_, buf); !stat.ok()) {
       return stat;
     }
+    if (msg.msg_type() == wire::SshMessageType::NewKeys) {
+      write_seqnum_ = 0;
+    }
     transport_.decode(input_buffer_, false);
     return absl::OkStatus();
   }
@@ -200,7 +205,14 @@ public:
     if (auto n = client_cipher_->decryptPacket(read_seqnum_++, buf, output_buffer_); !n.ok()) {
       return n.status();
     }
-    return wire::decodePacket(buf, msg).status();
+    auto stat = wire::decodePacket(buf, msg);
+    if (!stat.ok()) {
+      return stat.status();
+    }
+    if (msg.msg_type() == wire::SshMessageType::NewKeys) {
+      read_seqnum_ = 0;
+    }
+    return absl::OkStatus();
   }
 
   absl::Status ReadExtInfo() {
@@ -2400,6 +2412,7 @@ public:
     ASSERT(initialize_called_ == false);
     initialize_called_ = true;
     transport_.setCodecCallbacks(server_codec_callbacks_);
+    client_cipher_ = std::make_unique<PacketCipher>(std::make_unique<NoCipher>(), std::make_unique<NoCipher>());
     ON_CALL(server_codec_callbacks_, writeToConnection(_))
       .WillByDefault([this](Envoy::Buffer::Instance& buffer) {
         output_buffer_.move(buffer);
@@ -2412,6 +2425,8 @@ public:
       .WillByDefault(ReturnRef(*dispatcher_));
     EXPECT_CALL(server_codec_callbacks_, connection())
       .Times(AnyNumber());
+    EXPECT_CALL(server_codec_callbacks_, onDecodingFailure)
+      .Times(AtMost(1));
 
     transport_.onConnected();
     // check that the connection dispatcher is set after onConnected()
@@ -2420,41 +2435,41 @@ public:
     ASSERT(transport_.connectionDispatcher().ptr() == dispatcher_.get());
   }
 
-  struct MockFunctions {
-    testing::StrictMock<testing::MockFunction<void()>> before_client_version_sent;
-    testing::StrictMock<testing::MockFunction<void()>> on_partial_client_version_sent;
-    testing::StrictMock<testing::MockFunction<void()>> before_client_kex_init;
-    testing::StrictMock<testing::MockFunction<void()>> before_client_kex_alg_init;
-    testing::StrictMock<testing::MockFunction<void()>> before_client_new_keys;
+  using MockEventFn = testing::StrictMock<testing::MockFunction<void(std::string_view)>>;
+  struct VersionExchangeMockFunctions {
+    std::unique_ptr<MockEventFn> before_client_version_sent = std::make_unique<MockEventFn>();
+    std::unique_ptr<MockEventFn> on_partial_client_version_sent = std::make_unique<MockEventFn>();
   };
 
-  struct RunOpts {
+  struct KeyExchangeMockFunctions {
+    std::unique_ptr<MockEventFn> before_client_kex_init = std::make_unique<MockEventFn>();
+    std::unique_ptr<MockEventFn> before_client_kex_alg_init = std::make_unique<MockEventFn>();
+    std::unique_ptr<MockEventFn> before_client_new_keys = std::make_unique<MockEventFn>();
+  };
+
+  struct MockFunctions : VersionExchangeMockFunctions, KeyExchangeMockFunctions {};
+
+  struct HandshakeOpts {
     [[clang::require_explicit_initialization]] bool expect_timeout;
-    [[clang::require_explicit_initialization]] std::function<void(MockFunctions& mocks)> setup;
+    [[clang::require_explicit_initialization]] absl::AnyInvocable<void(MockFunctions& mocks)> setup;
   };
 
-  void Run(RunOpts&& opts) {
+  void Handshake(HandshakeOpts&& opts) {
     ASSERT(initialize_called_);
 
     MockFunctions mocks;
     opts.setup(mocks);
 
-    bool timedOut{};
+    auto timedOut = std::make_shared<bool>(false);
 
-    std::string expectedMsg;
-
-    ON_CALL(server_codec_callbacks_, onDecodingFailure(_))
-      .WillByDefault([&](std::string_view msg) {
-        EXPECT_EQ(expectedMsg, msg);
-        timedOut = true;
+    ON_CALL(server_codec_callbacks_, onDecodingFailure)
+      .WillByDefault([timedOut](std::string_view msg) {
+        EXPECT_EQ("version exchange timed out"s, msg);
+        *timedOut = true;
       });
-    if (opts.expect_timeout) {
-      EXPECT_CALL(server_codec_callbacks_, onDecodingFailure(_)).Times(1);
-    }
 
-    expectedMsg = "version exchange timed out";
-    mocks.before_client_version_sent.Call();
-    if (timedOut) {
+    mocks.before_client_version_sent->Call("before_client_version_sent");
+    if (*timedOut) {
       EXPECT_TRUE(opts.expect_timeout) << "version exchange timed out unexpectedly";
       return;
     }
@@ -2462,9 +2477,8 @@ public:
     input_buffer_.add("SSH-2.0-TestClient");
     transport_.decode(input_buffer_, false);
 
-    // time_system_.advanceTimeAndRun(std::chrono::seconds{5}, *dispatcher_, Dispatcher::RunType::Block);
-    mocks.on_partial_client_version_sent.Call();
-    if (timedOut) {
+    mocks.on_partial_client_version_sent->Call("on_partial_client_version_sent");
+    if (*timedOut) {
       EXPECT_TRUE(opts.expect_timeout) << "version exchange timed out unexpectedly";
       return;
     }
@@ -2472,19 +2486,65 @@ public:
     input_buffer_.add("\r\n");
     transport_.decode(input_buffer_, false);
     output_buffer_.drain(15);
-    wire::KexInitMsg serverKexInit;
-    ASSERT_OK(wire::decodePacket(output_buffer_, serverKexInit).status());
 
-    // time_system_.advanceTimeAndRun(std::chrono::minutes{10}, *dispatcher_, Dispatcher::RunType::Block);
-    expectedMsg = "key exchange timed out";
-    mocks.before_client_kex_init.Call();
-    if (timedOut) {
-      EXPECT_TRUE(opts.expect_timeout) << "key exchange timed out unexpectedly";
+    KeyExchange({
+      .client_initiates = false, // doesnt matter here
+      .expect_timeout = opts.expect_timeout ? KexTimeout : NoTimeout,
+      .setup = [all_mocks = std::move(mocks)](KeyExchangeMockFunctions& mocks) mutable {
+        auto tmp = std::move(all_mocks);
+        std::swap(static_cast<KeyExchangeMockFunctions&>(tmp), mocks); // replace the subobject
+        // let tmp go out of scope to verify the version exchange mock expectations
+      },
+    });
+  }
+
+  enum TimeoutOption {
+    NoTimeout,
+    KexTimeout,
+    AuthTimeout
+  };
+  struct KeyExchangeOpts {
+    [[clang::require_explicit_initialization]] bool client_initiates;
+    [[clang::require_explicit_initialization]] TimeoutOption expect_timeout;
+    [[clang::require_explicit_initialization]] absl::AnyInvocable<void(KeyExchangeMockFunctions& mocks)> setup;
+  };
+
+  void KeyExchange(KeyExchangeOpts&& opts) {
+    ASSERT(initialize_called_);
+
+    KeyExchangeMockFunctions mocks;
+    opts.setup(mocks);
+
+    auto timedOut = std::make_shared<bool>(false);
+
+    std::string expectedMsg;
+    if (opts.expect_timeout == KexTimeout) {
+      expectedMsg = "key exchange timed out";
+    } else if (opts.expect_timeout == AuthTimeout) {
+      expectedMsg = "user auth timed out";
+    } else {
+      expectedMsg = "(note: call to onDecodingFailure is unexpected)";
+    }
+    ON_CALL(server_codec_callbacks_, onDecodingFailure)
+      .WillByDefault([expectedMsg, timedOut](std::string_view msg) {
+        EXPECT_EQ(expectedMsg, msg);
+        *timedOut = true;
+      });
+
+    mocks.before_client_kex_init->Call("before_client_kex_init");
+    if (*timedOut) {
+      EXPECT_TRUE(opts.expect_timeout != NoTimeout) << "key exchange timed out unexpectedly";
       return;
     }
+    wire::KexInitMsg serverKexInit;
+    if (opts.client_initiates) {
+      ASSERT_OK(WriteMsg(auto(kex_init_)));
+      ASSERT_OK(ReadMsg(serverKexInit));
+    } else {
+      ASSERT_OK(ReadMsg(serverKexInit));
+      ASSERT_OK(WriteMsg(auto(kex_init_)));
+    }
 
-    ASSERT_OK(wire::encodePacket(input_buffer_, kex_init_, 8, 0).status());
-    transport_.decode(input_buffer_, false);
     HandshakeMagics magics{
       .client_version = "SSH-2.0-TestClient"_bytes,
       .server_version = "SSH-2.0-Envoy"_bytes,
@@ -2497,41 +2557,46 @@ public:
     auto kexAlg = f.create(&magics, &kex_algs_, client_host_key_.get());
     auto ourEcdhInit = kexAlg->buildClientInit();
 
-    // time_system_.advanceTimeAndRun(std::chrono::minutes{10}, *dispatcher_, Dispatcher::RunType::Block);
-    mocks.before_client_kex_alg_init.Call();
-    if (timedOut) {
-      EXPECT_TRUE(opts.expect_timeout) << "key exchange timed out unexpectedly";
+    mocks.before_client_kex_alg_init->Call("before_client_kex_alg_init");
+    if (*timedOut) {
+      EXPECT_TRUE(opts.expect_timeout != NoTimeout) << "key exchange timed out unexpectedly";
       return;
     }
 
-    ASSERT_OK(wire::encodePacket(input_buffer_, ourEcdhInit, 8, 0).status());
-    transport_.decode(input_buffer_, false);
+    ASSERT_OK(WriteMsg(auto(ourEcdhInit)));
     wire::Message serverEcdhReply;
-    ASSERT_OK(wire::decodePacket(output_buffer_, serverEcdhReply).status());
+    ASSERT_OK(ReadMsg(serverEcdhReply));
     auto r = *kexAlg->handleClientRecv(serverEcdhReply);
-    (*r)->session_id = (*r)->exchange_hash;
-    current_session_id_ = (*r)->session_id;
+    if (current_session_id_.has_value()) {
+      (*r)->session_id = *current_session_id_;
+    } else {
+      (*r)->session_id = (*r)->exchange_hash;
+      current_session_id_ = (*r)->session_id;
+    }
+
+    mocks.before_client_new_keys->Call("before_client_new_keys");
+    if (*timedOut) {
+      EXPECT_TRUE(opts.expect_timeout != NoTimeout) << "key exchange timed out unexpectedly";
+      return;
+    }
+
+    ASSERT_OK(WriteMsg(wire::NewKeysMsg{}));
+    wire::NewKeysMsg serverNewKeys;
+    ASSERT_OK(ReadMsg(serverNewKeys));
+
     client_cipher_ = makePacketCipherFromKexResult<ClientCodec>(reg, r->get());
 
-    // time_system_.advanceTimeAndRun(std::chrono::minutes{10}, *dispatcher_, Dispatcher::RunType::Block);
-    mocks.before_client_new_keys.Call();
-    if (timedOut) {
-      EXPECT_TRUE(opts.expect_timeout) << "key exchange timed out unexpectedly";
-      return;
-    }
-
-    ASSERT_OK(wire::encodePacket(input_buffer_, wire::NewKeysMsg{}, 8, 0).status());
-    transport_.decode(input_buffer_, false);
-    wire::NewKeysMsg serverNewKeys;
-    ASSERT_OK(wire::decodePacket(output_buffer_, serverNewKeys).status());
-
-    EXPECT_FALSE(opts.expect_timeout) << "key exchange completed unexpectedly";
+    EXPECT_TRUE(opts.expect_timeout == NoTimeout) << "key exchange completed unexpectedly";
   }
 
-  auto AdvanceTime(std::chrono::milliseconds duration) {
+  [[nodiscard]] auto AdvanceTimeAction(std::chrono::milliseconds duration) {
     return [this, duration] {
-      time_system_.advanceTimeAndRun(duration, *dispatcher_, Dispatcher::RunType::Block);
+      AdvanceTime(duration);
     };
+  }
+
+  void AdvanceTime(std::chrono::milliseconds duration) {
+    time_system_.advanceTimeAndRun(duration, *dispatcher_, Dispatcher::RunType::Block);
   }
 
 private:
@@ -2541,11 +2606,11 @@ private:
 
 TEST_F(HandshakeTimeoutTest, TestTimeoutBeforeAnyDataReceived) {
   initialize();
-  Run({
+  Handshake({
     .expect_timeout = true,
     .setup = [this](MockFunctions& mocks) {
-      EXPECT_CALL(mocks.before_client_version_sent, Call)
-        .WillOnce(AdvanceTime(DefaultHandshakeTimeout + 1s));
+      EXPECT_CALL(*mocks.before_client_version_sent, Call)
+        .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout + 1s)));
     },
   });
 }
@@ -2553,12 +2618,12 @@ TEST_F(HandshakeTimeoutTest, TestTimeoutBeforeAnyDataReceived) {
 TEST_F(HandshakeTimeoutTest, TestTimeoutBeforeVersionExchangeCompleted) {
   initialize();
 
-  Run({
+  Handshake({
     .expect_timeout = true,
     .setup = [this](MockFunctions& mocks) {
-      EXPECT_CALL(mocks.before_client_version_sent, Call);
-      EXPECT_CALL(mocks.on_partial_client_version_sent, Call)
-        .WillOnce(AdvanceTime(DefaultHandshakeTimeout + 1s));
+      EXPECT_CALL(*mocks.before_client_version_sent, Call);
+      EXPECT_CALL(*mocks.on_partial_client_version_sent, Call)
+        .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout + 1s)));
     },
   });
 }
@@ -2566,13 +2631,13 @@ TEST_F(HandshakeTimeoutTest, TestTimeoutBeforeVersionExchangeCompleted) {
 TEST_F(HandshakeTimeoutTest, TestTimeoutBeforeClientKexInit) {
   initialize();
 
-  Run({
+  Handshake({
     .expect_timeout = true,
     .setup = [this](MockFunctions& mocks) {
-      EXPECT_CALL(mocks.before_client_version_sent, Call);
-      EXPECT_CALL(mocks.on_partial_client_version_sent, Call);
-      EXPECT_CALL(mocks.before_client_kex_init, Call)
-        .WillOnce(AdvanceTime(DefaultHandshakeTimeout + 1s));
+      EXPECT_CALL(*mocks.before_client_version_sent, Call);
+      EXPECT_CALL(*mocks.on_partial_client_version_sent, Call);
+      EXPECT_CALL(*mocks.before_client_kex_init, Call)
+        .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout + 1s)));
     },
   });
 }
@@ -2580,14 +2645,14 @@ TEST_F(HandshakeTimeoutTest, TestTimeoutBeforeClientKexInit) {
 TEST_F(HandshakeTimeoutTest, TestTimeoutBeforeClientKexAlgInit) {
   initialize();
 
-  Run({
+  Handshake({
     .expect_timeout = true,
     .setup = [this](MockFunctions& mocks) {
-      EXPECT_CALL(mocks.before_client_version_sent, Call);
-      EXPECT_CALL(mocks.on_partial_client_version_sent, Call);
-      EXPECT_CALL(mocks.before_client_kex_init, Call);
-      EXPECT_CALL(mocks.before_client_kex_alg_init, Call)
-        .WillOnce(AdvanceTime(DefaultHandshakeTimeout + 1s));
+      EXPECT_CALL(*mocks.before_client_version_sent, Call);
+      EXPECT_CALL(*mocks.on_partial_client_version_sent, Call);
+      EXPECT_CALL(*mocks.before_client_kex_init, Call);
+      EXPECT_CALL(*mocks.before_client_kex_alg_init, Call)
+        .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout + 1s)));
     },
   });
 }
@@ -2595,15 +2660,15 @@ TEST_F(HandshakeTimeoutTest, TestTimeoutBeforeClientKexAlgInit) {
 TEST_F(HandshakeTimeoutTest, TestTimeoutBeforeClientNewKeys) {
   initialize();
 
-  Run({
+  Handshake({
     .expect_timeout = true,
     .setup = [this](MockFunctions& mocks) {
-      EXPECT_CALL(mocks.before_client_version_sent, Call);
-      EXPECT_CALL(mocks.on_partial_client_version_sent, Call);
-      EXPECT_CALL(mocks.before_client_kex_init, Call);
-      EXPECT_CALL(mocks.before_client_kex_alg_init, Call);
-      EXPECT_CALL(mocks.before_client_new_keys, Call)
-        .WillOnce(AdvanceTime(DefaultHandshakeTimeout + 1s));
+      EXPECT_CALL(*mocks.before_client_version_sent, Call);
+      EXPECT_CALL(*mocks.on_partial_client_version_sent, Call);
+      EXPECT_CALL(*mocks.before_client_kex_init, Call);
+      EXPECT_CALL(*mocks.before_client_kex_alg_init, Call);
+      EXPECT_CALL(*mocks.before_client_new_keys, Call)
+        .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout + 1s)));
     },
   });
 }
@@ -2612,14 +2677,14 @@ TEST_F(HandshakeTimeoutTest, TestKexCompleteBeforeTimeout) {
   initialize();
 
   // for completeness/sanity checking
-  Run({
+  Handshake({
     .expect_timeout = false,
     .setup = [](MockFunctions& mocks) {
-      EXPECT_CALL(mocks.before_client_version_sent, Call);
-      EXPECT_CALL(mocks.on_partial_client_version_sent, Call);
-      EXPECT_CALL(mocks.before_client_kex_init, Call);
-      EXPECT_CALL(mocks.before_client_kex_alg_init, Call);
-      EXPECT_CALL(mocks.before_client_new_keys, Call);
+      EXPECT_CALL(*mocks.before_client_version_sent, Call);
+      EXPECT_CALL(*mocks.on_partial_client_version_sent, Call);
+      EXPECT_CALL(*mocks.before_client_kex_init, Call);
+      EXPECT_CALL(*mocks.before_client_kex_alg_init, Call);
+      EXPECT_CALL(*mocks.before_client_new_keys, Call);
     },
   });
 }
@@ -2634,17 +2699,17 @@ TEST_F(HandshakeTimeoutTest, TestSingleDurationForInitialVersionAndKeyExchange) 
   // version exchange almost always completes immediately and the timer is only used if the client
   // is doing something unusual.
 
-  Run({
+  Handshake({
     .expect_timeout = true,
     .setup = [this](MockFunctions& mocks) {
-      EXPECT_CALL(mocks.before_client_version_sent, Call)
-        .WillOnce(AdvanceTime(DefaultHandshakeTimeout * 3 / 10));
-      EXPECT_CALL(mocks.on_partial_client_version_sent, Call)
-        .WillOnce(AdvanceTime(DefaultHandshakeTimeout * 3 / 10));
-      EXPECT_CALL(mocks.before_client_kex_init, Call)
-        .WillOnce(AdvanceTime(DefaultHandshakeTimeout * 3 / 10));
-      EXPECT_CALL(mocks.before_client_kex_alg_init, Call)
-        .WillOnce(AdvanceTime(DefaultHandshakeTimeout * 3 / 10)); // should time out here
+      EXPECT_CALL(*mocks.before_client_version_sent, Call)
+        .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout * 3 / 10)));
+      EXPECT_CALL(*mocks.on_partial_client_version_sent, Call)
+        .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout * 3 / 10)));
+      EXPECT_CALL(*mocks.before_client_kex_init, Call)
+        .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout * 3 / 10)));
+      EXPECT_CALL(*mocks.before_client_kex_alg_init, Call)
+        .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout * 3 / 10))); // should time out here
     },
   });
 }
@@ -2654,21 +2719,45 @@ TEST_F(HandshakeTimeoutTest, TestHandshakeTimeoutDisabled) {
 
   initialize();
 
-  Run({
+  Handshake({
     .expect_timeout = false,
     .setup = [this](MockFunctions& mocks) {
-      EXPECT_CALL(mocks.before_client_version_sent, Call)
-        .WillOnce(AdvanceTime(DefaultHandshakeTimeout + 1s));
-      EXPECT_CALL(mocks.on_partial_client_version_sent, Call)
-        .WillOnce(AdvanceTime(DefaultHandshakeTimeout + 1s));
-      EXPECT_CALL(mocks.before_client_kex_init, Call)
-        .WillOnce(AdvanceTime(DefaultHandshakeTimeout + 1s));
-      EXPECT_CALL(mocks.before_client_kex_alg_init, Call)
-        .WillOnce(AdvanceTime(DefaultHandshakeTimeout + 1s));
-      EXPECT_CALL(mocks.before_client_new_keys, Call)
-        .WillOnce(AdvanceTime(DefaultHandshakeTimeout + 1s));
+      EXPECT_CALL(*mocks.before_client_version_sent, Call)
+        .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout + 1s)));
+      EXPECT_CALL(*mocks.on_partial_client_version_sent, Call)
+        .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout + 1s)));
+      EXPECT_CALL(*mocks.before_client_kex_init, Call)
+        .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout + 1s)));
+      EXPECT_CALL(*mocks.before_client_kex_alg_init, Call)
+        .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout + 1s)));
+      EXPECT_CALL(*mocks.before_client_new_keys, Call)
+        .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout + 1s)));
     },
   });
+}
+
+TEST_F(HandshakeTimeoutTest, TestAuthTimer) {
+  initialize();
+
+  Handshake({
+    .expect_timeout = false,
+    .setup = [](MockFunctions& mocks) {
+      EXPECT_CALL(*mocks.before_client_version_sent, Call);
+      EXPECT_CALL(*mocks.on_partial_client_version_sent, Call);
+      EXPECT_CALL(*mocks.before_client_kex_init, Call);
+      EXPECT_CALL(*mocks.before_client_kex_alg_init, Call);
+      EXPECT_CALL(*mocks.before_client_new_keys, Call);
+    },
+  });
+  if (HasFailure()) {
+    return;
+  }
+  ASSERT_OK(ReadExtInfo());
+
+  EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("user auth timed out"))
+    .WillOnce(Return()); // make sure the previous default handler is not used
+
+  AdvanceTime(DefaultAuthTimeout + 1s);
 }
 
 TEST_F(HandshakeTimeoutTest, TestKeyReExchangeBeforeAuthUsesAuthTimeout) {
@@ -2678,33 +2767,133 @@ TEST_F(HandshakeTimeoutTest, TestKeyReExchangeBeforeAuthUsesAuthTimeout) {
   // that the client can't just chain key re-exchanges forever.
   // The client _can_ do key re-exchange(s) immediately, each of which would have their own timeout,
   // but only until the auth timeout elapses.
+
+  Handshake({
+    .expect_timeout = false,
+    .setup = [](MockFunctions& mocks) {
+      EXPECT_CALL(*mocks.before_client_version_sent, Call);
+      EXPECT_CALL(*mocks.on_partial_client_version_sent, Call);
+      EXPECT_CALL(*mocks.before_client_kex_init, Call);
+      EXPECT_CALL(*mocks.before_client_kex_alg_init, Call);
+      EXPECT_CALL(*mocks.before_client_new_keys, Call);
+    },
+  });
+  if (HasFailure()) {
+    return;
+  }
+  ASSERT_OK(ReadExtInfo());
+
+  auto authTimeout = DefaultAuthTimeout;
+  auto numSeconds = std::chrono::seconds{authTimeout}.count();
+  for (int i = 0; i < numSeconds - 1; i++) {
+    if (HasFailure()) {
+      return;
+    }
+    KeyExchange({
+      .client_initiates = true,
+      .expect_timeout = NoTimeout,
+      .setup = [this](KeyExchangeMockFunctions& mocks) {
+        EXPECT_CALL(*mocks.before_client_kex_init, Call);
+        EXPECT_CALL(*mocks.before_client_kex_alg_init, Call);
+        EXPECT_CALL(*mocks.before_client_new_keys, Call)
+          .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(1s)));
+      },
+    });
+  }
+  if (HasFailure()) {
+    return;
+  }
+  // there should be 1 second left in the auth timeout
+  KeyExchange({
+    .client_initiates = true,
+    .expect_timeout = AuthTimeout,
+    .setup = [this](KeyExchangeMockFunctions& mocks) {
+      EXPECT_CALL(*mocks.before_client_kex_init, Call)
+        .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(2s)));
+    },
+  });
 }
 
 TEST_F(HandshakeTimeoutTest, TestKeyReExchangeTimeout) {
+  // disable auth timeout to test key exchange timeout in isolation
+  server_config_->mutable_auth_timeout()->set_seconds(0);
+
   initialize();
 
   // Test that each key re-exchange after the initial one has its own timeout. The timeout is the
   // same as the configured handshake timeout.
 
-  doInitialKeyExchange();
-  ASSERT_FALSE(HasFailure());
-
+  Handshake({
+    .expect_timeout = false,
+    .setup = [this](MockFunctions& mocks) {
+      EXPECT_CALL(*mocks.before_client_version_sent, Call);
+      EXPECT_CALL(*mocks.on_partial_client_version_sent, Call);
+      EXPECT_CALL(*mocks.before_client_kex_init, Call);
+      EXPECT_CALL(*mocks.before_client_kex_alg_init, Call);
+      EXPECT_CALL(*mocks.before_client_new_keys, Call)
+        .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout - 1s)));
+    },
+  });
+  if (HasFailure()) {
+    return;
+  }
   ASSERT_OK(ReadExtInfo());
-  ASSERT_OK(WriteMsg(auto(kex_init_)));
 
-  wire::KexInitMsg serverKexInit;
-  ASSERT_OK(ReadMsg(serverKexInit));
-  // the client doesn't respond after this
+  KeyExchange({
+    .client_initiates = true,
+    .expect_timeout = NoTimeout,
+    .setup = [this](KeyExchangeMockFunctions& mocks) {
+      EXPECT_CALL(*mocks.before_client_kex_init, Call);
+      EXPECT_CALL(*mocks.before_client_kex_alg_init, Call)
+        .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout - 1s)));
+      EXPECT_CALL(*mocks.before_client_new_keys, Call);
+    },
+  });
+  if (HasFailure()) {
+    return;
+  }
+  KeyExchange({
+    .client_initiates = true,
+    .expect_timeout = KexTimeout,
+    .setup = [this](KeyExchangeMockFunctions& mocks) {
+      EXPECT_CALL(*mocks.before_client_kex_init, Call);
+      EXPECT_CALL(*mocks.before_client_kex_alg_init, Call)
+        .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout - 1s)));
+      EXPECT_CALL(*mocks.before_client_new_keys, Call)
+        .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(2s)));
+    },
+  });
+}
 
-  bool timeout{};
-  EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("key exchange timed out"sv))
-    .WillOnce(InvokeWithoutArgs([&] {
-      timeout = true;
-    }));
+TEST_F(HandshakeTimeoutTest, TestKeyReExchangeTimeout_BeforeKexAlgInit) {
+  server_config_->mutable_auth_timeout()->set_seconds(0);
 
-  time_system_.advanceTimeAndRun(std::chrono::seconds{11}, *dispatcher_, Dispatcher::RunType::Block);
+  initialize();
 
-  ASSERT_TRUE(timeout);
+  Handshake({
+    .expect_timeout = false,
+    .setup = [](MockFunctions& mocks) {
+      EXPECT_CALL(*mocks.before_client_version_sent, Call);
+      EXPECT_CALL(*mocks.on_partial_client_version_sent, Call);
+      EXPECT_CALL(*mocks.before_client_kex_init, Call);
+      EXPECT_CALL(*mocks.before_client_kex_alg_init, Call);
+      EXPECT_CALL(*mocks.before_client_new_keys, Call);
+    },
+  });
+  if (HasFailure()) {
+    return;
+  }
+  ASSERT_OK(ReadExtInfo());
+
+  KeyExchange({
+    .client_initiates = true,
+    .expect_timeout = KexTimeout,
+    .setup = [this](KeyExchangeMockFunctions& mocks) {
+      EXPECT_CALL(*mocks.before_client_kex_init, Call);
+      EXPECT_CALL(*mocks.before_client_kex_alg_init, Call)
+        .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout + 1s)));
+    },
+  });
 }
 
 } // namespace test

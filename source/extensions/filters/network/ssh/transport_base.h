@@ -52,6 +52,7 @@ struct codec_traits<T> {
 static constexpr uint32_t SeqnumRekeyLimit = (static_cast<uint32_t>(1) << 31);
 
 static constexpr auto DefaultHandshakeTimeout = 10s;
+static constexpr auto DefaultAuthTimeout = 20s;
 
 template <typename Codec>
 class TransportBase : public Codec,
@@ -325,10 +326,6 @@ public:
     ASSERT(connectionDispatcher().has_value());
 
     handshake_time_budget_ = getHandshakeTimeoutOrDefault();
-    if (handshake_time_budget_ == 0ms) {
-      ENVOY_LOG_ONCE(warn, "warning: ssh handshake timeout is disabled, this is not recommended");
-    }
-
     handshake_start_time_ = connectionDispatcher()->approximateMonotonicTime();
     version_exchange_timer_ = connectionDispatcher()->createTimer([this] {
       terminate(absl::DeadlineExceededError("version exchange timed out"));
@@ -339,7 +336,7 @@ public:
                 codec_traits<Codec>::name, handshake_time_budget_);
       version_exchange_timer_->enableTimer(handshake_time_budget_);
     } else {
-      ENVOY_LOG(trace, "ssh [{}]: handshake timer disabled", codec_traits<Codec>::name);
+      ENVOY_LOG(debug, "ssh [{}]: handshake timer disabled", codec_traits<Codec>::name);
     }
   }
 
@@ -350,13 +347,14 @@ public:
     if (version_exchange_timer_ != nullptr) {
       version_exchange_timer_->disableTimer();
     }
-    handshake_time_budget_ = std::max(0ms, std::chrono::duration_cast<std::chrono::milliseconds>(handshake_time_budget_ - elapsedTime));
+    handshake_time_budget_ = std::max(0ms, std::chrono::duration_cast<std::chrono::milliseconds>(
+                                             handshake_time_budget_ - elapsedTime));
 
     std::string serverVersionString(reinterpret_cast<const char*>(server_version.data()),
                                     server_version.size());
     std::string clientVersionString(reinterpret_cast<const char*>(client_version.data()),
                                     client_version.size());
-    ENVOY_LOG(debug, "ssh [{}]: stream {}: version exchange complete in {} (server: {}; client: {})",
+    ENVOY_LOG(trace, "ssh [{}]: stream {}: version exchange complete in {} (server: {}; client: {})",
               codec_traits<Codec>::name, streamId(), elapsedTime, serverVersionString, clientVersionString);
     if (auto stat = kex_->initiateKex(); !stat.ok()) {
       terminate(stat);
@@ -376,7 +374,7 @@ public:
       ENVOY_LOG(trace, "ssh [{}]: kex timer starting (duration: {})", codec_traits<Codec>::name, duration);
       kex_timer_->enableTimer(duration);
     } else {
-      ENVOY_LOG(trace, "ssh [{}]: kex timer disabled", codec_traits<Codec>::name);
+      ENVOY_LOG(debug, "ssh [{}]: kex timer disabled", codec_traits<Codec>::name);
     }
   }
 

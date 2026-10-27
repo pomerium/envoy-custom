@@ -130,6 +130,7 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
 
           pomerium::extensions::ssh::ClientMessage clientMsg;
           *clientMsg.mutable_auth_request() = auth_req;
+          pauseAuthTimer();
           transport_.sendMgmtClientMessage(clientMsg);
 
           return absl::OkStatus();
@@ -144,6 +145,7 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
 
           pomerium::extensions::ssh::ClientMessage clientMsg;
           *clientMsg.mutable_auth_request() = auth_req;
+          pauseAuthTimer();
           transport_.sendMgmtClientMessage(clientMsg);
 
           return absl::OkStatus();
@@ -176,6 +178,7 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
 
       pomerium::extensions::ssh::ClientMessage clientMsg;
       *clientMsg.mutable_info_response() = info_resp;
+      pauseAuthTimer();
       transport_.sendMgmtClientMessage(clientMsg);
 
       return absl::OkStatus();
@@ -257,6 +260,7 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
       wire::UserAuthFailureMsg failure;
       failure.partial = deny.partial();
       failure.methods = string_list(methods.begin(), methods.end());
+      resumeAuthTimer();
       return transport_.sendMessageToConnection(std::move(failure)).status();
     }
     case AuthenticationResponse::kInfoRequest: {
@@ -277,6 +281,7 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
           p.echo = prompt.echo();
           client_req.prompts->push_back(std::move(p));
         }
+        resumeAuthTimer();
         return transport_.sendMessageToConnection(std::move(client_req)).status();
       }
       return absl::InvalidArgumentError("unknown method");

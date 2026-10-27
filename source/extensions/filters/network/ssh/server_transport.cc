@@ -489,6 +489,18 @@ void SshServerTransport::onKexCompleted(std::shared_ptr<KexResult> kex_result, b
         .IgnoreError();
     }
   }
+
+  // start the auth timer if it is configured
+  std::chrono::milliseconds timeout = DefaultAuthTimeout;
+  if (config_->has_auth_timeout()) {
+    timeout = std::chrono::milliseconds{
+      DurationUtil::durationToMilliseconds(config_->handshake_timeout())};
+  }
+  if (timeout > 0ms) {
+    user_auth_service_->startAuthTimer(timeout);
+  } else {
+    ENVOY_LOG(debug, "ssh: auth timeout disabled");
+  }
 }
 
 absl::StatusOr<std::unique_ptr<wire::HostKeysProveResponseMsg>>
