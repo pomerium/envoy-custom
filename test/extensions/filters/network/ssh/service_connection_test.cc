@@ -50,6 +50,13 @@ public:
              "expected channel count to equal {} (actual: callbacks={}, channels={})",
              count, channel_callbacks_.size(), channels_.size());
   }
+
+  Envoy::Common::CallbackHandlePtr onServerDraining(std::chrono::milliseconds,
+                                                    Envoy::Event::Dispatcher& dispatcher,
+                                                    std::function<void()> complete_cb) override {
+    dispatcher.post(complete_cb);
+    return nullptr;
+  }
 };
 
 class ConnectionServiceTest : public testing::TestWithParam<Peer> {

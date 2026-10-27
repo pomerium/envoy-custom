@@ -11,6 +11,7 @@
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/transport_base.h"
 #include "source/extensions/filters/network/ssh/channel_filter_config.h"
+#include "source/extensions/filters/network/ssh/stream_tracker.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -24,6 +25,7 @@ public:
 };
 
 class SshClientTransport final : public TransportBase<ClientCodec>,
+                                 public Network::ConnectionCallbacks,
                                  public HandoffChannelCallbacks,
                                  public UpstreamTransportCallbacks {
   friend class HandoffMiddleware;
@@ -31,6 +33,7 @@ class SshClientTransport final : public TransportBase<ClientCodec>,
 public:
   SshClientTransport(Envoy::Server::Configuration::ServerFactoryContext& context,
                      std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
+                     StreamTrackerSharedPtr stream_tracker,
                      const SecretsProvider& secrets_provider);
   void setCodecCallbacks(GenericProxy::ClientCodecCallbacks& callbacks) override;
 
@@ -66,6 +69,11 @@ public:
 
   void terminate(absl::Status err) override;
 
+  // Network::ConnectionCallbacks
+  void onEvent(Network::ConnectionEvent event) override;
+  void onAboveWriteBufferHighWatermark() override {}
+  void onBelowWriteBufferLowWatermark() override {}
+
 protected:
   void onKexCompleted(std::shared_ptr<KexResult> kex_result, bool initial_kex) override;
 
@@ -82,6 +90,7 @@ private:
   std::shared_ptr<ChannelIDManager> channel_id_manager_; // shared with downstream
   std::unique_ptr<PingExtensionHandler> ping_handler_;
   ChannelFilterManagerSharedPtr channel_filter_manager_; // shared with downstream
+  StreamTrackerSharedPtr stream_tracker_;                // shared with downstream
 
   std::unique_ptr<Envoy::Event::DeferredDeletable> handoff_middleware_;
 
