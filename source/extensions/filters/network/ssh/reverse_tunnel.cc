@@ -1078,9 +1078,9 @@ private:
       path_ = path->value();
     }
 
-    auto* addr = passthrough_filter_state.getDataReadOnly<Network::AddressObject>(DownstreamSourceAddressFilterStateFactory::key());
+    auto* addr = passthrough_filter_state.getDataReadOnly<DownstreamSourceAddress>(DownstreamSourceAddress::key());
     RELEASE_ASSERT(addr != nullptr, "");
-    downstream_address_ = addr->address();
+    downstream_address_ = addr->getAddress();
   }
 
   void maybeWarnOnEOF(Envoy::OptRef<bytes> server_response = {}) {

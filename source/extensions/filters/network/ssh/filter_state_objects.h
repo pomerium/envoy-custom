@@ -1,18 +1,26 @@
 #pragma once
 
-#pragma clang unsafe_buffer_usage begin
-#include "source/common/network/filter_state_dst_address.h"
-#pragma clang unsafe_buffer_usage end
-
 #include "source/extensions/filters/network/ssh/transport_common.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-class DownstreamSourceAddressFilterStateFactory : public Network::BaseAddressObjectFactory {
+// Note: this uses a custom type instead of Envoy::Network::AddressObject because AddressObject
+// inherits Envoy::Hashable, which causes the filter state object to affect upstream connection
+// pooling.
+class DownstreamSourceAddress : public Network::Address::InstanceAccessor {
+public:
+  using InstanceAccessor::InstanceAccessor;
+
+  static const std::string& key();
+  std::optional<std::string> serializeAsString() const override;
+};
+
+class DownstreamSourceAddressFilterStateFactory : public StreamInfo::FilterState::ObjectFactory {
 public:
   std::string name() const override;
   static const std::string& key();
+  std::unique_ptr<StreamInfo::FilterState::Object> createFromBytes(absl::string_view data) const override;
 };
 
 class RequestedServerName : public StreamInfo::FilterState::Object {

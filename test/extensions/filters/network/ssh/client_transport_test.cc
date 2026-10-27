@@ -128,7 +128,7 @@ public:
       StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
     mock_connection_.streamInfo().filterState()->setData(
       DownstreamSourceAddressFilterStateFactory::key(),
-      std::make_shared<Network::AddressObject>(std::make_shared<Network::Address::Ipv4Instance>("127.0.0.1", 12345)),
+      std::make_shared<DownstreamSourceAddress>(std::make_shared<Network::Address::Ipv4Instance>("127.0.0.1", 12345)),
       StreamInfo::FilterState::StateType::ReadOnly,
       StreamInfo::FilterState::LifeSpan::Request,
       StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
@@ -143,6 +143,12 @@ public:
     ON_CALL(client_codec_callbacks_, connection())
       .WillByDefault(Return(makeOptRef<Network::Connection>(mock_connection_)));
     EXPECT_CALL(client_codec_callbacks_, connection())
+      .Times(AnyNumber());
+    ON_CALL(mock_cluster_info_, connectionPoolPerDownstreamConnection())
+      .WillByDefault(Return(true));
+    ON_CALL(client_codec_callbacks_, upstreamCluster())
+      .WillByDefault(Return(makeOptRef<const Envoy::Upstream::ClusterInfo>(mock_cluster_info_)));
+    EXPECT_CALL(client_codec_callbacks_, upstreamCluster())
       .Times(AnyNumber());
   }
 
@@ -517,6 +523,7 @@ public:
   openssh::SSHKeyPtr server_host_key_;
   openssh::SSHKeyPtr downstream_client_key_;
   TestSecretsProvider secrets_provider_;
+  testing::NiceMock<Envoy::Upstream::MockClusterInfo> mock_cluster_info_;
   testing::NiceMock<Envoy::Network::MockServerConnection> mock_connection_;
   testing::StrictMock<MockClientCodecCallbacks> client_codec_callbacks_;
   std::shared_ptr<ChannelIDManager> channel_id_manager_;
