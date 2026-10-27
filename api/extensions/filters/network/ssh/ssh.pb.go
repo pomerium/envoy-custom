@@ -250,10 +250,11 @@ type CodecConfig struct {
 	// closing the connection.
 	// Default is 10 seconds. Set to 0 for no timeout.
 	HandshakeTimeout *durationpb.Duration `protobuf:"bytes,10,opt,name=handshake_timeout,json=handshakeTimeout,proto3" json:"handshake_timeout,omitempty"`
-	// Maximum duration to wait for user auth to complete. This timer is paused while auth is being
-	// controlled by the StreamManagement service, allowing it to manage timeouts for interactive
-	// login flows. Starts as soon as the handshake timer ends.
-	// Default is 10 seconds. Set to 0 for no timeout.
+	// Maximum duration to wait for user auth to complete. This timer is paused while waiting for
+	// responses from the StreamManagement service, allowing it to manage its own timeouts for the
+	// interactive login flows. Starts as soon as the handshake timer ends and stops when the
+	// StreamManagement service sends the AllowResponse.
+	// Default is 20 seconds. Set to 0 for no timeout.
 	AuthTimeout   *durationpb.Duration `protobuf:"bytes,11,opt,name=auth_timeout,json=authTimeout,proto3" json:"auth_timeout,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3794,7 +3795,7 @@ var File_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh
 
 const file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDesc = "" +
 	"\n" +
-	"Mgithub.com/pomerium/envoy-custom/api/extensions/filters/network/ssh/ssh.proto\x12\x17pomerium.extensions.ssh\x1a\"envoy/config/core/v3/address.proto\x1a\x1fenvoy/config/core/v3/base.proto\x1a(envoy/config/core/v3/config_source.proto\x1a$envoy/config/core/v3/extension.proto\x1a'envoy/config/core/v3/grpc_service.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1aAgithub.com/envoyproxy/protoc-gen-validate/validate/validate.proto\"\x92\a\n" +
+	"Mgithub.com/pomerium/envoy-custom/api/extensions/filters/network/ssh/ssh.proto\x12\x17pomerium.extensions.ssh\x1a\"envoy/config/core/v3/address.proto\x1a\x1fenvoy/config/core/v3/base.proto\x1a(envoy/config/core/v3/config_source.proto\x1a$envoy/config/core/v3/extension.proto\x1a'envoy/config/core/v3/grpc_service.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1aAgithub.com/envoyproxy/protoc-gen-validate/validate/validate.proto\"\xa6\a\n" +
 	"\vCodecConfig\x12N\n" +
 	"\thost_keys\x18\x01 \x03(\v2 .envoy.config.core.v3.DataSourceB\x0f\xfaB\f\x92\x01\t\b\x01\"\x05\x8a\x01\x02\x10\x01R\bhostKeys\x12J\n" +
 	"\vuser_ca_key\x18\x02 \x01(\v2 .envoy.config.core.v3.DataSourceB\b\xfaB\x05\x8a\x01\x02\x10\x01R\tuserCaKey\x12U\n" +
@@ -3804,10 +3805,10 @@ const file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_s
 	"\x19internal_channel_id_start\x18\x06 \x01(\rR\x16internalChannelIdStart\x12V\n" +
 	"\x11algorithm_options\x18\a \x01(\v2).pomerium.extensions.ssh.AlgorithmOptionsR\x10algorithmOptions\x12o\n" +
 	"\x1aconnection_service_options\x18\b \x01(\v21.pomerium.extensions.ssh.ConnectionServiceOptionsR\x18connectionServiceOptions\x12s\n" +
-	" enabled_channel_filter_factories\x18\t \x03(\v2*.envoy.config.core.v3.TypedExtensionConfigR\x1denabledChannelFilterFactories\x12F\n" +
+	" enabled_channel_filter_factories\x18\t \x03(\v2*.envoy.config.core.v3.TypedExtensionConfigR\x1denabledChannelFilterFactories\x12P\n" +
 	"\x11handshake_timeout\x18\n" +
-	" \x01(\v2\x19.google.protobuf.DurationR\x10handshakeTimeout\x12<\n" +
-	"\fauth_timeout\x18\v \x01(\v2\x19.google.protobuf.DurationR\vauthTimeout\"\x91\x01\n" +
+	" \x01(\v2\x19.google.protobuf.DurationB\b\xfaB\x05\xaa\x01\x022\x00R\x10handshakeTimeout\x12F\n" +
+	"\fauth_timeout\x18\v \x01(\v2\x19.google.protobuf.DurationB\b\xfaB\x05\xaa\x01\x022\x00R\vauthTimeout\"\x91\x01\n" +
 	"\x10AlgorithmOptions\x124\n" +
 	"\x16disable_kex_algorithms\x18\x01 \x03(\tR\x14disableKexAlgorithms\x12G\n" +
 	" disable_packet_cipher_algorithms\x18\x02 \x03(\tR\x1ddisablePacketCipherAlgorithms\"\x83\x01\n" +
