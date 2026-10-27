@@ -47,7 +47,7 @@ TEST_F(StreamTrackerTest, FromContext) {
 
 class MockStreamCallbacks : public StreamCallbacks {
 public:
-  MOCK_METHOD(absl::StatusOr<uint32_t>, startChannel, (std::unique_ptr<Channel>, StreamCallbacks::StartChannelOpts));
+  MOCK_METHOD(absl::Status, startChannel, (std::unique_ptr<Channel>, StreamCallbacks::StartChannelOpts));
   MOCK_METHOD(Envoy::Common::CallbackHandlePtr, onServerDraining, (std::chrono::milliseconds, Envoy::Event::Dispatcher&, std::function<void()>));
 };
 
