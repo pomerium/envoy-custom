@@ -27,10 +27,10 @@ jobs:
       packages: write
 
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: setup bazel
-        uses: bazel-contrib/setup-bazel@e8776f58fb6a6e9055cbaf1b38c52ccc5247e9c4
+        uses: bazel-contrib/setup-bazel@e8776f58fb6a6e9055cbaf1b38c52ccc5247e9c4 # 0.14.0
         with:
           bazelisk-version: 1.25.0
 
