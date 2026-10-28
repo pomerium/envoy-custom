@@ -1563,6 +1563,50 @@ TYPED_TEST_P(TransportBaseTest, TestRekeyTriggeredDuringQueueReplay) {
   this->Join();
 }
 
+TYPED_TEST_P(TransportBaseTest, TestOneSidedRekeyInterval) {
+  // Test time-based key re-exchange where one side has an interval configured and the other side
+  // has it disabled.
+  this->ClientConfig().mutable_rekey_interval()->set_nanos(std::chrono::nanoseconds{100ms}.count());
+  this->ServerConfig().mutable_rekey_interval()->set_seconds(0); // disabled
+
+  // If this test is run for 1 second, then 9-10 key exchanges should occur (but not 11).
+  EXPECT_CALL(this->Client(), onKexStarted).Times(testing::Between(9, 10));
+  EXPECT_CALL(this->Client(), onKexCompleted).Times(testing::Between(9, 10));
+  EXPECT_CALL(this->Server(), onKexStarted).Times(testing::Between(9, 10));
+  EXPECT_CALL(this->Server(), onKexCompleted).Times(testing::Between(9, 10));
+
+  this->Start();
+  this->InitiateVersionExchange();
+
+  this->context_.time_system_.advanceTimeWait(1s);
+
+  this->Client().Exit();
+  this->Server().Exit();
+  this->Join();
+}
+
+TYPED_TEST_P(TransportBaseTest, TestRekeyInterval) {
+  // Test time-based key re-exchange where both sides have the same interval. This should result
+  // in the same amount of key exchanges occurring as in the previous test.
+
+  this->ClientConfig().mutable_rekey_interval()->set_nanos(std::chrono::nanoseconds{100ms}.count());
+  this->ServerConfig().mutable_rekey_interval()->set_nanos(std::chrono::nanoseconds{100ms}.count());
+
+  EXPECT_CALL(this->Client(), onKexStarted).Times(testing::Between(9, 10));
+  EXPECT_CALL(this->Client(), onKexCompleted).Times(testing::Between(9, 10));
+  EXPECT_CALL(this->Server(), onKexStarted).Times(testing::Between(9, 10));
+  EXPECT_CALL(this->Server(), onKexCompleted).Times(testing::Between(9, 10));
+
+  this->Start();
+  this->InitiateVersionExchange();
+
+  this->context_.time_system_.advanceTimeWait(1s);
+
+  this->Client().Exit();
+  this->Server().Exit();
+  this->Join();
+}
+
 TYPED_TEST_P(TransportBaseTest, TestErrorEncodingPacket) {
   this->Start();
   this->Client().Post([this](auto& client) {
@@ -1682,6 +1726,8 @@ REGISTER_TYPED_TEST_SUITE_P(TransportBaseTest,
                             TestInitiateKexFailedOnReadRekey,
                             TestErrorSendingQueuedMessagesAfterRekey,
                             TestRekeyTriggeredDuringQueueReplay,
+                            TestOneSidedRekeyInterval,
+                            TestRekeyInterval,
                             TestErrorEncodingPacket,
                             TestUnimplementedMsg,
                             TestConnectionReadDisable);

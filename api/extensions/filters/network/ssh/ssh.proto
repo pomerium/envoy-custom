@@ -42,6 +42,12 @@ message CodecConfig {
     lte: 1073741824, // 1 << 30
   }];
 
+  // Interval for time-based key re-exchange. This constraint is in addition to the data rekey
+  // threshold, which is always required.
+  // If unset, defaults to the recommended value of 1 hour. Can be set to 0 to disable. Disabling
+  // this does not disable the data rekey threshold.
+  google.protobuf.Duration rekey_interval = 12 [(validate.rules).duration = {gte: {}}];
+
   // Pomerium StreamManagement grpc service.
   envoy.config.core.v3.GrpcService grpc_service = 4 [(validate.rules).message.required = true];
 

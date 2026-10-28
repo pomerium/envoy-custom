@@ -237,6 +237,8 @@ type CodecConfig struct {
 	// Note: the maximum value configurable here is the smallest safe value that can be used for any
 	// algorithm, but the default values for some algorithms are larger.
 	RekeyThreshold *wrapperspb.UInt64Value `protobuf:"bytes,3,opt,name=rekey_threshold,json=rekeyThreshold,proto3" json:"rekey_threshold,omitempty"`
+	// Interval for time-based key re-exchange. If unset, defaults to the recommended value of 1 hour.
+	RekeyInterval *durationpb.Duration `protobuf:"bytes,12,opt,name=rekey_interval,json=rekeyInterval,proto3" json:"rekey_interval,omitempty"`
 	// Pomerium StreamManagement grpc service.
 	GrpcService *v3.GrpcService `protobuf:"bytes,4,opt,name=grpc_service,json=grpcService,proto3" json:"grpc_service,omitempty"`
 	// Max number of concurrent open channels. Default (and max) is 32768
@@ -307,6 +309,13 @@ func (x *CodecConfig) GetUserCaKey() *v3.DataSource {
 func (x *CodecConfig) GetRekeyThreshold() *wrapperspb.UInt64Value {
 	if x != nil {
 		return x.RekeyThreshold
+	}
+	return nil
+}
+
+func (x *CodecConfig) GetRekeyInterval() *durationpb.Duration {
+	if x != nil {
+		return x.RekeyInterval
 	}
 	return nil
 }
@@ -3795,11 +3804,13 @@ var File_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh
 
 const file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh_proto_rawDesc = "" +
 	"\n" +
-	"Mgithub.com/pomerium/envoy-custom/api/extensions/filters/network/ssh/ssh.proto\x12\x17pomerium.extensions.ssh\x1a\"envoy/config/core/v3/address.proto\x1a\x1fenvoy/config/core/v3/base.proto\x1a(envoy/config/core/v3/config_source.proto\x1a$envoy/config/core/v3/extension.proto\x1a'envoy/config/core/v3/grpc_service.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1aAgithub.com/envoyproxy/protoc-gen-validate/validate/validate.proto\"\xa6\a\n" +
+	"Mgithub.com/pomerium/envoy-custom/api/extensions/filters/network/ssh/ssh.proto\x12\x17pomerium.extensions.ssh\x1a\"envoy/config/core/v3/address.proto\x1a\x1fenvoy/config/core/v3/base.proto\x1a(envoy/config/core/v3/config_source.proto\x1a$envoy/config/core/v3/extension.proto\x1a'envoy/config/core/v3/grpc_service.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1aAgithub.com/envoyproxy/protoc-gen-validate/validate/validate.proto\"\xf4\a\n" +
 	"\vCodecConfig\x12N\n" +
 	"\thost_keys\x18\x01 \x03(\v2 .envoy.config.core.v3.DataSourceB\x0f\xfaB\f\x92\x01\t\b\x01\"\x05\x8a\x01\x02\x10\x01R\bhostKeys\x12J\n" +
 	"\vuser_ca_key\x18\x02 \x01(\v2 .envoy.config.core.v3.DataSourceB\b\xfaB\x05\x8a\x01\x02\x10\x01R\tuserCaKey\x12U\n" +
-	"\x0frekey_threshold\x18\x03 \x01(\v2\x1c.google.protobuf.UInt64ValueB\x0e\xfaB\v2\t\x18\x80\x80\x80\x80\x04(\x80\x02R\x0erekeyThreshold\x12N\n" +
+	"\x0frekey_threshold\x18\x03 \x01(\v2\x1c.google.protobuf.UInt64ValueB\x0e\xfaB\v2\t\x18\x80\x80\x80\x80\x04(\x80\x02R\x0erekeyThreshold\x12L\n" +
+	"\x0erekey_interval\x18\f \x01(\v2\x19.google.protobuf.DurationB\n" +
+	"\xfaB\a\xaa\x01\x042\x02\b<R\rrekeyInterval\x12N\n" +
 	"\fgrpc_service\x18\x04 \x01(\v2!.envoy.config.core.v3.GrpcServiceB\b\xfaB\x05\x8a\x01\x02\x10\x01R\vgrpcService\x12A\n" +
 	"\x17max_concurrent_channels\x18\x05 \x01(\rB\t\xfaB\x06*\x04\x18\x80\x80\x02R\x15maxConcurrentChannels\x129\n" +
 	"\x19internal_channel_id_start\x18\x06 \x01(\rR\x16internalChannelIdStart\x12V\n" +
@@ -4158,9 +4169,9 @@ var file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh
 	(*EndpointMetadata_RouteInfo)(nil), // 58: pomerium.extensions.ssh.EndpointMetadata.RouteInfo
 	(*v3.DataSource)(nil),              // 59: envoy.config.core.v3.DataSource
 	(*wrapperspb.UInt64Value)(nil),     // 60: google.protobuf.UInt64Value
-	(*v3.GrpcService)(nil),             // 61: envoy.config.core.v3.GrpcService
-	(*v3.TypedExtensionConfig)(nil),    // 62: envoy.config.core.v3.TypedExtensionConfig
-	(*durationpb.Duration)(nil),        // 63: google.protobuf.Duration
+	(*durationpb.Duration)(nil),        // 61: google.protobuf.Duration
+	(*v3.GrpcService)(nil),             // 62: envoy.config.core.v3.GrpcService
+	(*v3.TypedExtensionConfig)(nil),    // 63: envoy.config.core.v3.TypedExtensionConfig
 	(*v3.ConfigSource)(nil),            // 64: envoy.config.core.v3.ConfigSource
 	(*v3.Metadata)(nil),                // 65: envoy.config.core.v3.Metadata
 	(*wrapperspb.BytesValue)(nil),      // 66: google.protobuf.BytesValue
@@ -4174,86 +4185,87 @@ var file_github_com_pomerium_envoy_custom_api_extensions_filters_network_ssh_ssh
 	59, // 0: pomerium.extensions.ssh.CodecConfig.host_keys:type_name -> envoy.config.core.v3.DataSource
 	59, // 1: pomerium.extensions.ssh.CodecConfig.user_ca_key:type_name -> envoy.config.core.v3.DataSource
 	60, // 2: pomerium.extensions.ssh.CodecConfig.rekey_threshold:type_name -> google.protobuf.UInt64Value
-	61, // 3: pomerium.extensions.ssh.CodecConfig.grpc_service:type_name -> envoy.config.core.v3.GrpcService
-	5,  // 4: pomerium.extensions.ssh.CodecConfig.algorithm_options:type_name -> pomerium.extensions.ssh.AlgorithmOptions
-	6,  // 5: pomerium.extensions.ssh.CodecConfig.connection_service_options:type_name -> pomerium.extensions.ssh.ConnectionServiceOptions
-	62, // 6: pomerium.extensions.ssh.CodecConfig.enabled_channel_filter_factories:type_name -> envoy.config.core.v3.TypedExtensionConfig
-	63, // 7: pomerium.extensions.ssh.CodecConfig.handshake_timeout:type_name -> google.protobuf.Duration
-	63, // 8: pomerium.extensions.ssh.CodecConfig.auth_timeout:type_name -> google.protobuf.Duration
-	63, // 9: pomerium.extensions.ssh.ConnectionServiceOptions.channel_close_response_grace_period:type_name -> google.protobuf.Duration
-	64, // 10: pomerium.extensions.ssh.ReverseTunnelCluster.eds_config:type_name -> envoy.config.core.v3.ConfigSource
-	65, // 11: pomerium.extensions.ssh.ChannelMessage.metadata:type_name -> envoy.config.core.v3.Metadata
-	66, // 12: pomerium.extensions.ssh.ChannelMessage.raw_bytes:type_name -> google.protobuf.BytesValue
-	9,  // 13: pomerium.extensions.ssh.ChannelMessage.channel_control:type_name -> pomerium.extensions.ssh.ChannelControl
-	67, // 14: pomerium.extensions.ssh.ChannelControl.control_action:type_name -> google.protobuf.Any
-	11, // 15: pomerium.extensions.ssh.ClientMessage.event:type_name -> pomerium.extensions.ssh.StreamEvent
-	24, // 16: pomerium.extensions.ssh.ClientMessage.auth_request:type_name -> pomerium.extensions.ssh.AuthenticationRequest
-	25, // 17: pomerium.extensions.ssh.ClientMessage.info_response:type_name -> pomerium.extensions.ssh.InfoResponse
-	19, // 18: pomerium.extensions.ssh.ClientMessage.global_request:type_name -> pomerium.extensions.ssh.GlobalRequest
-	12, // 19: pomerium.extensions.ssh.StreamEvent.downstream_connected:type_name -> pomerium.extensions.ssh.DownstreamConnectEvent
-	13, // 20: pomerium.extensions.ssh.StreamEvent.downstream_disconnected:type_name -> pomerium.extensions.ssh.DownstreamDisconnectedEvent
-	14, // 21: pomerium.extensions.ssh.StreamEvent.upstream_connected:type_name -> pomerium.extensions.ssh.UpstreamConnectEvent
-	18, // 22: pomerium.extensions.ssh.StreamEvent.channel_event:type_name -> pomerium.extensions.ssh.ChannelEvent
-	68, // 23: pomerium.extensions.ssh.DownstreamConnectEvent.source_address:type_name -> envoy.config.core.v3.Address
-	2,  // 24: pomerium.extensions.ssh.Diagnostic.severity:type_name -> pomerium.extensions.ssh.Diagnostic.Severity
-	17, // 25: pomerium.extensions.ssh.ChannelStatsList.items:type_name -> pomerium.extensions.ssh.ChannelStats
-	69, // 26: pomerium.extensions.ssh.ChannelStats.start_time:type_name -> google.protobuf.Timestamp
-	69, // 27: pomerium.extensions.ssh.ChannelStats.end_time:type_name -> google.protobuf.Timestamp
-	48, // 28: pomerium.extensions.ssh.ChannelEvent.internal_channel_opened:type_name -> pomerium.extensions.ssh.ChannelEvent.InternalChannelOpenedEvent
-	49, // 29: pomerium.extensions.ssh.ChannelEvent.internal_channel_closed:type_name -> pomerium.extensions.ssh.ChannelEvent.InternalChannelClosedEvent
-	50, // 30: pomerium.extensions.ssh.ChannelEvent.channel_stats:type_name -> pomerium.extensions.ssh.ChannelEvent.ChannelStatsEvent
-	20, // 31: pomerium.extensions.ssh.GlobalRequest.tcpip_forward_request:type_name -> pomerium.extensions.ssh.TcpipForwardRequest
-	21, // 32: pomerium.extensions.ssh.GlobalRequest.cancel_tcpip_forward_request:type_name -> pomerium.extensions.ssh.CancelTcpipForwardRequest
-	23, // 33: pomerium.extensions.ssh.GlobalRequestResponse.tcpip_forward_response:type_name -> pomerium.extensions.ssh.TcpipForwardResponse
-	67, // 34: pomerium.extensions.ssh.AuthenticationRequest.method_request:type_name -> google.protobuf.Any
-	67, // 35: pomerium.extensions.ssh.InfoResponse.response:type_name -> google.protobuf.Any
-	27, // 36: pomerium.extensions.ssh.ServerMessage.auth_response:type_name -> pomerium.extensions.ssh.AuthenticationResponse
-	22, // 37: pomerium.extensions.ssh.ServerMessage.global_request_response:type_name -> pomerium.extensions.ssh.GlobalRequestResponse
-	28, // 38: pomerium.extensions.ssh.AuthenticationResponse.allow:type_name -> pomerium.extensions.ssh.AllowResponse
-	33, // 39: pomerium.extensions.ssh.AuthenticationResponse.deny:type_name -> pomerium.extensions.ssh.DenyResponse
-	34, // 40: pomerium.extensions.ssh.AuthenticationResponse.info_request:type_name -> pomerium.extensions.ssh.InfoRequest
-	42, // 41: pomerium.extensions.ssh.AllowResponse.auth_context:type_name -> pomerium.extensions.ssh.AuthContext
-	43, // 42: pomerium.extensions.ssh.AllowResponse.extra_auth_info:type_name -> pomerium.extensions.ssh.ExtraAuthInfo
-	29, // 43: pomerium.extensions.ssh.AllowResponse.upstream:type_name -> pomerium.extensions.ssh.UpstreamTarget
-	31, // 44: pomerium.extensions.ssh.AllowResponse.internal:type_name -> pomerium.extensions.ssh.InternalTarget
-	32, // 45: pomerium.extensions.ssh.AllowResponse.mirror_session:type_name -> pomerium.extensions.ssh.MirrorSessionTarget
-	70, // 46: pomerium.extensions.ssh.UpstreamTarget.address:type_name -> envoy.config.core.v3.SocketAddress
-	62, // 47: pomerium.extensions.ssh.UpstreamTarget.channel_filters:type_name -> envoy.config.core.v3.TypedExtensionConfig
-	30, // 48: pomerium.extensions.ssh.UpstreamTarget.certificate_options:type_name -> pomerium.extensions.ssh.CertificateOptions
-	69, // 49: pomerium.extensions.ssh.CertificateOptions.valid_start_time:type_name -> google.protobuf.Timestamp
-	69, // 50: pomerium.extensions.ssh.CertificateOptions.valid_end_time:type_name -> google.protobuf.Timestamp
-	51, // 51: pomerium.extensions.ssh.CertificateOptions.force_env:type_name -> pomerium.extensions.ssh.CertificateOptions.ForceEnvEntry
-	65, // 52: pomerium.extensions.ssh.InternalTarget.set_metadata:type_name -> envoy.config.core.v3.Metadata
-	3,  // 53: pomerium.extensions.ssh.MirrorSessionTarget.mode:type_name -> pomerium.extensions.ssh.MirrorSessionTarget.Mode
-	67, // 54: pomerium.extensions.ssh.InfoRequest.request:type_name -> google.protobuf.Any
-	52, // 55: pomerium.extensions.ssh.SSHChannelControlAction.hand_off:type_name -> pomerium.extensions.ssh.SSHChannelControlAction.HandOffUpstream
-	53, // 56: pomerium.extensions.ssh.SSHChannelControlAction.set_interrupt_options:type_name -> pomerium.extensions.ssh.SSHChannelControlAction.InterruptOptions
-	54, // 57: pomerium.extensions.ssh.KeyboardInteractiveInfoPrompts.prompts:type_name -> pomerium.extensions.ssh.KeyboardInteractiveInfoPrompts.Prompt
-	0,  // 58: pomerium.extensions.ssh.AuthContext.access_request_state:type_name -> pomerium.extensions.ssh.AccessRequestState
-	55, // 59: pomerium.extensions.ssh.AuthContext.access_request_metadata:type_name -> pomerium.extensions.ssh.AuthContext.AccessRequestMetadataEntry
-	69, // 60: pomerium.extensions.ssh.ExtraAuthInfo.start_time:type_name -> google.protobuf.Timestamp
-	56, // 61: pomerium.extensions.ssh.ExtraAuthInfo.session_binding_details:type_name -> pomerium.extensions.ssh.ExtraAuthInfo.SessionBindingDetailsEntry
-	57, // 62: pomerium.extensions.ssh.ExtraAuthInfo.claims:type_name -> pomerium.extensions.ssh.ExtraAuthInfo.ClaimsEntry
-	1,  // 63: pomerium.extensions.ssh.FilterMetadata.mode_hint:type_name -> pomerium.extensions.ssh.InternalCLIModeHint
-	45, // 64: pomerium.extensions.ssh.EndpointMetadata.server_port:type_name -> pomerium.extensions.ssh.ServerPort
-	46, // 65: pomerium.extensions.ssh.EndpointMetadata.matched_permission:type_name -> pomerium.extensions.ssh.PortForwardPermission
-	58, // 66: pomerium.extensions.ssh.EndpointMetadata.pomerium_route_info:type_name -> pomerium.extensions.ssh.EndpointMetadata.RouteInfo
-	17, // 67: pomerium.extensions.ssh.ChannelEvent.InternalChannelClosedEvent.stats:type_name -> pomerium.extensions.ssh.ChannelStats
-	15, // 68: pomerium.extensions.ssh.ChannelEvent.InternalChannelClosedEvent.diagnostics:type_name -> pomerium.extensions.ssh.Diagnostic
-	16, // 69: pomerium.extensions.ssh.ChannelEvent.ChannelStatsEvent.stats_list:type_name -> pomerium.extensions.ssh.ChannelStatsList
-	35, // 70: pomerium.extensions.ssh.SSHChannelControlAction.HandOffUpstream.downstream_channel_info:type_name -> pomerium.extensions.ssh.SSHDownstreamChannelInfo
-	36, // 71: pomerium.extensions.ssh.SSHChannelControlAction.HandOffUpstream.downstream_pty_info:type_name -> pomerium.extensions.ssh.SSHDownstreamPTYInfo
-	28, // 72: pomerium.extensions.ssh.SSHChannelControlAction.HandOffUpstream.upstream_auth:type_name -> pomerium.extensions.ssh.AllowResponse
-	71, // 73: pomerium.extensions.ssh.ExtraAuthInfo.ClaimsEntry.value:type_name -> google.protobuf.ListValue
-	10, // 74: pomerium.extensions.ssh.StreamManagement.ManageStream:input_type -> pomerium.extensions.ssh.ClientMessage
-	8,  // 75: pomerium.extensions.ssh.StreamManagement.ServeChannel:input_type -> pomerium.extensions.ssh.ChannelMessage
-	26, // 76: pomerium.extensions.ssh.StreamManagement.ManageStream:output_type -> pomerium.extensions.ssh.ServerMessage
-	8,  // 77: pomerium.extensions.ssh.StreamManagement.ServeChannel:output_type -> pomerium.extensions.ssh.ChannelMessage
-	76, // [76:78] is the sub-list for method output_type
-	74, // [74:76] is the sub-list for method input_type
-	74, // [74:74] is the sub-list for extension type_name
-	74, // [74:74] is the sub-list for extension extendee
-	0,  // [0:74] is the sub-list for field type_name
+	61, // 3: pomerium.extensions.ssh.CodecConfig.rekey_interval:type_name -> google.protobuf.Duration
+	62, // 4: pomerium.extensions.ssh.CodecConfig.grpc_service:type_name -> envoy.config.core.v3.GrpcService
+	5,  // 5: pomerium.extensions.ssh.CodecConfig.algorithm_options:type_name -> pomerium.extensions.ssh.AlgorithmOptions
+	6,  // 6: pomerium.extensions.ssh.CodecConfig.connection_service_options:type_name -> pomerium.extensions.ssh.ConnectionServiceOptions
+	63, // 7: pomerium.extensions.ssh.CodecConfig.enabled_channel_filter_factories:type_name -> envoy.config.core.v3.TypedExtensionConfig
+	61, // 8: pomerium.extensions.ssh.CodecConfig.handshake_timeout:type_name -> google.protobuf.Duration
+	61, // 9: pomerium.extensions.ssh.CodecConfig.auth_timeout:type_name -> google.protobuf.Duration
+	61, // 10: pomerium.extensions.ssh.ConnectionServiceOptions.channel_close_response_grace_period:type_name -> google.protobuf.Duration
+	64, // 11: pomerium.extensions.ssh.ReverseTunnelCluster.eds_config:type_name -> envoy.config.core.v3.ConfigSource
+	65, // 12: pomerium.extensions.ssh.ChannelMessage.metadata:type_name -> envoy.config.core.v3.Metadata
+	66, // 13: pomerium.extensions.ssh.ChannelMessage.raw_bytes:type_name -> google.protobuf.BytesValue
+	9,  // 14: pomerium.extensions.ssh.ChannelMessage.channel_control:type_name -> pomerium.extensions.ssh.ChannelControl
+	67, // 15: pomerium.extensions.ssh.ChannelControl.control_action:type_name -> google.protobuf.Any
+	11, // 16: pomerium.extensions.ssh.ClientMessage.event:type_name -> pomerium.extensions.ssh.StreamEvent
+	24, // 17: pomerium.extensions.ssh.ClientMessage.auth_request:type_name -> pomerium.extensions.ssh.AuthenticationRequest
+	25, // 18: pomerium.extensions.ssh.ClientMessage.info_response:type_name -> pomerium.extensions.ssh.InfoResponse
+	19, // 19: pomerium.extensions.ssh.ClientMessage.global_request:type_name -> pomerium.extensions.ssh.GlobalRequest
+	12, // 20: pomerium.extensions.ssh.StreamEvent.downstream_connected:type_name -> pomerium.extensions.ssh.DownstreamConnectEvent
+	13, // 21: pomerium.extensions.ssh.StreamEvent.downstream_disconnected:type_name -> pomerium.extensions.ssh.DownstreamDisconnectedEvent
+	14, // 22: pomerium.extensions.ssh.StreamEvent.upstream_connected:type_name -> pomerium.extensions.ssh.UpstreamConnectEvent
+	18, // 23: pomerium.extensions.ssh.StreamEvent.channel_event:type_name -> pomerium.extensions.ssh.ChannelEvent
+	68, // 24: pomerium.extensions.ssh.DownstreamConnectEvent.source_address:type_name -> envoy.config.core.v3.Address
+	2,  // 25: pomerium.extensions.ssh.Diagnostic.severity:type_name -> pomerium.extensions.ssh.Diagnostic.Severity
+	17, // 26: pomerium.extensions.ssh.ChannelStatsList.items:type_name -> pomerium.extensions.ssh.ChannelStats
+	69, // 27: pomerium.extensions.ssh.ChannelStats.start_time:type_name -> google.protobuf.Timestamp
+	69, // 28: pomerium.extensions.ssh.ChannelStats.end_time:type_name -> google.protobuf.Timestamp
+	48, // 29: pomerium.extensions.ssh.ChannelEvent.internal_channel_opened:type_name -> pomerium.extensions.ssh.ChannelEvent.InternalChannelOpenedEvent
+	49, // 30: pomerium.extensions.ssh.ChannelEvent.internal_channel_closed:type_name -> pomerium.extensions.ssh.ChannelEvent.InternalChannelClosedEvent
+	50, // 31: pomerium.extensions.ssh.ChannelEvent.channel_stats:type_name -> pomerium.extensions.ssh.ChannelEvent.ChannelStatsEvent
+	20, // 32: pomerium.extensions.ssh.GlobalRequest.tcpip_forward_request:type_name -> pomerium.extensions.ssh.TcpipForwardRequest
+	21, // 33: pomerium.extensions.ssh.GlobalRequest.cancel_tcpip_forward_request:type_name -> pomerium.extensions.ssh.CancelTcpipForwardRequest
+	23, // 34: pomerium.extensions.ssh.GlobalRequestResponse.tcpip_forward_response:type_name -> pomerium.extensions.ssh.TcpipForwardResponse
+	67, // 35: pomerium.extensions.ssh.AuthenticationRequest.method_request:type_name -> google.protobuf.Any
+	67, // 36: pomerium.extensions.ssh.InfoResponse.response:type_name -> google.protobuf.Any
+	27, // 37: pomerium.extensions.ssh.ServerMessage.auth_response:type_name -> pomerium.extensions.ssh.AuthenticationResponse
+	22, // 38: pomerium.extensions.ssh.ServerMessage.global_request_response:type_name -> pomerium.extensions.ssh.GlobalRequestResponse
+	28, // 39: pomerium.extensions.ssh.AuthenticationResponse.allow:type_name -> pomerium.extensions.ssh.AllowResponse
+	33, // 40: pomerium.extensions.ssh.AuthenticationResponse.deny:type_name -> pomerium.extensions.ssh.DenyResponse
+	34, // 41: pomerium.extensions.ssh.AuthenticationResponse.info_request:type_name -> pomerium.extensions.ssh.InfoRequest
+	42, // 42: pomerium.extensions.ssh.AllowResponse.auth_context:type_name -> pomerium.extensions.ssh.AuthContext
+	43, // 43: pomerium.extensions.ssh.AllowResponse.extra_auth_info:type_name -> pomerium.extensions.ssh.ExtraAuthInfo
+	29, // 44: pomerium.extensions.ssh.AllowResponse.upstream:type_name -> pomerium.extensions.ssh.UpstreamTarget
+	31, // 45: pomerium.extensions.ssh.AllowResponse.internal:type_name -> pomerium.extensions.ssh.InternalTarget
+	32, // 46: pomerium.extensions.ssh.AllowResponse.mirror_session:type_name -> pomerium.extensions.ssh.MirrorSessionTarget
+	70, // 47: pomerium.extensions.ssh.UpstreamTarget.address:type_name -> envoy.config.core.v3.SocketAddress
+	63, // 48: pomerium.extensions.ssh.UpstreamTarget.channel_filters:type_name -> envoy.config.core.v3.TypedExtensionConfig
+	30, // 49: pomerium.extensions.ssh.UpstreamTarget.certificate_options:type_name -> pomerium.extensions.ssh.CertificateOptions
+	69, // 50: pomerium.extensions.ssh.CertificateOptions.valid_start_time:type_name -> google.protobuf.Timestamp
+	69, // 51: pomerium.extensions.ssh.CertificateOptions.valid_end_time:type_name -> google.protobuf.Timestamp
+	51, // 52: pomerium.extensions.ssh.CertificateOptions.force_env:type_name -> pomerium.extensions.ssh.CertificateOptions.ForceEnvEntry
+	65, // 53: pomerium.extensions.ssh.InternalTarget.set_metadata:type_name -> envoy.config.core.v3.Metadata
+	3,  // 54: pomerium.extensions.ssh.MirrorSessionTarget.mode:type_name -> pomerium.extensions.ssh.MirrorSessionTarget.Mode
+	67, // 55: pomerium.extensions.ssh.InfoRequest.request:type_name -> google.protobuf.Any
+	52, // 56: pomerium.extensions.ssh.SSHChannelControlAction.hand_off:type_name -> pomerium.extensions.ssh.SSHChannelControlAction.HandOffUpstream
+	53, // 57: pomerium.extensions.ssh.SSHChannelControlAction.set_interrupt_options:type_name -> pomerium.extensions.ssh.SSHChannelControlAction.InterruptOptions
+	54, // 58: pomerium.extensions.ssh.KeyboardInteractiveInfoPrompts.prompts:type_name -> pomerium.extensions.ssh.KeyboardInteractiveInfoPrompts.Prompt
+	0,  // 59: pomerium.extensions.ssh.AuthContext.access_request_state:type_name -> pomerium.extensions.ssh.AccessRequestState
+	55, // 60: pomerium.extensions.ssh.AuthContext.access_request_metadata:type_name -> pomerium.extensions.ssh.AuthContext.AccessRequestMetadataEntry
+	69, // 61: pomerium.extensions.ssh.ExtraAuthInfo.start_time:type_name -> google.protobuf.Timestamp
+	56, // 62: pomerium.extensions.ssh.ExtraAuthInfo.session_binding_details:type_name -> pomerium.extensions.ssh.ExtraAuthInfo.SessionBindingDetailsEntry
+	57, // 63: pomerium.extensions.ssh.ExtraAuthInfo.claims:type_name -> pomerium.extensions.ssh.ExtraAuthInfo.ClaimsEntry
+	1,  // 64: pomerium.extensions.ssh.FilterMetadata.mode_hint:type_name -> pomerium.extensions.ssh.InternalCLIModeHint
+	45, // 65: pomerium.extensions.ssh.EndpointMetadata.server_port:type_name -> pomerium.extensions.ssh.ServerPort
+	46, // 66: pomerium.extensions.ssh.EndpointMetadata.matched_permission:type_name -> pomerium.extensions.ssh.PortForwardPermission
+	58, // 67: pomerium.extensions.ssh.EndpointMetadata.pomerium_route_info:type_name -> pomerium.extensions.ssh.EndpointMetadata.RouteInfo
+	17, // 68: pomerium.extensions.ssh.ChannelEvent.InternalChannelClosedEvent.stats:type_name -> pomerium.extensions.ssh.ChannelStats
+	15, // 69: pomerium.extensions.ssh.ChannelEvent.InternalChannelClosedEvent.diagnostics:type_name -> pomerium.extensions.ssh.Diagnostic
+	16, // 70: pomerium.extensions.ssh.ChannelEvent.ChannelStatsEvent.stats_list:type_name -> pomerium.extensions.ssh.ChannelStatsList
+	35, // 71: pomerium.extensions.ssh.SSHChannelControlAction.HandOffUpstream.downstream_channel_info:type_name -> pomerium.extensions.ssh.SSHDownstreamChannelInfo
+	36, // 72: pomerium.extensions.ssh.SSHChannelControlAction.HandOffUpstream.downstream_pty_info:type_name -> pomerium.extensions.ssh.SSHDownstreamPTYInfo
+	28, // 73: pomerium.extensions.ssh.SSHChannelControlAction.HandOffUpstream.upstream_auth:type_name -> pomerium.extensions.ssh.AllowResponse
+	71, // 74: pomerium.extensions.ssh.ExtraAuthInfo.ClaimsEntry.value:type_name -> google.protobuf.ListValue
+	10, // 75: pomerium.extensions.ssh.StreamManagement.ManageStream:input_type -> pomerium.extensions.ssh.ClientMessage
+	8,  // 76: pomerium.extensions.ssh.StreamManagement.ServeChannel:input_type -> pomerium.extensions.ssh.ChannelMessage
+	26, // 77: pomerium.extensions.ssh.StreamManagement.ManageStream:output_type -> pomerium.extensions.ssh.ServerMessage
+	8,  // 78: pomerium.extensions.ssh.StreamManagement.ServeChannel:output_type -> pomerium.extensions.ssh.ChannelMessage
+	77, // [77:79] is the sub-list for method output_type
+	75, // [75:77] is the sub-list for method input_type
+	75, // [75:75] is the sub-list for extension type_name
+	75, // [75:75] is the sub-list for extension extendee
+	0,  // [0:75] is the sub-list for field type_name
 }
 
 func init() {

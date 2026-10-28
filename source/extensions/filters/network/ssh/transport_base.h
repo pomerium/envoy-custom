@@ -53,6 +53,7 @@ static constexpr uint32_t SeqnumRekeyLimit = (static_cast<uint32_t>(1) << 31);
 
 static constexpr auto DefaultHandshakeTimeout = 10s;
 static constexpr auto DefaultAuthTimeout = 20s;
+static constexpr auto DefaultRekeyInterval = 1h;
 
 template <typename Codec>
 class TransportBase : public Codec,
@@ -367,6 +368,7 @@ public:
     kex_timer_ = connectionDispatcher()->createTimer([this] {
       terminate(absl::DeadlineExceededError("key exchange timed out"));
     });
+    rekey_timer_ = nullptr;
     auto duration = initial_key_exchange_done_
                       ? getHandshakeTimeoutOrDefault()
                       : handshake_time_budget_;
@@ -404,6 +406,7 @@ public:
     pending_key_exchange_ = false;
 
     kex_timer_ = nullptr;
+    startRekeyTimerIfEnabled();
 
     if (initial_kex) {
       initial_key_exchange_done_ = true;
@@ -509,12 +512,20 @@ protected:
     return n;
   }
 
-  std::chrono::milliseconds getHandshakeTimeoutOrDefault() {
+  std::chrono::milliseconds getHandshakeTimeoutOrDefault() const {
     if (!config_->has_handshake_timeout()) {
       return DefaultHandshakeTimeout;
     }
     return std::chrono::milliseconds{
       DurationUtil::durationToMilliseconds(config_->handshake_timeout())};
+  }
+
+  std::chrono::milliseconds getRekeyIntervalOrDefault() const {
+    if (!config_->has_rekey_interval()) {
+      return DefaultRekeyInterval;
+    }
+    return std::chrono::milliseconds{
+      DurationUtil::durationToMilliseconds(config_->rekey_interval())};
   }
 
 private:
@@ -523,11 +534,24 @@ private:
 
   Envoy::Event::TimerPtr version_exchange_timer_;
   Envoy::Event::TimerPtr kex_timer_;
+  Envoy::Event::TimerPtr rekey_timer_;
   MonotonicTime handshake_start_time_;
   std::chrono::milliseconds handshake_time_budget_{};
 
   void enqueueMessage(wire::Message&& msg) {
     pending_messages_.emplace_front(std::move(msg));
+  }
+
+  void startRekeyTimerIfEnabled() {
+    rekey_timer_ = connectionDispatcher()->createTimer([this] {
+      ENVOY_LOG(debug, "ssh [{}]: rekey interval elapsed, initiating key re-exchange", codec_traits<Codec>::name);
+      if (auto stat = kex_->initiateKex(); !stat.ok()) {
+        terminate(stat);
+      }
+    });
+    auto interval = getRekeyIntervalOrDefault();
+    ENVOY_LOG(debug, "ssh [{}]: will rekey after {}", codec_traits<Codec>::name, interval);
+    rekey_timer_->enableTimer(interval);
   }
 };
 
