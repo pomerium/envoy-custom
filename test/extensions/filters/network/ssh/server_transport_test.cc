@@ -273,6 +273,35 @@ public:
     return {wire::Message{std::move(authReq)}, std::move(clientMsg)};
   }
 
+  std::pair<wire::Message, ClientMessage> BuildKeyboardInteractiveUserAuthMessages() {
+    wire::UserAuthRequestMsg authReq{
+      .username = "test@example"s,
+      .service_name = "ssh-connection"s,
+      .request = wire::KeyboardInteractiveUserAuthRequestMsg{},
+    };
+    AuthenticationRequest grpcAuthReq;
+    grpcAuthReq.set_protocol("ssh");
+    grpcAuthReq.set_service("ssh-connection");
+    grpcAuthReq.set_auth_method("keyboard-interactive");
+    grpcAuthReq.set_hostname("example");
+    grpcAuthReq.set_username("test");
+
+    KeyboardInteractiveMethodRequest method_req;
+    EXPECT_TRUE(grpcAuthReq.mutable_method_request()->PackFrom(method_req));
+
+    ClientMessage clientMsg;
+    *clientMsg.mutable_auth_request() = grpcAuthReq;
+    return {wire::Message{std::move(authReq)}, std::move(clientMsg)};
+  }
+
+  std::pair<wire::Message, ClientMessage> BuildKeyboardInteractiveInfoResponseMessages() {
+    ClientMessage clientMsg;
+    clientMsg.mutable_info_response()->set_method("keyboard-interactive");
+    KeyboardInteractiveInfoPromptResponses promptResp;
+    EXPECT_TRUE(clientMsg.mutable_info_response()->mutable_response()->PackFrom(promptResp));
+    return {wire::Message{wire::UserAuthInfoResponseMsg{}}, std::move(clientMsg)};
+  }
+
   void ExpectHandlePomeriumGrpcAuthRequestNormal(const ClientMessage& client_msg) {
     PublicKeyMethodRequest publicKeyMethodRequest;
     EXPECT_TRUE(client_msg.auth_request().method_request().UnpackTo(&publicKeyMethodRequest));
@@ -1895,7 +1924,7 @@ TEST_F(HandoffTest, HandoffMode_ConfigureChannelFilters) {
 
   auto msg = BuildHandOffChannelMessage(*clientKey);
   SSHChannelControlAction action;
-  msg.mutable_channel_control()->mutable_control_action()->UnpackTo(&action);
+  ASSERT_TRUE(msg.mutable_channel_control()->mutable_control_action()->UnpackTo(&action));
   auto* filter = action.mutable_hand_off()->mutable_upstream_auth()->mutable_upstream()->add_channel_filters();
   filter->set_name("test_channel_filter");
   Envoy::Protobuf::StringValue v;
@@ -1933,7 +1962,7 @@ TEST_F(HandoffTest, HandoffMode_ConfigureChannelFiltersError) {
 
   auto msg = BuildHandOffChannelMessage(*clientKey);
   SSHChannelControlAction action;
-  msg.mutable_channel_control()->mutable_control_action()->UnpackTo(&action);
+  ASSERT_TRUE(msg.mutable_channel_control()->mutable_control_action()->UnpackTo(&action));
   auto* filter = action.mutable_hand_off()->mutable_upstream_auth()->mutable_upstream()->add_channel_filters();
   filter->set_name("test_channel_filter");
   Envoy::Protobuf::Int64Value v;
@@ -2408,7 +2437,7 @@ public:
     // ignore default setup
   }
 
-  void initialize() {
+  virtual void initialize() {
     ASSERT(initialize_called_ == false);
     initialize_called_ = true;
     transport_.setCodecCallbacks(server_codec_callbacks_);
@@ -2523,7 +2552,7 @@ public:
     } else if (opts.expect_timeout == AuthTimeout) {
       expectedMsg = "user auth timed out";
     } else {
-      expectedMsg = "(note: call to onDecodingFailure is unexpected)";
+      expectedMsg = "(note: call to onDecodingFailure is unexpected, or EXPECT_CALL is missing WillOnce())";
     }
     ON_CALL(server_codec_callbacks_, onDecodingFailure)
       .WillByDefault([expectedMsg, timedOut](std::string_view msg) {
@@ -2749,9 +2778,7 @@ TEST_F(HandshakeTimeoutTest, TestAuthTimer) {
       EXPECT_CALL(*mocks.before_client_new_keys, Call);
     },
   });
-  if (HasFailure()) {
-    return;
-  }
+  ASSERT_FALSE(HasFailure());
   ASSERT_OK(ReadExtInfo());
 
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("user auth timed out"))
@@ -2778,17 +2805,13 @@ TEST_F(HandshakeTimeoutTest, TestKeyReExchangeBeforeAuthUsesAuthTimeout) {
       EXPECT_CALL(*mocks.before_client_new_keys, Call);
     },
   });
-  if (HasFailure()) {
-    return;
-  }
+  ASSERT_FALSE(HasFailure());
   ASSERT_OK(ReadExtInfo());
 
   auto authTimeout = DefaultAuthTimeout;
   auto numSeconds = std::chrono::seconds{authTimeout}.count();
   for (int i = 0; i < numSeconds - 1; i++) {
-    if (HasFailure()) {
-      return;
-    }
+    ASSERT_FALSE(HasFailure());
     KeyExchange({
       .client_initiates = true,
       .expect_timeout = NoTimeout,
@@ -2800,9 +2823,7 @@ TEST_F(HandshakeTimeoutTest, TestKeyReExchangeBeforeAuthUsesAuthTimeout) {
       },
     });
   }
-  if (HasFailure()) {
-    return;
-  }
+  ASSERT_FALSE(HasFailure());
   // there should be 1 second left in the auth timeout
   KeyExchange({
     .client_initiates = true,
@@ -2834,9 +2855,7 @@ TEST_F(HandshakeTimeoutTest, TestKeyReExchangeTimeout) {
         .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout - 1s)));
     },
   });
-  if (HasFailure()) {
-    return;
-  }
+  ASSERT_FALSE(HasFailure());
   ASSERT_OK(ReadExtInfo());
 
   KeyExchange({
@@ -2849,9 +2868,7 @@ TEST_F(HandshakeTimeoutTest, TestKeyReExchangeTimeout) {
       EXPECT_CALL(*mocks.before_client_new_keys, Call);
     },
   });
-  if (HasFailure()) {
-    return;
-  }
+  ASSERT_FALSE(HasFailure());
   KeyExchange({
     .client_initiates = true,
     .expect_timeout = KexTimeout,
@@ -2880,9 +2897,7 @@ TEST_F(HandshakeTimeoutTest, TestKeyReExchangeTimeout_BeforeKexAlgInit) {
       EXPECT_CALL(*mocks.before_client_new_keys, Call);
     },
   });
-  if (HasFailure()) {
-    return;
-  }
+  ASSERT_FALSE(HasFailure());
   ASSERT_OK(ReadExtInfo());
 
   KeyExchange({
@@ -2895,6 +2910,337 @@ TEST_F(HandshakeTimeoutTest, TestKeyReExchangeTimeout_BeforeKexAlgInit) {
     },
   });
 }
+
+// NOLINTBEGIN(readability-identifier-naming)
+class UserAuthTimeoutTest : public HandshakeTimeoutTest,
+                            public testing::WithParamInterface<bool> {
+public:
+  void initialize() override {
+    if (!auth_timeout_enabled_) {
+      server_config_->mutable_auth_timeout()->set_seconds(0);
+    }
+    HandshakeTimeoutTest::initialize();
+    Handshake({
+      .expect_timeout = false,
+      .setup = [](MockFunctions& mocks) {
+        EXPECT_CALL(*mocks.before_client_version_sent, Call);
+        EXPECT_CALL(*mocks.on_partial_client_version_sent, Call);
+        EXPECT_CALL(*mocks.before_client_kex_init, Call);
+        EXPECT_CALL(*mocks.before_client_kex_alg_init, Call);
+        EXPECT_CALL(*mocks.before_client_new_keys, Call);
+      },
+    });
+    ASSERT_FALSE(HasFailure());
+    ASSERT_OK(ReadExtInfo());
+
+    ON_CALL(server_codec_callbacks_, onDecodingFailure("user auth timed out"))
+      .WillByDefault(InvokeWithoutArgs([this] {
+        auth_timed_out_ = true;
+      }));
+  }
+
+  // Checks that the auth timeout can occur in the current state
+  AssertionResult AuthWillTimeOut() {
+    if (auth_timeout_enabled_) {
+      EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("user auth timed out"));
+      AdvanceTime(DefaultAuthTimeout + 1s);
+      return AssertionResult(auth_timed_out_ == true) << "expected user auth to time out, but it did not";
+    } else {
+      return AuthWillNotTimeOut() << " (note: running tests with auth timeout disabled)";
+    }
+  }
+
+  // Checks that the auth timeout can not occur in the current state
+  AssertionResult AuthWillNotTimeOut() {
+    AdvanceTime(DefaultAuthTimeout + 1s);
+    return AssertionResult(auth_timed_out_ == false) << "expected user auth not to time out, but it did";
+  }
+
+  struct AuthSequenceOpts {
+    absl::AnyInvocable<bool()> after_public_key_denied;
+    absl::AnyInvocable<bool()> after_public_key_accepted;
+    absl::AnyInvocable<bool()> after_info_request_sent;
+    absl::AnyInvocable<void()> after_sequence_complete;
+  };
+
+  void AuthSequence(AuthSequenceOpts opts) {
+    auto clientKey1 = *openssh::SSHKey::generate(KEY_ED25519, 256);
+    auto clientKey2 = *openssh::SSHKey::generate(KEY_ED25519, 256);
+    auto [authReq1, clientMsg1] = BuildUserAuthMessages(*clientKey1);
+    auto [authReq2, clientMsg2] = BuildUserAuthMessages(*clientKey2);
+    auto [kbdIntAuthReq, kbdIntClientMsg] = BuildKeyboardInteractiveUserAuthMessages();
+    auto [kbdIntInfoResp, kbdIntInfoRespClientMsg] = BuildKeyboardInteractiveInfoResponseMessages();
+    bool sentClientMsg1{};
+    bool sentClientMsg2{};
+    bool sentKbdIntClientMsg{};
+    bool sentKbdIntInfoRespClientMsg{};
+
+    {
+      IN_SEQUENCE;
+
+      EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(clientMsg1), false))
+        .WillOnce([&](Buffer::InstancePtr&, bool) {
+          sentClientMsg1 = true;
+        });
+
+      if (opts.after_public_key_accepted != nullptr) {
+
+        EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(clientMsg2), false))
+          .WillOnce([&](Buffer::InstancePtr&, bool) {
+            sentClientMsg2 = true;
+          });
+
+        if (opts.after_info_request_sent != nullptr) {
+
+          EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(kbdIntClientMsg), false))
+            .Times(AtMost(1))
+            .WillOnce([&](Buffer::InstancePtr&, bool) {
+              sentKbdIntClientMsg = true;
+            });
+
+          if (opts.after_sequence_complete != nullptr) {
+
+            EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(kbdIntInfoRespClientMsg), false))
+              .Times(AtMost(1))
+              .WillOnce([&](Buffer::InstancePtr&, bool) {
+                sentKbdIntInfoRespClientMsg = true;
+              });
+
+            ExpectDecodingSuccess();
+
+            ClientMessage upstreamConnectMsg{};
+            upstreamConnectMsg.mutable_event()->mutable_upstream_connected();
+            EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(upstreamConnectMsg), false))
+              .Times(AtMost(1));
+
+            // after the sequence is complete, advancing time will trigger channel stats events
+            ClientMessage channelStatsMsg;
+            channelStatsMsg.mutable_event()->mutable_channel_event()->mutable_channel_stats()->mutable_stats_list()->mutable_items();
+            EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(channelStatsMsg), false))
+              .Times(AnyNumber());
+          }
+        }
+      }
+    }
+
+    ASSERT_OK(RequestUserAuthService());
+
+    // client sends a public key
+    ASSERT_OK(WriteMsg(std::move(authReq1)));
+    ASSERT_TRUE(sentClientMsg1);
+
+    // while waiting for the server's reply, the auth timer should be paused
+    ASSERT_TRUE(AuthWillNotTimeOut());
+
+    {
+      // server replies to tell the client they must use a different key
+      auto response = std::make_unique<ServerMessage>();
+      auto* deny = response->mutable_auth_response()->mutable_deny();
+      deny->add_methods("publickey");
+      manage_stream_callbacks_->onReceiveMessage(std::move(response));
+    }
+
+    ASSERT_TRUE(opts.after_public_key_denied != nullptr);
+    if (!opts.after_public_key_denied()) {
+      return;
+    }
+
+    {
+      wire::UserAuthFailureMsg msg;
+      ASSERT_OK(ReadMsg(msg));
+      EXPECT_EQ(string_list{"publickey"}, *msg.methods);
+      EXPECT_FALSE(*msg.partial);
+    }
+
+    // client sends a new key
+    ASSERT_OK(WriteMsg(std::move(authReq2)));
+    ASSERT_TRUE(sentClientMsg2);
+
+    // while waiting for the server's reply, the auth timer should be paused
+    ASSERT_TRUE(AuthWillNotTimeOut());
+
+    {
+      // server replies to accept the public key and start a keyboard-interactive method
+      auto response = std::make_unique<ServerMessage>();
+      auto* deny = response->mutable_auth_response()->mutable_deny();
+      deny->set_partial(true);
+      deny->add_methods("keyboard-interactive");
+      manage_stream_callbacks_->onReceiveMessage(std::move(response));
+    }
+
+    ASSERT_TRUE(opts.after_public_key_accepted != nullptr);
+    if (!opts.after_public_key_accepted()) {
+      return;
+    }
+
+    {
+      wire::UserAuthFailureMsg msg;
+      ASSERT_OK(ReadMsg(msg));
+      EXPECT_EQ(string_list{"keyboard-interactive"}, *msg.methods);
+      EXPECT_TRUE(*msg.partial);
+    }
+
+    // client sends a keyboard-interactive request
+    ASSERT_OK(WriteMsg(std::move(kbdIntAuthReq)));
+    ASSERT_TRUE(sentKbdIntClientMsg);
+
+    // while waiting for the server's reply, the auth timer should be paused
+    ASSERT_TRUE(AuthWillNotTimeOut());
+
+    {
+      // server replies with the url prompt
+      auto response = std::make_unique<ServerMessage>();
+      auto* info = response->mutable_auth_response()->mutable_info_request();
+      info->set_method("keyboard-interactive");
+      pomerium::extensions::ssh::KeyboardInteractiveInfoPrompts prompts{};
+      prompts.set_name("foo");
+      prompts.set_instruction("bar");
+      ASSERT_TRUE(info->mutable_request()->PackFrom(prompts));
+      manage_stream_callbacks_->onReceiveMessage(std::move(response));
+    }
+
+    ASSERT_TRUE(opts.after_info_request_sent != nullptr);
+    if (!opts.after_info_request_sent()) {
+      return;
+    }
+
+    // client receives the info request
+    {
+      wire::UserAuthInfoRequestMsg req;
+      ASSERT_OK(ReadMsg(req));
+      ASSERT_EQ("foo"s, *req.name);
+      ASSERT_EQ("bar"s, *req.instruction);
+      ASSERT_TRUE(req.prompts->empty());
+    }
+
+    // client sends info response
+    ASSERT_OK(WriteMsg(std::move(kbdIntInfoResp)));
+    ASSERT_TRUE(sentKbdIntInfoRespClientMsg);
+
+    // while waiting for the server's reply, the auth timer should be paused
+    ASSERT_TRUE(AuthWillNotTimeOut());
+
+    // server replies with the allow response
+    {
+      auto response = std::make_unique<ServerMessage>();
+      auto* allow = response->mutable_auth_response()->mutable_allow();
+      allow->set_login_name("test");
+      auto* upstream = allow->mutable_upstream();
+      upstream->set_hostname("example");
+      util::populateAuthContext(*allow->mutable_auth_context(), *clientKey2);
+      manage_stream_callbacks_->onReceiveMessage(std::move(response));
+    }
+
+    // After receiving the allow response, the auth timer should be stopped
+    ASSERT_TRUE(AuthWillNotTimeOut());
+
+    ASSERT_TRUE(opts.after_sequence_complete != nullptr);
+    opts.after_sequence_complete();
+  }
+
+  bool auth_timed_out_{false};
+  const bool auth_timeout_enabled_ = GetParam();
+};
+// NOLINTEND(readability-identifier-naming)
+
+TEST_P(UserAuthTimeoutTest, TestAuthTimeoutAfterKex) {
+  initialize();
+  ASSERT_TRUE(AuthWillTimeOut());
+}
+
+TEST_P(UserAuthTimeoutTest, TestAuthTimeoutAfterUserAuthServiceRequest) {
+  initialize();
+  ASSERT_OK(RequestUserAuthService());
+  ASSERT_TRUE(AuthWillTimeOut());
+}
+
+TEST_P(UserAuthTimeoutTest, TestAuthTimeoutAfterPublicKeyDenied) {
+  initialize();
+
+  AuthSequence({
+    .after_public_key_denied = [this] {
+      EXPECT_TRUE(AuthWillTimeOut());
+      return false;
+    },
+  });
+}
+
+TEST_P(UserAuthTimeoutTest, TestAuthTimeoutAfterPublicKeyAccepted) {
+  initialize();
+
+  AuthSequence({
+    .after_public_key_denied = [] { return true; },
+    .after_public_key_accepted = [this] {
+      EXPECT_TRUE(AuthWillTimeOut());
+      return false; //
+    },
+  });
+}
+
+TEST_P(UserAuthTimeoutTest, TestAuthTimeoutAfterInfoRequestSent) {
+  initialize();
+
+  AuthSequence({
+    .after_public_key_denied = [] { return true; },
+    .after_public_key_accepted = [] { return true; },
+    .after_info_request_sent = [this] {
+      EXPECT_TRUE(AuthWillTimeOut());
+      return false; //
+    },
+  });
+}
+
+TEST_P(UserAuthTimeoutTest, TestNoAuthTimeoutAfterAuthSequenceComplete) {
+  initialize();
+
+  AuthSequence({
+    .after_public_key_denied = [] { return true; },
+    .after_public_key_accepted = [] { return true; },
+    .after_info_request_sent = [] { return true; },
+    .after_sequence_complete = [] {},
+  });
+
+  EXPECT_TRUE(AuthWillNotTimeOut());
+}
+
+TEST_P(UserAuthTimeoutTest, TestServerSendsInvalidAllowResponse) {
+  initialize();
+
+  // Tests the sanity check that the server will never send an allow response while waiting on
+  // the client
+
+#if defined(NDEBUG) || defined(ENVOY_CONFIG_COVERAGE)
+  // if the ENVOY_BUG doesn't abort, then onDecodingFailure will be called instead
+  EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("management server error: invalid auth response"))
+    .WillOnce(Return());
+#endif
+
+  EXPECT_ENVOY_BUG(
+    AuthSequence({
+      .after_public_key_denied = [this] -> bool {
+        auto response = std::make_unique<ServerMessage>();
+        auto* allow = response->mutable_auth_response()->mutable_allow();
+        allow->set_login_name("test");
+        auto* upstream = allow->mutable_upstream();
+        upstream->set_hostname("example");
+        manage_stream_callbacks_->onReceiveMessage(std::move(response));
+
+#if defined(NDEBUG) || defined(ENVOY_CONFIG_COVERAGE)
+        // if the error is non-fatal then it will close the management server connection, eventually
+        // calling terminate(), but the event loop has to run for that to be processed.
+        dispatcher_->run(Envoy::Event::Dispatcher::RunType::Block);
+        return false;
+#else
+        std::unreachable();
+#endif
+      },
+    }),
+    "unexpected AllowResponse received from the management server");
+}
+
+INSTANTIATE_TEST_SUITE_P(UserAuthTimeout, UserAuthTimeoutTest,
+                         testing::Values(true, false),
+                         TestParameterNames({"TimeoutEnabled", "TimeoutDisabled"}));
 
 } // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

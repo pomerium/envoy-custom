@@ -40,51 +40,18 @@ public:
   void registerMessageHandlers(StreamMgmtServerMessageDispatcher& dispatcher) override;
   absl::Status handleMessage(Grpc::ResponsePtr<ServerMessage>&& message) override;
 
-  void startAuthTimer(std::chrono::milliseconds duration) {
-    ASSERT(auth_timer_ == nullptr && auth_time_budget_ == 0ms);
-    auth_time_budget_ = duration;
-    auth_timer_ = transport_.connectionDispatcher()->createTimer([this] {
-      onAuthTimeout();
-    });
-    resumeAuthTimer();
-  }
+  void startAuthTimer(std::chrono::milliseconds duration);
 
 private:
-  void onAuthTimeout() {
-    auth_timed_out_ = true;
-    transport_.terminate(absl::DeadlineExceededError("user auth timed out"));
-  }
-  void pauseAuthTimer() {
-    if (auth_timed_out_) {
-      return;
-    }
-    if (auth_timer_ != nullptr && auth_timer_->enabled()) {
-      auth_timer_->disableTimer();
-      auto now = transport_.connectionDispatcher()->approximateMonotonicTime();
-      auth_time_budget_ = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::max(0ns, (now - auth_timer_start_)));
-      ENVOY_LOG(trace, "auth timer paused (time remaining: {})", auth_time_budget_);
-    }
-  }
-  void resumeAuthTimer() {
-    if (auth_timed_out_) {
-      return;
-    }
-    if (auth_timer_ != nullptr && !auth_timer_->enabled()) {
-      ENVOY_LOG(trace, "auth timer {} (time remaining: {})",
-                (auth_timer_start_.time_since_epoch() == 0ns ? "started" : "resumed"),
-                auth_time_budget_);
-      auth_timer_start_ = transport_.connectionDispatcher()->approximateMonotonicTime();
-      auth_timer_->enableTimer(auth_time_budget_);
-    }
-  }
+  void onAuthTimeout();
+  void setIsWaitingForManagementServer(bool is_pending);
 
   DownstreamTransportCallbacks& transport_;
   std::optional<std::string> pending_service_auth_;
   int auth_request_count_{};
   int auth_failure_count_{};
   bool none_auth_handled_{};
-  bool auth_timed_out_{};
+  bool waiting_for_management_server_{};
 
   std::chrono::milliseconds auth_time_budget_{};
   MonotonicTime auth_timer_start_;
