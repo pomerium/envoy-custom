@@ -138,6 +138,8 @@ GenericProxy::EncodingResult SshClientTransport::encode(const GenericProxy::Stre
       installMiddleware(mw.get());
       handoff_middleware_ = std::move(mw); // TODO: move storage/cleanup logic into the message dispatcher
     }
+
+    startHandshakeTimer();
     return version_exchanger_->writeVersion(auth_info_->server_version);
   }
   case FrameTags::RequestCommon: {

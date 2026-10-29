@@ -31,10 +31,11 @@ template <typename T>
 class MockBaseTransport : public TransportBase<T> {
 public:
   MockBaseTransport(Server::Configuration::ServerFactoryContext& context,
+                    Envoy::Event::Dispatcher* dispatcher,
                     std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
                     const SecretsProvider& secrets_provider)
       : TransportBase<T>(context, config, secrets_provider),
-        dispatcher_(context.api().allocateDispatcher(std::string(codec_traits<T>::name))),
+        dispatcher_(dispatcher),
         channel_filter_manager_({}, context) {
     SetVersion(fmt::format("SSH-2.0-{}", codec_traits<T>::name));
   }
@@ -224,7 +225,10 @@ public:
 private:
   std::latch started_{1};
   std::atomic_bool closed_{false};
-  ::Envoy::Event::DispatcherPtr dispatcher_;
+  // Note: the dispatcher is owned by the test class. It must live longer than the transport, as
+  // is the case in the real system. The transport base may interact with the dispatcher during
+  // destruction (e.g. to clear timers it owns).
+  Envoy::Event::Dispatcher* dispatcher_;
   ChannelIDManager channel_id_manager_;
   ChannelFilterManager channel_filter_manager_;
 };
@@ -274,12 +278,14 @@ public:
           ON_CALL(context_, api()).WillByDefault(ReturnRef(*api.get()));
           return api;
         }()),
+        server_dispatcher_(api_->allocateDispatcher("server")),
+        client_dispatcher_(api_->allocateDispatcher("client")),
         server_config_(newServerConfig()),
         client_config_(newClientConfig()),
         server_secrets_provider_(*server_config_),
         client_secrets_provider_(*client_config_),
-        server_transport_(context_, server_config_, server_secrets_provider_),
-        client_transport_(context_, client_config_, client_secrets_provider_) {}
+        server_transport_(context_, server_dispatcher_.get(), server_config_, server_secrets_provider_),
+        client_transport_(context_, client_dispatcher_.get(), client_config_, client_secrets_provider_) {}
 
   auto newServerConfig() {
     auto conf = std::make_shared<pomerium::extensions::ssh::CodecConfig>();
@@ -328,10 +334,10 @@ public:
     client_transport_.setCodecCallbacks(client_codec_callbacks_);
   }
 
-  void Start() {
-    auto timeout = defaultTimeout();
-    server_thread_ = server_transport_.StartThread(timeout);
-    client_thread_ = client_transport_.StartThread(timeout);
+  void Start(std::optional<absl::Duration> timeout = std::nullopt) {
+    auto dt = defaultTimeout();
+    server_thread_ = server_transport_.StartThread(timeout.value_or(dt));
+    client_thread_ = client_transport_.StartThread(timeout.value_or(dt));
   }
 
   void Join() {
@@ -389,6 +395,11 @@ public:
   }
 
   void InitiateVersionExchange() {
+    Server().Post([](auto& self) {
+      // This normally happens when the client connects, which is shortly before the client version
+      // is received
+      self.TransportBase::startHandshakeTimer();
+    });
     // The constraint that the client initiates the handshake doesn't apply at this abstraction level
     Client().Post([](auto& t) {
       t.InitiateVersionExchange();
@@ -447,14 +458,16 @@ protected:
   Api::ApiPtr api_;
   Thread::ThreadPtr server_thread_;
   Thread::ThreadPtr client_thread_;
+  Envoy::Event::DispatcherPtr server_dispatcher_;
+  Envoy::Event::DispatcherPtr client_dispatcher_;
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> server_config_;
   std::shared_ptr<pomerium::extensions::ssh::CodecConfig> client_config_;
   TestSecretsProvider server_secrets_provider_;
   TestSecretsProvider client_secrets_provider_;
-  testing::NiceMock<MockBaseTransport<ServerCodec>> server_transport_;
-  testing::NiceMock<MockBaseTransport<ClientCodec>> client_transport_;
   testing::StrictMock<MockServerCodecCallbacks> server_codec_callbacks_;
   testing::StrictMock<MockClientCodecCallbacks> client_codec_callbacks_;
+  testing::NiceMock<MockBaseTransport<ServerCodec>> server_transport_;
+  testing::NiceMock<MockBaseTransport<ClientCodec>> client_transport_;
   openssh::SSHKeyPtr client_auth_key_ = *openssh::SSHKey::generate(KEY_ED25519, 256);
 };
 // NOLINTEND(readability-identifier-naming)
@@ -567,6 +580,60 @@ TYPED_TEST_P(TransportBaseTest, TestVersionExchangeIncomplete) {
 
   this->Start();
   this->InitiateVersionExchange();
+  this->Join();
+}
+
+TYPED_TEST_P(TransportBaseTest, TestVersionExchangeTimeout) {
+  this->ServerConfig().mutable_handshake_timeout()->set_seconds(1);
+
+  EXPECT_CALL(this->ClientCallbacks(), writeToConnection)
+    .WillOnce(Invoke([&](Envoy::Buffer::Instance& input) {
+      // send a half finished version exchange but don't complete it
+      Buffer::OwnedImpl buffer1; // "SSH-2.0-"
+      buffer1.add(input.linearize(input.length()), input.length() / 2);
+      this->Server().Post([buffer = std::move(buffer1)](auto& self) mutable {
+        self.decode(buffer, false);
+      });
+    }));
+
+  EXPECT_CALL(this->ServerCallbacks(), onDecodingFailure("version exchange timed out"sv))
+    .WillOnce([this](std::string_view) {
+      this->Client().Exit();
+      this->Server().Exit();
+    });
+
+  this->Client().SetVersion("SSH-2.0-aaaaaa");
+
+  this->Start(absl::Seconds(2));
+  this->InitiateVersionExchange();
+
+  this->Join();
+}
+
+TYPED_TEST_P(TransportBaseTest, TestKeyExchangeTimeout) {
+  this->ServerConfig().mutable_handshake_timeout()->set_seconds(1);
+  EXPECT_CALL(this->Server(), onKexStarted(true));
+
+  EXPECT_CALL(this->Client(), onKexStarted(true))
+    .WillOnce(Invoke([this](bool initial) {
+      // After the client starts the key exchange, it will not send anything else until the timeout.
+      ON_CALL(this->ClientCallbacks(), writeToConnection)
+        .WillByDefault(Invoke([](Envoy::Buffer::Instance& input) {
+          // do nothing
+          input.drain(input.length());
+        }));
+      return this->Client().TransportBase::onKexStarted(initial);
+    }));
+
+  EXPECT_CALL(this->ServerCallbacks(), onDecodingFailure("key exchange timed out"sv))
+    .WillOnce([this](std::string_view) {
+      this->Client().Exit();
+      this->Server().Exit();
+    });
+
+  this->Start(absl::Seconds(2));
+  this->InitiateVersionExchange();
+
   this->Join();
 }
 
@@ -1604,6 +1671,8 @@ REGISTER_TYPED_TEST_SUITE_P(TransportBaseTest,
                             TestHandshakeWithExtInfo,
                             TestVersionExchangeInvalidVersion,
                             TestVersionExchangeIncomplete,
+                            TestVersionExchangeTimeout,
+                            TestKeyExchangeTimeout,
                             TestKexInitFailureAfterVersionExchange,
                             TestDecryptPacketFailure,
                             TestReadIncompletePacket,

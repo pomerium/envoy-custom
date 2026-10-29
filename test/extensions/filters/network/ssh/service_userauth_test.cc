@@ -572,6 +572,11 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowInternal) {
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowUnsupportedTarget) {
+  TestSshMessageDispatcher d;
+  service_->registerMessageHandlers(d);
+
+  SendValidPubKeyRequest();
+
   auto msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
   msg->mutable_auth_response()->mutable_allow();
   EXPECT_CALL(*transport_, streamId())
@@ -580,6 +585,16 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowUnsupportedTarget)
     .WillOnce(Return(wire::ExtInfoMsg{}));
   auto r = service_->handleMessage(std::move(msg));
   ASSERT_EQ(absl::InternalError("invalid target"), r);
+}
+
+TEST_F(DownstreamUserAuthServiceTest, HandleUnexpectedServerAllowResponse) {
+  EXPECT_ENVOY_BUG(
+    {
+      auto msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
+      msg->mutable_auth_response()->mutable_allow();
+      auto r = service_->handleMessage(std::move(msg));
+    },
+    "unexpected AllowResponse received from the management server");
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerDeny) {

@@ -40,12 +40,22 @@ public:
   void registerMessageHandlers(StreamMgmtServerMessageDispatcher& dispatcher) override;
   absl::Status handleMessage(Grpc::ResponsePtr<ServerMessage>&& message) override;
 
+  void startAuthTimer(std::chrono::milliseconds duration);
+
 private:
+  void onAuthTimeout();
+  void setIsWaitingForManagementServer(bool is_pending);
+
   DownstreamTransportCallbacks& transport_;
   std::optional<std::string> pending_service_auth_;
   int auth_request_count_{};
   int auth_failure_count_{};
   bool none_auth_handled_{};
+  bool waiting_for_management_server_{};
+
+  std::chrono::milliseconds auth_time_budget_{};
+  MonotonicTime auth_timer_start_;
+  Envoy::Event::TimerPtr auth_timer_;
 };
 
 // (algorithm, key type, key size in bits)

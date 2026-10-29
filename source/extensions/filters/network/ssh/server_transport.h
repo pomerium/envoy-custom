@@ -95,6 +95,8 @@ private:
   std::map<std::string, Service*> services_;
   std::unique_ptr<DownstreamUserAuthService> user_auth_service_;
   std::unique_ptr<DownstreamConnectionService> connection_service_;
+
+  Envoy::Event::TimerPtr version_exchange_timer_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
