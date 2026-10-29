@@ -3,7 +3,7 @@ package(default_visibility = ["//visibility:public"])
 # Note: these platforms are for cross-compiling only. The envoy-build container image is only
 # available for linux/amd64.
 
-container_image = "ghcr.io/pomerium/envoy-build:22.1.1-1@sha256:e58ed6feffccad36bd064efdb845eee9d7c7c73bf7b413a4089a9273d9db6b03"
+container_image = "ghcr.io/pomerium/envoy-build:23.1.4-1@sha256:a9e6045a7322eb7be33575dfe6c343b61708e2d05486e2c98857f60dbb4f43e3"
 
 platform(
     name = "linux_x64",
