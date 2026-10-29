@@ -1,39 +1,38 @@
-load("@envoy_repo//:compiler.bzl", "LLVM_PATH")
 load("@toolchains_llvm//toolchain:rules.bzl", "llvm_toolchain")
 
-LLVM_VERSION = "22.1.4"
+LLVM_VERSION = "23.1.4"
 LLVM_MAJOR_VERSION = LLVM_VERSION.split(".")[0]
 
 TOOLCHAIN_INFO = {
     "llvm_version": LLVM_VERSION,
     "llvm_major_version": LLVM_MAJOR_VERSION,
     "repository": "https://github.com/pomerium/toolchain-utils",
-    "release_revision": "0",
+    "release_revision": "1",
 }
 
 TOOLCHAIN_INTEGRITY = struct(
     cxx_cross_libs = {
-        "linux-aarch64": "1266df9af6ed4feb75d02abf05279f3c140cde9ff377f50ab5cecbc3b04e4006",
-        "darwin-aarch64": "e11482ca4b7d5a782152cd86a4c881a2c836d541568c997f81dab0ad81f90417",
+        "linux-aarch64": "11df0b48da5aad0f56d7fa45f13c5271b1580c5b6606d957059775634ebb9a27",
+        "darwin-aarch64": "f7904d1925453e5a3258db460b6026697987d850deeb207148b9e96f53108d33",
     },
     toolchain = {
-        "linux-x86_64": "758d0302e51c93e2882d45dfc10c2d4b9731ce5a03f8d565d03cca6ad33060db",
-        "linux-aarch64": "9b4de299282bdbe1faefd0d7e7daebee6d8bfded365c28942c7aced752876035",
-        "darwin-aarch64": "f37d164e6d792ba49cf616fd9bb2b1bf2ca9a11b300b752cc4a43a37c7f0cf58",
+        "linux-x86_64": "fcb5c1da85ed5cd7f4a97f20aa76f850dccca9da5ef7d1259de0c98547975008",
+        "linux-aarch64": "0004834464a39816442af59bfadffb85282f33da256e7300d742a53b8da42080",
+        "darwin-aarch64": "689dc95f3195752f95dc14414a6554c0a6a406f1e2c70097abfd85480e2daeba",
     },
     extras = {
-        "linux-x86_64": "f2c7d1d00e1e2dd128bbd943152dab331d60a5dfd066eeaa59d9b87958e6492f",
-        "linux-aarch64": "13e1622bafc902508e56b7ac2252b61046e27f04a378cf43aa63bbd42351950e",
+        "linux-x86_64": "cedee7d604081a0916ddcafaf1d7da3e0abce2bd66e1f85cb0e4e77bc444be93",
+        "linux-aarch64": "681a7b796a4635e8a1cc3c03dcedf6c8a8cbeb2567cee6b205e7d1264960b391",
     },
     macos_utils = {
-        "linux-x86_64": "c9e32a2308ac1f0f00772c7f4f54217ae22da10a42daa2a46c239420ceb6c4ea",
-        "linux-aarch64": "6820317c1bb5a1d6f881ecde69c4857597146f1276dee9c266a889af0e151427",
-        "darwin-aarch64": "9e315b52d3b8c74baee7bd957ccabae50793e74514e9fd920f98ada46fc21908",
+        "linux-x86_64": "4ed2bd512ed47384f1687324d1d56f38de63437171bd64c790b0a04306cb0e37",
+        "linux-aarch64": "c5849656682bc063a04af4620d511d998ced0928e8501932d2dcbcc15ec9f3ce",
+        "darwin-aarch64": "7c95d85b4088078c7e04cf33d23afe8d1fac885b38eeba8cd2dd9f600f3045ce",
     },
     sysroot = {
-        "linux-x86_64": "60d503a72a3728a0e3fee8c8bda0f9dab23251f0225c7f0c6aafd8993d4122cb",
-        "linux-aarch64": "b9b7e53597c6b7b3289960ad16d6dd01763b9d6ab6122e7c74b72c6823a355b3",
-        "darwin-aarch64": "66d832c60d90af0248abff0c6c4ea95a52795ce367608f199e24262676ee6b93",
+        "linux-x86_64": "27497271a3bebf1e4b75c5852ec54229c90442f4d3fcd012319df43aa26d7a0b",
+        "linux-aarch64": "0b451d1dfa7fdba02033ce008b4cb2da2bbecfb0314e67a0d61add7b62f25447",
+        "darwin-aarch64": "6becf9c7dfd155d18352ee3fb5f527c6246be90929b3fb7d29af71bc9e1227ee",
     },
 )
 
@@ -62,6 +61,13 @@ def pomerium_envoy_toolchains():
             "linux-aarch64": ["-rtlib=compiler-rt", "-l:libunwind.a"],
             "darwin-aarch64": ["-rtlib=compiler-rt"],
         },
+        extra_cxx_flags = {
+            # The current versions of abseil and tcmalloc use deprecated builtin attributes.
+            # These flags can be removed when tcmalloc is updated to use abseil >= 20260817.0
+            "linux-x86_64": ["-Wno-deprecated-attributes", "-Wno-deprecated-builtins", "-Wno-attribute-alias"],
+            "linux-aarch64": ["-Wno-deprecated-attributes", "-Wno-deprecated-builtins", "-Wno-attribute-alias"],
+            "darwin-aarch64": ["-Wno-deprecated-attributes", "-Wno-deprecated-builtins", "-Wno-attribute-alias"],
+        },
         urls = {
             "linux-x86_64": ["{repository}/releases/download/{llvm_version}-{release_revision}/llvm-{llvm_version}-minimal-linux-amd64.tar.zst".format(**TOOLCHAIN_INFO)],
             "linux-aarch64": ["{repository}/releases/download/{llvm_version}-{release_revision}/llvm-{llvm_version}-minimal-linux-arm64.tar.zst".format(**TOOLCHAIN_INFO)],
@@ -73,5 +79,4 @@ def pomerium_envoy_toolchains():
             "darwin-aarch64": "llvm-{llvm_version}-minimal-macos-arm64".format(**TOOLCHAIN_INFO),
         },
         sha256 = TOOLCHAIN_INTEGRITY.toolchain,
-        toolchain_roots = {"": LLVM_PATH} if LLVM_PATH else {},  # for RBE container image
     )

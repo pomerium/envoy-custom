@@ -1030,9 +1030,9 @@ each supported platform. This is an important part of the hermetic build, since 
 libraries or headers are used. The sysroots are built (somewhat inefficiently) using docker, also as
 part of a toolchain-utils CI workflow.
 
-The Linux sysroot contains only glibc (and its dependencies) and libxml2. It is not a container
-image, but only a collection of libraries and header files in a standard filesystem layout. The
-dockerfile used to build the Linux sysroot is here:
+The Linux sysroot contains only glibc and its dependencies. It is not a container image, but only
+a collection of libraries and header files in a standard filesystem layout. The dockerfile used to
+build the Linux sysroot is here:
 https://github.com/pomerium/toolchain-utils/blob/main/sysroot.dockerfile
 
 The macOS sysroot is different; it is extracted from an official macOS sdk archive. The manifest for

@@ -45,13 +45,14 @@ index 0000000000..ce1a1b5010
 +     # ssl_headers depend on :crypto's exported headers.
 +     deps = [":crypto"],
 diff --git a/bazel/repositories.bzl b/bazel/repositories.bzl
-index 7df0b1c741..4008ca2325 100644
+index a5ba6b273d3ed..4d0ed16d58736 100644
 --- a/bazel/repositories.bzl
 +++ b/bazel/repositories.bzl
-@@ -277,6 +277,7 @@ def _boringssl():
+@@ -277,7 +277,8 @@ def _boringssl():
          name = "boringssl",
          patches = [
              "@envoy//bazel:boringssl-bssl-compat.patch",
+             "@envoy//bazel:boringssl-CVE-2026-35189.patch",
 +            "@envoy//bazel:boringssl_static.patch",
          ],
          patch_args = ["-p1"],
