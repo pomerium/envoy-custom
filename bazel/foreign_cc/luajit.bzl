@@ -73,7 +73,7 @@ def _get_host_platform():
 
     if "@platforms//cpu:x86_64" in HOST_CONSTRAINTS:
         host_arch = "x64"
-    elif "@platforms//cpu:arm64" in HOST_CONSTRAINTS:
+    elif "@platforms//cpu:aarch64" in HOST_CONSTRAINTS:
         host_arch = "arm64"
     else:
         fail("unknown host platform: %s" % HOST_CONSTRAINTS)

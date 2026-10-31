@@ -112,7 +112,8 @@ def cc_dynamic_extension(
         internal_api_deps = [],
         host_deps = [],
         testonly = 0,
-        visibility = ["//visibility:public"]):
+        visibility = ["//visibility:public"],
+        target_compatible_with = ["@platforms//os:linux"]):
     _name = "_" + name
     _filter_static_libs(
         name = _name + "_proto_generated_libs",
@@ -134,6 +135,7 @@ def cc_dynamic_extension(
             "-fPIC",
         ],
         testonly = testonly,
+        target_compatible_with = target_compatible_with,
         features = ["prefer_pic_for_opt_binaries"],
         linkstatic = True,
         deps = host_deps + builtin_host_deps + header_only_deps + [
@@ -149,6 +151,7 @@ def cc_dynamic_extension(
             "-fPIC",
         ],
         testonly = testonly,
+        target_compatible_with = target_compatible_with,
         deps = [
             "@pomerium_envoy//source/common/dynamic_extensions:version_ref_lib",
 
@@ -171,4 +174,5 @@ def cc_dynamic_extension(
         name = name,
         target = _name,
         testonly = testonly,
+        target_compatible_with = target_compatible_with,
     )
