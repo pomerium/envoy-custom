@@ -47,6 +47,7 @@ jobs:
           set -o pipefail
           echo "::group::Bazel build (${{ matrix.arch }})"
           bazel build --config=buildbarn -c opt --platforms=//bazel/platforms/rbe:${{ matrix.arch }} \
+            --//:license_name="LicenseRef-Pomerium-Community-Edition-1.0" \
             //:envoy
           echo "::endgroup::"
 
@@ -56,11 +57,15 @@ jobs:
           set -o pipefail
           echo "::group::Push ${{ matrix.arch }} images and update index"
           bazel run --config=buildbarn -c opt --platforms=//bazel/platforms/rbe:${{ matrix.arch }} \
+            --//:license_name="LicenseRef-Pomerium-Community-Edition-1.0" \
             //:update_index.envoy.image
           bazel run --config=buildbarn -c opt --platforms=//bazel/platforms/rbe:${{ matrix.arch }} \
+            --//:license_name="LicenseRef-Pomerium-Community-Edition-1.0" \
             //:update_index.envoy.stripped.image
           bazel run --config=buildbarn -c opt --platforms=//bazel/platforms/rbe:${{ matrix.arch }} \
+            --//:license_name="LicenseRef-Pomerium-Community-Edition-1.0" \
             //:update_index.envoy.static.image
           bazel run --config=buildbarn -c opt --platforms=//bazel/platforms/rbe:${{ matrix.arch }} \
+            --//:license_name="LicenseRef-Pomerium-Community-Edition-1.0" \
             //:update_index.envoy.static.stripped.image
           echo "::endgroup::"
