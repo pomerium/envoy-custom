@@ -1,4 +1,5 @@
 load("@aspect_bazel_lib//lib:jq.bzl", "jq")
+load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
 load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load")
 load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
 load("//bazel/ci/images:update_index.bzl", "oci_update_index")
@@ -21,11 +22,40 @@ default_annotation_exprs = [
     r'"org.opencontainers.image.licenses={license}"',
 ]
 
+def _license_input_impl(ctx):
+    dst = ctx.actions.declare_file("license_input.txt")
+    if ctx.attr.license_from:
+        license_name_value = ctx.attr.license_from[BuildSettingInfo].value
+        ctx.actions.write(
+            output = dst,
+            content = license_name_value,
+        )
+    elif ctx.attr.license_str:
+        ctx.actions.write(
+            output = dst,
+            content = ctx.attr.license_str,
+        )
+    else:
+        fail("either license_from or license_str is required")
+
+    return [DefaultInfo(
+        files = depset(direct = [dst]),
+    )]
+
+_license_input = rule(
+    implementation = _license_input_impl,
+    attrs = {
+        "license_from": attr.label(),
+        "license_str": attr.string(),
+    },
+)
+
 def image(
         name,
         srcs,
         repository = "ghcr.io/pomerium/envoy-custom",
-        license = "Apache-2.0",
+        license = None,
+        license_from = None,
         description = default_description,
         tag_exprs = default_tag_exprs,
         annotation_exprs = default_annotation_exprs):
@@ -35,6 +65,7 @@ def image(
     _remote_tags_name = "_" + name + "_remote_tags"
     _img_labels_name = "_" + name + "_img_labels"
     _img_annotations_name = "_" + name + "_img_annotations"
+    _license_input_name = "_" + name + "_license_input"
     pkg_tar(
         name = _tar_name,
         srcs = srcs,
@@ -42,6 +73,12 @@ def image(
         compressor_args = "-T0 -10",
         extension = "tar.zst",
         preserve_mtime = True,
+    )
+
+    _license_input(
+        name = _license_input_name,
+        license_str = license,
+        license_from = license_from,
     )
 
     jq(
@@ -77,11 +114,13 @@ def image(
     jq(
         name = _img_annotations_name,
         srcs = ["@pomerium_envoy//bazel/build_info:combined_status"],
+        data = [_license_input_name],
         out = "image_annotations_%s.txt" % name,
-        args = ["-r"],
+        args = ["-r", "--rawfile", "license_name", "$(location %s)" % _license_input_name],
+        expand_args = True,
         filter = "[%s]" % ",".join([expr.format(
             description = description,
-            license = license,
+            license = r"\($license_name)",
         ) for expr in annotation_exprs]) + r"| .[]",
     )
 
