@@ -8,7 +8,7 @@ http_archive(
     name = "hedron_compile_commands",
     sha256 = "e875b18876190b172ab59eaf193c2eec16fff8c46306c5eb0577ef7d1f8a65f7",
     strip_prefix = "bazel-compile-commands-extractor-9f69112e3f61b9df76a8275085dabad36ef37c96",
-    url = "https://github.com/kralicky/bazel-compile-commands-extractor/archive/9f69112e3f61b9df76a8275085dabad36ef37c96.tar.gz",
+    url = "https://github.com/kralicky/bazel-compile-commands-extractor/archive/9f69112e3f61b9df76a8275085dabad36ef37c96.tar.gz",  # kralicky fork of hedronvision main, 2 commits ahead, 2026-02-06
 )
 
 load("@hedron_compile_commands//:workspace_setup.bzl", "hedron_compile_commands_setup")
