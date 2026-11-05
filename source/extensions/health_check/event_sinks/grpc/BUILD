@@ -5,8 +5,6 @@ load(
 
 package(default_visibility = ["//visibility:public"])
 
-licenses(["notice"])
-
 envoy_cc_library(
     name = "grpc_event_sink",
     srcs = [
@@ -15,7 +13,6 @@ envoy_cc_library(
     hdrs = [
         "event_sink.h",
     ],
-    repository = "@envoy",
     deps = [
         "//api/extensions/health_check/event_sinks/grpc:pkg_cc_proto",
         "@envoy//envoy/registry",

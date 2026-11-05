@@ -21,6 +21,10 @@ bool VariableNameSpan::sampled() const {
   return span_->sampled();
 }
 
+bool VariableNameSpan::exportedSpan() const {
+  return span_->exportedSpan();
+}
+
 void VariableNameSpan::setOperation(absl::string_view operation_name) {
   span_->setOperation(absl::StrReplaceAll(operation_name, substitutions_));
 }

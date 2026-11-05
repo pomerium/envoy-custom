@@ -1,9 +1,7 @@
 #include "source/extensions/filters/network/ssh/socks5.h"
 
-#pragma clang unsafe_buffer_usage begin
 #include "source/common/network/utility.h"
 #include "source/common/network/address_impl.h"
-#pragma clang unsafe_buffer_usage end
 
 #include "source/common/status.h"
 #include "source/common/types.h"

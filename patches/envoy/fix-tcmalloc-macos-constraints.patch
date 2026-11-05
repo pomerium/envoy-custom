@@ -1,11 +1,11 @@
 diff --git a/bazel/BUILD b/bazel/BUILD
-index 7401829145..deb52611ce 100644
+index bc0f23a1ec..c7f03ad463 100644
 --- a/bazel/BUILD
 +++ b/bazel/BUILD
-@@ -227,6 +227,14 @@ config_setting(
+@@ -362,6 +362,14 @@ config_setting(
      values = {"define": "tcmalloc=gperftools"},
  )
-
+ 
 +selects.config_setting_group(
 +    name = "tcmalloc_disabled",
 +    match_any = [
@@ -17,63 +17,16 @@ index 7401829145..deb52611ce 100644
  bool_flag(
      name = "jemalloc",
      build_setting_default = False,
-@@ -668,17 +676,25 @@ config_setting(
- # easier. More details: https://docs.bazel.build/versions/master/configurable-attributes.html#config_settingaliasing
- config_setting(
-     name = "darwin",
--    values = {"cpu": "darwin"},
-+    constraint_values = [
-+        "@platforms//os:osx",
-+    ],
- )
-
- config_setting(
-     name = "darwin_x86_64",
--    values = {"cpu": "darwin_x86_64"},
-+    constraint_values = [
-+        "@platforms//os:osx",
-+        "@platforms//cpu:x86_64",
-+    ],
- )
-
- config_setting(
-     name = "darwin_arm64",
--    values = {"cpu": "darwin_arm64"},
-+    constraint_values = [
-+        "@platforms//os:osx",
-+        "@platforms//cpu:aarch64",
-+    ],
- )
-
- config_setting(
 diff --git a/bazel/envoy_internal.bzl b/bazel/envoy_internal.bzl
-index 3de0fc66e0..22da417d03 100644
+index d13bb745da..f966ecb667 100644
 --- a/bazel/envoy_internal.bzl
 +++ b/bazel/envoy_internal.bzl
-@@ -89,15 +90,11 @@ def envoy_copts(repository, test = False):
-                _repo("//bazel:no_debug_info"): ["-g0"],
-                "//conditions:default": [],
-            }) + selects.with_or({
--               _repo("//bazel:disable_tcmalloc"): ["-DABSL_MALLOC_HOOK_MMAP_DISABLE"],
-+               _repo("//bazel:tcmalloc_disabled"): ["-DABSL_MALLOC_HOOK_MMAP_DISABLE"],
-                _repo("//bazel:debug_tcmalloc"): ["-DENVOY_MEMORY_DEBUG_ENABLED=1", "-DGPERFTOOLS_TCMALLOC"],
-                _repo("//bazel:gperftools_tcmalloc"): ["-DGPERFTOOLS_TCMALLOC"],
-                _repo("//bazel:jemalloc_enabled"): ["-DJEMALLOC"],
--               (
--                   "@platforms//cpu:x86_64",
--                   "@platforms//cpu:aarch64",
--               ): ["-DTCMALLOC"],
--               "//conditions:default": ["-DGPERFTOOLS_TCMALLOC"],
-+               "//conditions:default": ["-DTCMALLOC"],
-            }) + select({
-                _repo("//bazel:disable_object_dump_on_signal_trace"): [],
-                "//conditions:default": ["-DENVOY_OBJECT_TRACE_ON_DUMP"],
-@@ -193,7 +190,7 @@ def envoy_dbg_linkopts():
- def tcmalloc_external_dep(repository):
-     _repo = repo_label(repository)
-     return selects.with_or({
--        (_repo("//bazel:disable_tcmalloc")): None,
-+        (_repo("//bazel:tcmalloc_disabled")): None,
-         (
-             _repo("//bazel:debug_tcmalloc"),
-             _repo("//bazel:gperftools_tcmalloc"),
+@@ -15,7 +15,7 @@ _DEBUG_TCMALLOC = Label("//bazel:debug_tcmalloc")
+ _DISABLE_DEPRECATED_FEATURES = Label("//bazel:disable_deprecated_features")
+ _DISABLE_KNOWN_ISSUE_ASSERTS = Label("//bazel:disable_known_issue_asserts")
+ _DISABLE_OBJECT_DUMP_ON_SIGNAL_TRACE = Label("//bazel:disable_object_dump_on_signal_trace")
+-_DISABLE_TCMALLOC = Label("//bazel:disable_tcmalloc")
++_DISABLE_TCMALLOC = Label("//bazel:tcmalloc_disabled")
+ _DYNAMIC_LINK_TESTS = Label("//bazel:dynamic_link_tests")
+ _ENABLE_EXECUTION_CONTEXT = Label("//bazel:enable_execution_context")
+ _ENABLE_EXPORTED_SYMBOLS = Label("//bazel:enable_exported_symbols")

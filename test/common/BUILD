@@ -16,7 +16,6 @@ envoy_cc_test(
         "type_traits_test.cc",
         "visit_test.cc",
     ],
-    repository = "@envoy",
     deps = [
         "//source/common:common_lib",
         "//test/test_common:test_common_lib",

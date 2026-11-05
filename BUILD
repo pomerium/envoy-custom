@@ -3,7 +3,6 @@ load(
     "envoy_cc_binary",
 )
 load("@hedron_compile_commands//:refresh_compile_commands.bzl", "refresh_compile_commands")
-load("@rules_foreign_cc//foreign_cc:configure.bzl", "configure_make")
 load("//bazel/ci/images:oci.bzl", "image")
 
 package(default_visibility = ["//visibility:public"])
@@ -33,7 +32,6 @@ envoy_cc_binary(
             "-Wl,--hash-style=gnu",
         ],
     }),
-    repository = "@envoy",
     stamped = True,
     deps = pomerium_extensions + [
         "@envoy//source/exe:envoy_main_entry_lib",
@@ -53,7 +51,6 @@ envoy_cc_binary(
         "@envoy//bazel:tsan_build": [],
         "//conditions:default": ["fully_static_link"],
     }),
-    repository = "@envoy",
     stamped = True,
     deps = pomerium_extensions + [
         "@envoy//source/exe:envoy_main_entry_lib",
@@ -84,33 +81,33 @@ image(
     repository = "ghcr.io/pomerium/envoy-custom-static",
 )
 
-configure_make(
-    name = "openssh_config_h",
-    autoreconf = True,
-    configure_in_place = True,
-    configure_options = [
-        "--disable-pkcs11",
-        "--with-ssl-dir=$$EXT_BUILD_DEPS",
-        "--without-zlib",
-        "--with-sandbox=no",
-    ],
-    defines = [
-        "WITH_OPENSSL=1",
-    ],
-    lib_source = "@openssh_portable//:all_sources",
-    out_headers_only = True,
-    postfix_script = """
-        cp config.h $$INSTALLDIR/include
-    """,
-    targets = [
-        "config.h",
-    ],
-    visibility = ["//visibility:public"],
-    deps = [
-        "@envoy//bazel:crypto",
-        "@envoy//bazel:ssl",
-    ],
-)
+# configure_make(
+#     name = "openssh_config_h",
+#     autoreconf = True,
+#     configure_in_place = True,
+#     configure_options = [
+#         "--disable-pkcs11",
+#         "--with-ssl-dir=$$EXT_BUILD_DEPS",
+#         "--without-zlib",
+#         "--with-sandbox=no",
+#     ],
+#     defines = [
+#         "WITH_OPENSSL=1",
+#     ],
+#     lib_source = "@openssh//:all_sources",
+#     out_headers_only = True,
+#     postfix_script = """
+#         cp config.h $$INSTALLDIR/include
+#     """,
+#     targets = [
+#         "config.h",
+#     ],
+#     visibility = ["//visibility:public"],
+#     deps = [
+#         "@envoy//bazel:crypto",
+#         "@envoy//bazel:ssl",
+#     ],
+# )
 
 refresh_compile_commands(
     name = "refresh_compile_commands",

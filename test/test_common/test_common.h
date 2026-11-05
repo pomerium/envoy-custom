@@ -3,7 +3,6 @@
 #include "source/common/optref.h"
 #include "source/common/types.h"
 #include "source/common/type_traits.h"
-#pragma clang unsafe_buffer_usage begin
 #include "source/common/buffer/buffer_impl.h" // IWYU pragma: keep
 #include "absl/random/random.h"
 #include "test/test_common/status_utility.h" // IWYU pragma: keep
@@ -11,7 +10,6 @@
 #if defined(NDEBUG) || defined(ENVOY_CONFIG_COVERAGE)
 #include "test/test_common/logging.h"
 #endif
-#pragma clang unsafe_buffer_usage end
 
 #include "gtest/gtest.h"
 #include "gmock/gmock.h" // IWYU pragma: keep
@@ -149,8 +147,6 @@ struct TestParameterNames {
 // to include directly
 // =================================================================================================
 
-// NOLINTBEGIN
-
 /*
   Macro to use for validating that a statement throws the specified type of exception, and that
   the exception's what() method returns a string which is matched by the specified matcher.
@@ -161,6 +157,7 @@ struct TestParameterNames {
       EnvoyException,
       AllOf(StartsWith("expected prefix"), HasSubstr("some substring")));
 */
+// NOLINTBEGIN(bugprone-macro-parentheses)
 #define EXPECT_THAT_THROWS_MESSAGE(statement, expected_exception, matcher) \
   try {                                                                    \
     statement;                                                             \
@@ -168,6 +165,7 @@ struct TestParameterNames {
   } catch (expected_exception & e) {                                       \
     EXPECT_THAT(std::string(e.what()), matcher);                           \
   }
+// NOLINTEND(bugprone-macro-parentheses)
 
 // Expect that the statement throws the specified type of exception with exactly the specified
 // message.
@@ -195,5 +193,3 @@ struct TestParameterNames {
 #define EXPECT_ENVOY_BUG(statement, message) \
   EXPECT_DEBUG_DEATH(statement, ::testing::HasSubstr(message))
 #endif
-
-// NOLINTEND

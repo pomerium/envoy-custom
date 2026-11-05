@@ -3,6 +3,7 @@
 #include "source/common/optref.h"
 #include <source_location>
 #include <type_traits>
+#include <vector>
 
 // Supplemental type traits
 

@@ -6,9 +6,7 @@
 #include "source/extensions/filters/network/ssh/service_connection.h" // IWYU pragma: keep
 #include "source/extensions/filters/network/ssh/service_userauth.h"   // IWYU pragma: keep
 
-#pragma clang unsafe_buffer_usage begin
 #include "source/common/config/utility.h"
-#pragma clang unsafe_buffer_usage end
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 

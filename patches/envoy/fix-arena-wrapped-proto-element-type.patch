@@ -1,0 +1,13 @@
+diff --git a/source/common/protobuf/arena_wrapped_proto.h b/source/common/protobuf/arena_wrapped_proto.h
+index 0b722b6ed2..47b9de48bd 100644
+--- a/source/common/protobuf/arena_wrapped_proto.h
++++ b/source/common/protobuf/arena_wrapped_proto.h
+@@ -21,6 +21,8 @@ namespace Envoy {
+  */
+ template <typename ProtoT> class ArenaWrappedProto {
+ public:
++  using element_type = ProtoT;
++
+   // Constructor: Creates the arena and allocates the proto on it.
+   // Perfect forwards any arguments to the ProtoT constructor.
+   // Enabled only if ProtoT is not abstract.

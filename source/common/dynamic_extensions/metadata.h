@@ -5,9 +5,8 @@
 
 #include "source/common/types.h"
 
-#pragma clang unsafe_buffer_usage begin
 #include "absl/status/statusor.h"
-#pragma clang unsafe_buffer_usage end
+
 constexpr auto EXTENSION_METADATA_SIZE_MAX = 1024 * 1024;
 
 struct ExtensionMetadata {

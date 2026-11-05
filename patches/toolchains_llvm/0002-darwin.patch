@@ -1,8 +1,8 @@
 diff --git a/toolchain/cc_toolchain_config.bzl b/toolchain/cc_toolchain_config.bzl
-index 06aae53..d059faf 100644
+index 8247bed..5ae421e 100644
 --- a/toolchain/cc_toolchain_config.bzl
 +++ b/toolchain/cc_toolchain_config.bzl
-@@ -234,6 +234,8 @@ def cc_toolchain_config(
+@@ -379,6 +379,8 @@ def cc_toolchain_config(
      elif target_arch in ["wasm32", "wasm64"]:
          # lld is invoked as wasm-ld for WebAssembly targets.
          use_libtool = False
@@ -11,7 +11,7 @@ index 06aae53..d059faf 100644
      else:
          link_flags.extend([
              "-Wl,--build-id=md5",
-@@ -294,6 +296,13 @@ def cc_toolchain_config(
+@@ -504,6 +506,13 @@ def cc_toolchain_config(
                  "-lc++abi",
                  "-Bdynamic",
              ])
@@ -25,27 +25,28 @@ index 06aae53..d059faf 100644
          else:
              # For single-platform builds, we can statically link the bundled
              # libraries.
-@@ -315,10 +324,12 @@ def cc_toolchain_config(
+@@ -525,11 +534,12 @@ def cc_toolchain_config(
+         cxx_flags.extend([
              "-stdlib=libc++",
-         ]
- 
--        link_libs.extend([
+         ])
+-
+-        stdlib_link_libs.extend([
 -            "-l:libc++.a",
 -            "-l:libc++abi.a",
 -        ])
 +        compiler_rt_link_flags = ["-rtlib=compiler-rt"]
 +        if target_os != "darwin":
-+            link_libs.extend([
++            stdlib_link_libs.extend([
 +                "-l:libc++.a",
 +                "-l:libc++abi.a",
 +            ])
-     elif stdlib == "dynamic-stdc++":
-         cxx_flags = [
-             "-std=" + cxx_standard,
-@@ -341,12 +352,14 @@ def cc_toolchain_config(
-         cxx_flags = [
-             "-std=" + cxx_standard,
-         ]
+     elif stdlib.startswith("stdc++"):
+         # We use libgcc when using libstdc++ from a sysroot. Most libstdc++
+         # builds link to libgcc, which means we need to use libgcc's exception
+@@ -597,12 +607,14 @@ def cc_toolchain_config(
+         else:
+             fail("Invalid stdlib: " + stdlib)
+     elif stdlib == "libc":
 -        libunwind_link_flags = [
 -            "-l:libunwind.a",
 -            # To support libunwind.
@@ -64,10 +65,10 @@ index 06aae53..d059faf 100644
          cxx_flags = [
              "-nostdlib",
 diff --git a/toolchain/internal/configure.bzl b/toolchain/internal/configure.bzl
-index 8503773..7e19db1 100644
+index f51db08..d755db0 100644
 --- a/toolchain/internal/configure.bzl
 +++ b/toolchain/internal/configure.bzl
-@@ -158,6 +158,7 @@ def llvm_config_impl(rctx):
+@@ -264,6 +264,7 @@ def llvm_config_impl(rctx):
      for target_pair, cxx_cross_lib_label_str in rctx.attr.cxx_cross_lib.items():
          if target_pair == exec_pair:
              continue
@@ -75,7 +76,7 @@ index 8503773..7e19db1 100644
          cxx_cross_lib_label = Label(cxx_cross_lib_label_str)
          cxx_cross_lib_path = _pkg_path_from_label(cxx_cross_lib_label)
          cxx_cross_lib_include_dirs[target_pair] = [
-@@ -165,8 +166,8 @@ def llvm_config_impl(rctx):
+@@ -271,8 +272,8 @@ def llvm_config_impl(rctx):
          ]
          cxx_cross_lib_link_flags[target_pair] = [
              "-L" + cxx_cross_lib_path + "/lib",

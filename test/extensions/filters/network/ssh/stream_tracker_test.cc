@@ -219,8 +219,8 @@ public:
       // Note: context.store_ and context.server_factory_context_.store_ are NOT the same!
       active_streams_ = context.server_factory_context_.store_.findGaugeByString("ssh.active_streams");
       total_streams_ = context.server_factory_context_.store_.findCounterByString("ssh.total_streams");
-      EXPECT_EQ(&active_streams_->get(), &stream_tracker_->stats().active_streams_);
-      EXPECT_EQ(&total_streams_->get(), &stream_tracker_->stats().total_streams_);
+      EXPECT_EQ(active_streams_.ptr(), &stream_tracker_->stats().active_streams_);
+      EXPECT_EQ(total_streams_.ptr(), &stream_tracker_->stats().total_streams_);
     });
   }
 
@@ -268,16 +268,16 @@ TEST_F(StreamTrackerThreadingTest, ThreadSafety_Serial) {
   }
 
   // Note: don't use ASSERT_* here, failing asserts can skip over calls to setReady
-  EXPECT_EQ(0, active_streams_->get().value());
-  EXPECT_EQ(0, total_streams_->get().value());
+  EXPECT_EQ(0, active_streams_->value());
+  EXPECT_EQ(0, total_streams_->value());
   beginStreams.setReady();
   beginWait.Wait();
-  EXPECT_EQ(num_threads, active_streams_->get().value());
-  EXPECT_EQ(num_threads, total_streams_->get().value());
+  EXPECT_EQ(num_threads, active_streams_->value());
+  EXPECT_EQ(num_threads, total_streams_->value());
   endStreams.setReady();
   endWait.Wait();
-  EXPECT_EQ(0, active_streams_->get().value());
-  EXPECT_EQ(num_threads, total_streams_->get().value());
+  EXPECT_EQ(0, active_streams_->value());
+  EXPECT_EQ(num_threads, total_streams_->value());
 }
 
 TEST_F(StreamTrackerThreadingTest, ThreadSafety_Mixed) {
@@ -308,8 +308,8 @@ TEST_F(StreamTrackerThreadingTest, ThreadSafety_Mixed) {
   }
   beginStreams.setReady();
   endWait.Wait();
-  EXPECT_EQ(0, active_streams_->get().value());
-  EXPECT_EQ(100 * num_threads, total_streams_->get().value());
+  EXPECT_EQ(0, active_streams_->value());
+  EXPECT_EQ(100 * num_threads, total_streams_->value());
 }
 
 TEST_F(StreamTrackerThreadingTest, ThreadSafety_TryLockRace) {
@@ -351,8 +351,8 @@ TEST_F(StreamTrackerThreadingTest, ThreadSafety_TryLockRace) {
 
     done.WaitForNotification();
 
-    EXPECT_EQ(0, active_streams_->get().value());
-    EXPECT_EQ(1, total_streams_->get().value());
+    EXPECT_EQ(0, active_streams_->value());
+    EXPECT_EQ(1, total_streams_->value());
   });
 }
 
@@ -395,8 +395,8 @@ TEST_F(StreamTrackerThreadingTest, NonBlockingTryLock) {
   // Wait for thread-local data updates to be propagated to all workers. Calls to onStreamBegin
   // post additional callbacks to each worker.
   syncWait.Wait();
-  ASSERT_EQ(num_threads, active_streams_->get().value());
-  ASSERT_EQ(num_threads, total_streams_->get().value());
+  ASSERT_EQ(num_threads, active_streams_->value());
+  ASSERT_EQ(num_threads, total_streams_->value());
 
   // Each worker now has one associated stream. When other threads call tryLock for a stream owned
   // by a different thread, it should post a request to the owning thread which will invoke the

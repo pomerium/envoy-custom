@@ -3,16 +3,11 @@
 #include "source/extensions/filters/network/ssh/stream_address.h"
 #include "source/extensions/filters/network/ssh/stream_tracker.h"
 
-#pragma clang unsafe_buffer_usage begin
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wshorten-64-to-32"
 #include "source/common/upstream/upstream_impl.h"
-#pragma clang diagnostic pop
 #include "envoy/registry/registry.h"
 #include "source/common/upstream/cluster_factory_impl.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.validate.h"
-#pragma clang unsafe_buffer_usage end
 
 using Envoy::Extensions::NetworkFilters::GenericProxy::Codec::StreamTracker;
 
@@ -76,7 +71,7 @@ public:
 namespace Upstream {
 
 class SshReverseTunnelCluster : public ClusterImplBase,
-                                public Envoy::Config::SubscriptionBase<envoy::config::endpoint::v3::ClusterLoadAssignment>,
+                                public Envoy::Config::SubscriptionCallbacks,
                                 public std::enable_shared_from_this<SshReverseTunnelCluster> {
 public:
   static absl::StatusOr<std::unique_ptr<SshReverseTunnelCluster>>
@@ -116,6 +111,7 @@ private:
     return !name.empty() ? name : info_->name();
   }
 
+  const Config::ResourceTypeHelper<envoy::config::endpoint::v3::ClusterLoadAssignment> resource_type_helper_;
   envoy::config::cluster::v3::Cluster cluster_;
   Server::Configuration::ServerFactoryContext& server_context_;
   pomerium::extensions::ssh::ReverseTunnelCluster config_;

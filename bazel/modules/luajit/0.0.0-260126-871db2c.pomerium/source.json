@@ -1,0 +1,15 @@
+{
+  "type": "archive",
+  "url": "https://github.com/LuaJIT/LuaJIT/archive/871db2c.tar.gz",
+  "integrity": "sha256-qz8W2C32lGVDVlz7DSgQ04fXmjpD4EMWlbA0ZhiOJoA=",
+  "strip_prefix": "LuaJIT-871db2c84ecefd70a850e03a6c340214a81739f0",
+  "overlay": {
+    "BUILD": "sha256-SdJUMK8OqSe9DJE8h/FYcqh5PGxfm3snMOxvQBjUb9U=",
+    "luajit.bzl": "sha256-ajTv9qRElDNj/zqoOu0TfFKbSk2ClYbm/SVNd4c28Tg="
+  },
+  "patch_strip": 1,
+  "patches": {
+    "0001-libunwind-fde-offset.patch": "sha256-N6witFo7SdFWdsTcaSn80OQeSZSgTEF+r/iOkNC0/A8=",
+    "fix-luajit-asan.patch": "sha256-mKTgtxtHAyJWnSLPbPZXUTenvdJxFr24++zKlFtVD9s="
+  }
+}

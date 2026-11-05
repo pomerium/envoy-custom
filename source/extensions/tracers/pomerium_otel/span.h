@@ -16,6 +16,7 @@ public:
   void setTraceId(const absl::string_view& trace_id_hex);
   absl::string_view name() const;
   bool sampled() const;
+  bool exportedSpan() const override;
 
   void setOperation(absl::string_view operation_name) override;
 

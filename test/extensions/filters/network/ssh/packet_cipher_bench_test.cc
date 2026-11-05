@@ -31,7 +31,6 @@ static void runBenchmark(::benchmark::State& state, DirectionalPacketCipher& wri
   EXPECT_EQ(packet, decrypted.toString());
 }
 
-// NOLINTNEXTLINE(readability-identifier-naming)
 static void BenchmarkCipherChacha20Poly1305(::benchmark::State& state) {
   DerivedKeys keys{
     .iv = bytes(),
@@ -54,7 +53,6 @@ static void BenchmarkCipherChacha20Poly1305(::benchmark::State& state) {
 }
 BENCHMARK(BenchmarkCipherChacha20Poly1305);
 
-// NOLINTNEXTLINE(readability-identifier-naming)
 static void BenchmarkCipherAES128GCM(::benchmark::State& state) {
   DerivedKeys keys{
     .iv = randomBytes(12),
@@ -77,7 +75,6 @@ static void BenchmarkCipherAES128GCM(::benchmark::State& state) {
 }
 BENCHMARK(BenchmarkCipherAES128GCM);
 
-// NOLINTNEXTLINE(readability-identifier-naming)
 static void BenchmarkCipherAES256GCM(::benchmark::State& state) {
   DerivedKeys keys{
     .iv = randomBytes(12),
@@ -100,7 +97,6 @@ static void BenchmarkCipherAES256GCM(::benchmark::State& state) {
 }
 BENCHMARK(BenchmarkCipherAES256GCM);
 
-// NOLINTNEXTLINE(readability-identifier-naming)
 static void BenchmarkCipherAES128CTR(::benchmark::State& state) {
   DerivedKeys keys{
     .iv = randomBytes(16),
@@ -123,7 +119,6 @@ static void BenchmarkCipherAES128CTR(::benchmark::State& state) {
 }
 BENCHMARK(BenchmarkCipherAES128CTR);
 
-// NOLINTNEXTLINE(readability-identifier-naming)
 static void BenchmarkCipherAES192CTR(::benchmark::State& state) {
   DerivedKeys keys{
     .iv = randomBytes(16),
@@ -146,7 +141,6 @@ static void BenchmarkCipherAES192CTR(::benchmark::State& state) {
 }
 BENCHMARK(BenchmarkCipherAES192CTR);
 
-// NOLINTNEXTLINE(readability-identifier-naming)
 static void BenchmarkCipherAES256CTR(::benchmark::State& state) {
   DerivedKeys keys{
     .iv = randomBytes(16),

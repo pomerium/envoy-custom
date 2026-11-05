@@ -9,7 +9,6 @@
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 
-#pragma clang unsafe_buffer_usage begin
 #include "envoy/event/file_event.h"
 #include "envoy/config/endpoint/v3/endpoint.pb.h"
 #include "envoy/config/endpoint/v3/endpoint.pb.validate.h"
@@ -19,11 +18,7 @@
 #include "envoy/network/client_connection_factory.h"
 #include "source/common/grpc/common.h"
 #include "source/common/stream_info/filter_state_impl.h"
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wold-style-cast"
-#include "readerwriterqueue/readerwriterqueue.h"
-#pragma clang diagnostic pop
-#pragma clang unsafe_buffer_usage end
+#include "moodycamel/readerwriterqueue.h"
 
 using Envoy::Event::FileReadyType;
 using Envoy::Extensions::IoSocket::UserSpace::IoHandleFactory;
@@ -1435,8 +1430,7 @@ SshReverseTunnelCluster::SshReverseTunnelCluster(const envoy::config::cluster::v
                                                  ClusterFactoryContext& cluster_context,
                                                  absl::Status& creation_status)
     : ClusterImplBase(cluster, cluster_context, creation_status),
-      Envoy::Config::SubscriptionBase<envoy::config::endpoint::v3::ClusterLoadAssignment>(
-        cluster_context.messageValidationVisitor(), "cluster_name"),
+      resource_type_helper_(cluster_context.messageValidationVisitor(), "cluster_name"),
       cluster_(cluster),
       server_context_(cluster_context.serverFactoryContext()),
       config_(proto_config),
@@ -1457,9 +1451,9 @@ SshReverseTunnelCluster::SshReverseTunnelCluster(const envoy::config::cluster::v
         .xdsManager()
         .subscribeToSingletonResource(edsServiceName(),
                                       proto_config.eds_config(),
-                                      Grpc::Common::typeUrl(getResourceName()),
+                                      Grpc::Common::typeUrl(resource_type_helper_.getResourceName()),
                                       info_->statsScope(),
-                                      *this, resource_decoder_, {});
+                                      *this, resource_type_helper_.resourceDecoder(), {});
     SET_AND_RETURN_IF_NOT_OK(subscription.status(), creation_status);
     eds_subscription_ = std::move(subscription).value();
   } else {
@@ -1469,9 +1463,9 @@ SshReverseTunnelCluster::SshReverseTunnelCluster(const envoy::config::cluster::v
         .clusterManager()
         .subscriptionFactory()
         .subscriptionFromConfigSource(proto_config.eds_config(),
-                                      Grpc::Common::typeUrl(getResourceName()),
+                                      Grpc::Common::typeUrl(resource_type_helper_.getResourceName()),
                                       info_->statsScope(),
-                                      *this, resource_decoder_, {});
+                                      *this, resource_type_helper_.resourceDecoder(), {});
     SET_AND_RETURN_IF_NOT_OK(subscription.status(), creation_status);
     eds_subscription_ = std::move(subscription).value();
   }
@@ -1552,15 +1546,17 @@ absl::Status SshReverseTunnelCluster::update(const envoy::config::endpoint::v3::
   HostVector hostsToAdd;
   std::set<std::weak_ptr<Envoy::Upstream::Host>, std::owner_less<>> hostsToRemove;
   std::map<std::weak_ptr<Envoy::Upstream::Host>, std::shared_ptr<envoy::config::core::v3::Metadata>, std::owner_less<>> hostsToUpdate;
-  for (const auto& [key, value] : *hostMap) {
-    if (!updatedEndpoints.contains(key)) {
-      hostsToRemove.insert(value);
+  hostMap->forEach([&](absl::string_view address, const Upstream::HostSharedPtr& host) {
+    if (!updatedEndpoints.contains(std::string(address))) {
+      hostsToRemove.insert(host);
     }
-  }
+  });
   for (const auto& [endpointName, endpointData] : updatedEndpoints) {
     auto endpointNameView = std::string_view(endpointName);
     auto endpointMd = std::make_shared<envoy::config::core::v3::Metadata>(endpointData.metadata());
-    if (!hostMap->contains(endpointNameView)) {
+    if (auto host = hostMap->findHost(endpointNameView); host != nullptr) {
+      hostsToUpdate[host] = endpointMd;
+    } else {
       constexpr auto prefix = "ssh:"sv;
       if (!endpointNameView.starts_with(prefix)) {
         return absl::InternalError("invalid lb endpoint name '{}' (expecting format 'ssh:<id>')");
@@ -1572,8 +1568,6 @@ absl::Status SshReverseTunnelCluster::update(const envoy::config::endpoint::v3::
       }
 
       hostsToAdd.push_back(InternalStreamHost::create(streamId, endpointMd, *owned_context_));
-    } else {
-      hostsToUpdate[hostMap->at(endpointNameView)] = endpointMd;
     }
   }
 

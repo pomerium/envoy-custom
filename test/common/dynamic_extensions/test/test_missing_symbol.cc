@@ -6,6 +6,6 @@
 DYNAMIC_EXTENSION("test.missing-symbol");
 DYNAMIC_EXTENSION_LICENSE("Apache-2.0");
 
-DYNAMIC_EXTENSION_EXPORT void dynamicExtensionInit(Envoy::Server::Instance& server) {
+DYNAMIC_EXTENSION_EXPORT void dynamicExtensionInit(Envoy::Server::Instance&) {
   ENVOY_LOG_MISC(info, symbolNotAvailableInExtensionHost());
 }

@@ -502,7 +502,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowUpstream) {
 
   SendValidPubKeyRequest();
 
-  auto msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
+  auto msg = ArenaWrappedProto<pomerium::extensions::ssh::ServerMessage>();
   auto* allow = msg->mutable_auth_response()->mutable_allow();
   allow->mutable_upstream()->set_hostname("example-hostname");
 
@@ -538,7 +538,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowInternal) {
 
   SendValidPubKeyRequest();
 
-  auto msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
+  auto msg = ArenaWrappedProto<pomerium::extensions::ssh::ServerMessage>();
   auto* allow = msg->mutable_auth_response()->mutable_allow();
   auto* filter_metadata = allow->mutable_internal()->mutable_set_metadata()->mutable_filter_metadata();
   Protobuf::Value v;
@@ -572,7 +572,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowInternal) {
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowUnsupportedTarget) {
-  auto msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
+  auto msg = ArenaWrappedProto<pomerium::extensions::ssh::ServerMessage>();
   msg->mutable_auth_response()->mutable_allow();
   EXPECT_CALL(*transport_, streamId())
     .WillOnce(Return(42));
@@ -583,7 +583,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerAllowUnsupportedTarget)
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerDeny) {
-  auto server_msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
+  auto server_msg = ArenaWrappedProto<pomerium::extensions::ssh::ServerMessage>();
   auto* deny = server_msg->mutable_auth_response()->mutable_deny();
   deny->set_partial(true);
   deny->add_methods("publickey");
@@ -600,7 +600,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerDeny) {
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerDenyNoMethods) {
-  auto msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
+  auto msg = ArenaWrappedProto<pomerium::extensions::ssh::ServerMessage>();
   msg->mutable_auth_response()->mutable_deny();
   auto r = service_->handleMessage(std::move(msg));
   ASSERT_EQ(absl::PermissionDeniedError(""), r);
@@ -615,7 +615,7 @@ TEST_F(DownstreamUserAuthServiceTest, AuthFailureLimit) {
     .Times(MaxFailedAuthAttempts - 1)
     .WillRepeatedly(Return(0));
   for (int i = 0; i < MaxFailedAuthAttempts - 1; i++) {
-    auto msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
+    auto msg = ArenaWrappedProto<pomerium::extensions::ssh::ServerMessage>();
     msg->mutable_auth_response()->mutable_deny()->set_partial(false);
     msg->mutable_auth_response()->mutable_deny()->add_methods("publickey");
 
@@ -623,7 +623,7 @@ TEST_F(DownstreamUserAuthServiceTest, AuthFailureLimit) {
   }
 
   // the next deny should return an error
-  auto msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
+  auto msg = ArenaWrappedProto<pomerium::extensions::ssh::ServerMessage>();
   msg->mutable_auth_response()->mutable_deny()->set_partial(false);
   msg->mutable_auth_response()->mutable_deny()->add_methods("publickey");
   ASSERT_EQ(absl::PermissionDeniedError("too many authentication failures"),
@@ -631,7 +631,7 @@ TEST_F(DownstreamUserAuthServiceTest, AuthFailureLimit) {
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerInfoRequest) {
-  auto server_msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
+  auto server_msg = ArenaWrappedProto<pomerium::extensions::ssh::ServerMessage>();
   auto* req = server_msg->mutable_auth_response()->mutable_info_request();
   req->set_method("keyboard-interactive");
   pomerium::extensions::ssh::KeyboardInteractiveInfoPrompts prompts{};
@@ -659,7 +659,7 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerInfoRequest) {
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerInfoRequestUnsupportedMethod) {
-  auto server_msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
+  auto server_msg = ArenaWrappedProto<pomerium::extensions::ssh::ServerMessage>();
   auto* req = server_msg->mutable_auth_response()->mutable_info_request();
   req->set_method("unsupported-method");
 
@@ -668,20 +668,20 @@ TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerInfoRequestUnsupportedM
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerUnsupportedAuthResponse) {
-  auto msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
+  auto msg = ArenaWrappedProto<pomerium::extensions::ssh::ServerMessage>();
   msg->mutable_auth_response();
   auto r = service_->handleMessage(std::move(msg));
   ASSERT_EQ(absl::InternalError("server sent invalid response case"), r);
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerUnsupportedMessage) {
-  auto msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
+  auto msg = ArenaWrappedProto<pomerium::extensions::ssh::ServerMessage>();
   auto r = service_->handleMessage(std::move(msg));
   ASSERT_EQ(absl::InternalError("server sent invalid message case"), r);
 }
 
 TEST_F(DownstreamUserAuthServiceTest, HandleMessageServerBadInfoRequest) {
-  auto server_msg = std::make_unique<pomerium::extensions::ssh::ServerMessage>();
+  auto server_msg = ArenaWrappedProto<pomerium::extensions::ssh::ServerMessage>();
   auto* req = server_msg->mutable_auth_response()->mutable_info_request();
   req->set_method("keyboard-interactive");
   req->mutable_request()->set_type_url("foobar");

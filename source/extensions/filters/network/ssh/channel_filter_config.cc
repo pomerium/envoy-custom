@@ -1,9 +1,7 @@
 #include "source/extensions/filters/network/ssh/channel_filter_config.h"
 #include <ranges>
 
-#pragma clang unsafe_buffer_usage begin
 #include "source/common/config/utility.h"
-#pragma clang unsafe_buffer_usage end
 
 template class Envoy::Registry::FactoryRegistry<Envoy::Extensions::NetworkFilters::GenericProxy::Codec::ChannelFilterFactoryConfig>;
 template class Envoy::Registry::FactoryRegistryProxyImpl<Envoy::Extensions::NetworkFilters::GenericProxy::Codec::ChannelFilterFactoryConfig>;

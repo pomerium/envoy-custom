@@ -2,9 +2,7 @@
 
 #include "source/extensions/filters/network/ssh/common.h"
 
-#pragma clang unsafe_buffer_usage begin
 #include "envoy/network/socket_interface.h"
-#pragma clang unsafe_buffer_usage end
 
 namespace Envoy::Network {
 

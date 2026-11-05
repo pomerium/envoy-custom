@@ -1,8 +1,6 @@
 #include "source/extensions/filters/network/ssh/filter_state_objects.h"
 
-#pragma clang unsafe_buffer_usage begin
 #include "envoy/registry/registry.h"
-#pragma clang unsafe_buffer_usage end
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 

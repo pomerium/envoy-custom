@@ -13,7 +13,6 @@ static wire::KexInitMsg init_msg = [] {
   return m;
 }();
 
-// NOLINTNEXTLINE(readability-identifier-naming)
 static void BenchmarkMessageMove(benchmark::State& state) {
   Message m1{init_msg};
   Message m2;
@@ -29,7 +28,6 @@ static void BenchmarkMessageMove(benchmark::State& state) {
 }
 BENCHMARK(BenchmarkMessageMove);
 
-// NOLINTNEXTLINE(readability-identifier-naming)
 static void BenchmarkMessageCopy(benchmark::State& state) {
   Message m1{init_msg};
   for (auto _ : state) {
@@ -38,7 +36,6 @@ static void BenchmarkMessageCopy(benchmark::State& state) {
 }
 BENCHMARK(BenchmarkMessageCopy);
 
-// NOLINTNEXTLINE(readability-identifier-naming)
 static void BenchmarkMessagePtrMove(benchmark::State& state) {
   MessagePtr m1 = std::make_unique<Message>(init_msg);
   MessagePtr m2;

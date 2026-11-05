@@ -1,0 +1,5 @@
+module(name = "luajit", version = "0.0.0-260126-871db2c.pomerium")
+
+bazel_dep(name = "rules_cc", version = "0.2.27")
+bazel_dep(name = "bazel_skylib", version = "1.8.2")
+bazel_dep(name = "platforms", version = "1.1.0")

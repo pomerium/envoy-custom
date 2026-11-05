@@ -2,12 +2,10 @@
 
 #include "source/common/types.h"
 
-#pragma clang unsafe_buffer_usage begin
 #include "envoy/network/address.h"
 #include "source/common/common/logger.h"
 #include "envoy/config/core/v3/address.pb.h"
 #include "envoy/buffer/buffer.h"
-#pragma clang unsafe_buffer_usage end
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 

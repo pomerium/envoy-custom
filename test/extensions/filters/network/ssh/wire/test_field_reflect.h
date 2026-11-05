@@ -491,7 +491,6 @@ constexpr decltype(auto) get(sub_message<Opts...>&& msg) {
 }
 } // namespace wire
 
-// NOLINTBEGIN(readability-identifier-naming)
 template <typename T>
 class WhenResolvedAsMatcher {
 public:
@@ -540,8 +539,6 @@ WhenResolvedAs(const testing::Matcher<T>& inner_matcher) {
 
 #define SUB_MSG(submsg_type, ...) \
   VariantWith<submsg_type>(AllOf(__VA_ARGS__))
-
-// NOLINTEND(readability-identifier-naming)
 
 #define FIELD_EQ(name, ...) FIELD_EQ_IMPL_(name, (__VA_ARGS__))
 

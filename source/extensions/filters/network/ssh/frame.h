@@ -1,8 +1,6 @@
 #pragma once
 
-#pragma clang unsafe_buffer_usage begin
 #include "source/extensions/filters/network/generic_proxy/interface/stream.h"
-#pragma clang unsafe_buffer_usage end
 
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/common.h"

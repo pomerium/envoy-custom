@@ -11,7 +11,7 @@ def _cxx_cross_libs_impl(rctx):
         "arm64": "aarch64",
     }
     rctx.download_and_extract(
-        sha256 = TOOLCHAIN_INTEGRITY.cxx_cross_libs["%s-%s" % (_os_mapping[rctx.attr.os], _arch_mapping[rctx.attr.arch])],
+        sha256 = TOOLCHAIN_INTEGRITY["cxx_cross_libs"]["%s-%s" % (_os_mapping[rctx.attr.os], _arch_mapping[rctx.attr.arch])],
         url = ["{repository}/releases/download/{llvm_version}-{release_revision}/cxx-cross-libs-{llvm_version}-{attr_os}-{attr_arch}.tar.zst".format(
             attr_os = rctx.attr.os,
             attr_arch = rctx.attr.arch,

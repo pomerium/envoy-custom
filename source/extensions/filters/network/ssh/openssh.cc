@@ -6,10 +6,8 @@
 #include "source/common/common/assert.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 
-#pragma clang unsafe_buffer_usage begin
 #include "absl/strings/escaping.h"
 #include "envoy/config/core/v3/base.pb.h"
-#pragma clang unsafe_buffer_usage end
 
 extern "C" {
 #include "openssh/ssh2.h"

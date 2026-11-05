@@ -1,7 +1,7 @@
 load("@bazel_skylib//lib:selects.bzl", "selects")
 load("@bazel_skylib//rules:common_settings.bzl", "string_setting")
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
-load("@pomerium_envoy//bazel/foreign_cc:luajit.bzl", "lj_cc_binary", "lj_cc_library", "luajit_host_bin_env")
+load(":luajit.bzl", "lj_cc_binary", "lj_cc_library", "luajit_host_bin_env")
 
 string_setting(
     name = "luajit_target",
@@ -33,6 +33,16 @@ config_setting(
     flag_values = {
         ":luajit_target": "macos_arm64",
     },
+)
+
+config_setting(
+    name = "dbg_build",
+    values = {"compilation_mode": "dbg"},
+)
+
+config_setting(
+    name = "asan_build",
+    values = {"define": "ENVOY_CONFIG_ASAN=1"},
 )
 
 selects.config_setting_group(

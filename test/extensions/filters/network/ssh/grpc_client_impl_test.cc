@@ -54,7 +54,7 @@ TEST_F(StreamManagementServiceClientTest, OnReceiveMessage) {
 
   client.connect(1, source_addr_); // only to ensure client.stream_ is set
   EXPECT_NE(nullptr, &client.stream());
-  client.onReceiveMessage(std::make_unique<ServerMessage>(msg));
+  client.onReceiveMessage(ArenaWrappedProto<ServerMessage>(msg));
 }
 
 TEST_F(StreamManagementServiceClientTest, OnReceiveMessage_HandlerReturnsError) {
@@ -74,7 +74,7 @@ TEST_F(StreamManagementServiceClientTest, OnReceiveMessage_HandlerReturnsError) 
     .WillOnce(Return(absl::InvalidArgumentError("test error")));
   client.connect(1, source_addr_);
 
-  client.onReceiveMessage(std::make_unique<ServerMessage>(msg1));
+  client.onReceiveMessage(ArenaWrappedProto<ServerMessage>(msg1));
 }
 
 TEST_F(StreamManagementServiceClientTest, OnReceiveMessage_HandlerReturnsError_OnRemoteClose) {
@@ -101,7 +101,7 @@ TEST_F(StreamManagementServiceClientTest, OnReceiveMessage_HandlerReturnsError_O
     called = true;
   });
 
-  client.onReceiveMessage(std::make_unique<ServerMessage>(msg1));
+  client.onReceiveMessage(ArenaWrappedProto<ServerMessage>(msg1));
   EXPECT_TRUE(called);
 }
 
@@ -118,7 +118,7 @@ TEST_F(StreamManagementServiceClientTest, OnReceiveMessage_NoRegisteredHandler) 
   msg1.mutable_auth_response();
   client.connect(1, source_addr_);
 
-  client.onReceiveMessage(std::make_unique<ServerMessage>(msg1));
+  client.onReceiveMessage(ArenaWrappedProto<ServerMessage>(msg1));
 }
 
 TEST_F(StreamManagementServiceClientTest, OnRemoteClose) {

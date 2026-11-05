@@ -26,7 +26,6 @@ public:
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 namespace test {
-// NOLINTBEGIN(readability-identifier-naming)
 template <typename T>
 class MockBaseTransport : public TransportBase<T> {
 public:
@@ -457,7 +456,6 @@ protected:
   testing::StrictMock<MockClientCodecCallbacks> client_codec_callbacks_;
   openssh::SSHKeyPtr client_auth_key_ = *openssh::SSHKey::generate(KEY_ED25519, 256);
 };
-// NOLINTEND(readability-identifier-naming)
 
 TYPED_TEST_SUITE_P(TransportBaseTest);
 

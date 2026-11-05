@@ -6,6 +6,6 @@ DYNAMIC_EXTENSION_LICENSE("Apache-2.0");
 
 extern int test_no_config_dynamic_extension_init_called;
 
-DYNAMIC_EXTENSION_EXPORT void dynamicExtensionInit(Envoy::Server::Instance& server) {
+DYNAMIC_EXTENSION_EXPORT void dynamicExtensionInit(Envoy::Server::Instance&) {
   test_no_config_dynamic_extension_init_called = 1;
 }

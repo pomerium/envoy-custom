@@ -5,8 +5,6 @@ load(
 
 package(default_visibility = ["//visibility:public"])
 
-licenses(["notice"])
-
 envoy_cc_library(
     name = "common_lib",
     srcs = [],
@@ -24,7 +22,6 @@ envoy_cc_library(
         "types.h",
         "visit.h",
     ],
-    repository = "@envoy",
     deps = [
         "@envoy//source/common/common:fmt_lib",
         "@envoy//source/common/common:statusor_lib",

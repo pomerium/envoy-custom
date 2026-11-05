@@ -9,7 +9,6 @@ envoy_cc_library(
     name = "filter_state_objects_lib",
     srcs = ["filter_state_objects.cc"],
     hdrs = ["filter_state_objects.h"],
-    repository = "@envoy",
     deps = [
         "@envoy//envoy/registry",
         "@envoy//envoy/stream_info:filter_state_interface",
@@ -19,7 +18,6 @@ envoy_cc_library(
 envoy_cc_library(
     name = "pomerium_initial_metadata",
     srcs = ["config.cc"],
-    repository = "@envoy",
     deps = [
         ":filter_state_objects_lib",
         "//api/extensions/transport_sockets/initial_metadata:pkg_cc_proto",

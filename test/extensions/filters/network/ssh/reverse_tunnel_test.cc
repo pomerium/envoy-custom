@@ -9,6 +9,7 @@
 #include "envoy/config/endpoint/v3/endpoint.pb.h"
 #include "envoy/config/endpoint/v3/endpoint.pb.validate.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
+#include "test/mocks/server/server_factory_context.h"
 #include "gtest/gtest.h"
 
 #include "source/extensions/filters/network/ssh/wire/messages.h"
@@ -690,7 +691,7 @@ TEST_P(StaticPortForwardTest, DownstreamFlowControl) {
   // Flow control may or may not have been triggered during the first set of writes, but all buffers
   // should be empty now so it will have been deactivated the same number of times it was activated.
   auto hwm = test_server_->counter(stat_downstream_high_watermark)->value();
-  test_server_->waitForCounterEq(stat_downstream_low_watermark, hwm);
+  test_server_->waitForCounter(stat_downstream_low_watermark, testing::Eq(hwm));
 }
 
 TEST_P(StaticPortForwardTest, UpstreamSendsInvalidMessageAfterBacklogThenDisconnects) {
@@ -1416,7 +1417,7 @@ TEST_P(DynamicPortForwardTest, DownstreamResetBeforeInitialize) {
   auto downstream = makeTcpConnectionWithServerName(lookupPort("tcp"), "tcp-cluster");
   ASSERT_TRUE(driver->wait(th));
   downstream->close(Network::ConnectionCloseType::AbortReset);
-  test_server_->waitForCounterEq(stat_downstream_disconnect_before_init, 1);
+  test_server_->waitForCounter(stat_downstream_disconnect_before_init, testing::Eq(1));
 }
 
 TEST_P(DynamicPortForwardTest, AcceptAfterDownstreamDisconnected) {
@@ -1429,15 +1430,15 @@ TEST_P(DynamicPortForwardTest, AcceptAfterDownstreamDisconnected) {
   auto th2 = driver->createTask<Tasks::WaitForChannelCloseByPeer>(Tasks::ExpectEOF::Yes)
                .start(channel);
   downstream->close(Network::ConnectionCloseType::AbortReset);
-  test_server_->waitForCounterEq(stat_downstream_disconnect_before_init, 1);
+  test_server_->waitForCounter(stat_downstream_disconnect_before_init, testing::Eq(1));
   driver->sendMessage(wire::ChannelOpenConfirmationMsg{
     .recipient_channel = channel.remote_id,
     .sender_channel = channel.local_id,
     .initial_window_size = wire::ChannelWindowSize,
     .max_packet_size = wire::ChannelMaxPacketSize,
   });
-  test_server_->waitForCounterEq(stat_upstream_init_canceled_by_downstream_disconnect, 1,
-                                 TestUtility::DefaultTimeout, driver->connectionDispatcher().ptr());
+  test_server_->waitForCounter(stat_upstream_init_canceled_by_downstream_disconnect, testing::Eq(1),
+                               TestUtility::DefaultTimeout, driver->connectionDispatcher().ptr());
   ASSERT_TRUE(driver->wait(th2));
 }
 
@@ -1698,10 +1699,10 @@ TEST_P(EDSUpdatesIntegrationTest, TestClusterUpdates) {
   };
   setClusterLoad("tcp_cluster", {endpoint1});
 
-  test_server_->waitForCounterEq("cluster.tcp_cluster.update_no_rebuild", 0);
-  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_total", 1);
-  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_healthy", 1);
-  test_server_->waitForCounterEq("cluster.tcp_cluster.membership_change", 1);
+  test_server_->waitForCounter("cluster.tcp_cluster.update_no_rebuild", testing::Eq(0));
+  test_server_->waitForGauge("cluster.tcp_cluster.membership_total", testing::Eq(1));
+  test_server_->waitForGauge("cluster.tcp_cluster.membership_healthy", testing::Eq(1));
+  test_server_->waitForCounter("cluster.tcp_cluster.membership_change", testing::Eq(1));
 
   ClusterLoadOpts endpoint2{
     .stream_id = 2,
@@ -1712,10 +1713,10 @@ TEST_P(EDSUpdatesIntegrationTest, TestClusterUpdates) {
   };
   setClusterLoad("tcp_cluster", {endpoint1, endpoint2});
 
-  test_server_->waitForCounterEq("cluster.tcp_cluster.update_no_rebuild", 0);
-  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_total", 2);
-  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_healthy", 2);
-  test_server_->waitForCounterEq("cluster.tcp_cluster.membership_change", 2);
+  test_server_->waitForCounter("cluster.tcp_cluster.update_no_rebuild", testing::Eq(0));
+  test_server_->waitForGauge("cluster.tcp_cluster.membership_total", testing::Eq(2));
+  test_server_->waitForGauge("cluster.tcp_cluster.membership_healthy", testing::Eq(2));
+  test_server_->waitForCounter("cluster.tcp_cluster.membership_change", testing::Eq(2));
 
   ClusterLoadOpts endpoint3{
     .stream_id = 3,
@@ -1726,25 +1727,25 @@ TEST_P(EDSUpdatesIntegrationTest, TestClusterUpdates) {
   };
   setClusterLoad("tcp_cluster", {endpoint1, endpoint2, endpoint3});
 
-  test_server_->waitForCounterEq("cluster.tcp_cluster.update_no_rebuild", 0);
-  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_total", 3);
-  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_healthy", 3);
-  test_server_->waitForCounterEq("cluster.tcp_cluster.membership_change", 3);
+  test_server_->waitForCounter("cluster.tcp_cluster.update_no_rebuild", testing::Eq(0));
+  test_server_->waitForGauge("cluster.tcp_cluster.membership_total", testing::Eq(3));
+  test_server_->waitForGauge("cluster.tcp_cluster.membership_healthy", testing::Eq(3));
+  test_server_->waitForCounter("cluster.tcp_cluster.membership_change", testing::Eq(3));
 
   setClusterLoad("tcp_cluster", {endpoint2, endpoint3});
 
-  test_server_->waitForCounterEq("cluster.tcp_cluster.update_no_rebuild", 0);
-  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_total", 2);
-  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_healthy", 2);
-  test_server_->waitForCounterEq("cluster.tcp_cluster.membership_change", 4);
+  test_server_->waitForCounter("cluster.tcp_cluster.update_no_rebuild", testing::Eq(0));
+  test_server_->waitForGauge("cluster.tcp_cluster.membership_total", testing::Eq(2));
+  test_server_->waitForGauge("cluster.tcp_cluster.membership_healthy", testing::Eq(2));
+  test_server_->waitForCounter("cluster.tcp_cluster.membership_change", testing::Eq(4));
 
   endpoint3.is_dynamic = false; // trigger metadata update
   setClusterLoad("tcp_cluster", {endpoint2, endpoint3});
 
-  test_server_->waitForCounterEq("cluster.tcp_cluster.update_no_rebuild", 0);
-  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_total", 2);
-  test_server_->waitForGaugeEq("cluster.tcp_cluster.membership_healthy", 2);
-  test_server_->waitForCounterEq("cluster.tcp_cluster.membership_change", 4);
+  test_server_->waitForCounter("cluster.tcp_cluster.update_no_rebuild", testing::Eq(0));
+  test_server_->waitForGauge("cluster.tcp_cluster.membership_total", testing::Eq(2));
+  test_server_->waitForGauge("cluster.tcp_cluster.membership_healthy", testing::Eq(2));
+  test_server_->waitForCounter("cluster.tcp_cluster.membership_change", testing::Eq(4));
 }
 
 TEST_P(EDSUpdatesIntegrationTest, WrongClusterName) {
@@ -1753,7 +1754,7 @@ TEST_P(EDSUpdatesIntegrationTest, WrongClusterName) {
   envoy::config::endpoint::v3::ClusterLoadAssignment load;
   load.set_cluster_name("http_cluster");
   eds_helpers_["tcp_cluster"]->setEds(load);
-  test_server_->waitForCounterEq("cluster.tcp_cluster.update_rejected", 1);
+  test_server_->waitForCounter("cluster.tcp_cluster.update_rejected", testing::Eq(1));
 }
 
 TEST_P(EDSUpdatesIntegrationTest, InvalidResourceCount) {
@@ -1772,7 +1773,7 @@ TEST_P(EDSUpdatesIntegrationTest, InvalidResourceCount) {
     "tcp_cluster_eds.update.pb_text", MessageUtil::toTextProto(eds_response));
   TestEnvironment::renameFile(path, absl::StrReplaceAll(path, {{".update"s, ""s}}));
 
-  test_server_->waitForCounterEq("cluster.tcp_cluster.update_failure", 1);
+  test_server_->waitForCounter("cluster.tcp_cluster.update_failure", testing::Eq(1));
 }
 
 TEST_P(EDSUpdatesIntegrationTest, InvalidResourceData) {
@@ -1781,7 +1782,7 @@ TEST_P(EDSUpdatesIntegrationTest, InvalidResourceData) {
   std::string path = TestEnvironment::writeStringToFileForTest(
     "tcp_cluster_eds.update.pb_text", "bad data");
   TestEnvironment::renameFile(path, absl::StrReplaceAll(path, {{".update"s, ""s}}));
-  test_server_->waitForCounterGe("cluster.tcp_cluster.update_failure", 1);
+  test_server_->waitForCounter("cluster.tcp_cluster.update_failure", testing::Ge(1));
 }
 
 TEST_P(EDSUpdatesIntegrationTest, InvalidLbEndpointName) {
@@ -1805,7 +1806,7 @@ TEST_P(EDSUpdatesIntegrationTest, InvalidLbEndpointName) {
       "tcp_cluster_eds.update.pb_text", MessageUtil::toTextProto(eds_response));
     TestEnvironment::renameFile(path, absl::StrReplaceAll(path, {{".update"s, ""s}}));
 
-    test_server_->waitForCounterEq("cluster.tcp_cluster.update_failure", ++num_failures);
+    test_server_->waitForCounter("cluster.tcp_cluster.update_failure", testing::Eq(++num_failures));
   }
 }
 
@@ -1966,7 +1967,7 @@ public:
 TEST_F(SshReverseTunnelClusterUnitTest, ErrorCreatingCluster) {
   auto cluster = buildClusterConfig();
 
-  EXPECT_CALL(context_.cluster_manager_.subscription_factory_, subscriptionFromConfigSource)
+  EXPECT_CALL(context_.cluster_manager_.subscription_factory_, subscriptionFromConfigSource(_, _, _, _, _, _))
     .WillOnce(Return(absl::InternalError("test error")));
 
   auto* factory = getFactory();

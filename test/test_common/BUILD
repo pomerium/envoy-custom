@@ -15,7 +15,6 @@ envoy_cc_test_library(
         "proto_equal.h",
         "test_common.h",
     ],
-    repository = "@envoy",
     deps = [
         "//source/common:common_lib",
         "@abseil-cpp//absl/random",

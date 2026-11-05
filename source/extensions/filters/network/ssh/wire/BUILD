@@ -5,8 +5,6 @@ load(
 
 package(default_visibility = ["//visibility:public"])
 
-licenses(["notice"])
-
 envoy_cc_library(
     name = "wire_lib",
     srcs = [
@@ -28,7 +26,6 @@ envoy_cc_library(
         "-Wimplicit-int-conversion",
         "-Wunsafe-buffer-usage",
     ],
-    repository = "@envoy",
     deps = [
         ":wire_lib_common",
         "//source/common:common_lib",
@@ -50,7 +47,6 @@ envoy_cc_library(
         "-Wimplicit-int-conversion",
         "-Wunsafe-buffer-usage",
     ],
-    repository = "@envoy",
     deps = [
         "@envoy//source/common/common:fmt_lib",
     ],

@@ -30,7 +30,6 @@ private:
   bytes bytes_;
 };
 
-// NOLINTNEXTLINE(readability-identifier-naming)
 static void BenchmarkEncodeKexInitMsg(benchmark::State& state) {
   TestBufferFragment fragment(init_msg_bytes.size());
   for (auto _ : state) {
@@ -41,7 +40,6 @@ static void BenchmarkEncodeKexInitMsg(benchmark::State& state) {
 }
 BENCHMARK(BenchmarkEncodeKexInitMsg);
 
-// NOLINTNEXTLINE(readability-identifier-naming)
 static void BenchmarkDecodeKexInitMsg(benchmark::State& state) {
   for (auto _ : state) {
     KexInitMsg out;
@@ -52,7 +50,6 @@ static void BenchmarkDecodeKexInitMsg(benchmark::State& state) {
 }
 BENCHMARK(BenchmarkDecodeKexInitMsg);
 
-// NOLINTNEXTLINE(readability-identifier-naming)
 static void BenchmarkEncodeBytesLengthPrefixed(benchmark::State& state) {
   auto b = randomBytes(1024);
 

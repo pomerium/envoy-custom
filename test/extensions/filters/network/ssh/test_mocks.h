@@ -11,10 +11,8 @@
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "test/extensions/filters/network/ssh/wire/test_field_reflect.h" // IWYU pragma: keep
 #include "test/mocks/stats/mocks.h"
-#pragma clang unsafe_buffer_usage begin
 #include "envoy/buffer/buffer.h"
 #include "absl/status/statusor.h"
-#pragma clang unsafe_buffer_usage end
 
 #include "gmock/gmock.h" // IWYU pragma: keep
 

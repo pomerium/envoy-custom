@@ -15,12 +15,11 @@ envoy_cc_mock(
     name = "test_mocks",
     srcs = ["test_mocks.cc"],
     hdrs = ["test_mocks.h"],
-    repository = "@envoy",
     deps = [
         "//source/extensions/filters/network/ssh:pomerium_ssh",
         "//test/extensions/filters/network/ssh/wire:wire_test_util",
         "@envoy//test/mocks/stats:stats_mocks",
-        "@openssh_portable//:libssh",
+        "@openssh//:libssh",
     ],
 )
 
@@ -29,9 +28,8 @@ envoy_cc_test_library(
     srcs = ["test_env_util.cc"],
     hdrs = ["test_env_util.h"],
     data = [
-        "@openssh_portable//:testdata_sshkey",
+        "@openssh//:testdata_sshkey",
     ],
-    repository = "@envoy",
     deps = [
         "//test/test_common:test_common_lib",
         "@envoy//test/test_common:environment_lib",
@@ -43,7 +41,6 @@ envoy_cc_test_library(
     srcs = [
         "test_util.h",
     ],
-    repository = "@envoy",
     deps = [
         "//source/extensions/filters/network/ssh:pomerium_ssh",
         "//test/extensions/filters/network/ssh/wire:wire_test_util",
@@ -56,7 +53,6 @@ envoy_cc_test(
     srcs = [
         "extension_ping_test.cc",
     ],
-    repository = "@envoy",
     deps = [
         ":ssh_test_common_lib",
         ":test_mocks",
@@ -69,9 +65,8 @@ envoy_cc_test(
         "openssh_test.cc",
     ],
     data = [
-        "@openssh_portable//:testdata_sshkey",
+        "@openssh//:testdata_sshkey",
     ],
-    repository = "@envoy",
     shard_count = 8,
     deps = [
         ":ssh_test_common_lib",
@@ -84,7 +79,6 @@ envoy_cc_test(
     srcs = [
         "packet_cipher_test.cc",
     ],
-    repository = "@envoy",
     deps = [
         ":ssh_test_common_lib",
         ":test_mocks",
@@ -97,13 +91,12 @@ envoy_cc_test(
         "kex_alg_test.cc",
     ],
     data = [
-        "@openssh_portable//:testdata_sshkey",
+        "@openssh//:testdata_sshkey",
     ],
-    repository = "@envoy",
     deps = [
         ":ssh_test_common_lib",
         "@envoy//test/test_common:environment_lib",
-        "@openssh_portable//:libssh",
+        "@openssh//:libssh",
     ],
 )
 
@@ -112,7 +105,6 @@ envoy_cc_test(
     srcs = [
         "message_handler_test.cc",
     ],
-    repository = "@envoy",
     deps = [
         ":ssh_test_common_lib",
         ":test_mocks",
@@ -124,7 +116,6 @@ envoy_cc_test(
     srcs = [
         "grpc_client_impl_test.cc",
     ],
-    repository = "@envoy",
     deps = [
         ":ssh_test_common_lib",
         ":test_mocks",
@@ -137,7 +128,6 @@ envoy_cc_test(
     srcs = [
         "kex_alg_curve25519_test.cc",
     ],
-    repository = "@envoy",
     deps = [
         ":ssh_test_common_lib",
     ],
@@ -148,7 +138,6 @@ envoy_cc_test(
     srcs = [
         "kex_alg_mlkem_test.cc",
     ],
-    repository = "@envoy",
     deps = [
         "//source/extensions/filters/network/ssh:pomerium_ssh",
         "//test/extensions/filters/network/ssh/wire:wire_test_util",
@@ -161,11 +150,10 @@ envoy_cc_test(
     srcs = [
         "packet_cipher_aead_test.cc",
     ],
-    repository = "@envoy",
     deps = [
         ":ssh_test_common_lib",
         "@envoy//test/test_common:environment_lib",
-        "@openssh_portable//:libssh",
+        "@openssh//:libssh",
     ],
 )
 
@@ -174,11 +162,10 @@ envoy_cc_test(
     srcs = [
         "packet_cipher_etm_test.cc",
     ],
-    repository = "@envoy",
     deps = [
         ":ssh_test_common_lib",
         "@envoy//test/test_common:environment_lib",
-        "@openssh_portable//:libssh",
+        "@openssh//:libssh",
     ],
 )
 
@@ -187,7 +174,6 @@ envoy_cc_test(
     srcs = [
         "frame_test.cc",
     ],
-    repository = "@envoy",
     deps = [
         ":ssh_test_common_lib",
     ],
@@ -198,7 +184,6 @@ envoy_cc_test(
     srcs = [
         "service_connection_test.cc",
     ],
-    repository = "@envoy",
     deps = [
         ":ssh_test_common_lib",
         ":test_mocks",
@@ -213,7 +198,6 @@ envoy_cc_test(
     srcs = [
         "service_connection_impl_test.cc",
     ],
-    repository = "@envoy",
     deps = [
         ":ssh_test_common_lib",
         ":test_mocks",
@@ -230,7 +214,6 @@ envoy_cc_test(
     srcs = [
         "service_userauth_test.cc",
     ],
-    repository = "@envoy",
     deps = [
         ":ssh_test_common_lib",
         ":test_env_util_lib",
@@ -245,7 +228,6 @@ envoy_cc_test(
     srcs = [
         "transport_test.cc",
     ],
-    repository = "@envoy",
     deps = [
         ":ssh_test_common_lib",
         ":test_mocks",
@@ -257,7 +239,6 @@ envoy_cc_test(
     srcs = [
         "version_exchange_test.cc",
     ],
-    repository = "@envoy",
     shard_count = 16,
     deps = [
         ":ssh_test_common_lib",
@@ -271,7 +252,6 @@ envoy_cc_test(
     srcs = [
         "kex_test.cc",
     ],
-    repository = "@envoy",
     shard_count = 16,
     deps = [
         ":ssh_test_common_lib",
@@ -285,7 +265,6 @@ envoy_cc_test(
     srcs = [
         "transport_base_test.cc",
     ],
-    repository = "@envoy",
     deps = [
         ":ssh_test_common_lib",
         ":test_env_util_lib",
@@ -301,7 +280,6 @@ envoy_cc_test(
     srcs = [
         "server_transport_test.cc",
     ],
-    repository = "@envoy",
     shard_count = 8,
     deps = [
         ":ssh_test_common_lib",
@@ -321,7 +299,6 @@ envoy_cc_test(
     srcs = [
         "client_transport_test.cc",
     ],
-    repository = "@envoy",
     shard_count = 2,
     deps = [
         ":ssh_test_common_lib",
@@ -339,7 +316,6 @@ envoy_cc_test(
     srcs = [
         "config_test.cc",
     ],
-    repository = "@envoy",
     deps = [
         ":ssh_test_common_lib",
         ":test_env_util_lib",
@@ -355,7 +331,6 @@ envoy_cc_test(
     srcs = [
         "stream_tracker_test.cc",
     ],
-    repository = "@envoy",
     deps = [
         ":ssh_test_common_lib",
         ":test_mocks",
@@ -369,7 +344,6 @@ envoy_cc_test(
     srcs = [
         "id_manager_test.cc",
     ],
-    repository = "@envoy",
     deps = [
         ":ssh_test_common_lib",
         ":test_mocks",
@@ -382,7 +356,6 @@ envoy_cc_test(
     srcs = [
         "filter_state_objects_test.cc",
     ],
-    repository = "@envoy",
     deps = [
         ":ssh_test_common_lib",
     ],
@@ -393,7 +366,6 @@ envoy_cc_test(
     srcs = [
         "socks5_test.cc",
     ],
-    repository = "@envoy",
     deps = [
         ":ssh_test_common_lib",
     ],
@@ -404,7 +376,6 @@ envoy_cc_test(
     srcs = [
         "stream_address_test.cc",
     ],
-    repository = "@envoy",
     deps = [
         ":ssh_test_common_lib",
         "@envoy//test/mocks/event:event_mocks",
@@ -416,7 +387,6 @@ envoy_cc_test(
     srcs = [
         "channel_filter_test.cc",
     ],
-    repository = "@envoy",
     deps = [
         ":test_mocks",
         "//source/extensions/filters/network/ssh:pomerium_ssh",
@@ -431,7 +401,6 @@ envoy_cc_test(
     srcs = [
         "filter_manager_test.cc",
     ],
-    repository = "@envoy",
     deps = [
         ":integration_lib",
     ],
@@ -451,7 +420,6 @@ envoy_cc_test_library(
         "ssh_task.h",
         "ssh_upstream.h",
     ],
-    repository = "@envoy",
     deps = [
         ":ssh_test_common_lib",
         "@envoy//source/extensions/filters/http/set_filter_state:config",
@@ -469,7 +437,6 @@ envoy_cc_test(
     srcs = [
         "reverse_tunnel_test.cc",
     ],
-    repository = "@envoy",
     shard_count = 16,
     deps = [
         ":integration_lib",
@@ -481,7 +448,6 @@ envoy_cc_test(
     srcs = [
         "graceful_shutdown_test.cc",
     ],
-    repository = "@envoy",
     shard_count = 4,
     deps = [
         ":integration_lib",
@@ -492,7 +458,6 @@ envoy_cc_test(
 envoy_cc_benchmark_binary(
     name = "packet_cipher_bench_test",
     srcs = ["packet_cipher_bench_test.cc"],
-    repository = "@envoy",
     deps = [
         ":ssh_test_common_lib",
         "@benchmark",

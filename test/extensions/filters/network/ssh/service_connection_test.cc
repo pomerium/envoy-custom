@@ -18,8 +18,6 @@
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
-// NOLINTBEGIN(readability-identifier-naming)
-
 template <typename Sink>
 void AbslStringify(Sink& sink, const Peer& peer) {
   absl::Format(&sink, "%s", fmt::to_string(peer));
@@ -84,8 +82,6 @@ public:
   testing::StrictMock<MockTransportCallbacks> transport_;
   TestConnectionService service_;
 };
-
-// NOLINTEND(readability-identifier-naming)
 
 TEST_P(ConnectionServiceTest, Name) {
   ASSERT_EQ("ssh-connection", service_.name());
@@ -937,7 +933,6 @@ INSTANTIATE_TEST_SUITE_P(ConnectionService, ConnectionServiceTest,
                          testing::Values(Peer::Downstream, Peer::Upstream),
                          TestParameterNames({"Local_Downstream", "Local_Upstream"}));
 
-// NOLINTBEGIN(readability-identifier-naming)
 class ShutdownTest : public ConnectionServiceTest {
 public:
   void SetUp() override {
@@ -1002,7 +997,6 @@ public:
 private:
   uint32_t next_local_id_{0};
 };
-// NOLINTEND(readability-identifier-naming)
 
 TEST_P(ShutdownTest, Shutdown) {
   // Channels 1 and 2 are normal, bound by both peers
@@ -1148,7 +1142,6 @@ INSTANTIATE_TEST_SUITE_P(Shutdown, ShutdownTest,
                          testing::Values(Peer::Downstream, Peer::Upstream),
                          TestParameterNames({"Local_Downstream", "Local_Upstream"}));
 
-// NOLINTBEGIN(readability-identifier-naming)
 class ChannelOpenPreemptRaceTest : public ConnectionServiceTest {
 public:
   using ConnectionServiceTest::ConnectionServiceTest;
@@ -1198,7 +1191,6 @@ public:
 protected:
   uint32_t internal_id_;
 };
-// NOLINTEND(readability-identifier-naming)
 
 TEST_P(ChannelOpenPreemptRaceTest, ChannelOpenConfirmation) {
   // While the remote peer is in the Preempted state, our ChannelOpenConfirmation comes in.

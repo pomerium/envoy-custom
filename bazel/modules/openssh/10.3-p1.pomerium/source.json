@@ -1,0 +1,18 @@
+{
+  "type": "archive",
+  "url": "https://github.com/openssh/openssh-portable/archive/V_10_3_P1.tar.gz",
+  "integrity": "sha256-waRCCxolunM29ir9Qu1ZdNk0VaKrjHabXo4Mj/ju2tw=",
+  "strip_prefix": "openssh-portable-V_10_3_P1",
+  "overlay": {
+    "BUILD": "sha256-+igfdpzITNRvs+sMpAtkNh/Dzo6Vt4a75nSQUKH8+kI=",
+    "config_darwin.h": "sha256-OAgN/br2WpaPmRGS4frYDGbxFl6NMoyHZl0Wyx4nlLE=",
+    "config_linux.h": "sha256-eHHnSowZkm817PdpB7naUC/U9fVq5kTyUujs4/f3HL8="
+  },
+  "patch_strip": 1,
+  "patches": {
+    "0001-libcrypto-rename.patch": "sha256-zYEkrOmt88KBLlhNXvJF+0KH8EISZJc/e1n82GGFHE4=",
+    "0002-no-define-mkstemp.patch": "sha256-wnQWOr6i2PJA0qA0pjT9xbqGqdXIoBROS3u4V2b0oww=",
+    "0003-ssh-sk-null.patch": "sha256-n1/x3SW34llrJeAMTtjCrI1LvJHOH9ZQgK6nnt8acTo=",
+    "0004-configure-asan.patch": "sha256-udRVHCfvk/o9djAiNwruXzgkZ88aeLEyJtyLsGe3m+8="
+  }
+}

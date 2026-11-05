@@ -14,7 +14,7 @@ def luajit_copts():
         "-DLUAJIT_UNWIND_EXTERNAL",
         "-DLUAJIT_ENABLE_LUA52COMPAT",
     ] + select({
-        "@envoy//bazel:dbg_build": ["-DLUA_USE_ASSERT"],
+        "//:dbg_build": ["-DLUA_USE_ASSERT"],
         "//conditions:default": [],
     }) + select(
         {
@@ -35,7 +35,7 @@ def luajit_copts():
 # Extra copts that apply only to host build tools
 def luajit_host_only_copts():
     return select({
-        "@envoy//bazel:asan_build": [
+        "//:asan_build": [
             "-fno-sanitize=undefined",
         ],
         "//conditions:default": [],
@@ -44,7 +44,7 @@ def luajit_host_only_copts():
 # Extra copts that do not apply to host build tools
 def luajit_target_only_copts():
     return select({
-        "@envoy//bazel:asan_build": [
+        "//:asan_build": [
             # False positives maybe related to unknown type info for some function pointers
             "-fno-sanitize=function",
             # There are many instances of UB from the "offsetof" pattern described in
@@ -59,7 +59,7 @@ def luajit_target_only_copts():
 
 def luajit_host_bin_env():
     return select({
-        "@envoy//bazel:asan_build": "ASAN_OPTIONS=detect_leaks=0 ",
+        "//:asan_build": "ASAN_OPTIONS=detect_leaks=0 ",
         "//conditions:default": "",
     })
 

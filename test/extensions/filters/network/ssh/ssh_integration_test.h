@@ -39,11 +39,11 @@ public:
                      IntegrationTestServerStats& server_stats) {
     auto counter_name = fmt::format("cluster.{}.update_success", cluster_name_);
     // Make sure the last version has been accepted before setting a new one.
-    server_stats.waitForCounterGe(counter_name, update_successes_);
+    server_stats.waitForCounter(counter_name, testing::Ge(update_successes_));
     setEds(cluster_load_assignment);
     // Make sure Envoy has consumed the update now that it is running.
     ++update_successes_;
-    server_stats.waitForCounterGe(counter_name, update_successes_);
+    server_stats.waitForCounter(counter_name, testing::Ge(update_successes_));
     RELEASE_ASSERT(update_successes_ == server_stats.counter(counter_name)->value(), "");
   }
 
@@ -187,9 +187,8 @@ protected:
 
   void setClusterLoad(const std::string& cluster_name, std::vector<ClusterLoadOpts> endpoint_opts);
 
-  FakeUpstream& addFakeUpstream(Http::CodecType type, const std::string& name) {
+  FakeUpstream& addFakeUpstream(Http::CodecType type) {
     auto config = configWithType(type);
-    config.dispatcher_name_ = name;
     fake_upstreams_.emplace_back(std::make_unique<FakeUpstream>(0, version_, config));
     return *fake_upstreams_.back();
   }

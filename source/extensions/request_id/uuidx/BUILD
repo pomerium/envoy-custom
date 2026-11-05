@@ -5,8 +5,6 @@ load(
 
 package(default_visibility = ["//visibility:public"])
 
-licenses(["notice"])
-
 envoy_cc_library(
     name = "pomerium_uuidx",
     srcs = [
@@ -15,9 +13,8 @@ envoy_cc_library(
     hdrs = [
         "config.h",
     ],
-    repository = "@envoy",
     deps = [
-        ":uuidx_cc_proto",
+        "//api/extensions/request_id/uuidx:pkg_cc_proto",
         "@envoy//envoy/http:request_id_extension_interface",
         "@envoy//envoy/registry",
         "@envoy//envoy/server:request_id_extension_config_interface",
@@ -28,9 +25,4 @@ envoy_cc_library(
         "@envoy_api//envoy/config/core/v3:pkg_cc_proto",
         "@envoy_api//envoy/extensions/request_id/uuid/v3:pkg_cc_proto",
     ],
-)
-
-cc_proto_library(
-    name = "uuidx_cc_proto",
-    deps = ["//api/extensions/request_id/uuidx:uuidx_proto"],
 )

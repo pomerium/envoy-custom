@@ -1,0 +1,347 @@
+module(name = "pomerium_envoy")
+
+bazel_dep(name = "envoy", version = "1.41.0-dev.20261028.011e396.envoy")
+single_version_override(
+    module_name = "envoy",
+    patch_strip = 1,
+    patches = [
+        # "//patches/envoy:0001-revert-deps-drop-BoringSSL-linkstatic-patch-38621.patch",
+        "//patches/envoy:0002-envoy-copts.patch",
+        # "//patches/envoy:0003-add-external-patches.patch",
+        "//patches/envoy:0004-suppress-duplicate-wip-warnings.patch",
+        "//patches/envoy:0005-user-space-io-handle.patch",
+        "//patches/envoy:0006-fake-upstream.patch",
+        # "//patches/envoy:0007-coverage-format.patch",
+        "//patches/envoy:0008-sanitizer-deps.patch",
+        # "//patches/envoy:0009-luajit.patch",
+        "//patches/envoy:0011-integration-tcp-client-write.patch",
+        "//patches/envoy:0012-generic-proxy-trace-logs.patch",
+        # "//patches/envoy:0013-fuzz-toolchain-path.patch",
+        # "//patches/envoy:0014-disable-coverage-report-rounding.patch",
+        # "//patches/envoy:fix-antlr4-cpp-runtime.patch",
+        "//patches/envoy:fix-integration-test-server-exit.patch",
+        # "//patches/envoy:fix-missing-symbolizer-env.patch",
+        # "//patches/envoy:fix-static-libgcc-flag.patch",
+        "//patches/envoy:fix-tcmalloc-macos-constraints.patch",
+        "//patches/envoy:fix-transport-socket-options.patch",
+        "//patches/envoy:fix-implicit-int-conversion.patch",
+        "//patches/envoy:fix-arena-wrapped-proto-element-type.patch",
+        # "//patches/envoy:fix-allow-dev-shm.patch",  # exists in upstream main but not in 1.38.x
+        # "//patches/envoy:fix-lua-wrappers-test.patch",  # https://github.com/envoyproxy/envoy/pull/45665
+    ],
+)
+
+bazel_dep(name = "toolchains_llvm", version = "1.9.1.envoy")
+single_version_override(
+    module_name = "toolchains_llvm",
+    patch_strip = 1,
+    patches = [
+        "//patches/toolchains_llvm:0002-darwin.patch",
+    ],
+)
+
+bazel_dep(name = "protoc-gen-validate", version = "1.3.3.envoy")
+single_version_override(
+    module_name = "protoc-gen-validate",
+    patch_strip = 1,
+    patches = [
+        "//patches/protoc_gen_validate:fix-utf8-len.patch",
+    ],
+)
+
+bazel_dep(name = "libevent", version = "2.2.2-alpha.envoy")
+
+# TODO this appears to be fixed upstream, need to verify
+# single_version_override(
+#     module_name = "libevent",
+#     patch_strip = 1,
+#     patches = [
+#         "//patches/libevent:0001-macos-skip-kqueue-check.patch",
+#     ],
+# )
+
+bazel_dep(name = "luajit", version = "0.0.0-260126-871db2c.pomerium")
+single_version_override(
+    module_name = "luajit",
+    version = "0.0.0-260126-871db2c.pomerium",
+)
+
+bazel_dep(name = "openssh", version = "10.3-p1.pomerium")
+bazel_dep(name = "abseil-cpp", version = "20260817.0")
+bazel_dep(name = "envoy_api", version = "1.41.0-dev.20261028.011e396.envoy")
+bazel_dep(name = "googleapis", version = "0.0.0-20251003-2193a2bf")
+bazel_dep(name = "platforms", version = "1.1.0")
+bazel_dep(name = "protobuf", version = "35.1.bcr.envoy")
+bazel_dep(name = "proxy-wasm-cpp-host", version = "0.0.0-260704-f2db56a.envoy.1")
+bazel_dep(name = "re2", version = "2025-11-05.bcr.1")
+bazel_dep(name = "rules_cc", version = "0.2.27")
+bazel_dep(name = "rules_pkg", version = "1.3.0")
+bazel_dep(name = "rules_python", version = "2.4.5")
+bazel_dep(name = "rules_go", version = "0.63.0")
+bazel_dep(name = "aspect_bazel_lib", version = "2.22.5")
+bazel_dep(name = "xds", version = "0.0.0-20251210-ee656c7")
+bazel_dep(name = "bazel_skylib", version = "1.9.2")
+
+build_config = use_repo_rule("@bazel_tools//tools/build_defs/repo:local.bzl", "local_repository")
+
+build_config(
+    name = "pomerium_envoy_build_config",
+    path = "bazel/envoy_build_config",
+)
+
+envoy_build_config_ext = use_extension("@envoy//bazel:extensions.bzl", "envoy_build_config_ext")
+
+override_repo(
+    envoy_build_config_ext,
+    envoy_build_config = "pomerium_envoy_build_config",
+)
+
+# override envoy llvm setup
+
+cxx_cross_libs = use_repo_rule("//bazel/cxx_libs:cxx_cross_libs.bzl", "cxx_cross_libs")
+
+cxx_cross_libs(
+    name = "cxx_cross_libs_linux_arm64",
+    arch = "arm64",
+    os = "linux",
+)
+
+cxx_cross_libs(
+    name = "cxx_cross_libs_darwin_arm64",
+    arch = "arm64",
+    os = "macos",
+)
+
+sysroot = use_repo_rule("//bazel/sysroots:sysroot.bzl", "sysroot")
+
+sysroot(
+    name = "minimal_sysroot_linux_amd64",
+    arch = "amd64",
+    os = "linux",
+)
+
+sysroot(
+    name = "minimal_sysroot_linux_arm64",
+    arch = "arm64",
+    os = "linux",
+)
+
+sysroot(
+    name = "minimal_sysroot_macos_arm64",
+    arch = "arm64",
+    os = "macos",
+)
+
+llvm_macos_utils = use_repo_rule("//bazel/llvm_macos_utils:llvm_macos_utils.bzl", "llvm_macos_utils")
+
+llvm_macos_utils(
+    name = "llvm_macos_utils_linux_amd64",
+    arch = "amd64",
+    os = "linux",
+)
+
+llvm_macos_utils(
+    name = "llvm_macos_utils_linux_arm64",
+    arch = "arm64",
+    os = "linux",
+)
+
+llvm_macos_utils(
+    name = "llvm_macos_utils_darwin_arm64",
+    arch = "arm64",
+    os = "macos",
+)
+
+llvm_extras = use_repo_rule("//bazel/llvm_extras:llvm_extras.bzl", "llvm_extras")
+
+llvm_extras(
+    name = "llvm_extras_linux_amd64",
+    arch = "amd64",
+    os = "linux",
+)
+
+llvm_extras(
+    name = "llvm_extras_linux_arm64",
+    arch = "arm64",
+    os = "linux",
+)
+
+llvm = use_extension("@toolchains_llvm//toolchain/extensions:llvm.bzl", "llvm")
+llvm.cxx_cross_lib(
+    name = "llvm_toolchain",
+    label = "@cxx_cross_libs_linux_arm64//:cxx_cross_libs",
+    targets = ["linux-aarch64"],
+)
+llvm.cxx_cross_lib(
+    name = "llvm_toolchain",
+    label = "@cxx_cross_libs_darwin_arm64//:cxx_cross_libs",
+    targets = ["darwin-aarch64"],
+)
+llvm.sysroot(
+    name = "llvm_toolchain",
+    label = "@minimal_sysroot_linux_amd64//:sysroot",
+    targets = ["linux-x86_64"],
+)
+llvm.sysroot(
+    name = "llvm_toolchain",
+    label = "@minimal_sysroot_linux_arm64//:sysroot",
+    targets = ["linux-aarch64"],
+)
+llvm.sysroot(
+    name = "llvm_toolchain",
+    label = "@minimal_sysroot_macos_arm64//:sysroot",
+    targets = ["darwin-aarch64"],
+)
+
+LLVM_VERSION = "23.1.4"
+
+LLVM_MAJOR_VERSION = LLVM_VERSION.split(".")[0]
+
+TOOLCHAIN_INFO = {
+    "llvm_version": LLVM_VERSION,
+    "llvm_major_version": LLVM_MAJOR_VERSION,
+    "repository": "https://github.com/pomerium/toolchain-utils",
+    "release_revision": "2",
+}
+
+TOOLCHAIN_INTEGRITY = {
+    "cxx_cross_libs": {
+        "linux-aarch64": "8fe9339fe1c6cbead72e5b0d8cf03ea89ac78bd1e0c780ee65168057867694f6",
+        "darwin-aarch64": "0971a1ced076f696b1d93eae3baee2cfa765f7896278282860615030c9a2ff5a",
+    },
+    "toolchain": {
+        "linux-x86_64": "b5f532efed9cb2f30bd7fe76adba4eb20c71921d0987d11f2dcf12312ee03195",
+        "linux-aarch64": "2486fb116adba522a89be32483b3aac35a23f42ef468db3ffb54eac5d85a5e04",
+        "darwin-aarch64": "89f38b6e282d9dda6b32c050616233837d498c46054b7badaa54446e8985549c",
+    },
+    "extras": {
+        "linux-x86_64": "deb766c65bfebce41e848cb876006999f06e3416b23b67abe9a4d5bf30cccc10",
+        "linux-aarch64": "91c9ce4f7d679255d42ffe77adb7aa3569f0e391974ee464884690c410a2d194",
+    },
+    "macos_utils": {
+        "linux-x86_64": "8922cc80a8938d21484ef2faebf51b8b9ab9e594f288a0ce51f4c5f1115c8d37",
+        "linux-aarch64": "73dd0b5a4cf7ef1ba8c62da7662d13f66122e4914ed375d27c699476875a6ff7",
+        "darwin-aarch64": "1290297e46af25578e9203d59ddcdf8ac423b43389c0d28bb1c1daff6ca46177",
+    },
+    "sysroot": {
+        "linux-x86_64": "fcfd031a708fed68ded961b4258becf0577c10157a04df8ef5850a8f1e43a794",
+        "linux-aarch64": "43064f795f37c56bb35675d50f7165eabfe0a22ac0114a4870b2440519f75e2c",
+        "darwin-aarch64": "80247f369ccbbd83cd48a87f270b79cddebcfe555447cccd610a7a2bf2e694f7",
+    },
+}
+
+_extra_compile_flags = [
+    # Note: we have a patch that removes these flags from envoy_copts, so that we can add them
+    # here instead, since flags set here are ordered earlier in the compiler command args. This
+    # prevents extra warning related flags from being overridden.
+    "-Wall",
+    "-Wextra",
+    "-Werror",
+]
+
+_extra_cxx_flags = [
+    "-Wno-missing-designated-field-initializers",
+]
+
+llvm.toolchain(
+    name = "llvm_toolchain",
+    cxx_standard = {"": "c++26"},
+    extra_compile_flags = {
+        "linux-x86_64": _extra_compile_flags,
+        "linux-aarch64": _extra_compile_flags,
+        "darwin-aarch64": _extra_compile_flags,
+    },
+    extra_cxx_flags = {
+        "linux-x86_64": _extra_cxx_flags,
+        "linux-aarch64": _extra_cxx_flags,
+        "darwin-aarch64": _extra_cxx_flags,
+    },
+    extra_link_flags = {
+        "linux-x86_64": [
+            "-rtlib=compiler-rt",
+            "-l:libunwind.a",
+        ],
+        "linux-aarch64": [
+            "-rtlib=compiler-rt",
+            "-l:libunwind.a",
+        ],
+        "darwin-aarch64": ["-rtlib=compiler-rt"],
+    },
+    libclang_rt = {
+        "@cxx_cross_libs_linux_arm64//:lib/libclang_rt.builtins.a": "aarch64-unknown-linux-gnu/libclang_rt.builtins.a",
+        "@cxx_cross_libs_linux_arm64//:lib/clang_rt.crtbegin.o": "aarch64-unknown-linux-gnu/clang_rt.crtbegin.o",
+        "@cxx_cross_libs_linux_arm64//:lib/clang_rt.crtend.o": "aarch64-unknown-linux-gnu/clang_rt.crtend.o",
+        "@cxx_cross_libs_darwin_arm64//:lib/libclang_rt.osx.a": "aarch64-apple-macosx/libclang_rt.osx.a",
+    },
+    llvm_version = LLVM_VERSION,
+    sha256 = TOOLCHAIN_INTEGRITY["toolchain"],
+    strip_prefix = {
+        "linux-x86_64": "llvm-{llvm_version}-minimal-linux-amd64".format(llvm_version = TOOLCHAIN_INFO["llvm_version"]),
+        "linux-aarch64": "llvm-{llvm_version}-minimal-linux-arm64".format(llvm_version = TOOLCHAIN_INFO["llvm_version"]),
+        "darwin-aarch64": "llvm-{llvm_version}-minimal-macos-arm64".format(llvm_version = TOOLCHAIN_INFO["llvm_version"]),
+    },
+    urls = {
+        "linux-x86_64": ["{repository}/releases/download/{llvm_version}-{release_revision}/llvm-{llvm_version}-minimal-linux-amd64.tar.zst".format(
+            llvm_version = TOOLCHAIN_INFO["llvm_version"],
+            release_revision = TOOLCHAIN_INFO["release_revision"],
+            repository = TOOLCHAIN_INFO["repository"],
+        )],
+        "linux-aarch64": ["{repository}/releases/download/{llvm_version}-{release_revision}/llvm-{llvm_version}-minimal-linux-arm64.tar.zst".format(
+            llvm_version = TOOLCHAIN_INFO["llvm_version"],
+            release_revision = TOOLCHAIN_INFO["release_revision"],
+            repository = TOOLCHAIN_INFO["repository"],
+        )],
+        "darwin-aarch64": ["{repository}/releases/download/{llvm_version}-{release_revision}/llvm-{llvm_version}-minimal-macos-arm64.tar.zst".format(
+            llvm_version = TOOLCHAIN_INFO["llvm_version"],
+            release_revision = TOOLCHAIN_INFO["release_revision"],
+            repository = TOOLCHAIN_INFO["repository"],
+        )],
+    },
+)
+use_repo(llvm, "llvm_toolchain")
+
+register_toolchains("@llvm_toolchain//:all")
+
+# Go SDK and toolchain configuration
+go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
+go_sdk.download(
+    sdks = {
+        "linux_amd64": ("go1.27.3.linux-amd64.tar.gz", "65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40"),
+        "linux_arm64": ("go1.27.3.linux-arm64.tar.gz", "a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49"),
+        "darwin_arm64": ("go1.27.3.darwin-arm64.tar.gz", "dd3908cf20959d798c1e06ebe5b72213f0505ce01373b40ce3110975a6cd99c2"),
+        "darwin_amd64": ("go1.27.3.darwin-amd64.tar.gz", "b6f8e931e4ab497fcde6da8ae4499a58f9d258e55c8a80824a516eae5950a750"),
+    },
+    version = "1.27.3",
+)
+use_repo(
+    go_sdk,
+    "go_toolchains",
+)
+
+#########################
+
+# pomerium-only dependencies
+bazel_dep(name = "rules_oci", version = "2.3.0")
+bazel_dep(name = "magic_enum", version = "0.9.8")
+bazel_dep(name = "readerwriterqueue", version = "1.0.7")
+bazel_dep(name = "argparse", version = "3.2.0")
+single_version_override(
+    module_name = "argparse",
+    patch_strip = 1,
+    patches = [
+        "//patches/argparse:0001-load-cc-library.patch",
+    ],
+)
+
+# dev dependencies
+
+bazel_dep(name = "buildifier_prebuilt", version = "10.1.0", dev_dependency = True, repo_name = "buildifier")
+bazel_dep(name = "google_benchmark", version = "1.9.5", dev_dependency = True, repo_name = "benchmark")
+bazel_dep(name = "googletest", version = "1.18.0.bcr.1", dev_dependency = True)
+bazel_dep(name = "tclap", version = "1.2.5.bcr.1", dev_dependency = True)
+bazel_dep(name = "hedron_compile_commands", dev_dependency = True)
+git_override(
+    module_name = "hedron_compile_commands",
+    commit = "9f69112e3f61b9df76a8275085dabad36ef37c96",
+    remote = "https://github.com/kralicky/bazel-compile-commands-extractor.git",
+)

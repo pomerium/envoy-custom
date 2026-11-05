@@ -10,8 +10,8 @@ def _sysroot_impl(rctx):
         "arm64": "aarch64",
     }
     rctx.download_and_extract(
-        sha256 = TOOLCHAIN_INTEGRITY.sysroot["%s-%s" % (_os_mapping[rctx.attr.os], _arch_mapping[rctx.attr.arch])],
-        stripPrefix = "%s_%s" % (rctx.attr.os, rctx.attr.arch),
+        sha256 = TOOLCHAIN_INTEGRITY["sysroot"]["%s-%s" % (_os_mapping[rctx.attr.os], _arch_mapping[rctx.attr.arch])],
+        strip_prefix = "%s_%s" % (rctx.attr.os, rctx.attr.arch),
         url = ["{repository}/releases/download/{llvm_version}-{release_revision}/sysroot-{attr_os}-{attr_arch}.tar.zst".format(
             attr_os = rctx.attr.os,
             attr_arch = rctx.attr.arch,
@@ -21,7 +21,7 @@ def _sysroot_impl(rctx):
     rctx.file("BUILD", """
 filegroup(
     name = "sysroot",
-    srcs = glob(["**"]),
+    srcs = ["."],
     visibility = ["//visibility:public"],
 )
 """)

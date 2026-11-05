@@ -10,10 +10,8 @@
 #include "test/extensions/filters/network/ssh/wire/test_field_reflect.h"
 #include "test/test_common/logging.h"
 
-#pragma clang unsafe_buffer_usage begin
 #include "absl/strings/str_split.h"
 #include "absl/strings/str_replace.h"
-#pragma clang unsafe_buffer_usage end
 
 extern "C" {
 #include "openssh/ssh2.h"

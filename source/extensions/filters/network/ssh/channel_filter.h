@@ -3,9 +3,8 @@
 #include "source/extensions/filters/network/ssh/channel.h"
 #include "source/extensions/filters/network/ssh/filter_state_objects.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
-#pragma clang unsafe_buffer_usage begin
+
 #include "envoy/event/dispatcher.h"
-#pragma clang unsafe_buffer_usage end
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 

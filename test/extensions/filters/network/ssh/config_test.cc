@@ -5,11 +5,9 @@
 #include "test/test_common/test_common.h"
 #include "test/test_common/registry.h"
 
-#pragma clang unsafe_buffer_usage begin
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
 #include "api/extensions/filters/network/ssh/ssh.pb.validate.h"
 #include "source/extensions/filters/network/generic_proxy/interface/codec.h"
-#pragma clang unsafe_buffer_usage end
 
 #include "gtest/gtest.h"
 #include "gmock/gmock.h"

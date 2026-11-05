@@ -1,8 +1,6 @@
 #pragma once
 
-#pragma clang unsafe_buffer_usage begin
 #include "api/extensions/filters/network/ssh/ssh.pb.h"
-#pragma clang unsafe_buffer_usage end
 #include "source/extensions/filters/network/ssh/common.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {

@@ -27,7 +27,6 @@ envoy_cc_test(
     linkopts = [
         "-Wl,-E",
     ],
-    repository = "@envoy",
     shard_count = 8,
     deps = [
         "//api/extensions/bootstrap/dynamic_extension_loader:pkg_cc_proto",
@@ -44,7 +43,6 @@ envoy_cc_test(
 envoy_cc_test(
     name = "metadata_test",
     srcs = ["metadata_test.cc"],
-    repository = "@envoy",
     deps = [
         "//source/common/dynamic_extensions:metadata_lib",
     ],

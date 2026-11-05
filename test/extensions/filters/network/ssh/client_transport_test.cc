@@ -25,7 +25,6 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 namespace test {
 
 using namespace pomerium::extensions::ssh;
-// NOLINTBEGIN(readability-identifier-naming)
 
 MATCHER_P(FrameContainingMsg, msg, "") {
   if constexpr (std::is_same_v<arg_type, std::unique_ptr<CommonFrame>>) {
@@ -110,26 +109,22 @@ public:
     mock_connection_.streamInfo().filterState()->setData(
       ChannelIDManagerFilterStateKey,
       channel_id_manager_,
-      StreamInfo::FilterState::StateType::Mutable,
       StreamInfo::FilterState::LifeSpan::Connection,
       StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
     // same with channel filter manager
     mock_connection_.streamInfo().filterState()->setData(
       ChannelFilterManagerFilterStateKey,
       channel_filter_manager_,
-      StreamInfo::FilterState::StateType::Mutable,
       StreamInfo::FilterState::LifeSpan::Connection,
       StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
     mock_connection_.streamInfo().filterState()->setData(
       RequestedServerName::key(),
       std::make_shared<RequestedServerName>("example_server_name"),
-      StreamInfo::FilterState::StateType::ReadOnly,
       StreamInfo::FilterState::LifeSpan::Request,
       StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
     mock_connection_.streamInfo().filterState()->setData(
       DownstreamSourceAddressFilterStateFactory::key(),
       std::make_shared<Network::AddressObject>(std::make_shared<Network::Address::Ipv4Instance>("127.0.0.1", 12345)),
-      StreamInfo::FilterState::StateType::ReadOnly,
       StreamInfo::FilterState::LifeSpan::Request,
       StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
 
@@ -150,7 +145,6 @@ public:
     ASSERT(!mock_connection_.streamInfo().filterState()->hasDataWithName(AuthInfoFilterStateKey));
     mock_connection_.streamInfo().filterState()->setData(
       AuthInfoFilterStateKey, info,
-      StreamInfo::FilterState::StateType::Mutable,
       StreamInfo::FilterState::LifeSpan::Request,
       StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
   }
@@ -535,7 +529,6 @@ private:
     return conf;
   }
 };
-// NOLINTEND(readability-identifier-naming)
 
 TEST_F(ClientTransportTest, ExchangeExtInfo) {
   ASSERT_OK(StartTransportNormal());

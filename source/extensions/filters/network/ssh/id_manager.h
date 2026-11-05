@@ -6,10 +6,8 @@
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/common.h"
 
-#pragma clang unsafe_buffer_usage begin
 #include "envoy/event/dispatcher.h"
 #include "source/common/common/callback_impl.h"
-#pragma clang unsafe_buffer_usage end
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 

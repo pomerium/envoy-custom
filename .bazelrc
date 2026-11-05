@@ -1,2 +1,3 @@
 import %workspace%/envoy.bazelrc
 import %workspace%/pomerium.bazelrc
+try-import-if-bazel-version >=9.4.0 %workspace%/pomerium.9.4.bazelrc

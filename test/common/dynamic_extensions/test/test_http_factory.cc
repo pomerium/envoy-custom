@@ -39,6 +39,6 @@ public:
 
 DYNAMIC_EXTENSION_USE_FACTORY_BASE(Envoy::Server::Configuration::NamedHttpFilterConfigFactory);
 
-DYNAMIC_EXTENSION_EXPORT void dynamicExtensionInit(Envoy::Server::Instance& server) {
+DYNAMIC_EXTENSION_EXPORT void dynamicExtensionInit(Envoy::Server::Instance&) {
   DYNAMIC_EXTENSION_REGISTER_FACTORY(TestExtensionHttpFilterFactory, Envoy::Server::Configuration::NamedHttpFilterConfigFactory);
 }

@@ -5,8 +5,6 @@ load(
 
 package(default_visibility = ["//visibility:public"])
 
-licenses(["notice"])
-
 envoy_cc_library(
     name = "dynamic_extension_loader",
     srcs = [
@@ -19,7 +17,6 @@ envoy_cc_library(
         "handle.h",
         "loader.h",
     ],
-    repository = "@envoy",
     deps = [
         "//api/extensions/bootstrap/dynamic_extension_loader:pkg_cc_proto",
         "//source/common:common_lib",

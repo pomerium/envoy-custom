@@ -153,7 +153,6 @@ struct KexSequence {
   struct promise_type;
   using handle_type = std::coroutine_handle<promise_type>;
 
-  // NOLINTBEGIN(readability-identifier-naming)
   struct promise_type {
     int suspension_point{0};
     std::optional<absl::Status> result;
@@ -177,7 +176,6 @@ struct KexSequence {
       return {};
     }
   };
-  // NOLINTEND(readability-identifier-naming)
 
   KexSequence(const KexSequence&) = delete;
   KexSequence(KexSequence&& other) noexcept {

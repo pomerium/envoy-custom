@@ -104,7 +104,6 @@ private:
 
 REGISTER_FACTORY(TestChannelFilterFactoryConfig, ChannelFilterFactoryConfig);
 
-// NOLINTBEGIN(readability-identifier-naming)
 class ChannelFilterManagerIntegrationTest : public testing::Test,
                                             public SshIntegrationTest {
 public:
@@ -193,7 +192,6 @@ public:
   std::shared_ptr<SshConnectionDriver> driver1_;
   std::shared_ptr<SshConnectionDriver> driver2_;
 };
-// NOLINTEND(readability-identifier-naming)
 
 TEST_F(ChannelFilterManagerIntegrationTest, TestChannelFilterManagerPerConnection) {
   // Test that one ChannelFilterManager instance is created for each connection

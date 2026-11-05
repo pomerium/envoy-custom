@@ -10,8 +10,8 @@ def _llvm_extras_impl(rctx):
         "arm64": "aarch64",
     }
     rctx.download_and_extract(
-        sha256 = TOOLCHAIN_INTEGRITY.extras["%s-%s" % (_os_mapping[rctx.attr.os], _arch_mapping[rctx.attr.arch])],
-        stripPrefix = "llvm-extras-{llvm_version}-{attr_os}-{attr_arch}".format(
+        sha256 = TOOLCHAIN_INTEGRITY["extras"]["%s-%s" % (_os_mapping[rctx.attr.os], _arch_mapping[rctx.attr.arch])],
+        strip_prefix = "llvm-extras-{llvm_version}-{attr_os}-{attr_arch}".format(
             attr_os = rctx.attr.os,
             attr_arch = rctx.attr.arch,
             **TOOLCHAIN_INFO

@@ -3,10 +3,8 @@
 #include <concepts>
 #include <set>
 
-#pragma clang unsafe_buffer_usage begin
 #include "absl/status/statusor.h"
 #include "source/common/common/assert.h"
-#pragma clang unsafe_buffer_usage end
 
 // A basic numeric ID allocator for unsigned integer types.
 // To allocate a new identifier, call alloc(). When an identifier is no longer needed and should

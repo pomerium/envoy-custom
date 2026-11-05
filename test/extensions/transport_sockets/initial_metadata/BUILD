@@ -9,7 +9,6 @@ envoy_package()
 envoy_cc_test(
     name = "initial_metadata_test",
     srcs = ["initial_metadata_test.cc"],
-    repository = "@envoy",
     deps = [
         "//source/extensions/transport_sockets/initial_metadata:pomerium_initial_metadata",
         "//test/test_common:test_common_lib",

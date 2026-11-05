@@ -188,7 +188,7 @@ std::string_view strtabCStrView(bytes_view view) {
 bool flag_demangle;
 
 absl::Status sanityCheck(const MmapFileHandle& f) {
-  if (f.info_.st_size < sizeof(Elf64_Ehdr)) {
+  if (static_cast<size_t>(f.info_.st_size) < sizeof(Elf64_Ehdr)) {
     return absl::InvalidArgumentError("file is not an ELF binary");
   }
   auto* header = reinterpret_cast<const Elf64_Ehdr*>(f.addr_);
@@ -205,7 +205,7 @@ absl::Status sanityCheck(const MmapFileHandle& f) {
     return absl::InvalidArgumentError("ELF binary is not supported");
   }
 
-  if (f.info_.st_size < header->e_shoff + header->e_shnum * sizeof(Elf64_Shdr)) {
+  if (static_cast<size_t>(f.info_.st_size) < header->e_shoff + header->e_shnum * sizeof(Elf64_Shdr)) {
     return absl::InvalidArgumentError("failed to read section headers");
   }
   return absl::OkStatus();

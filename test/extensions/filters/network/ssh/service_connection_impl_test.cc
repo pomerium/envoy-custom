@@ -159,7 +159,7 @@ TEST_F(DownstreamConnectionServiceTest, TestSendChannelEvent) {
 
 TEST_F(DownstreamConnectionServiceTest, TestReceiveInvalidServerMessage) {
   EXPECT_EQ(absl::InternalError("invalid server message"),
-            service_->handleMessage(std::make_unique<ServerMessage>()));
+            service_->handleMessage(ArenaWrappedProto<ServerMessage>()));
 }
 
 TEST_F(DownstreamConnectionServiceTest, TestStatsTimer) {
@@ -224,7 +224,6 @@ TEST_F(DownstreamConnectionServiceTest, TestStatsTimer) {
   EXPECT_EQ(2, stats2.tx_bytes_total());
 }
 
-// NOLINTBEGIN(readability-identifier-naming)
 template <typename BaseTest>
 class ChannelFiltersTest : public BaseTest {
 public:
@@ -422,7 +421,6 @@ public:
     }));
   }
 };
-// NOLINTEND(readability-identifier-naming)
 
 TEST_F(ChannelReadFiltersTest, TestChannelReadFilters) {
   IN_SEQUENCE;
@@ -560,7 +558,6 @@ TEST_F(ChannelReadFiltersTest, TestChannelReadFilters_ErrorOnMessageForward) {
   EXPECT_EQ(absl::InternalError("test error"), stat);
 }
 
-// NOLINTBEGIN(readability-identifier-naming)
 class ChannelWriteFiltersTest : public ChannelFiltersTest<UpstreamConnectionServiceTest> {
 public:
   void ExpectForwardChannelOpenConfirmation() {
@@ -659,7 +656,6 @@ public:
     }));
   }
 };
-// NOLINTEND(readability-identifier-naming)
 
 TEST_F(ChannelWriteFiltersTest, TestChannelWriteFilters) {
   IN_SEQUENCE;

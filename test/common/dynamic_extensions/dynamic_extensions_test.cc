@@ -13,8 +13,6 @@ using namespace std::literals;
 #define SANITIZER_ENABLED
 #endif
 
-// NOLINTBEGIN(readability-identifier-naming)
-
 class DynamicExtensionsIntegrationTest : public testing::Test,
                                          public Envoy::BaseIntegrationTest {
 public:
@@ -174,7 +172,6 @@ public:
     return AssertionFailure() << "extension was not reported as failed by the admin api";
   }
 };
-// NOLINTEND(readability-identifier-naming)
 
 int test_no_config_dynamic_extension_init_called{};
 

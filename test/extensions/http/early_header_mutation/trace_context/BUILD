@@ -5,18 +5,14 @@ load(
 
 package(default_visibility = ["//visibility:public"])
 
-licenses(["notice"])
-
 envoy_cc_test(
     name = "trace_context_test",
     srcs = [
         "config_test.cc",
         "trace_context_test.cc",
     ],
-    repository = "@envoy",
     deps = [
         "//source/extensions/http/early_header_mutation/trace_context:pomerium_trace_context",
-        "//source/extensions/http/early_header_mutation/trace_context:trace_context_cc_proto",
         "@abseil-cpp//absl/random",
         "@envoy//source/common/common:random_generator_lib",
         "@envoy//test/mocks/runtime:runtime_mocks",

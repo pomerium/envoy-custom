@@ -29,7 +29,6 @@ namespace test {
 
 using namespace pomerium::extensions::ssh;
 
-// NOLINTBEGIN(readability-identifier-naming)
 class ServerTransportTest : public testing::Test {
 public:
   ServerTransportTest()
@@ -171,7 +170,6 @@ public:
     ASSERT(!mock_connection_.streamInfo().filterState()->hasDataWithName(AuthInfoFilterStateKey));
     mock_connection_.streamInfo().filterState()->setData(
       AuthInfoFilterStateKey, info,
-      StreamInfo::FilterState::StateType::Mutable,
       StreamInfo::FilterState::LifeSpan::Request,
       StreamInfo::StreamSharingMayImpactPooling::SharedWithUpstreamConnectionOnce);
   }
@@ -263,7 +261,7 @@ public:
 
     EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(client_msg), false))
       .WillOnce([this, publicKeyMethodRequest](Buffer::InstancePtr&, bool) {
-        auto response = std::make_unique<ServerMessage>();
+        auto response = ArenaWrappedProto<ServerMessage>();
         auto* allow = response->mutable_auth_response()->mutable_allow();
         allow->set_login_name("test");
         auto* upstream = allow->mutable_upstream();
@@ -279,7 +277,7 @@ public:
 
     EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(clientMsg), false))
       .WillOnce([this, publicKeyMethodRequest, add_well_known_metadata](Buffer::InstancePtr&, bool) {
-        auto response = std::make_unique<ServerMessage>();
+        auto response = ArenaWrappedProto<ServerMessage>();
         auto* allow = response->mutable_auth_response()->mutable_allow();
         util::populateAuthContext(*allow->mutable_auth_context(), publicKeyMethodRequest);
 
@@ -398,7 +396,6 @@ MATCHER_P(RequestCommonFrameWithMsg, msg, "") {
   *result_listener << actual;
   return false;
 }
-// NOLINTEND(readability-identifier-naming)
 
 TEST_F(ServerTransportTest, Disconnect) {
   EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("received disconnect: by application"sv));
@@ -731,7 +728,6 @@ TEST_F(ServerTransportTest, ForwardGlobalRequests) {
   ASSERT_OK(WriteMsg(auto(cancelTcpipForwardMsg)));
 }
 
-// NOLINTBEGIN(readability-identifier-naming)
 class ChannelFilterConfigTest : public ServerTransportTest {
 public:
   void SetUp() override {
@@ -751,7 +747,6 @@ public:
     SetupChannelFilterManager();
   }
 };
-// NOLINTEND(readability-identifier-naming)
 
 TEST_F(ChannelFilterConfigTest, ConfigureChannelFilters) {
   ASSERT_OK(ReadExtInfo());
@@ -763,7 +758,7 @@ TEST_F(ChannelFilterConfigTest, ConfigureChannelFilters) {
 
   EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(clientMsg), false))
     .WillOnce([this, &clientKey](Buffer::InstancePtr&, bool) {
-      auto response = std::make_unique<ServerMessage>();
+      auto response = ArenaWrappedProto<ServerMessage>();
       auto* allow = response->mutable_auth_response()->mutable_allow();
       allow->set_login_name("test");
       util::populateAuthContext(*allow->mutable_auth_context(), *clientKey);
@@ -800,7 +795,7 @@ TEST_F(ChannelFilterConfigTest, ConfigureChannelFilters_InvalidChannelFilterConf
 
   EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(clientMsg), false))
     .WillOnce([this, &clientKey](Buffer::InstancePtr&, bool) {
-      auto response = std::make_unique<ServerMessage>();
+      auto response = ArenaWrappedProto<ServerMessage>();
       auto* allow = response->mutable_auth_response()->mutable_allow();
       allow->set_login_name("test");
       auto* upstream = allow->mutable_upstream();
@@ -833,7 +828,7 @@ TEST_F(ChannelFilterConfigTest, ConfigureChannelFilters_ChannelFilterNotFound) {
 
   EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(clientMsg), false))
     .WillOnce([this, &clientKey](Buffer::InstancePtr&, bool) {
-      auto response = std::make_unique<ServerMessage>();
+      auto response = ArenaWrappedProto<ServerMessage>();
       auto* allow = response->mutable_auth_response()->mutable_allow();
       allow->set_login_name("test");
       auto* upstream = allow->mutable_upstream();
@@ -860,7 +855,6 @@ TEST_F(ChannelFilterConfigTest, ConfigureChannelFilters_ChannelFilterNotFound) {
   EXPECT_TRUE(transport_.channelFilterManager().allFilterNames().empty());
 }
 
-// NOLINTBEGIN(readability-identifier-naming)
 class HijackedModeTest : public ServerTransportTest {
 public:
   absl::Status SetupHijackedMode() {
@@ -964,7 +958,6 @@ public:
 protected:
   uint32_t last_downstream_id_ = 0;
 };
-// NOLINTEND(readability-identifier-naming)
 
 TEST_F(HijackedModeTest, HijackedMode) {
   ASSERT_OK(SetupHijackedMode());
@@ -1453,7 +1446,7 @@ TEST_F(HijackedModeTest, TcpipForwardRequestSuccess) {
   EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(expectedClientMsg), false))
     .WillOnce([this](Buffer::InstancePtr&, bool) {
       // simulate the server responding
-      auto response = std::make_unique<ServerMessage>();
+      auto response = ArenaWrappedProto<ServerMessage>();
       response->mutable_global_request_response()->set_success(true);
       response->mutable_global_request_response()->mutable_tcpip_forward_response()->set_server_port(1234);
       manage_stream_callbacks_->onReceiveMessage(std::move(response));
@@ -1498,7 +1491,7 @@ TEST_F(HijackedModeTest, TcpipForwardRequestSuccess_NoExtraData) {
 
   EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(expectedClientMsg), false))
     .WillOnce([this](Buffer::InstancePtr&, bool) {
-      auto response = std::make_unique<ServerMessage>();
+      auto response = ArenaWrappedProto<ServerMessage>();
       response->mutable_global_request_response()->set_success(true);
       // no message-specific extra data
       manage_stream_callbacks_->onReceiveMessage(std::move(response));
@@ -1529,7 +1522,7 @@ TEST_F(HijackedModeTest, TcpipForwardRequestFailure) {
 
   EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(expectedClientMsg), false))
     .WillOnce([this](Buffer::InstancePtr&, bool) {
-      auto response = std::make_unique<ServerMessage>();
+      auto response = ArenaWrappedProto<ServerMessage>();
       response->mutable_global_request_response()->set_success(false);
       manage_stream_callbacks_->onReceiveMessage(std::move(response));
     });
@@ -1557,7 +1550,7 @@ TEST_F(HijackedModeTest, TcpipForwardRequestFailureWithDebugMessage) {
 
   EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(expectedClientMsg), false))
     .WillOnce([this](Buffer::InstancePtr&, bool) {
-      auto response = std::make_unique<ServerMessage>();
+      auto response = ArenaWrappedProto<ServerMessage>();
       response->mutable_global_request_response()->set_success(false);
       response->mutable_global_request_response()->set_debug_message("test debug message");
       manage_stream_callbacks_->onReceiveMessage(std::move(response));
@@ -1589,7 +1582,7 @@ TEST_F(HijackedModeTest, TcpipForwardRequestInvalidServerMessage) {
 
   EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(expectedClientMsg), false))
     .WillOnce([this](Buffer::InstancePtr&, bool) {
-      auto response = std::make_unique<ServerMessage>();
+      auto response = ArenaWrappedProto<ServerMessage>();
       manage_stream_callbacks_->onReceiveMessage(std::move(response));
     });
 
@@ -1613,7 +1606,7 @@ TEST_F(HijackedModeTest, CancelTcpipForwardRequest) {
 
   EXPECT_CALL(manage_stream_stream_, sendMessageRaw_(ProtoBufferStrictEq(expectedClientMsg), false))
     .WillOnce([this](Buffer::InstancePtr&, bool) {
-      auto response = std::make_unique<ServerMessage>();
+      auto response = ArenaWrappedProto<ServerMessage>();
       response->mutable_global_request_response()->set_success(true);
       manage_stream_callbacks_->onReceiveMessage(std::move(response));
     });
@@ -1632,7 +1625,6 @@ TEST_F(HijackedModeTest, CancelTcpipForwardRequest) {
   ASSERT_FALSE(actualReply.response.has_unknown_value());
 }
 
-// NOLINTBEGIN(readability-identifier-naming)
 class HandoffTest : public ServerTransportTest {
 public:
   absl::Status PrepareHandoff(const openssh::SSHKey& client_key) {
@@ -1710,8 +1702,6 @@ public:
     return ctrl;
   }
 };
-
-// NOLINTEND(readability-identifier-naming)
 
 TEST_F(HandoffTest, HandoffMode) {
   auto clientKey = *openssh::SSHKey::generate(KEY_ED25519, 256);
@@ -1878,7 +1868,7 @@ TEST_F(HandoffTest, HandoffMode_ConfigureChannelFilters) {
 
   auto msg = BuildHandOffChannelMessage(*clientKey);
   SSHChannelControlAction action;
-  msg.mutable_channel_control()->mutable_control_action()->UnpackTo(&action);
+  ASSERT_TRUE(msg.mutable_channel_control()->mutable_control_action()->UnpackTo(&action));
   auto* filter = action.mutable_hand_off()->mutable_upstream_auth()->mutable_upstream()->add_channel_filters();
   filter->set_name("test_channel_filter");
   Envoy::Protobuf::StringValue v;
@@ -1916,7 +1906,7 @@ TEST_F(HandoffTest, HandoffMode_ConfigureChannelFiltersError) {
 
   auto msg = BuildHandOffChannelMessage(*clientKey);
   SSHChannelControlAction action;
-  msg.mutable_channel_control()->mutable_control_action()->UnpackTo(&action);
+  ASSERT_TRUE(msg.mutable_channel_control()->mutable_control_action()->UnpackTo(&action));
   auto* filter = action.mutable_hand_off()->mutable_upstream_auth()->mutable_upstream()->add_channel_filters();
   filter->set_name("test_channel_filter");
   Envoy::Protobuf::Int64Value v;

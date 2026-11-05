@@ -1,38 +1,36 @@
-# The io_bazel_rules_go stdlib target passes a --no-gc-sections linker argument.
-build:linux --copt="-Wno-error=unused-command-line-argument"
-# The quiche library is partially annotated for nullability.
-build --copt="-Wno-nullability-completeness"
-build --cxxopt=-std=c++23 --host_cxxopt=-std=c++23
-build --config=clang
+common --registry=file://%workspace%/bazel
 
 build:asan-common --test_env=UBSAN_SYMBOLIZER_PATH
 build:tsan --test_env=TSAN_SYMBOLIZER_PATH
 
 build --define=google_grpc=disabled
 
-# The following options are required to build using hermetic llvm without gcc:
-
 # Force all cc targets built with the llvm toolchain to use compiler-rt and libunwind. This removes
 # the dependency on libgcc.
 common:clang-common --@toolchains_llvm//toolchain/config:compiler-rt=true
 common:clang-common --@toolchains_llvm//toolchain/config:libunwind=true
-# Same as above, but applies to foreign_cc targets using autotools/cmake, which may not inherit the
-# link flags applied by the toolchain.
-# FIXME: this should not be necessary, but not having it breaks c-only foreign_cc dependencies
-# that use cmake. The c-only targets DO inherit flags from the toolchain's conly_flags option, but
-# that also breaks other C targets when set due to unused compiler flag errors.
-common:libc++ --action_env=LDFLAGS="-stdlib=libc++ -fuse-ld=lld -rtlib=compiler-rt"
-common:sanitizer --action_env=LDFLAGS="-stdlib=libc++ -fuse-ld=lld -rtlib=compiler-rt -l:libunwind.a"
-common:coverage --action_env=LDFLAGS="-stdlib=libc++ -fuse-ld=lld -rtlib=compiler-rt -l:libunwind.a"
-
-# Disable cgo. If cgo is enabled, some of the cc toolchain flags will propagate to the go toolchain,
-# which causes fPIC mismatch errors.
-build --@io_bazel_rules_go//go/config:pure=True
 
 build --macos_minimum_os=14.5
 build:linux --features=-libtool
 
 build:coverage --@envoy//tools/coverage:config=@pomerium_envoy//test:coverage_config
+
+build --features=external_include_paths
+
+# Disable commonly encountered warnings in all external dependencies
+build --per_file_copt=^(external|bazel-out/.*/bin/external)/.*@-Wno-unused-parameter,-Wno-unused-but-set-global,-Wno-sign-compare
+build --host_per_file_copt=^(external|bazel-out/.*/bin/external)/.*@-Wno-unused-parameter,-Wno-unused-but-set-global,-Wno-sign-compare
+
+# Disable warnings in specific external dependencies
+build --per_file_copt=external/protobuf.*/.*@-Wno-missing-field-initializers
+build --host_per_file_copt=external/protobuf.*/.*@-Wno-missing-field-initializers
+build --per_file_copt=external/tcmalloc.*/.*@-Wno-attribute-alias
+build --host_per_file_copt=external/tcmalloc.*/.*@-Wno-attribute-alias
+build --per_file_copt=external/gperftools.*/.*@-Wno-unused-function,-Wno-implicit-exception-spec-mismatch,-Wno-missing-exception-spec
+build --host_per_file_copt=external/gperftools.*/.*@-Wno-unused-function,-Wno-implicit-exception-spec-mismatch,-Wno-missing-exception-spec
+
+# Disable cgo to prevent C toolchain flags from affecting go builds
+build --@rules_go//go/config:pure=true
 
 common:buildbarn --remote_executor=grpc://frontend.buildbarn.svc.cluster.local:8980
 common:buildbarn --remote_cache=grpc://frontend.buildbarn.svc.cluster.local:8980

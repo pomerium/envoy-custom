@@ -1,0 +1,10 @@
+{
+  "homepage": "https://luajit.org/",
+  "repository": [
+    "github:LuaJIT/LuaJIT"
+  ],
+  "versions": [
+    "0.0.0-260126-871db2c.pomerium"
+  ],
+  "yanked_versions": {}
+}

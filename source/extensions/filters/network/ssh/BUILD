@@ -5,8 +5,6 @@ load(
 
 package(default_visibility = ["//visibility:public"])
 
-licenses(["notice"])
-
 envoy_cc_library(
     name = "openssh_lib",
     srcs = [
@@ -15,14 +13,13 @@ envoy_cc_library(
     hdrs = [
         "openssh.h",
     ],
-    repository = "@envoy",
     deps = [
         ":ssh_common_lib",
         "//api/extensions/filters/network/ssh:pkg_cc_proto",
         "//source/common:common_lib",
         "//source/extensions/filters/network/ssh/wire:wire_lib",
         "@envoy//source/common/buffer:buffer_lib",
-        "@openssh_portable//:libssh",
+        "@openssh//:libssh",
     ],
     alwayslink = True,
 )
@@ -90,7 +87,6 @@ envoy_cc_library(
         "-Wimplicit-int-conversion",
         "-Wunsafe-buffer-usage",
     ],
-    repository = "@envoy",
     deps = [
         ":openssh_lib",
         ":ssh_common_lib",
@@ -121,7 +117,6 @@ envoy_cc_library(
     name = "ssh_common_lib",
     srcs = [],
     hdrs = ["common.h"],
-    repository = "@envoy",
     deps = [
         "//source/common:common_lib",
         "@envoy//source/common/common:fmt_lib",

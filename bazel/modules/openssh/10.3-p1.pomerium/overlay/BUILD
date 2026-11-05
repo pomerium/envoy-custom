@@ -47,8 +47,8 @@ config_setting(
 copy_file(
     name = "config_h",
     src = select({
-        ":darwin": "@pomerium_envoy//bazel/foreign_cc/openssh/include/config_darwin:config.h",
-        "//conditions:default": "@pomerium_envoy//bazel/foreign_cc/openssh/include/config_linux:config.h",
+        ":darwin": "//:config_darwin.h",
+        "//conditions:default": "//:config_linux.h",
     }),
     out = "config.h",
 )
@@ -130,6 +130,8 @@ cc_library(
     }),
     copts = [
         "-Wno-pointer-sign",
+        "-Wno-sign-compare",
+        "-Wno-unterminated-string-initialization",
         "-Wno-unused-parameter",
         "-Wno-unused-result",
         "-ftrapv",
@@ -148,16 +150,13 @@ cc_library(
     ],
     linkopts = select({
         "@platforms//os:osx": ["-lresolv.9"],
-        "//conditions:default": [
-            "-lcrypt",
-            "-lresolv",
-        ],
+        "//conditions:default": [],
     }),
     linkstatic = True,
     visibility = ["//visibility:public"],
     deps = [
-        "@envoy//bazel:crypto",
-        "@envoy//bazel:ssl",
+        "@boringssl//:crypto",
+        "@boringssl//:ssl",
     ],
     alwayslink = True,
 )

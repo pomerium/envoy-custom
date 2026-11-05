@@ -1,8 +1,6 @@
 #pragma once
 
-#pragma clang unsafe_buffer_usage begin
 #include "source/common/network/filter_state_dst_address.h"
-#pragma clang unsafe_buffer_usage end
 
 #include "source/extensions/filters/network/ssh/transport_common.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"

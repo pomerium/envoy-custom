@@ -11,7 +11,6 @@ licenses(["notice"])  # Apache 2
 envoy_cc_test(
     name = "grpc_event_sink_test",
     srcs = ["event_sink_test.cc"],
-    repository = "@envoy",
     deps = [
         "//source/extensions/health_check/event_sinks/grpc:grpc_event_sink",
         "//test/test_common:test_common_lib",

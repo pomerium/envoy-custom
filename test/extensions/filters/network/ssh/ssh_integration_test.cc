@@ -52,13 +52,13 @@ SshIntegrationTest::SshIntegrationTest(std::vector<std::string> ssh_routes, Netw
     configureUpstreamTunnelCluster(tcpCluster);
     bootstrap.mutable_static_resources()->add_clusters()->CopyFrom(tcpCluster);
   });
-  mgmt_upstream_ = std::make_unique<FakeUpstreamShimImpl>(&addFakeUpstream(Http::CodecType::HTTP2, "mgmt_upstream"));
+  mgmt_upstream_ = std::make_unique<FakeUpstreamShimImpl>(&addFakeUpstream(Http::CodecType::HTTP2));
   for (size_t i = 0; i < ssh_routes.size(); i++) {
-    ssh_upstreams_.push_back(std::make_unique<FakeUpstreamShimImpl>(&addFakeUpstream(Http::CodecType::HTTP1, "ssh_upstream_" + ssh_routes[i]))); // codec type is unused here
+    ssh_upstreams_.push_back(std::make_unique<FakeUpstreamShimImpl>(&addFakeUpstream(Http::CodecType::HTTP1))); // codec type is unused here
   }
-  http_upstream_1_ = std::make_unique<FakeUpstreamShimImpl>(&addFakeUpstream(Http::CodecType::HTTP1, "http_upstream_1"));
-  http_upstream_2_ = std::make_unique<FakeUpstreamShimImpl>(&addFakeUpstream(Http::CodecType::HTTP1, "http_upstream_2"));
-  tcp_upstream_ = std::make_unique<FakeUpstreamShimImpl>(&addFakeUpstream(Http::CodecType::HTTP1, "tcp_upstream")); // codec type is unused here
+  http_upstream_1_ = std::make_unique<FakeUpstreamShimImpl>(&addFakeUpstream(Http::CodecType::HTTP1));
+  http_upstream_2_ = std::make_unique<FakeUpstreamShimImpl>(&addFakeUpstream(Http::CodecType::HTTP1));
+  tcp_upstream_ = std::make_unique<FakeUpstreamShimImpl>(&addFakeUpstream(Http::CodecType::HTTP1)); // codec type is unused here
 }
 
 SshIntegrationTest::~SshIntegrationTest() = default;
