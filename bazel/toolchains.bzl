@@ -1,38 +1,38 @@
 # load("@toolchains_llvm//toolchain:rules.bzl", "llvm_toolchain")
+LLVM_VERSION = "23.1.5"
 
-LLVM_VERSION = "23.1.4"
 LLVM_MAJOR_VERSION = LLVM_VERSION.split(".")[0]
 
 TOOLCHAIN_INFO = {
     "llvm_version": LLVM_VERSION,
     "llvm_major_version": LLVM_MAJOR_VERSION,
     "repository": "https://github.com/pomerium/toolchain-utils",
-    "release_revision": "2",
+    "release_revision": "0",
 }
 
 TOOLCHAIN_INTEGRITY = {
     "cxx_cross_libs": {
-        "linux-aarch64": "8fe9339fe1c6cbead72e5b0d8cf03ea89ac78bd1e0c780ee65168057867694f6",
-        "darwin-aarch64": "0971a1ced076f696b1d93eae3baee2cfa765f7896278282860615030c9a2ff5a",
+        "linux-aarch64": "e40f092d4ac8879ed5ce57c06af0a7c51159f115ffbafd20db0dbce05fe8544c",
+        "darwin-aarch64": "14e7d938a4b6c0404e9c6fe072e64993a1a14117c47a3208a3fe7e18b8bd6b4c",
     },
     "toolchain": {
-        "linux-x86_64": "b5f532efed9cb2f30bd7fe76adba4eb20c71921d0987d11f2dcf12312ee03195",
-        "linux-aarch64": "2486fb116adba522a89be32483b3aac35a23f42ef468db3ffb54eac5d85a5e04",
-        "darwin-aarch64": "89f38b6e282d9dda6b32c050616233837d498c46054b7badaa54446e8985549c",
+        "linux-x86_64": "d0e2be3b10c5c19520a53a715123644337e6d3dc4395e2bde042ab69c6bbfc4f",
+        "linux-aarch64": "54e5f7b264b3a8331c8d1ab42e4ad56a23874458ae2064420d8d7eb24cf36beb",
+        "darwin-aarch64": "944f5e072ceb4f73e4422e125512dc267422d4dd57252d7dbd7020af4bc91ad0",
     },
     "extras": {
-        "linux-x86_64": "deb766c65bfebce41e848cb876006999f06e3416b23b67abe9a4d5bf30cccc10",
-        "linux-aarch64": "91c9ce4f7d679255d42ffe77adb7aa3569f0e391974ee464884690c410a2d194",
+        "linux-x86_64": "96c81f9d166dfc01992d9c6a6bbad53ba87499567ebffa9b94f3ca88b7c52ba7",
+        "linux-aarch64": "ab347f50a30382bc38ecf3cc87ac2c150def5d27b2cfc2e2e6146d08b49a798f",
     },
     "macos_utils": {
-        "linux-x86_64": "8922cc80a8938d21484ef2faebf51b8b9ab9e594f288a0ce51f4c5f1115c8d37",
-        "linux-aarch64": "73dd0b5a4cf7ef1ba8c62da7662d13f66122e4914ed375d27c699476875a6ff7",
-        "darwin-aarch64": "1290297e46af25578e9203d59ddcdf8ac423b43389c0d28bb1c1daff6ca46177",
+        "linux-x86_64": "cee147dbb473593f6d8aa6bc8cbb44563abb8e412c4b8c83b932e9aa7232ba40",
+        "linux-aarch64": "3ef752730088c8f27ca06e7baf6de272c9d8486ed2d7889e4ded3bf35984b645",
+        "darwin-aarch64": "db2f95386f2fdc8e1946f3f25ea19b4305aaf48d7eb7a03cc29f533ed7a997b4",
     },
     "sysroot": {
-        "linux-x86_64": "fcfd031a708fed68ded961b4258becf0577c10157a04df8ef5850a8f1e43a794",
-        "linux-aarch64": "43064f795f37c56bb35675d50f7165eabfe0a22ac0114a4870b2440519f75e2c",
-        "darwin-aarch64": "80247f369ccbbd83cd48a87f270b79cddebcfe555447cccd610a7a2bf2e694f7",
+        "linux-x86_64": "7529bb9f55944ef908e9db923658bb73c41cb7383e9f3978aa27adddf3942ba7",
+        "linux-aarch64": "bf40a8a7bc6e98121aa1ccca785238200bc54f7bba699850df7c78ecf083321a",
+        "darwin-aarch64": "a8e8817c2f46c458fcb59fff86d31e947009b488560ee40fbb3b93b1580de4e4",
     },
 }
 
