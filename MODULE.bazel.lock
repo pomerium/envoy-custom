@@ -1247,8 +1247,8 @@
     },
     "@@envoy+//bazel:extensions.bzl%envoy_build_config_ext": {
       "general": {
-        "bzlTransitiveDigest": "9BVUuehdCR1LLHZu9rL861+R5jO/6eRr/ClaVcpkbQ8=",
-        "usagesDigest": "zMiOF/IHWPoFyzct+Jlr2pM1Vy7ODIoJKXHBJZB0qQo=",
+        "bzlTransitiveDigest": "F0RvyZh7x1xQ1RhlsIAv3S8O6B3lb7X2wNx5Nnpr6SU=",
+        "usagesDigest": "jC0MesYHxgdXZQO+XtPHuf6TuJfJbeOd+SYRETExi4c=",
         "recordedInputs": [
           "REPO_MAPPING:envoy+,bazel_skylib bazel_skylib+",
           "REPO_MAPPING:envoy+,bazel_tools bazel_tools",
@@ -1260,7 +1260,9 @@
         "generatedRepoSpecs": {
           "envoy_build_config": {
             "repoRuleId": "@@envoy+//bazel:envoy_build_config.bzl%default_envoy_build_config",
-            "attributes": {}
+            "attributes": {
+              "config": "@@//bazel/envoy_build_config:extensions_build_config.bzl"
+            }
           }
         }
       }

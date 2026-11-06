@@ -87,89 +87,30 @@ bazel_dep(name = "aspect_bazel_lib", version = "2.22.5")
 bazel_dep(name = "xds", version = "0.0.0-20251210-ee656c7")
 bazel_dep(name = "bazel_skylib", version = "1.9.2")
 
-build_config = use_repo_rule("@bazel_tools//tools/build_defs/repo:local.bzl", "local_repository")
-
-build_config(
-    name = "pomerium_envoy_build_config",
-    path = "bazel/envoy_build_config",
-)
-
 envoy_build_config_ext = use_extension("@envoy//bazel:extensions.bzl", "envoy_build_config_ext")
-
-override_repo(
-    envoy_build_config_ext,
-    envoy_build_config = "pomerium_envoy_build_config",
+envoy_build_config_ext.setup(
+    config = "//bazel/envoy_build_config:extensions_build_config.bzl",
 )
 
 # override envoy llvm setup
 
 cxx_cross_libs = use_repo_rule("//bazel/cxx_libs:cxx_cross_libs.bzl", "cxx_cross_libs")
-
-cxx_cross_libs(
-    name = "cxx_cross_libs_linux_arm64",
-    arch = "arm64",
-    os = "linux",
-)
-
-cxx_cross_libs(
-    name = "cxx_cross_libs_darwin_arm64",
-    arch = "arm64",
-    os = "macos",
-)
+cxx_cross_libs(name = "cxx_cross_libs_linux_arm64", arch = "arm64", os = "linux")
+cxx_cross_libs(name = "cxx_cross_libs_darwin_arm64", arch = "arm64", os = "macos")
 
 sysroot = use_repo_rule("//bazel/sysroots:sysroot.bzl", "sysroot")
-
-sysroot(
-    name = "minimal_sysroot_linux_amd64",
-    arch = "amd64",
-    os = "linux",
-)
-
-sysroot(
-    name = "minimal_sysroot_linux_arm64",
-    arch = "arm64",
-    os = "linux",
-)
-
-sysroot(
-    name = "minimal_sysroot_macos_arm64",
-    arch = "arm64",
-    os = "macos",
-)
+sysroot(name = "minimal_sysroot_linux_amd64", arch = "amd64", os = "linux")
+sysroot(name = "minimal_sysroot_linux_arm64", arch = "arm64", os = "linux")
+sysroot(name = "minimal_sysroot_macos_arm64", arch = "arm64", os = "macos")
 
 llvm_macos_utils = use_repo_rule("//bazel/llvm_macos_utils:llvm_macos_utils.bzl", "llvm_macos_utils")
-
-llvm_macos_utils(
-    name = "llvm_macos_utils_linux_amd64",
-    arch = "amd64",
-    os = "linux",
-)
-
-llvm_macos_utils(
-    name = "llvm_macos_utils_linux_arm64",
-    arch = "arm64",
-    os = "linux",
-)
-
-llvm_macos_utils(
-    name = "llvm_macos_utils_darwin_arm64",
-    arch = "arm64",
-    os = "macos",
-)
+llvm_macos_utils(name = "llvm_macos_utils_linux_amd64", arch = "amd64", os = "linux")
+llvm_macos_utils(name = "llvm_macos_utils_linux_arm64", arch = "arm64", os = "linux")
+llvm_macos_utils(name = "llvm_macos_utils_darwin_arm64", arch = "arm64", os = "macos")
 
 llvm_extras = use_repo_rule("//bazel/llvm_extras:llvm_extras.bzl", "llvm_extras")
-
-llvm_extras(
-    name = "llvm_extras_linux_amd64",
-    arch = "amd64",
-    os = "linux",
-)
-
-llvm_extras(
-    name = "llvm_extras_linux_arm64",
-    arch = "arm64",
-    os = "linux",
-)
+llvm_extras(name = "llvm_extras_linux_amd64", arch = "amd64", os = "linux")
+llvm_extras(name = "llvm_extras_linux_arm64", arch = "arm64", os = "linux")
 
 llvm = use_extension("@toolchains_llvm//toolchain/extensions:llvm.bzl", "llvm")
 llvm.cxx_cross_lib(

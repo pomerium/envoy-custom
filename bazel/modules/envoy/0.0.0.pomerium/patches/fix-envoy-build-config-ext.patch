@@ -1,0 +1,29 @@
+diff --git a/bazel/extensions.bzl b/bazel/extensions.bzl
+index 222429c52d..4e57f08f73 100644
+--- a/bazel/extensions.bzl
++++ b/bazel/extensions.bzl
+@@ -68,11 +68,23 @@ def _envoy_module_graph_impl(module_ctx):
+         lockfile = _LOCKFILE_LABEL,
+     )
+
++def _select_config(module_ctx):
++    for mod in module_ctx.modules:
++        for setup_attr in mod.tags.setup:
++            if setup_attr.config:
++                return setup_attr.config
++    return Label("//source/extensions:extensions_build_config.bzl")
++
+ def _envoy_build_config_impl(module_ctx):
+-    default_envoy_build_config(name = "envoy_build_config")
++    default_envoy_build_config(name = "envoy_build_config", config = _select_config(module_ctx))
+
+ envoy_build_config_ext = module_extension(
+     implementation = _envoy_build_config_impl,
++    tag_classes = {
++        "setup": tag_class(attrs = {
++            "config": attr.label(),
++        }),
++    },
+ )
+
+ envoy_module_graph_extension = module_extension(

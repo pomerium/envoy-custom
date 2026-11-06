@@ -13,6 +13,7 @@
     "0011-integration-tcp-client-write.patch": "sha256-Tg/+0Y3PPQF6eHPKk2FWxCfDJ/IBEDT156Nov6ogF3k=",
     "0012-generic-proxy-trace-logs.patch": "sha256-nD5FWy81SY8LPUpg2HCw/wE93NiQwRrGrIggkvYNBMc=",
     "fix-arena-wrapped-proto-element-type.patch": "sha256-aYRhZt5YIGM62F9S/HJcmWWsri38zOkqaDvo8bH27d0=",
+    "fix-envoy-build-config-ext.patch": "sha256-1yDuk9H6tzwPs/tTFLXcmp4i7uxBbT6GlkQq3w61ZE0=",
     "fix-implicit-int-conversion.patch": "sha256-jI5N0tdiqibUvDUBTgeIkOKvj1otBx0Ivj5wKTT8+GA=",
     "fix-integration-test-server-exit.patch": "sha256-fgVPH2thoSXAc17rPw+6xbzbzrMEYDf0dFVYNKNzfIA=",
     "fix-tcmalloc-macos-constraints.patch": "sha256-yaaCCsbrh7Pl172g+1cev0un2b+3CSmQWlmMYBmhsA8=",
