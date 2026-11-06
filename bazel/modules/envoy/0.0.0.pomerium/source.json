@@ -1,0 +1,21 @@
+{
+  "type": "archive",
+  "url": "https://github.com/envoyproxy/envoy/archive/011e39616beb75a123b9c4c664c25bdb7806f545.tar.gz",
+  "integrity": "sha256-8M8UsefAaopn9I8+lVoL9DB3l+EtpUj4HZbbzbZpSbg=",
+  "strip_prefix": "envoy-011e39616beb75a123b9c4c664c25bdb7806f545",
+  "patch_strip": 1,
+  "patches": {
+    "0002-envoy-copts.patch": "sha256-n+m6krMuuAJmyjK30IXqKpeHMSwlKImaVlziLKVaipU=",
+    "0004-suppress-duplicate-wip-warnings.patch": "sha256-qKzRwO45ASNl5m7cMoqKRNsgT4qSn5lgXopcM1/yjIc=",
+    "0005-user-space-io-handle.patch": "sha256-7LBzxaVHgQ5r0sh1IDjtKRVxCkvqzVgOCuoqjBKSlF4=",
+    "0006-fake-upstream.patch": "sha256-LDQaKKdu5gk8p0kZ7Rsw6nTywbYXoN+DAJ7OvMFP5OI=",
+    "0008-sanitizer-deps.patch": "sha256-qsOi99yf66KMsT86tg2zwTont9UjRIdgmtigRVAGx9M=",
+    "0011-integration-tcp-client-write.patch": "sha256-Tg/+0Y3PPQF6eHPKk2FWxCfDJ/IBEDT156Nov6ogF3k=",
+    "0012-generic-proxy-trace-logs.patch": "sha256-nD5FWy81SY8LPUpg2HCw/wE93NiQwRrGrIggkvYNBMc=",
+    "fix-arena-wrapped-proto-element-type.patch": "sha256-aYRhZt5YIGM62F9S/HJcmWWsri38zOkqaDvo8bH27d0=",
+    "fix-implicit-int-conversion.patch": "sha256-jI5N0tdiqibUvDUBTgeIkOKvj1otBx0Ivj5wKTT8+GA=",
+    "fix-integration-test-server-exit.patch": "sha256-fgVPH2thoSXAc17rPw+6xbzbzrMEYDf0dFVYNKNzfIA=",
+    "fix-tcmalloc-macos-constraints.patch": "sha256-yaaCCsbrh7Pl172g+1cev0un2b+3CSmQWlmMYBmhsA8=",
+    "fix-transport-socket-options.patch": "sha256-dBnZyifkwtD9MPTE3jumMxyCWSxDcz9cLLQBylX/VrU="
+  }
+}

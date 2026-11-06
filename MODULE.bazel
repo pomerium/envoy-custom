@@ -1,35 +1,35 @@
 module(name = "pomerium_envoy")
 
-bazel_dep(name = "envoy", version = "1.41.0-dev.20261028.011e396.envoy")
-single_version_override(
-    module_name = "envoy",
-    patch_strip = 1,
-    patches = [
-        # "//patches/envoy:0001-revert-deps-drop-BoringSSL-linkstatic-patch-38621.patch",
-        "//patches/envoy:0002-envoy-copts.patch",
-        # "//patches/envoy:0003-add-external-patches.patch",
-        "//patches/envoy:0004-suppress-duplicate-wip-warnings.patch",
-        "//patches/envoy:0005-user-space-io-handle.patch",
-        "//patches/envoy:0006-fake-upstream.patch",
-        # "//patches/envoy:0007-coverage-format.patch",
-        "//patches/envoy:0008-sanitizer-deps.patch",
-        # "//patches/envoy:0009-luajit.patch",
-        "//patches/envoy:0011-integration-tcp-client-write.patch",
-        "//patches/envoy:0012-generic-proxy-trace-logs.patch",
-        # "//patches/envoy:0013-fuzz-toolchain-path.patch",
-        # "//patches/envoy:0014-disable-coverage-report-rounding.patch",
-        # "//patches/envoy:fix-antlr4-cpp-runtime.patch",
-        "//patches/envoy:fix-integration-test-server-exit.patch",
-        # "//patches/envoy:fix-missing-symbolizer-env.patch",
-        # "//patches/envoy:fix-static-libgcc-flag.patch",
-        "//patches/envoy:fix-tcmalloc-macos-constraints.patch",
-        "//patches/envoy:fix-transport-socket-options.patch",
-        "//patches/envoy:fix-implicit-int-conversion.patch",
-        "//patches/envoy:fix-arena-wrapped-proto-element-type.patch",
-        # "//patches/envoy:fix-allow-dev-shm.patch",  # exists in upstream main but not in 1.38.x
-        # "//patches/envoy:fix-lua-wrappers-test.patch",  # https://github.com/envoyproxy/envoy/pull/45665
-    ],
-)
+bazel_dep(name = "envoy", version = "0.0.0.pomerium")
+# single_version_override(
+#     module_name = "envoy",
+#     patch_strip = 1,
+#     patches = [
+#         # "//patches/envoy:0001-revert-deps-drop-BoringSSL-linkstatic-patch-38621.patch",
+#         "//patches/envoy:0002-envoy-copts.patch",
+#         # "//patches/envoy:0003-add-external-patches.patch",
+#         "//patches/envoy:0004-suppress-duplicate-wip-warnings.patch",
+#         "//patches/envoy:0005-user-space-io-handle.patch",
+#         "//patches/envoy:0006-fake-upstream.patch",
+#         # "//patches/envoy:0007-coverage-format.patch",
+#         "//patches/envoy:0008-sanitizer-deps.patch",
+#         # "//patches/envoy:0009-luajit.patch",
+#         "//patches/envoy:0011-integration-tcp-client-write.patch",
+#         "//patches/envoy:0012-generic-proxy-trace-logs.patch",
+#         # "//patches/envoy:0013-fuzz-toolchain-path.patch",
+#         # "//patches/envoy:0014-disable-coverage-report-rounding.patch",
+#         # "//patches/envoy:fix-antlr4-cpp-runtime.patch",
+#         "//patches/envoy:fix-integration-test-server-exit.patch",
+#         # "//patches/envoy:fix-missing-symbolizer-env.patch",
+#         # "//patches/envoy:fix-static-libgcc-flag.patch",
+#         "//patches/envoy:fix-tcmalloc-macos-constraints.patch",
+#         "//patches/envoy:fix-transport-socket-options.patch",
+#         "//patches/envoy:fix-implicit-int-conversion.patch",
+#         "//patches/envoy:fix-arena-wrapped-proto-element-type.patch",
+#         # "//patches/envoy:fix-allow-dev-shm.patch",  # exists in upstream main but not in 1.38.x
+#         # "//patches/envoy:fix-lua-wrappers-test.patch",  # https://github.com/envoyproxy/envoy/pull/45665
+#     ],
+# )
 
 bazel_dep(name = "toolchains_llvm", version = "1.9.1.envoy")
 single_version_override(
@@ -69,6 +69,11 @@ single_version_override(
 bazel_dep(name = "openssh", version = "10.3-p1.pomerium")
 bazel_dep(name = "abseil-cpp", version = "20260817.0")
 bazel_dep(name = "envoy_api", version = "1.41.0-dev.20261028.011e396.envoy")
+single_version_override(
+    module_name = "envoy_api",
+    version = "1.41.0-dev.20261028.011e396.envoy",
+)
+
 bazel_dep(name = "googleapis", version = "0.0.0-20251003-2193a2bf")
 bazel_dep(name = "platforms", version = "1.1.0")
 bazel_dep(name = "protobuf", version = "35.1.bcr.envoy")
@@ -324,14 +329,6 @@ use_repo(
 bazel_dep(name = "rules_oci", version = "2.3.0")
 bazel_dep(name = "magic_enum", version = "0.9.8")
 bazel_dep(name = "readerwriterqueue", version = "1.0.7")
-bazel_dep(name = "argparse", version = "3.2.0")
-single_version_override(
-    module_name = "argparse",
-    patch_strip = 1,
-    patches = [
-        "//patches/argparse:0001-load-cc-library.patch",
-    ],
-)
 
 # dev dependencies
 
@@ -344,4 +341,13 @@ git_override(
     module_name = "hedron_compile_commands",
     commit = "9f69112e3f61b9df76a8275085dabad36ef37c96",
     remote = "https://github.com/kralicky/bazel-compile-commands-extractor.git",
+)
+
+bazel_dep(name = "argparse", version = "3.2.0", dev_dependency = True)
+single_version_override(
+    module_name = "argparse",
+    patch_strip = 1,
+    patches = [
+        "//patches/argparse:0001-load-cc-library.patch",
+    ],
 )

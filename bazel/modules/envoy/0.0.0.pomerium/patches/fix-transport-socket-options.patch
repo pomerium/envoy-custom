@@ -1,0 +1,57 @@
+diff --git a/source/extensions/filters/network/generic_proxy/router/BUILD b/source/extensions/filters/network/generic_proxy/router/BUILD
+index d3e4d60b72..8d90a583f6 100644
+--- a/source/extensions/filters/network/generic_proxy/router/BUILD
++++ b/source/extensions/filters/network/generic_proxy/router/BUILD
+@@ -24,6 +24,7 @@ envoy_cc_library(
+         "//source/common/common:linked_object",
+         "//source/common/common:minimal_logger_lib",
+         "//source/common/config:well_known_names",
++        "//source/common/network:transport_socket_options_lib",
+         "//source/common/router:metadatamatchcriteria_lib",
+         "//source/common/stream_info:stream_info_lib",
+         "//source/common/tracing:tracer_lib",
+diff --git a/source/extensions/filters/network/generic_proxy/router/router.cc b/source/extensions/filters/network/generic_proxy/router/router.cc
+index 396def6c37..91ccb425fe 100644
+--- a/source/extensions/filters/network/generic_proxy/router/router.cc
++++ b/source/extensions/filters/network/generic_proxy/router/router.cc
+@@ -11,6 +11,7 @@
+ #include "source/common/tracing/tracer_impl.h"
+ #include "source/extensions/filters/network/generic_proxy/interface/filter.h"
+ #include "source/extensions/filters/network/generic_proxy/tracing.h"
++#include "source/common/network/transport_socket_options_impl.h"
+ 
+ namespace Envoy {
+ namespace Extensions {
+@@ -431,6 +432,9 @@ void RouterFilter::kickOffNewUpstreamRequest() {
+     return;
+   }
+ 
++  transport_socket_options_ = Network::TransportSocketOptionsUtility::fromFilterState(
++      downstreamConnection()->streamInfo().filterState());
++
+   GenericUpstreamSharedPtr generic_upstream = generic_upstream_factory_->createGenericUpstream(
+       *thread_local_cluster, this, const_cast<Network::Connection&>(*callbacks_->connection()),
+       callbacks_->codecFactory(), config_->bindUpstreamConnection());
+diff --git a/source/extensions/filters/network/generic_proxy/router/router.h b/source/extensions/filters/network/generic_proxy/router/router.h
+index 6907e1600a..21bc27d4e7 100644
+--- a/source/extensions/filters/network/generic_proxy/router/router.h
++++ b/source/extensions/filters/network/generic_proxy/router/router.h
+@@ -159,7 +159,9 @@ public:
+   // Upstream::LoadBalancerContextBase
+   const Envoy::Router::MetadataMatchCriteria* metadataMatchCriteria() override;
+   const Network::Connection* downstreamConnection() const override;
+-
++  Network::TransportSocketOptionsConstSharedPtr upstreamTransportSocketOptions() const override {
++    return transport_socket_options_;
++  }
+   // RequestFramesHandler
+   void onRequestCommonFrame(RequestCommonFramePtr frame) override;
+ 
+@@ -207,6 +209,7 @@ private:
+   // changed in the future.
+   UpstreamRequestPtr upstream_request_;
+   Envoy::Event::TimerPtr timeout_timer_;
++  Network::TransportSocketOptionsConstSharedPtr transport_socket_options_;
+ 
+   DecoderFilterCallback* callbacks_{};
+ 

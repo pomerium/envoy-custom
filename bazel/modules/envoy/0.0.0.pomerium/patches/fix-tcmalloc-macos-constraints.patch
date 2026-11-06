@@ -1,0 +1,32 @@
+diff --git a/bazel/BUILD b/bazel/BUILD
+index bc0f23a1ec..c7f03ad463 100644
+--- a/bazel/BUILD
++++ b/bazel/BUILD
+@@ -362,6 +362,14 @@ config_setting(
+     values = {"define": "tcmalloc=gperftools"},
+ )
+ 
++selects.config_setting_group(
++    name = "tcmalloc_disabled",
++    match_any = [
++        ":disable_tcmalloc",
++        ":apple",
++    ],
++)
++
+ bool_flag(
+     name = "jemalloc",
+     build_setting_default = False,
+diff --git a/bazel/envoy_internal.bzl b/bazel/envoy_internal.bzl
+index d13bb745da..f966ecb667 100644
+--- a/bazel/envoy_internal.bzl
++++ b/bazel/envoy_internal.bzl
+@@ -15,7 +15,7 @@ _DEBUG_TCMALLOC = Label("//bazel:debug_tcmalloc")
+ _DISABLE_DEPRECATED_FEATURES = Label("//bazel:disable_deprecated_features")
+ _DISABLE_KNOWN_ISSUE_ASSERTS = Label("//bazel:disable_known_issue_asserts")
+ _DISABLE_OBJECT_DUMP_ON_SIGNAL_TRACE = Label("//bazel:disable_object_dump_on_signal_trace")
+-_DISABLE_TCMALLOC = Label("//bazel:disable_tcmalloc")
++_DISABLE_TCMALLOC = Label("//bazel:tcmalloc_disabled")
+ _DYNAMIC_LINK_TESTS = Label("//bazel:dynamic_link_tests")
+ _ENABLE_EXECUTION_CONTEXT = Label("//bazel:enable_execution_context")
+ _ENABLE_EXPORTED_SYMBOLS = Label("//bazel:enable_exported_symbols")

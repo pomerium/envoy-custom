@@ -1,0 +1,33 @@
+diff --git a/bazel/envoy_internal.bzl b/bazel/envoy_internal.bzl
+index d13bb745da..b9a930e70f 100644
+--- a/bazel/envoy_internal.bzl
++++ b/bazel/envoy_internal.bzl
+@@ -49,9 +49,6 @@ _WINDOWS_X86_64 = Label("//bazel:windows_x86_64")
+ # Compute the final copts based on various options.
+ def envoy_copts(test = False):
+     posix_options = [
+-        "-Wall",
+-        "-Wextra",
+-        "-Werror",
+         "-Woverloaded-virtual",
+         "-Wold-style-cast",
+         "-Wformat",
+@@ -108,7 +105,6 @@ def envoy_copts(test = False):
+                _CLANG_BUILD: [
+                    "-fno-limit-debug-info",
+                    "-Wgnu-conditional-omitted-operand",
+-                   "-Wc++2a-extensions",
+                    "-Wno-nullability-completeness",
+                    "-Wrange-loop-analysis",
+                    "-Wno-nullability-completeness",
+@@ -224,9 +220,7 @@ def envoy_select_force_libcpp(if_libcpp, default = None):
+     })
+
+ def envoy_stdlib_deps():
+-    return select({
+-        "//conditions:default": [_STATIC_STDLIB],
+-    })
++    return []
+
+ def envoy_dbg_linkopts():
+     return select({
