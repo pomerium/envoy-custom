@@ -407,6 +407,21 @@ public:
   }
 
   void VerifyAndClearExpectations() {
+    ASSERT_IS_TEST_THREAD();
+
+    auto sync = std::make_shared<std::latch>(2);
+    auto done = std::make_shared<std::latch>(1);
+    this->Client().Post([sync, done] {
+      sync->arrive_and_wait();
+      done->wait();
+    });
+    this->Server().Post([sync, done] {
+      sync->arrive_and_wait();
+      done->wait();
+    });
+
+    sync->wait();
+
     testing::Mock::VerifyAndClearExpectations(&server_transport_);
     testing::Mock::VerifyAndClearExpectations(&client_transport_);
     testing::Mock::VerifyAndClearExpectations(&server_codec_callbacks_);
@@ -415,6 +430,8 @@ public:
     // restore the writeToConnection expectations, which are exceptions to the strict mock
     EXPECT_CALL(server_codec_callbacks_, writeToConnection).Times(AnyNumber());
     EXPECT_CALL(client_codec_callbacks_, writeToConnection).Times(AnyNumber());
+
+    done->count_down();
   }
 
   // Setup code used in key re-exchange tests
@@ -685,7 +702,7 @@ TYPED_TEST_P(TransportBaseTest, TestDecryptPacketFailure) {
         // manually here would not have the desired effect.
 
         // Wait for the client's onKexCompleted, otherwise the expectation will fail
-        clientKexCompleted.WaitForNotificationWithTimeout(defaultTimeout());
+        EXPECT_TRUE(clientKexCompleted.WaitForNotificationWithTimeout(defaultTimeout()));
         this->Client().Exit();
         this->Server().Exit();
         GTEST_SKIP() << "not applicable for aes-gcm";
@@ -1052,7 +1069,7 @@ TYPED_TEST_P(TransportBaseTest, TestSimultaneousRekeyOnRWThresholds) {
     // the next message will trigger a rekey
     lastMessage.Notify();
   });
-  lastMessage.WaitForNotificationWithTimeout(defaultTimeout());
+  ASSERT_TRUE(lastMessage.WaitForNotificationWithTimeout(defaultTimeout()));
   {
     absl::BlockingCounter wait(2);
     uint64_t wr = 0, rr = 0;
@@ -1157,7 +1174,7 @@ TYPED_TEST_P(TransportBaseTest, TestRekeyOnReadThreshold) {
       ASSERT_OK(client.sendMessageToConnection(std::move(msg)).status());
     });
   }
-  lastMessage.WaitForNotificationWithTimeout(defaultTimeout());
+  ASSERT_TRUE(lastMessage.WaitForNotificationWithTimeout(defaultTimeout()));
 
   this->VerifyAndClearExpectations();
 
@@ -1242,7 +1259,7 @@ TYPED_TEST_P(TransportBaseTest, TestRekeyOnWriteThreshold) {
       ASSERT_OK(client.sendMessageToConnection(std::move(msg)).status());
     });
   }
-  lastMessage.WaitForNotificationWithTimeout(defaultTimeout());
+  ASSERT_TRUE(lastMessage.WaitForNotificationWithTimeout(defaultTimeout()));
 
   this->VerifyAndClearExpectations();
 
