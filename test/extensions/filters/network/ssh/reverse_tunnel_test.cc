@@ -1,19 +1,23 @@
+#include <chrono>
+
 #include "source/extensions/filters/network/ssh/message_handler.h"
 #include "source/extensions/filters/network/ssh/reverse_tunnel.h"
-#include "source/extensions/filters/network/ssh/service_connection.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
-#include "test/extensions/filters/network/ssh/ssh_connection_driver.h"
-#include "test/extensions/filters/network/ssh/ssh_integration_test.h"
+#include "source/extensions/filters/network/ssh/wire/messages.h"
+
+#include "api/extensions/filters/network/ssh/ssh.pb.h"
+
 #include "envoy/extensions/transport_sockets/raw_buffer/v3/raw_buffer.pb.h"
 #include "envoy/extensions/transport_sockets/internal_upstream/v3/internal_upstream.pb.h"
 #include "envoy/config/endpoint/v3/endpoint.pb.h"
 #include "envoy/config/endpoint/v3/endpoint.pb.validate.h"
-#include "api/extensions/filters/network/ssh/ssh.pb.h"
-#include "gtest/gtest.h"
 
-#include "source/extensions/filters/network/ssh/wire/messages.h"
+#include "test/extensions/filters/network/ssh/ssh_connection_driver.h"
+#include "test/extensions/filters/network/ssh/ssh_integration_test.h"
 #include "test/extensions/filters/network/ssh/ssh_task.h"
 #include "test/test_common/test_common.h"
+
+#include "gtest/gtest.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 namespace test {
@@ -596,26 +600,36 @@ TEST_P(StaticPortForwardTest, UpstreamFlowControl_ClientReadDisabledThenEnabledB
 }
 
 TEST_P(StaticPortForwardTest, UpstreamFlowControl_UpstreamIgnoresWindow) {
-  auto local_window_exhausted = test_server_->counter(stat_local_window_exhausted);
-  Tasks::Channel channel;
-  auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
-              .saveOutput(&channel)
-              .start();
-  auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
-  ASSERT_TRUE(driver->wait(th));
-  downstream->readDisable(true);
-  ASSERT_TRUE(driver->wait(
-    driver->createTask<SendDataUntilRemoteWindowExhausted>(*local_window_exhausted)
-      .then(driver->createTask<SendDataAndWaitForClose>())
-      .start(channel)));
+  EXPECT_LOG_CONTAINS("debug", "not re-enabling window adjustments due to upstream error", {
+    auto local_window_exhausted = test_server_->counter(stat_local_window_exhausted);
+    Tasks::Channel channel;
+    auto th = driver->createTask<Tasks::AcceptReversePortForward>(route_name, route_port, 1)
+                .saveOutput(&channel)
+                .start();
+    auto downstream = makeTcpConnectionWithServerName(route_port, route_name);
+    ASSERT_TRUE(driver->wait(th));
+    downstream->readDisable(true);
+    // Note: wait() runs the driver connection's event loop in NonBlock mode once before returning,
+    // but not between tasks. The call to readDisable(false) must occur before this happens so that
+    // the upstream error is observed at the time the downstream becomes read-enabled, but before
+    // it is closed.
+    // Despite appearing like it would be flaky, this seems to work correctly every time at least
+    // on my machine (tm)
+    ASSERT_TRUE(driver->wait(
+      driver->createTask<SendDataUntilRemoteWindowExhausted>(*local_window_exhausted)
+        .then(driver->createTask<SendDataAndWaitForClose>()
+                .then(driver->createTask<Tasks::Call<void>>([&] {
+                  downstream->readDisable(false); // Won't receive disconnect while read-disabled
+                })))
+        .start(channel)));
 
-  downstream->readDisable(false); // Won't receive disconnect while read-disabled
-  downstream->waitForDisconnect(true);
+    downstream->waitForDisconnect(true);
 
-  EXPECT_EQ(1, test_server_->counter(stat_window_adjustment_paused)->value());
-  EXPECT_EQ(0, test_server_->counter(stat_window_adjustment_resumed)->value());
+    EXPECT_EQ(1, test_server_->counter(stat_window_adjustment_paused)->value());
+    EXPECT_EQ(0, test_server_->counter(stat_window_adjustment_resumed)->value());
 
-  downstream->close();
+    downstream->close();
+  });
 }
 
 TEST_P(StaticPortForwardTest, UpstreamFlowControl_DownstreamDisconnectsAfterReadEnable) {

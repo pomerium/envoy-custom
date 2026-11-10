@@ -11,6 +11,9 @@
 #include "absl/synchronization/notification.h"
 #include "gtest/gtest.h"
 
+namespace Envoy {
+class WaitForPayloadReader;
+}
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
 using testing::AssertionResult;
@@ -83,7 +86,7 @@ public:
   virtual testing::AssertionResult listenForSshConnection(std::shared_ptr<SshFakeUpstreamHandlerOpts> opts,
                                                           Server::Configuration::ServerFactoryContext& ctx) PURE;
 
-  virtual void cleanup() PURE;
+  virtual void cleanup(absl::Duration timeout) PURE;
 };
 
 class SshConnectionDriver : public Envoy::Network::ReadFilter,
@@ -95,7 +98,8 @@ public:
   SshConnectionDriver(Network::ClientConnectionPtr client_connection,
                       Server::Configuration::ServerFactoryContext& context,
                       std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                      FakeUpstreamShim& mgmt_upstream);
+                      FakeUpstreamShim& mgmt_upstream,
+                      absl::Duration default_timeout);
 
   void connect();
 
@@ -104,10 +108,13 @@ public:
 
   Envoy::OptRef<Envoy::Event::Dispatcher> connectionDispatcher() const override;
 
-  AssertionResult disconnect();
+  AssertionResult disconnect(bool close_connection = false, std::optional<std::chrono::milliseconds> timeout = std::nullopt);
   void close();
   bool closed() const {
     return closed_;
+  }
+  bool disconnected() const {
+    return disconnected_;
   }
 
   void sendMessage(wire::Message&& msg);
@@ -183,7 +190,7 @@ protected:
   }
 
   stream_id_t streamId() const override {
-    return 42; // unused, except in logs
+    return 24; // unused, except in logs
   }
 
   void onKexCompleted(std::shared_ptr<KexResult> kex_result, bool initial_kex) override;

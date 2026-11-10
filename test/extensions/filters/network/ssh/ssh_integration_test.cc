@@ -64,16 +64,16 @@ SshIntegrationTest::SshIntegrationTest(std::vector<std::string> ssh_routes, Netw
 SshIntegrationTest::~SshIntegrationTest() = default;
 
 void SshIntegrationTest::cleanup() {
-  tcp_upstream_->cleanup();
-  http_upstream_2_->cleanup();
-  http_upstream_1_->cleanup();
+  tcp_upstream_->cleanup(default_timeout_);
+  http_upstream_2_->cleanup(default_timeout_);
+  http_upstream_1_->cleanup(default_timeout_);
   for (auto& upstream : ssh_upstreams_) {
-    upstream->cleanup();
+    upstream->cleanup(default_timeout_);
   }
-  mgmt_upstream_->cleanup();
+  mgmt_upstream_->cleanup(default_timeout_);
 };
 
-void FakeUpstreamShimImpl::cleanup() {
+void FakeUpstreamShimImpl::cleanup(absl::Duration timeout) {
   absl::MutexLock lock(listeners_mu_);
   for (auto& listener : listeners_) {
     absl::Notification done;
@@ -81,7 +81,7 @@ void FakeUpstreamShimImpl::cleanup() {
       listener->cleanup();
       done.Notify();
     });
-    done.WaitForNotification();
+    EXPECT_TRUE(done.WaitForNotificationWithTimeout(timeout));
   }
   listeners_.clear();
   fake_upstream_->cleanUp();
@@ -96,7 +96,8 @@ std::shared_ptr<SshConnectionDriver> SshIntegrationTest::makeSshConnectionDriver
     makeClientConnection(lookupPort("ssh")),
     server_factory_context_,
     std::make_shared<pomerium::extensions::ssh::CodecConfig>(),
-    *mgmt_upstream_);
+    *mgmt_upstream_,
+    default_timeout_);
 }
 
 AssertionResult SshIntegrationTest::listenForSshConnection(SshFakeUpstreamHandlerOpts&& opts, size_t upstream_index) {

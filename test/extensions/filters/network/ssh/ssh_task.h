@@ -1,6 +1,7 @@
 #pragma once
 
 #include "source/extensions/filters/network/ssh/grpc_client_impl.h"
+#include "source/extensions/filters/network/ssh/id_manager.h"
 #include "source/extensions/filters/network/ssh/kex_alg.h"
 #include "source/extensions/filters/network/ssh/message_handler.h"
 #include "source/extensions/filters/network/ssh/openssh.h"
@@ -121,7 +122,8 @@ public:
   UntypedTaskCallbacksHandle& untyped_;
 };
 
-class UntypedTask : public SshMessageMiddleware {
+class UntypedTask : public SshMessageMiddleware,
+                    public Envoy::Logger::Loggable<Envoy::Logger::Id::testing> {
   friend class SshConnectionDriver;
   template <typename, typename, typename>
   friend class Task;
@@ -168,6 +170,7 @@ protected:
 
 private:
   void startInternalUntyped(std::any input) {
+    ENVOY_LOG(trace, "task started: {}", name());
     startUntyped(std::move(input));
     if (testing::Test::HasFailure()) {
       taskFailure(absl::InternalError(fmt::format("task failed via assertion ({})", errorDetails())));
@@ -273,7 +276,13 @@ public:
 
 private:
   Task() {
-    setName(std::string(type_name<CRTP>()));
+    auto namespaceName = type_name<UntypedTask>();
+    namespaceName.remove_suffix("UntypedTask"sv.size());
+    auto name = type_name<CRTP>();
+    if (name.starts_with(namespaceName)) {
+      name.remove_prefix(namespaceName.size());
+    }
+    setName(std::string(name));
   }
 };
 
@@ -445,10 +454,13 @@ public:
   const uint32_t port_connected_;
 };
 
+enum class ExpectSuccess : bool {};
+
 class OpenSessionChannel : public Task<OpenSessionChannel, void, Channel> {
 public:
-  OpenSessionChannel(uint32_t local_channel_id)
-      : local_channel_id_(local_channel_id) {}
+  OpenSessionChannel(uint32_t local_channel_id, ExpectSuccess expect_success = ExpectSuccess(true))
+      : local_channel_id_(local_channel_id),
+        expect_success_(expect_success) {}
   void start() override {
     setChannelFilter(Tasks::Channel{
       .local_id = local_channel_id_,
@@ -464,18 +476,29 @@ public:
   MiddlewareResult onMessageReceived(wire::Message& msg) override {
     return msg.visit(
       [&](const wire::ChannelOpenConfirmationMsg& msg) {
-        taskSuccess(Channel{
-          .local_id = local_channel_id_,
-          .remote_id = msg.sender_channel,
-          .initial_window_size = msg.initial_window_size,
-          .max_packet_size = msg.max_packet_size,
-          .upstream_initial_window_size = wire::ChannelWindowSize,
-          .upstream_max_packet_size = wire::ChannelMaxPacketSize,
-        });
+        if (expect_success_ == ExpectSuccess(true)) {
+          taskSuccess(Channel{
+            .local_id = local_channel_id_,
+            .remote_id = msg.sender_channel,
+            .initial_window_size = msg.initial_window_size,
+            .max_packet_size = msg.max_packet_size,
+            .upstream_initial_window_size = wire::ChannelWindowSize,
+            .upstream_max_packet_size = wire::ChannelMaxPacketSize,
+          });
+        } else {
+          taskFailure(absl::InternalError(fmt::format("expected failure, but channel opened successfully")));
+        }
         return Break;
       },
       [&](const wire::ChannelOpenFailureMsg& msg) {
-        taskFailure(absl::InternalError(fmt::format("channel open failed: {}", msg.description)));
+        if (expect_success_ == ExpectSuccess(true)) {
+          taskFailure(absl::InternalError(fmt::format("channel open failed: {}", msg.description)));
+        } else {
+          taskSuccess(Tasks::Channel{
+            .local_id = local_channel_id_,
+            .remote_id = channel_id_error,
+          });
+        }
         return Break;
       },
       [&](const auto&) {
@@ -485,6 +508,68 @@ public:
 
 public:
   uint32_t local_channel_id_;
+  const ExpectSuccess expect_success_;
+};
+
+class AcceptSessionChannel : public Task<AcceptSessionChannel, void, Channel> {
+public:
+  AcceptSessionChannel(uint32_t local_channel_id)
+      : local_channel_id_(local_channel_id) {}
+  void start() override {
+    callbacks_->setTimeout(default_timeout_, fmt::format("AcceptSessionChannel({})",
+                                                         local_channel_id_));
+  }
+
+  MiddlewareResult onMessageReceived(wire::Message& msg) override {
+    return msg.visit(
+      [&](const wire::ChannelOpenMsg& open_msg) {
+        return open_msg.request.visit(
+          [&](const wire::SessionChannelOpenMsg&) {
+            callbacks_->sendMessage(wire::ChannelOpenConfirmationMsg{
+              .recipient_channel = open_msg.sender_channel,
+              .sender_channel = local_channel_id_,
+              .initial_window_size = wire::ChannelWindowSize,
+              .max_packet_size = wire::ChannelMaxPacketSize,
+            });
+            taskSuccess(Channel{
+              .local_id = local_channel_id_,
+              .remote_id = open_msg.sender_channel,
+              .initial_window_size = open_msg.initial_window_size,
+              .max_packet_size = open_msg.max_packet_size,
+              .upstream_initial_window_size = wire::ChannelWindowSize,
+              .upstream_max_packet_size = wire::ChannelMaxPacketSize,
+            });
+            return Break;
+          },
+          [&](const auto&) {
+            taskFailure(absl::InvalidArgumentError(fmt::format("expected session, got {}", open_msg.submsg_key)));
+            return Break;
+          });
+      },
+      DEFAULT_CONTINUE);
+  }
+
+  const uint32_t local_channel_id_;
+};
+
+class SendChannelOpenAndDoNotWait : public Task<SendChannelOpenAndDoNotWait, void> {
+public:
+  SendChannelOpenAndDoNotWait(uint32_t local_channel_id)
+      : local_channel_id_(local_channel_id) {}
+
+  void start() override {
+    callbacks_->sendMessage(wire::ChannelOpenMsg{
+      .sender_channel = local_channel_id_,
+      .initial_window_size = wire::ChannelWindowSize,
+      .max_packet_size = wire::ChannelMaxPacketSize,
+      .request = wire::SessionChannelOpenMsg{},
+    });
+    taskSuccess();
+  }
+  MiddlewareResult onMessageReceived(wire::Message&) override {
+    return Continue;
+  }
+  const uint32_t local_channel_id_;
 };
 
 class WaitForChannelData : public Task<WaitForChannelData, Channel, Channel> {
@@ -664,6 +749,24 @@ public:
   Channel channel_{};
 };
 
+class WaitForChannelCloseAndDoNotReply : public Task<WaitForChannelCloseAndDoNotReply, Tasks::Channel, Tasks::Channel> {
+public:
+  void start(Tasks::Channel channel) override {
+    channel_ = channel;
+    setChannelFilter(channel);
+    callbacks_->setTimeout(default_timeout_, "WaitForChannelCloseAndDoNotReply");
+  }
+  MiddlewareResult onMessageReceived(wire::Message& msg) override {
+    return msg.visit(
+      [&](const wire::ChannelCloseMsg&) {
+        taskSuccess(channel_);
+        return Break;
+      },
+      DEFAULT_CONTINUE);
+  }
+  Tasks::Channel channel_{};
+};
+
 class SendChannelCloseAndWait : public Task<SendChannelCloseAndWait, Channel> {
 public:
   SendChannelCloseAndWait(SendEOF send_eof = SendEOF(false), ExpectEOF expect_eof = ExpectEOF::Optional)
@@ -705,6 +808,27 @@ public:
   const ExpectEOF eof_requirement_;
 };
 
+class SendChannelCloseAndDoNotWait : public Task<SendChannelCloseAndDoNotWait, Channel> {
+public:
+  SendChannelCloseAndDoNotWait(SendEOF send_eof = SendEOF(false))
+      : send_eof_(send_eof) {}
+  void start(Channel channel) override {
+    if (send_eof_ == SendEOF(true)) {
+      callbacks_->sendMessage(wire::ChannelEOFMsg{
+        .recipient_channel = channel.remote_id,
+      });
+    }
+    callbacks_->sendMessage(wire::ChannelCloseMsg{
+      .recipient_channel = channel.remote_id,
+    });
+    taskSuccess();
+  }
+  MiddlewareResult onMessageReceived(wire::Message&) override {
+    return Continue;
+  }
+  const SendEOF send_eof_;
+};
+
 class WaitForDisconnectWithError : public Task<WaitForDisconnectWithError> {
 public:
   WaitForDisconnectWithError(const std::string& message)
@@ -728,6 +852,43 @@ public:
   }
 
   const std::string message_;
+};
+
+template <typename Input>
+class Call;
+
+template <>
+class Call<Channel> : public Task<Call<Channel>, Channel, Channel> {
+public:
+  Call(absl::AnyInvocable<void()> fn)
+      : fn_(std::move(fn)) {}
+  void start(Channel channel) override {
+    fn_();
+    taskSuccess(channel);
+  }
+  MiddlewareResult onMessageReceived(wire::Message&) override {
+    return Continue;
+  }
+
+private:
+  absl::AnyInvocable<void()> fn_;
+};
+
+template <>
+class Call<void> : public Task<Call<void>, void, void> {
+public:
+  Call(absl::AnyInvocable<void()> fn)
+      : fn_(std::move(fn)) {}
+  void start() override {
+    fn_();
+    taskSuccess();
+  }
+  MiddlewareResult onMessageReceived(wire::Message&) override {
+    return Continue;
+  }
+
+private:
+  absl::AnyInvocable<void()> fn_;
 };
 
 } // namespace Tasks

@@ -1674,7 +1674,8 @@ public:
                                                           PeerLocalID{
                                                             .channel_id = 2,
                                                             .local_peer = Peer::Upstream,
-                                                          }));
+                                                          },
+                                                          BindMode::Confirmed));
     auto channelMsg = std::make_unique<ChannelMessage>();
     auto confirmation = wire::ChannelOpenConfirmationMsg{
       .recipient_channel = 100,
@@ -2075,14 +2076,14 @@ INSTANTIATE_TEST_SUITE_P(ClientMessagesPostUserAuth, ClientMessagesPostUserAuthT
                            {wire::ChannelOpenMsg{}, ""sv},
                            {wire::ChannelOpenConfirmationMsg{}, "received invalid ChannelOpenConfirmation message: unknown channel 0"sv},
                            {wire::ChannelOpenFailureMsg{}, "received invalid ChannelOpenFailure message: unknown channel 0"sv},
-                           {wire::ChannelWindowAdjustMsg{}, "received message for unknown channel 0: ChannelWindowAdjust"sv},
-                           {wire::ChannelDataMsg{}, "received message for unknown channel 0: ChannelData"sv},
-                           {wire::ChannelExtendedDataMsg{}, "received message for unknown channel 0: ChannelExtendedData"sv},
-                           {wire::ChannelEOFMsg{}, "received message for unknown channel 0: ChannelEOF"sv},
-                           {wire::ChannelCloseMsg{}, "received message for unknown channel 0: ChannelClose"sv},
-                           {wire::ChannelRequestMsg{}, "received message for unknown channel 0: ChannelRequest"sv},
-                           {wire::ChannelSuccessMsg{}, "received message for unknown channel 0: ChannelSuccess"sv},
-                           {wire::ChannelFailureMsg{}, "received message for unknown channel 0: ChannelFailure"sv},
+                           {wire::ChannelWindowAdjustMsg{}, "received message from Downstream for unknown channel 0: ChannelWindowAdjust"sv},
+                           {wire::ChannelDataMsg{}, "received message from Downstream for unknown channel 0: ChannelData"sv},
+                           {wire::ChannelExtendedDataMsg{}, "received message from Downstream for unknown channel 0: ChannelExtendedData"sv},
+                           {wire::ChannelEOFMsg{}, "received message from Downstream for unknown channel 0: ChannelEOF"sv},
+                           {wire::ChannelCloseMsg{}, "received message from Downstream for unknown channel 0: ChannelClose"sv},
+                           {wire::ChannelRequestMsg{}, "received message from Downstream for unknown channel 0: ChannelRequest"sv},
+                           {wire::ChannelSuccessMsg{}, "received message from Downstream for unknown channel 0: ChannelSuccess"sv},
+                           {wire::ChannelFailureMsg{}, "received message from Downstream for unknown channel 0: ChannelFailure"sv},
                            {wire::PingMsg{}, ""sv},
                            {wire::PongMsg{}, ""sv},
                          }));
@@ -2184,7 +2185,8 @@ TEST_F(ServerTransportTest, EncodeEffectiveHeaderHandoffComplete) {
                                                         PeerLocalID{
                                                           .channel_id = 2,
                                                           .local_peer = Peer::Upstream,
-                                                        }));
+                                                        },
+                                                        BindMode::Confirmed));
   auto channelMsg = std::make_unique<ChannelMessage>();
   auto confirmation = wire::ChannelOpenConfirmationMsg{
     .recipient_channel = 100,

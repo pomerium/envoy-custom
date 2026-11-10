@@ -93,6 +93,8 @@ public:
 class Channel {
 public:
   virtual ~Channel();
+  // Called by the connection service when starting the channel.
+  // Warning: when overriding this function, the base class implementation MUST be called.
   virtual void setChannelCallbacks(ChannelCallbacks& callbacks);
 
   // Handles a channel open message from the local peer.

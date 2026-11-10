@@ -14,15 +14,15 @@ public:
   virtual ~ChannelFilter() = default;
   // Called just before a message is about to be forwarded to the peer.
   // Errors returned from this function will tear down the entire connection. The interruptChannel
-  // API should be used when only this channel should be closed. However, interruptChannel cannot
-  // be used in all cases, for example when handling ChannelOpen messages.
+  // API should be used when only this channel should be closed.
   virtual absl::Status onMessageForward(const wire::Message& msg) PURE;
 };
 
 class ReadDisableHandle {
 public:
-  virtual ~ReadDisableHandle() = default;
+  virtual ~ReadDisableHandle() PURE;
 };
+inline ReadDisableHandle::~ReadDisableHandle() {}
 
 using ReadDisableHandlePtr = std::unique_ptr<ReadDisableHandle>;
 
@@ -37,6 +37,9 @@ public:
   // closed.
   // This does not necessarily terminate the connection, but the downstream client may disconnect
   // if this was the last open channel. See ConnectionService::preempt for more details.
+  //
+  // If the channel is open, all ReadDisableHandle instances obtained from connectionReadDisable()
+  // will be canceled when this function is called.
   virtual bool interruptChannel(absl::Status err) PURE;
 
   // Returns this channel's stream ID.
@@ -55,9 +58,14 @@ public:
   // It is strongly recommended to accompany this with a separate timer to avoid keeping the
   // connection disabled for too long.
   //
+  // If this is called from within onMessageForward(), the message that is currently being handled
+  // will not be forwarded until reads are re-enabled. The message will not be passed to
+  // onMessageForward() a second time.
+  //
   // TODO: this is a bit of a hack. The proper way to support this would be to suppress channel
-  // window updates (the way it is handled for reverse tunnels), but we currently don't manage flow
-  // control ourselves for normal channels.
+  // window updates (the way it is handled for reverse tunnels) and use an internal buffer to allow
+  // other channels to receive messages, but we currently don't manage flow control ourselves for
+  // normal channels.
   [[nodiscard]]
   virtual ReadDisableHandlePtr connectionReadDisable() PURE;
 };

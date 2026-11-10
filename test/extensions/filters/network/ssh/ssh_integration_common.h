@@ -2,6 +2,7 @@
 
 #include "source/extensions/filters/network/ssh/channel.h"
 #include "source/extensions/filters/network/ssh/transport.h"
+#include "source/extensions/filters/network/ssh/wire/messages.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -20,11 +21,23 @@ public:
 };
 
 using ChannelMsgHandlerFunc = absl::AnyInvocable<absl::Status(wire::ChannelMessage&&, ChannelCallbacks&)>;
+using OnChannelDestroyedFunc = absl::AnyInvocable<void()>;
+
+class FakeSshUpstreamHandlerApi {
+public:
+  virtual ~FakeSshUpstreamHandlerApi() = default;
+  virtual void requestChannelOpen() PURE;
+  virtual void closeConnection(Network::ConnectionCloseType) PURE;
+};
 
 struct SshFakeUpstreamHandlerOpts {
+  std::function<bool(uint32_t)> should_accept_channel = [](uint32_t) { return true; };
   absl::AnyInvocable<ChannelMsgHandlerFunc(wire::ChannelOpenMsg&)> on_channel_open_request;
   absl::AnyInvocable<ChannelMsgHandlerFunc(wire::ChannelOpenConfirmationMsg&)> on_channel_accepted;
   absl::AnyInvocable<ChannelMsgHandlerFunc(wire::ChannelOpenFailureMsg&)> on_channel_rejected;
+  absl::AnyInvocable<OnChannelDestroyedFunc(uint32_t, Envoy::Event::Dispatcher&, ChannelCallbacks&)> on_channel_created;
+  absl::AnyInvocable<void(const wire::DisconnectMsg&)> on_disconnect;
+  absl::AnyInvocable<void(FakeSshUpstreamHandlerApi&)> set_upstream_api;
 };
 
 class FakeSshUpstreamCallbacks {

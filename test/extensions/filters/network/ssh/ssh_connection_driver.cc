@@ -13,14 +13,13 @@ namespace test {
 SshConnectionDriver::SshConnectionDriver(Network::ClientConnectionPtr client_connection,
                                          Server::Configuration::ServerFactoryContext& context,
                                          std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
-                                         FakeUpstreamShim& mgmt_upstream)
+                                         FakeUpstreamShim& mgmt_upstream,
+                                         absl::Duration default_timeout)
     : TransportBase(context, config, *this),
       client_connection_(std::move(client_connection)),
-      mgmt_upstream_(mgmt_upstream) {
+      mgmt_upstream_(mgmt_upstream),
+      default_timeout_(absl::ToChronoMilliseconds(default_timeout)) {
   server_version_ = "SSH-2.0-SshConnectionDriver";
-  default_timeout_ = isDebuggerAttached()
-                       ? std::chrono::hours(10)
-                       : std::chrono::seconds(10);
 }
 
 void SshConnectionDriver::connect() {
@@ -52,17 +51,26 @@ Envoy::OptRef<Envoy::Event::Dispatcher> SshConnectionDriver::connectionDispatche
   return client_connection_->dispatcher();
 }
 
-AssertionResult SshConnectionDriver::disconnect() {
+AssertionResult SshConnectionDriver::disconnect(bool close_connection, std::optional<std::chrono::milliseconds> timeout) {
   if (!disconnected_) {
     codec_callbacks_->expect_decoding_failure_ = true;
     sendMessage(wire::DisconnectMsg{
       .reason_code = SSH2_DISCONNECT_BY_APPLICATION,
+      .description = "disconnecting"s,
     });
+    if (close_connection) {
+      client_connection_->close(Network::ConnectionCloseType::FlushWrite);
+    }
     // Run the event loop to process the disconnect message.
-    while (!disconnected_) {
-      if (auto res = run(Envoy::Event::Dispatcher::RunType::NonBlock, default_timeout_); !res) {
+    Envoy::Event::TestTimeSystem::RealTimeBound bound(timeout.value_or(default_timeout_));
+    while (!testing::Test::HasFailure() && bound.withinBound() && !disconnected_) {
+      if (auto res = run(Envoy::Event::Dispatcher::RunType::NonBlock, timeout.value_or(default_timeout_)); !res) {
         return res;
       }
+    }
+    if (testing::Test::HasFailure() || !bound.withinBound() || !disconnected_) {
+      return AssertionResult(!testing::Test::HasFailure() && bound.withinBound() && disconnected_)
+             << "timed out waiting for client to disconnect";
     }
   }
   close();
@@ -73,7 +81,9 @@ void SshConnectionDriver::close() {
   if (!closed_) {
     auto& dispatcher = client_connection_->dispatcher();
     closed_ = true;
-    client_connection_->close(Network::ConnectionCloseType::AbortReset);
+    if (!disconnected_) {
+      client_connection_->close(Network::ConnectionCloseType::AbortReset);
+    }
     client_connection_.reset(); // IMPORTANT: client_connection_ holds a shared_ptr to this
     ASSERT(disconnected_ == true);
     dispatcher.clearDeferredDeleteList();
@@ -355,6 +365,10 @@ testing::AssertionResult SshConnectionDriver::wait(UntypedTaskCallbacksHandle& h
     connectionDispatcher()->run(Envoy::Event::Dispatcher::RunType::RunUntilExit);
     if (weak_token.expired()) {
       timeout->disableTimer();
+      if (!testing::Test::HasFailure()) {
+        // If everything succeeded, run the dispatcher again to flush any pending events
+        connectionDispatcher()->run(Envoy::Event::Dispatcher::RunType::NonBlock);
+      }
       return AssertionResult(!testing::Test::HasFailure());
     }
     if (timed_out) {
@@ -392,6 +406,7 @@ SshConnectionDriver::TaskCallbacksImpl::TaskCallbacksImpl(SshConnectionDriver& d
 }
 
 void SshConnectionDriver::TaskCallbacksImpl::taskSuccess(std::any output, std::function<void(const std::any&, void*)> apply_fn) {
+  ENVOY_LOG(trace, "task success (name: {})", task_->name());
   RELEASE_ASSERT(!testing::Test::HasFailure(), "");
   if (timeout_timer_ != nullptr) {
     timeout_timer_->disableTimer();
@@ -411,6 +426,7 @@ void SshConnectionDriver::TaskCallbacksImpl::taskSuccess(std::any output, std::f
 }
 
 void SshConnectionDriver::TaskCallbacksImpl::taskFailure(absl::Status stat) {
+  ENVOY_LOG(trace, "task failure (name: {}, err: {})", task_->name(), stat);
   if (timeout_timer_ != nullptr) {
     timeout_timer_->disableTimer();
   }
@@ -435,6 +451,7 @@ openssh::SSHKey& SshConnectionDriver::clientKey() {
 }
 
 void SshConnectionDriver::TaskCallbacksImpl::setTimeout(std::chrono::milliseconds timeout, std::optional<std::string> name) {
+  ENVOY_LOG(trace, "setting timeout: (task name: {}, timeout name: {}, duration: {})", task_->name(), name, timeout);
   if (timeout_timer_ != nullptr) {
     timeout_timer_->disableTimer();
   }
