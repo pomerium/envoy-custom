@@ -249,12 +249,6 @@ absl::Status ConnectionService::maybeStartNonOwningPassthroughChannel(uint32_t i
   return startChannel(std::move(passthrough), {.allocated_channel_id = internal_id}).status();
 }
 
-Envoy::Common::CallbackHandlePtr ConnectionService::onServerDraining(std::chrono::milliseconds delay, Envoy::Event::Dispatcher& dispatcher, std::function<void()> complete_cb) {
-  ENVOY_LOG(debug, "ssh: stream {}: handling graceful shutdown (delay: {})", transport_.streamId(), delay);
-  shutdown(absl::UnavailableError("server shutting down"));
-  return transport_.channelIdManager().startDrain(dispatcher, complete_cb);
-}
-
 void ConnectionService::shutdown(absl::Status err) {
   auto& channelIdMgr = transport_.channelIdManager();
   // NB: we do not necessarily assume that this is the only place startDrain() would ever be called.
@@ -453,6 +447,13 @@ absl::Status UpstreamConnectionService::requestService() {
 
 absl::Status UpstreamConnectionService::onServiceAccepted() {
   return absl::OkStatus();
+}
+
+Envoy::Common::CallbackHandlePtr UpstreamConnectionService::onServerDraining(std::chrono::milliseconds,
+                                                                             Envoy::Event::Dispatcher& dispatcher,
+                                                                             std::function<void()> complete_cb) {
+  dispatcher.post(std::move(complete_cb));
+  return nullptr;
 }
 
 class HijackedChannel : public Channel,
@@ -825,6 +826,14 @@ absl::Status DownstreamConnectionService::handleMessage(Grpc::ResponsePtr<Server
   default:
     return absl::InternalError("invalid server message");
   }
+}
+
+Envoy::Common::CallbackHandlePtr DownstreamConnectionService::onServerDraining(std::chrono::milliseconds delay,
+                                                                               Envoy::Event::Dispatcher& dispatcher,
+                                                                               std::function<void()> complete_cb) {
+  ENVOY_LOG(debug, "ssh: stream {}: handling graceful shutdown (delay: {})", transport_.streamId(), delay);
+  shutdown(absl::UnavailableError("server shutting down"));
+  return transport_.channelIdManager().startDrain(dispatcher, complete_cb);
 }
 
 void DownstreamConnectionService::onStreamBegin(Network::Connection& connection) {

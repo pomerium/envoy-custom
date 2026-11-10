@@ -1162,7 +1162,9 @@ TYPED_TEST_P(TransportBaseTest, TestRekeyOnWriteThreshold) {
       auto n = this->Client().TransportBase::sendMessageToConnection(std::move(msg));
       EXPECT_OK(n.status());
       EXPECT_EQ(724, this->Client().write_bytes_remaining_);
-      lastMessage.Notify();
+      this->Client().Post([&lastMessage] {
+        lastMessage.Notify();
+      });
       return n;
     }));
 

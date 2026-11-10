@@ -125,6 +125,12 @@ protected:
   public:
     FakeUpstreamConnectionService(SshFakeUpstreamHandler& parent);
     absl::Status handleMessage(wire::Message&& msg) override;
+    Envoy::Common::CallbackHandlePtr onServerDraining(std::chrono::milliseconds,
+                                                      Envoy::Event::Dispatcher& dispatcher,
+                                                      std::function<void()> complete_cb) override {
+      dispatcher.post(complete_cb);
+      return nullptr;
+    }
 
   private:
     SshFakeUpstreamHandler& parent_;
