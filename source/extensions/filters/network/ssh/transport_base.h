@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <concepts>
 
 #include "source/common/math.h"
@@ -49,6 +50,9 @@ struct codec_traits<T> {
 // Note that because we require strict key exchange, the sequence number is used to determine how
 // many packets have been sent/received.
 static constexpr uint32_t SeqnumRekeyLimit = (static_cast<uint32_t>(1) << 31);
+
+static constexpr auto DefaultHandshakeTimeout = 10s;
+static constexpr auto DefaultAuthTimeout = 20s;
 
 template <typename Codec>
 class TransportBase : public Codec,
@@ -315,13 +319,43 @@ public:
     return dispatch(std::move(msg));
   }
 
+  // Called by the concrete transport to start the initial handshake timer. The connection
+  // dispatcher must be set before this is called, so that the timer can be allocated.
+  void startHandshakeTimer() {
+    ASSERT(version_exchange_timer_ == nullptr);
+    ASSERT(connectionDispatcher().has_value());
+
+    handshake_time_budget_ = getHandshakeTimeoutOrDefault();
+    handshake_start_time_ = connectionDispatcher()->approximateMonotonicTime();
+    version_exchange_timer_ = connectionDispatcher()->createTimer([this] {
+      terminate(absl::DeadlineExceededError("version exchange timed out"));
+    });
+
+    if (handshake_time_budget_ > 0ms) {
+      ENVOY_LOG(trace, "ssh [{}]: handshake timer starting (duration: {})",
+                codec_traits<Codec>::name, handshake_time_budget_);
+      version_exchange_timer_->enableTimer(handshake_time_budget_);
+    } else {
+      ENVOY_LOG(debug, "ssh [{}]: handshake timer disabled", codec_traits<Codec>::name);
+    }
+  }
+
   void onVersionExchangeCompleted(const bytes& server_version, const bytes& client_version, const bytes&) override {
+    // If the handshake timer is running, stop it and record how much time is left
+    auto elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>(
+      connectionDispatcher()->approximateMonotonicTime() - handshake_start_time_);
+    if (version_exchange_timer_ != nullptr) {
+      version_exchange_timer_->disableTimer();
+    }
+    handshake_time_budget_ = std::max(0ms, std::chrono::duration_cast<std::chrono::milliseconds>(
+                                             handshake_time_budget_ - elapsedTime));
+
     std::string serverVersionString(reinterpret_cast<const char*>(server_version.data()),
                                     server_version.size());
     std::string clientVersionString(reinterpret_cast<const char*>(client_version.data()),
                                     client_version.size());
-    ENVOY_LOG(debug, "ssh [{}]: stream {}: version exchange complete (server: {}; client: {})",
-              codec_traits<Codec>::name, streamId(), serverVersionString, clientVersionString);
+    ENVOY_LOG(trace, "ssh [{}]: stream {}: version exchange complete in {} (server: {}; client: {})",
+              codec_traits<Codec>::name, streamId(), elapsedTime, serverVersionString, clientVersionString);
     if (auto stat = kex_->initiateKex(); !stat.ok()) {
       terminate(stat);
     }
@@ -330,6 +364,18 @@ public:
   // If overriding (tests only), be sure to call this function in the implementation
   void onKexInitMsgSent() override {
     pending_key_exchange_ = true;
+    kex_timer_ = connectionDispatcher()->createTimer([this] {
+      terminate(absl::DeadlineExceededError("key exchange timed out"));
+    });
+    auto duration = initial_key_exchange_done_
+                      ? getHandshakeTimeoutOrDefault()
+                      : handshake_time_budget_;
+    if (duration > 0ms) {
+      ENVOY_LOG(trace, "ssh [{}]: kex timer starting (duration: {})", codec_traits<Codec>::name, duration);
+      kex_timer_->enableTimer(duration);
+    } else {
+      ENVOY_LOG(debug, "ssh [{}]: kex timer disabled", codec_traits<Codec>::name);
+    }
   }
 
   void onKexStarted(bool initial_kex) override {
@@ -357,7 +403,10 @@ public:
 
     pending_key_exchange_ = false;
 
+    kex_timer_ = nullptr;
+
     if (initial_kex) {
+      initial_key_exchange_done_ = true;
       ENVOY_LOG(debug, "ssh [{}]: initial key exchange completed", codec_traits<Codec>::name);
       this->registerMessageHandlers(*static_cast<SshMessageDispatcher*>(this));
       ENVOY_BUG(pending_messages_.empty(), "extra messages sent before initial key exchange complete");
@@ -398,6 +447,7 @@ public:
 protected:
   bool version_exchange_done_{};
   bool pending_key_exchange_{};
+  bool initial_key_exchange_done_{};
   uint32_t seq_read_{};
   uint32_t seq_write_{};
   std::unique_ptr<PacketCipher> cipher_;
@@ -459,9 +509,22 @@ protected:
     return n;
   }
 
+  std::chrono::milliseconds getHandshakeTimeoutOrDefault() {
+    if (!config_->has_handshake_timeout()) {
+      return DefaultHandshakeTimeout;
+    }
+    return std::chrono::milliseconds{
+      DurationUtil::durationToMilliseconds(config_->handshake_timeout())};
+  }
+
 private:
   std::deque<wire::Message> pending_messages_;
   Stats::ScopeSharedPtr scope_;
+
+  Envoy::Event::TimerPtr version_exchange_timer_;
+  Envoy::Event::TimerPtr kex_timer_;
+  MonotonicTime handshake_start_time_;
+  std::chrono::milliseconds handshake_time_budget_{};
 
   void enqueueMessage(wire::Message&& msg) {
     pending_messages_.emplace_front(std::move(msg));

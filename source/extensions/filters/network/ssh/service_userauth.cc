@@ -130,6 +130,7 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
 
           pomerium::extensions::ssh::ClientMessage clientMsg;
           *clientMsg.mutable_auth_request() = auth_req;
+          setIsWaitingForManagementServer(true);
           transport_.sendMgmtClientMessage(clientMsg);
 
           return absl::OkStatus();
@@ -144,6 +145,7 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
 
           pomerium::extensions::ssh::ClientMessage clientMsg;
           *clientMsg.mutable_auth_request() = auth_req;
+          setIsWaitingForManagementServer(true);
           transport_.sendMgmtClientMessage(clientMsg);
 
           return absl::OkStatus();
@@ -176,6 +178,7 @@ absl::Status DownstreamUserAuthService::handleMessage(wire::Message&& msg) {
 
       pomerium::extensions::ssh::ClientMessage clientMsg;
       *clientMsg.mutable_info_response() = info_resp;
+      setIsWaitingForManagementServer(true);
       transport_.sendMgmtClientMessage(clientMsg);
 
       return absl::OkStatus();
@@ -192,6 +195,16 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
     auto authResp = message->auth_response();
     switch (authResp.response_case()) {
     case AuthenticationResponse::kAllow: {
+      if (!waiting_for_management_server_) {
+        // Note: this is only a sanity check, not a "real" invariant. However there is no scenario
+        // in which a correctly implemented server would send an allow response while it is waiting
+        // for the client to send something as part of the auth flow.
+        IS_ENVOY_BUG("unexpected AllowResponse received from the management server");
+        return absl::InternalError("invalid auth response");
+      }
+      auth_timer_ = nullptr;
+      setIsWaitingForManagementServer(false);
+
       auto allow = authResp.allow();
       auto state = std::make_shared<AuthInfo>();
       state->allow_response = std::make_unique<AllowResponse>();
@@ -242,6 +255,8 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
       return absl::OkStatus();
     }
     case AuthenticationResponse::kDeny: {
+      setIsWaitingForManagementServer(false);
+
       const auto& deny = authResp.deny();
       auto methods = deny.methods();
       if (methods.empty()) {
@@ -260,6 +275,8 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
       return transport_.sendMessageToConnection(std::move(failure)).status();
     }
     case AuthenticationResponse::kInfoRequest: {
+      setIsWaitingForManagementServer(false);
+
       const auto& infoReq = authResp.info_request();
       if (infoReq.method() == "keyboard-interactive") {
         KeyboardInteractiveInfoPrompts server_req;
@@ -287,6 +304,39 @@ absl::Status DownstreamUserAuthService::handleMessage(Grpc::ResponsePtr<ServerMe
   }
   default:
     return absl::InternalError("server sent invalid message case");
+  }
+}
+
+void DownstreamUserAuthService::startAuthTimer(std::chrono::milliseconds duration) {
+  ASSERT(auth_timer_ == nullptr && auth_time_budget_ == 0ms && duration != 0ms);
+  auth_time_budget_ = duration;
+  auth_timer_ = transport_.connectionDispatcher()->createTimer([this] {
+    onAuthTimeout();
+  });
+  ENVOY_LOG(trace, "auth timer started (time remaining: {})");
+  auth_timer_->enableTimer(auth_time_budget_);
+}
+
+void DownstreamUserAuthService::onAuthTimeout() {
+  auth_timer_ = nullptr;
+  transport_.terminate(absl::DeadlineExceededError("user auth timed out"));
+}
+
+void DownstreamUserAuthService::setIsWaitingForManagementServer(bool is_waiting) {
+  waiting_for_management_server_ = is_waiting;
+
+  if (auth_timer_ != nullptr) {
+    if (is_waiting && auth_timer_->enabled()) {
+      auth_timer_->disableTimer();
+      auto now = transport_.connectionDispatcher()->approximateMonotonicTime();
+      auth_time_budget_ = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::max(0ns, (now - auth_timer_start_)));
+      ENVOY_LOG(trace, "auth timer paused (time remaining: {})", auth_time_budget_);
+    } else if (!auth_timer_->enabled()) {
+      ENVOY_LOG(trace, "auth timer resumed (time remaining: {})", auth_time_budget_);
+      auth_timer_start_ = transport_.connectionDispatcher()->approximateMonotonicTime();
+      auth_timer_->enableTimer(auth_time_budget_);
+    }
   }
 }
 
