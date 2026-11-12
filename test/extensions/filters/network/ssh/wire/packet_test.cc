@@ -19,17 +19,6 @@ struct msgAllTypes : Msg<SshMessageType(200)> {
   field<string_list, NameListFormat> Strings;
   field<bytes, LengthPrefixed> Bytes;
   field<bytes, LengthPrefixed> Bignum;
-
-  bool operator==(const msgAllTypes& other) const = default;
-
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
-    return decodeMsg(buffer, type, payload_size,
-                     Bool, Array, Uint64, Uint32, Uint8, String, Strings, Bytes, Bignum);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept {
-    return encodeMsg(buffer, type,
-                     Bool, Array, Uint64, Uint32, Uint8, String, Strings, Bytes, Bignum);
-  }
 };
 
 namespace {

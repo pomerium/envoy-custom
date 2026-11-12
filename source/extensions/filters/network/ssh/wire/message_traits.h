@@ -10,6 +10,15 @@ namespace wire::detail {
 template <SshMessageType MT>
 struct OverloadGroup {};
 
+template <typename T>
+struct is_overloadgroup : std::false_type {};
+
+template <SshMessageType MT>
+struct is_overloadgroup<OverloadGroup<MT>> : std::true_type {};
+
+template <typename T>
+constexpr bool is_overloadgroup_v = is_overloadgroup<T>::value;
+
 // specializations of overload_set_for are defined in messages.h
 template <DecayedType T>
 struct overload_set_for : std::type_identity<T> {};
@@ -39,6 +48,15 @@ constexpr bool is_overload_set_v = is_overload_set<T>::value;
 // sub-messages
 template <SshMessageType MT>
 struct SubMsgGroup {};
+
+template <typename T>
+struct is_submsggroup : std::false_type {};
+
+template <SshMessageType MT>
+struct is_submsggroup<SubMsgGroup<MT>> : std::true_type {};
+
+template <typename T>
+constexpr bool is_submsggroup_v = is_submsggroup<T>::value;
 
 // top level messages
 enum class TopLevelMessageGroup {};
@@ -128,5 +146,8 @@ struct top_level_visitor<IsConst, F> : private F {
     return F::operator()(o.template resolve<decayed_arg>());
   }
 };
+
+template <typename T>
+using submsg_group_t = T::submsg_group;
 
 } // namespace wire::detail
