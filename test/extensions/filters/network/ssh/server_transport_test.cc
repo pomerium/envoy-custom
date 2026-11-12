@@ -21,6 +21,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include <chrono>
+#include <cstdlib>
 
 extern "C" {
 #include "openssh/ssh2.h"
@@ -647,14 +648,14 @@ TEST_P(ClientMessagesPreUserAuthTest, ClientMessagesPreUserAuth) {
   // dropped and replied to with an UnimplementedMsg, as per RFC4253 § 11.4.
 
   auto [msg, err] = GetParam();
-  if (err != "") {
+  if (!err.empty()) {
     EXPECT_CALL(server_codec_callbacks_, onDecodingFailure(_))
       .WillOnce([err](std::string_view actual) {
         EXPECT_EQ(err, actual);
       });
   }
   ASSERT_OK(WriteMsg(std::move(msg)));
-  if (err != "") {
+  if (!err.empty()) {
     // for KexInitMsg, the server sends its KexInit reply before checking the algorithms
     if (msg.msg_type() == wire::SshMessageType::KexInit) {
       wire::KexInitMsg serverKexInit;
@@ -2056,7 +2057,7 @@ TEST_P(ClientMessagesPostUserAuthTest, ClientMessagesPostUserAuth) {
   // - global requests will be forwarded to the upstream
 
   auto [msg, err] = GetParam();
-  if (err != "") {
+  if (!err.empty()) {
     EXPECT_CALL(server_codec_callbacks_, onDecodingFailure(_))
       .WillOnce([err](std::string_view actual) {
         EXPECT_THAT(actual, HasSubstr(err));
@@ -2084,7 +2085,7 @@ TEST_P(ClientMessagesPostUserAuthTest, ClientMessagesPostUserAuth) {
       [](const auto&) {});
   }
   ASSERT_OK(WriteMsg(std::move(msg)));
-  if (err != "") {
+  if (!err.empty()) {
     // for KexInitMsg, the server sends its KexInit reply before checking the algorithms
     if (msg.msg_type() == wire::SshMessageType::KexInit) {
       wire::KexInitMsg serverKexInit;
@@ -2438,6 +2439,13 @@ public:
   }
 
   virtual void initialize() {
+    // IMPORTANT: start the dispatcher's monotonic time at some value > 0. The default monotonic
+    // time of 0 is not realistic and can result in tests not failing when they should for some
+    // types of bugs.
+    time_system_.setMonotonicTime(std::chrono::seconds{rand() % 1000});
+    ENVOY_LOG_MISC(debug, "[test] initial monotonic time: {}", time_system_.monotonicTime().time_since_epoch());
+    dispatcher_->updateApproximateMonotonicTime();
+
     ASSERT(initialize_called_ == false);
     initialize_called_ = true;
     transport_.setCodecCallbacks(server_codec_callbacks_);
@@ -2483,6 +2491,10 @@ public:
     [[clang::require_explicit_initialization]] absl::AnyInvocable<void(MockFunctions& mocks)> setup;
   };
 
+  void RunEventLoopNonBlock() {
+    dispatcher_->run(Envoy::Event::Dispatcher::RunType::NonBlock);
+  }
+
   void Handshake(HandshakeOpts&& opts) {
     ASSERT(initialize_called_);
 
@@ -2497,7 +2509,9 @@ public:
         *timedOut = true;
       });
 
+    RunEventLoopNonBlock();
     mocks.before_client_version_sent->Call("before_client_version_sent");
+    RunEventLoopNonBlock();
     if (*timedOut) {
       EXPECT_TRUE(opts.expect_timeout) << "version exchange timed out unexpectedly";
       return;
@@ -2506,7 +2520,9 @@ public:
     input_buffer_.add("SSH-2.0-TestClient");
     transport_.decode(input_buffer_, false);
 
+    RunEventLoopNonBlock();
     mocks.on_partial_client_version_sent->Call("on_partial_client_version_sent");
+    RunEventLoopNonBlock();
     if (*timedOut) {
       EXPECT_TRUE(opts.expect_timeout) << "version exchange timed out unexpectedly";
       return;
@@ -2514,7 +2530,9 @@ public:
 
     input_buffer_.add("\r\n");
     transport_.decode(input_buffer_, false);
+    RunEventLoopNonBlock();
     output_buffer_.drain(15);
+    RunEventLoopNonBlock();
 
     KeyExchange({
       .client_initiates = false, // doesnt matter here
@@ -2560,18 +2578,26 @@ public:
         *timedOut = true;
       });
 
+    RunEventLoopNonBlock();
     mocks.before_client_kex_init->Call("before_client_kex_init");
+    RunEventLoopNonBlock();
     if (*timedOut) {
       EXPECT_TRUE(opts.expect_timeout != NoTimeout) << "key exchange timed out unexpectedly";
       return;
     }
     wire::KexInitMsg serverKexInit;
     if (opts.client_initiates) {
+      RunEventLoopNonBlock();
       ASSERT_OK(WriteMsg(auto(kex_init_)));
+      RunEventLoopNonBlock();
       ASSERT_OK(ReadMsg(serverKexInit));
+      RunEventLoopNonBlock();
     } else {
+      RunEventLoopNonBlock();
       ASSERT_OK(ReadMsg(serverKexInit));
+      RunEventLoopNonBlock();
       ASSERT_OK(WriteMsg(auto(kex_init_)));
+      RunEventLoopNonBlock();
     }
 
     HandshakeMagics magics{
@@ -2586,15 +2612,20 @@ public:
     auto kexAlg = f.create(&magics, &kex_algs_, client_host_key_.get());
     auto ourEcdhInit = kexAlg->buildClientInit();
 
+    RunEventLoopNonBlock();
     mocks.before_client_kex_alg_init->Call("before_client_kex_alg_init");
+    RunEventLoopNonBlock();
     if (*timedOut) {
       EXPECT_TRUE(opts.expect_timeout != NoTimeout) << "key exchange timed out unexpectedly";
       return;
     }
 
+    RunEventLoopNonBlock();
     ASSERT_OK(WriteMsg(auto(ourEcdhInit)));
+    RunEventLoopNonBlock();
     wire::Message serverEcdhReply;
     ASSERT_OK(ReadMsg(serverEcdhReply));
+    RunEventLoopNonBlock();
     auto r = *kexAlg->handleClientRecv(serverEcdhReply);
     if (current_session_id_.has_value()) {
       (*r)->session_id = *current_session_id_;
@@ -2602,19 +2633,28 @@ public:
       (*r)->session_id = (*r)->exchange_hash;
       current_session_id_ = (*r)->session_id;
     }
+    RunEventLoopNonBlock();
 
     mocks.before_client_new_keys->Call("before_client_new_keys");
+    RunEventLoopNonBlock();
     if (*timedOut) {
       EXPECT_TRUE(opts.expect_timeout != NoTimeout) << "key exchange timed out unexpectedly";
       return;
     }
 
+    RunEventLoopNonBlock();
     ASSERT_OK(WriteMsg(wire::NewKeysMsg{}));
+    RunEventLoopNonBlock();
     wire::NewKeysMsg serverNewKeys;
     ASSERT_OK(ReadMsg(serverNewKeys));
+    RunEventLoopNonBlock();
 
     client_cipher_ = makePacketCipherFromKexResult<ClientCodec>(reg, r->get());
 
+    if (*timedOut) {
+      EXPECT_TRUE(opts.expect_timeout != NoTimeout) << "key exchange timed out unexpectedly";
+      return;
+    }
     EXPECT_TRUE(opts.expect_timeout == NoTimeout) << "key exchange completed unexpectedly";
   }
 
@@ -2937,11 +2977,18 @@ public:
       .WillByDefault(InvokeWithoutArgs([this] {
         auth_timed_out_ = true;
       }));
+
+    RunEventLoopNonBlock();
+    ASSERT_FALSE(auth_timed_out_);
   }
 
   // Checks that the auth timeout can occur in the current state
   AssertionResult AuthWillTimeOut() {
+    RunEventLoopNonBlock();
     if (auth_timeout_enabled_) {
+      if (auth_timed_out_) {
+        return AssertionResult(false) << "expected user auth to time out after advancing time, but it has already timed out";
+      }
       EXPECT_CALL(server_codec_callbacks_, onDecodingFailure("user auth timed out"));
       AdvanceTime(DefaultAuthTimeout + 1s);
       return AssertionResult(auth_timed_out_ == true) << "expected user auth to time out, but it did not";
@@ -2952,6 +2999,10 @@ public:
 
   // Checks that the auth timeout can not occur in the current state
   AssertionResult AuthWillNotTimeOut() {
+    RunEventLoopNonBlock();
+    if (auth_timed_out_) {
+      return AssertionResult(false) << "expected user auth not to time out after advancing time, but it has already timed out";
+    }
     AdvanceTime(DefaultAuthTimeout + 1s);
     return AssertionResult(auth_timed_out_ == false) << "expected user auth not to time out, but it did";
   }
@@ -3023,7 +3074,10 @@ public:
       }
     }
 
+    RunEventLoopNonBlock();
     ASSERT_OK(RequestUserAuthService());
+    RunEventLoopNonBlock();
+    ASSERT_FALSE(auth_timed_out_);
 
     // client sends a public key
     ASSERT_OK(WriteMsg(std::move(authReq1)));
@@ -3039,11 +3093,15 @@ public:
       deny->add_methods("publickey");
       manage_stream_callbacks_->onReceiveMessage(std::move(response));
     }
+    RunEventLoopNonBlock();
+    ASSERT_FALSE(auth_timed_out_);
 
     ASSERT_TRUE(opts.after_public_key_denied != nullptr);
     if (!opts.after_public_key_denied()) {
       return;
     }
+    RunEventLoopNonBlock();
+    ASSERT_FALSE(auth_timed_out_);
 
     {
       wire::UserAuthFailureMsg msg;
@@ -3051,6 +3109,8 @@ public:
       EXPECT_EQ(string_list{"publickey"}, *msg.methods);
       EXPECT_FALSE(*msg.partial);
     }
+    RunEventLoopNonBlock();
+    ASSERT_FALSE(auth_timed_out_);
 
     // client sends a new key
     ASSERT_OK(WriteMsg(std::move(authReq2)));
@@ -3058,6 +3118,7 @@ public:
 
     // while waiting for the server's reply, the auth timer should be paused
     ASSERT_TRUE(AuthWillNotTimeOut());
+    RunEventLoopNonBlock();
 
     {
       // server replies to accept the public key and start a keyboard-interactive method
@@ -3067,11 +3128,15 @@ public:
       deny->add_methods("keyboard-interactive");
       manage_stream_callbacks_->onReceiveMessage(std::move(response));
     }
+    RunEventLoopNonBlock();
+    ASSERT_FALSE(auth_timed_out_);
 
     ASSERT_TRUE(opts.after_public_key_accepted != nullptr);
     if (!opts.after_public_key_accepted()) {
       return;
     }
+    RunEventLoopNonBlock();
+    ASSERT_FALSE(auth_timed_out_);
 
     {
       wire::UserAuthFailureMsg msg;
@@ -3079,6 +3144,8 @@ public:
       EXPECT_EQ(string_list{"keyboard-interactive"}, *msg.methods);
       EXPECT_TRUE(*msg.partial);
     }
+    RunEventLoopNonBlock();
+    ASSERT_FALSE(auth_timed_out_);
 
     // client sends a keyboard-interactive request
     ASSERT_OK(WriteMsg(std::move(kbdIntAuthReq)));
@@ -3098,11 +3165,15 @@ public:
       ASSERT_TRUE(info->mutable_request()->PackFrom(prompts));
       manage_stream_callbacks_->onReceiveMessage(std::move(response));
     }
+    RunEventLoopNonBlock();
+    ASSERT_FALSE(auth_timed_out_);
 
     ASSERT_TRUE(opts.after_info_request_sent != nullptr);
     if (!opts.after_info_request_sent()) {
       return;
     }
+    RunEventLoopNonBlock();
+    ASSERT_FALSE(auth_timed_out_);
 
     // client receives the info request
     {
@@ -3112,9 +3183,12 @@ public:
       ASSERT_EQ("bar"s, *req.instruction);
       ASSERT_TRUE(req.prompts->empty());
     }
+    RunEventLoopNonBlock();
+    ASSERT_FALSE(auth_timed_out_);
 
     // client sends info response
     ASSERT_OK(WriteMsg(std::move(kbdIntInfoResp)));
+    RunEventLoopNonBlock();
     ASSERT_TRUE(sentKbdIntInfoRespClientMsg);
 
     // while waiting for the server's reply, the auth timer should be paused
@@ -3130,12 +3204,15 @@ public:
       util::populateAuthContext(*allow->mutable_auth_context(), *clientKey2);
       manage_stream_callbacks_->onReceiveMessage(std::move(response));
     }
+    RunEventLoopNonBlock();
 
     // After receiving the allow response, the auth timer should be stopped
     ASSERT_TRUE(AuthWillNotTimeOut());
 
     ASSERT_TRUE(opts.after_sequence_complete != nullptr);
     opts.after_sequence_complete();
+    RunEventLoopNonBlock();
+    ASSERT_FALSE(auth_timed_out_);
   }
 
   bool auth_timed_out_{false};
