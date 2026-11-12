@@ -60,6 +60,7 @@ http_archive(
         "//patches/envoy:0012-generic-proxy-trace-logs.patch",
         "//patches/envoy:0013-fuzz-toolchain-path.patch",
         "//patches/envoy:0014-disable-coverage-report-rounding.patch",
+        "//patches/envoy:0015-factory-registry-methods-used.patch",
         "//patches/envoy:fix-antlr4-cpp-runtime.patch",
         "//patches/envoy:fix-integration-test-server-exit.patch",
         "//patches/envoy:fix-missing-symbolizer-env.patch",
