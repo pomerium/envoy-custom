@@ -313,7 +313,8 @@ void DownstreamUserAuthService::startAuthTimer(std::chrono::milliseconds duratio
   auth_timer_ = transport_.connectionDispatcher()->createTimer([this] {
     onAuthTimeout();
   });
-  ENVOY_LOG(trace, "auth timer started (time remaining: {})");
+  ENVOY_LOG(trace, "auth timer started (time remaining: {})", auth_time_budget_);
+  auth_timer_start_ = transport_.connectionDispatcher()->approximateMonotonicTime();
   auth_timer_->enableTimer(auth_time_budget_);
 }
 
@@ -330,7 +331,7 @@ void DownstreamUserAuthService::setIsWaitingForManagementServer(bool is_waiting)
       auth_timer_->disableTimer();
       auto now = transport_.connectionDispatcher()->approximateMonotonicTime();
       auth_time_budget_ = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::max(0ns, (now - auth_timer_start_)));
+        std::max(0ns, auth_time_budget_ - (now - auth_timer_start_)));
       ENVOY_LOG(trace, "auth timer paused (time remaining: {})", auth_time_budget_);
     } else if (!auth_timer_->enabled()) {
       ENVOY_LOG(trace, "auth timer resumed (time remaining: {})", auth_time_budget_);
