@@ -597,9 +597,20 @@ absl::StatusOr<CompatibilityInfo> checkCompatibility(const MmapFileHandle& host,
     });
     if (found == hostSymbols.items.end() || std::get<0>(*found) != std::get<0>(kv)) {
       if (flag_demangle) {
-        auto* str = abi::__cxa_demangle(symbolName.data(), nullptr, nullptr, nullptr); // NOLINT:bugprone-suspicious-stringview-data-usage
-        msgs.push_back(fmt::format("missing symbol required by extension: {}", str));
-        free(str);
+        int status{};
+        auto* str = abi::__cxa_demangle(symbolName.data(), nullptr, nullptr, &status); // NOLINT:bugprone-suspicious-stringview-data-usage
+        switch (status) {
+        case 0:
+          msgs.push_back(fmt::format("missing symbol required by extension: {}", str));
+          free(str);
+          break;
+        case -2:
+          msgs.push_back(fmt::format("missing symbol required by extension: {}",
+                                     symbolName.substr(0, symbolName.size() - 1)));
+          break;
+        default:
+          return absl::InternalError(fmt::format("__cxa_demangle error {}", status));
+        }
       } else {
         msgs.push_back(fmt::format("missing symbol required by extension: {}",
                                    symbolName.substr(0, symbolName.size() - 1)));
