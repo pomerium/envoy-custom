@@ -19,12 +19,11 @@ struct use_factory_guard {
 // This must be declared in global scope before registering a factory with an existing base type
 // known to the host, so that the extension will use the same instance of the factory registry for
 // this type instead of instantiating its own.
-#define DYNAMIC_EXTENSION_USE_FACTORY_BASE(BASE)                \
-  namespace detail {                                            \
-  template <> struct use_factory_guard<#BASE> {};               \
-  }                                                             \
-  extern template class Envoy::Registry::FactoryRegistry<BASE>; \
-  extern template class Envoy::Registry::FactoryRegistryProxyImpl<BASE>;
+#define DYNAMIC_EXTENSION_USE_FACTORY_BASE(BASE)  \
+  namespace detail {                              \
+  template <> struct use_factory_guard<#BASE> {}; \
+  }                                               \
+  extern template class Envoy::Registry::FactoryRegistry<BASE>;
 
 // NOLINTNEXTLINE(bugprone-reserved-identifier)
 #define _DYNAMIC_EXTENSION_REGISTER_FACTORY_2(FACTORY, BASE, ID) \

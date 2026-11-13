@@ -1,0 +1,151 @@
+diff --git a/envoy/registry/registry.h b/envoy/registry/registry.h
+index b13aef7c1c..42805f5ab3 100644
+--- a/envoy/registry/registry.h
++++ b/envoy/registry/registry.h
+@@ -107,15 +107,18 @@ public:
+    * @return a read-only reference to the map of registered factory
+    * registries.
+    */
++  __attribute__((used))
+   static const MapType& registeredFactories() { return factories(); }
+ 
+   /**
+    * @return whether the given category name is already registered.
+    */
++  __attribute__((used))
+   static bool isRegistered(absl::string_view category) {
+     return factories().find(category) != factories().end();
+   }
+ 
++  __attribute__((used))
+   static bool disableFactory(absl::string_view category, absl::string_view name) {
+     auto registry = factories().find(category);
+ 
+@@ -132,6 +135,7 @@ private:
+   template <class T, class Base> friend class RegisterFactory;
+   template <class Base> friend class InjectFactoryCategory;
+ 
++  __attribute__((used))
+   static void registerCategory(const std::string& category, FactoryRegistryProxy* factory_names) {
+     auto result = factories().emplace(std::make_pair(category, factory_names));
+     RELEASE_ASSERT(result.second == true,
+@@ -168,6 +172,7 @@ public:
+   /**
+    * Return a sorted vector of registered factory names.
+    */
++  __attribute__((used))
+   static std::vector<absl::string_view> registeredNames(bool include_disabled = false) {
+     std::vector<absl::string_view> ret;
+ 
+@@ -187,6 +192,7 @@ public:
+   /**
+    * Gets the current map of factory implementations.
+    */
++  __attribute__((used))
+   static absl::flat_hash_map<std::string, Base*>& factories() {
+     static auto* factories = new absl::flat_hash_map<std::string, Base*>;
+     return *factories;
+@@ -195,6 +201,7 @@ public:
+   /**
+    * Gets the current map of vendor specific factory versions.
+    */
++  __attribute__((used))
+   static absl::flat_hash_map<std::string, envoy::config::core::v3::BuildVersion>&
+   versionedFactories() {
+     using VersionedFactoryMap =
+@@ -202,6 +209,7 @@ public:
+     MUTABLE_CONSTRUCT_ON_FIRST_USE(VersionedFactoryMap);
+   }
+ 
++  __attribute__((used))
+   static absl::flat_hash_map<std::string, std::string>& deprecatedFactoryNames() {
+     static auto* deprecated_factory_names = new absl::flat_hash_map<std::string, std::string>;
+     return *deprecated_factory_names;
+@@ -212,6 +220,7 @@ public:
+    * including the deprecated configuration message types.
+    * Must be invoked after factory registration is completed.
+    */
++  __attribute__((used))
+   static absl::flat_hash_map<std::string, Base*>& factoriesByType() {
+     static absl::flat_hash_map<std::string, Base*>* factories_by_type =
+         buildFactoriesByType().release();
+@@ -219,6 +228,7 @@ public:
+     return *factories_by_type;
+   }
+ 
++  __attribute__((used))
+   static bool& allowDuplicates() {
+     static bool* allow_duplicates = new bool(false);
+     return *allow_duplicates;
+@@ -227,6 +237,7 @@ public:
+   /**
+    * instead_value are used when passed name was deprecated.
+    */
++  __attribute__((used))
+   static void registerFactory(Base& factory, absl::string_view name,
+                               absl::string_view instead_value = "") {
+     auto result = factories().emplace(std::make_pair(name, &factory));
+@@ -244,6 +255,7 @@ public:
+    * version is used for registering vendor specific factories that are versioned
+    * independently of Envoy.
+    */
++  __attribute__((used))
+   static void registerFactory(Base& factory, absl::string_view name,
+                               const envoy::config::core::v3::BuildVersion& version,
+                               absl::string_view instead_value = "") {
+@@ -263,6 +275,7 @@ public:
+    * factory pointer to null. If the factory is registered under multiple
+    * (deprecated) names, all the possible names are disabled.
+    */
++  __attribute__((used))
+   static bool disableFactory(absl::string_view name) {
+     const auto disable = [](absl::string_view name) -> bool {
+       auto it = factories().find(name);
+@@ -290,6 +303,7 @@ public:
+   /**
+    * Gets a factory by name. If the name isn't found in the registry, returns nullptr.
+    */
++  __attribute__((used))
+   static Base* getFactory(absl::string_view name) {
+     auto it = factories().find(name);
+     if (it == factories().end()) {
+@@ -299,6 +313,7 @@ public:
+     return it->second;
+   }
+ 
++  __attribute__((used))
+   static Base* getFactoryByType(absl::string_view type) {
+     auto it = factoriesByType().find(type);
+     if (it == factoriesByType().end()) {
+@@ -311,6 +326,7 @@ public:
+    * @return the canonical name of the factory. If the given name is a
+    * deprecated factory name, the canonical name is returned instead.
+    */
++  __attribute__((used))
+   static absl::string_view canonicalFactoryName(absl::string_view name) {
+     const auto it = deprecatedFactoryNames().find(name);
+     return (it == deprecatedFactoryNames().end()) ? name : it->second;
+@@ -319,6 +335,7 @@ public:
+   /**
+    * @return true if the named factory was disabled.
+    */
++  __attribute__((used))
+   static bool isFactoryDisabled(absl::string_view name) {
+     auto it = factories().find(name);
+     ASSERT(it != factories().end());
+@@ -328,6 +345,7 @@ public:
+   /**
+    * @return vendor specific version of a factory.
+    */
++  __attribute__((used))
+   static absl::optional<envoy::config::core::v3::BuildVersion>
+   getFactoryVersion(absl::string_view name) {
+     auto it = versionedFactories().find(name);
+@@ -340,6 +358,7 @@ public:
+   /**
+    * @return set of config type names indexed by the factory name.
+    */
++  __attribute__((used))
+   static absl::flat_hash_map<std::string, std::vector<std::string>> registeredTypes() {
+     absl::flat_hash_map<std::string, std::vector<std::string>> mapping;
+     for (const auto& [config_type, factory] : factoriesByType()) {
