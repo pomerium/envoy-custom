@@ -1,9 +1,7 @@
 #pragma once
 
-#include "source/extensions/filters/network/ssh/wire/encoding.h"
 #include "test/extensions/filters/network/ssh/wire/test_util.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
-#include <type_traits>
 
 namespace wire {
 template <typename T>
@@ -398,7 +396,7 @@ template <typename T>
 void populateFields(T& msg) {
   test_field_reflect<T>::visit_fields(msg, []<typename Field>(this auto self, std::string_view, Field& field) -> void {
     using field_type = std::decay_t<Field>;
-    if constexpr (is_field<field_type>::value) {
+    if constexpr (is_field_v<field_type>) {
       field = random_value<typename field_type::value_type>();
       if constexpr ((field_type::encoding_options & CommaDelimited) != 0) {
         // remove empty elements

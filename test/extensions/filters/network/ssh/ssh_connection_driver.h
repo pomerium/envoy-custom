@@ -9,6 +9,7 @@
 #include "test/extensions/filters/network/ssh/ssh_integration_common.h"
 #include "test/extensions/filters/network/ssh/ssh_task.h"
 #include "absl/synchronization/notification.h"
+#include "source/common/common/linked_object.h"
 #include "gtest/gtest.h"
 
 namespace Envoy {

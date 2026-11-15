@@ -10,6 +10,8 @@
 #include "fmt/format.h"
 #include "magic_enum/magic_enum.hpp"
 
+#include "source/extensions/filters/network/ssh/wire/internal/field_base.h"
+
 namespace wire {
 
 // Top level SSH message types
@@ -155,6 +157,9 @@ consteval EncodingOptions operator&(EncodingOptions lhs, EncodingOptions rhs) {
 consteval EncodingOptions operator~(EncodingOptions opt) {
   return static_cast<EncodingOptions>(~std::to_underlying(opt));
 }
+
+template <typename T>
+static constexpr bool is_field_v = std::is_base_of_v<internal::field_base, T>;
 
 } // namespace wire
 

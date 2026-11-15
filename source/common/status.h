@@ -1,9 +1,9 @@
 #pragma once
 
-#include "source/common/common/fmt.h" // IWYU pragma: keep
 #include "fmt/format.h"
 #pragma clang unsafe_buffer_usage begin
-#include "absl/status/statusor.h" // IWYU pragma: keep
+#include "source/common/common/fmt.h" // IWYU pragma: keep
+#include "absl/status/statusor.h"     // IWYU pragma: keep
 #pragma clang unsafe_buffer_usage end
 
 // Wraps an absl::Status with additional message context, but keeps the status code. Similar to

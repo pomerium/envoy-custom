@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "source/common/static_string.h"
+#include "source/common/status.h"
 
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/field.h"
@@ -341,13 +342,10 @@ struct UnimplementedMsg final : Msg<SshMessageType::Unimplemented> {
 
 // https://datatracker.ietf.org/doc/html/rfc4252#section-7
 struct PubKeyUserAuthRequestMsg final : SubMsg<SshMessageType::UserAuthRequest, "publickey"> {
-  field<bool> has_signature;
+  selector_field<bool> has_signature;
   field<std::string, LengthPrefixed> public_key_alg;
   field<bytes, LengthPrefixed> public_key;
-  field<bytes, LengthPrefixed> signature;
-
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
+  optional_field<bytes, true, LengthPrefixed> signature;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4256#section-3.1
@@ -377,12 +375,6 @@ struct UserAuthInfoPrompt {
   field<bool> echo;
 
   constexpr bool operator==(const UserAuthInfoPrompt&) const = default;
-  constexpr bool operator!=(const UserAuthInfoPrompt&) const = default;
-
-  // implements Reader
-  friend size_t read(Envoy::Buffer::Instance& buffer, UserAuthInfoPrompt& prompt, size_t payload_size);
-  // implements Writer
-  friend size_t write(Envoy::Buffer::Instance& buffer, const UserAuthInfoPrompt& prompt);
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4256#section-3.2

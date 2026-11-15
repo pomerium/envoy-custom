@@ -30,7 +30,7 @@ struct message_case_type<Grpc::ResponsePtr<ServerMessage>>
     : std::type_identity<ServerMessage::MessageCase> {};
 
 template <>
-inline ServerMessage::MessageCase messageCase(const Grpc::ResponsePtr<ServerMessage>& msg) {
+constexpr ServerMessage::MessageCase message_case(const Grpc::ResponsePtr<ServerMessage>& msg) {
   return msg->message_case();
 }
 

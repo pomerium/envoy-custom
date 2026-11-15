@@ -1,6 +1,8 @@
 #pragma once
 
 #include "source/common/concepts.h"
+#include "source/common/type_traits.h"
+#include "source/extensions/filters/network/ssh/wire/optional_field.h"
 
 #include <concepts>
 #include <cstddef>
@@ -39,6 +41,7 @@ template <typename... Args>
   requires (sizeof...(Args) > 0)
 absl::StatusOr<size_t> decodeSequence(Envoy::Buffer::Instance& buffer, explicit_size_t auto limit, Args&&... args) noexcept {
   static constexpr auto subMsgIndex = internal::sub_message_index<Args...>();
+  static constexpr ssize_t optionalFlagsFieldIndex = internal::selector_field_index<Args...>();
   internal::check_sub_message_field_order(subMsgIndex);
 
   if (buffer.length() < limit) {
@@ -53,6 +56,16 @@ absl::StatusOr<size_t> decodeSequence(Envoy::Buffer::Instance& buffer, explicit_
         return decode_one(args...[subMsgIndex.index].key_field());
       } else {
         static_assert(false, "key field exists but corresponding sub_message is missing");
+      }
+    } else if constexpr (is_optional_field_v<std::decay_t<decltype(field)>>) {
+      if constexpr (optionalFlagsFieldIndex != -1) {
+        if (args...[optionalFlagsFieldIndex].template test<internal::optional_field_selector_bit<std::decay_t<decltype(field)>>::value>()) {
+          using field_type = std::decay_t<decltype(field)>::field_type;
+          return decode_one(std::forward_like<decltype(field)>(static_cast<copy_const_t<decltype(field), field_type>&>(field)));
+        }
+        return true;
+      } else {
+        static_assert(false, "optional field exists but corresponding optional_flags_field is missing");
       }
     } else {
       // NB: (limit-n) is allowed to be zero here
@@ -87,17 +100,27 @@ template <typename... Args>
   requires (sizeof...(Args) > 0)
 absl::StatusOr<size_t> encodeSequence(Envoy::Buffer::Instance& buffer, const Args&... args) noexcept {
   static constexpr auto subMsgIndex = internal::sub_message_index<Args...>();
+  static constexpr ssize_t selectorFieldIndex = internal::selector_field_index<Args...>();
   internal::check_sub_message_field_order(subMsgIndex);
 
   size_t n = 0;
   absl::Status stat{};
 
-  auto encodeOne = [&](this auto&& encode_one, auto& field) -> bool {
+  auto encodeOne = [&](this auto&& encode_one, const auto& field) -> bool {
     if constexpr (is_key_field_v<std::decay_t<decltype(field)>>) {
       if constexpr (subMsgIndex.index != -1) {
         return encode_one(args...[subMsgIndex.index].key_field());
       } else {
         static_assert(false, "key field exists but corresponding sub_message is missing");
+      }
+    } else if constexpr (is_optional_field_v<std::decay_t<decltype(field)>>) {
+      if constexpr (selectorFieldIndex != -1) {
+        if (args...[selectorFieldIndex].template test<internal::optional_field_selector_bit<std::decay_t<decltype(field)>>::value>()) {
+          return encode_one(static_cast<const std::decay_t<decltype(field)>::field_type&>(field));
+        }
+        return true;
+      } else {
+        static_assert(false, "optional field exists but corresponding optional_flags_field is missing");
       }
     } else {
       auto r = field.encode(buffer);

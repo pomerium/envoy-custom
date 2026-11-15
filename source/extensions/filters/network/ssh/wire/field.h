@@ -22,21 +22,12 @@ namespace wire {
 
 template <typename T, EncodingOptions Opt = None>
   requires ReadWriter<type_or_value_type_t<T>>
-struct field : internal::field_base<T, Opt> {
-  static_assert(sizeof(internal::field_base<T, Opt>) == sizeof(T));
-  using internal::field_base<T, Opt>::field_base;
-  using internal::field_base<T, Opt>::value;
-  using internal::field_base<T, Opt>::operator=;
+struct field : internal::field_impl<T, Opt> {
+  static_assert(sizeof(internal::field_impl<T, Opt>) == sizeof(T));
+  using internal::field_impl<T, Opt>::field_impl;
+  using internal::field_impl<T, Opt>::value;
+  using internal::field_impl<T, Opt>::operator=;
 };
-
-template <typename T>
-struct is_field : std::false_type {};
-
-template <typename T, EncodingOptions Opt>
-struct is_field<field<T, Opt>> : std::true_type {};
-
-template <typename T>
-static constexpr bool is_field_v = is_field<T>::value;
 
 // sub_message
 
@@ -287,6 +278,12 @@ struct fmt::formatter<wire::field<std::vector<T>, Opt>> : formatter<string_view>
     -> format_context::iterator {
     return formatter<string_view>::format(fmt::format("{}", f.value), ctx);
   }
+};
+
+template <typename T>
+  requires (wire::is_field_v<T>)
+struct fmt::formatter<T> : formatter<typename T::field_type> {
+  using formatter<typename T::field_type>::format;
 };
 
 template <>

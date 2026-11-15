@@ -7,6 +7,7 @@
 
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "source/extensions/filters/network/ssh/wire/buffer_io.h"
+#include "source/extensions/filters/network/ssh/wire/internal/field_base.h"
 
 namespace wire::internal {
 
@@ -20,21 +21,21 @@ template <typename T>
 using canonical_key_type_t = canonical_key_type<T>::type;
 
 template <typename T, EncodingOptions Opt>
-struct field_base {
+struct field_impl : field_base {
   T value{};
 
   using value_type = T;
   static constexpr EncodingOptions encoding_options = Opt;
 
-  field_base() = default;
-  field_base(const field_base& other) = default;
-  field_base(field_base&& other) noexcept = default;
-  field_base& operator=(const field_base&) = default;
-  field_base& operator=(field_base&&) noexcept = default;
+  field_impl() = default;
+  field_impl(const field_impl& other) = default;
+  field_impl(field_impl&& other) noexcept = default;
+  field_impl& operator=(const field_impl&) = default;
+  field_impl& operator=(field_impl&&) noexcept = default;
 
-  constexpr field_base(const T& t)
+  constexpr field_impl(const T& t)
       : value(t) {}
-  constexpr field_base(T&& t)
+  constexpr field_impl(T&& t)
       : value(std::move(t)) {}
 
   absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t limit) noexcept {
@@ -62,17 +63,17 @@ struct field_base {
   constexpr auto& operator[](this auto& self, int i) { return self.value[i]; }
 
   // default comparison operators: comparing fields will compare their values
-  constexpr auto operator<=>(const field_base& other) const = default;
-  constexpr bool operator==(const field_base& other) const = default;
+  constexpr auto operator<=>(const field_impl& other) const = default;
+  constexpr bool operator==(const field_impl& other) const = default;
 
   // assignments to field<T> will assign T using its own assignment operators
-  constexpr field_base& operator=(const T& rhs) {
+  constexpr field_impl& operator=(const T& rhs) {
     value = rhs;
     return *this;
   }
 
   // moves to field<T> will assign T using its own move assignment operators
-  constexpr field_base& operator=(T&& rhs) {
+  constexpr field_impl& operator=(T&& rhs) {
     value = std::move(rhs);
     return *this;
   }
@@ -87,5 +88,47 @@ struct field_base {
     return value == t;
   }
 };
+
+namespace test {
+struct Foo {};
+struct Foo1 {
+  uint16_t x;
+};
+struct Foo4 {
+  uint32_t x;
+};
+struct Foo8 {
+  uint64_t x;
+};
+struct Foo64 {
+  uint64_t a;
+  uint64_t b;
+  uint64_t c;
+  uint64_t d;
+  uint64_t e;
+  uint64_t f;
+  uint64_t g;
+  uint64_t h;
+};
+struct Attrs2 {
+  uint32_t flags;
+  uint64_t size;
+  uint32_t uid;
+  uint32_t gid;
+  uint32_t permissions;
+  uint32_t atime;
+  uint32_t mtime;
+  std::vector<Foo8> extended_data;
+
+  constexpr bool operator==(const Attrs2&) const = default;
+};
+static_assert(sizeof(field_impl<uint32_t, None>{}) == sizeof(uint32_t));
+static_assert(sizeof(field_impl<Foo, None>{}) == sizeof(Foo));
+static_assert(sizeof(field_impl<Foo1, None>{}) == sizeof(Foo1));
+static_assert(sizeof(field_impl<Foo4, None>{}) == sizeof(Foo4));
+static_assert(sizeof(field_impl<Foo8, None>{}) == sizeof(Foo8));
+static_assert(sizeof(field_impl<Foo64, None>{}) == sizeof(Foo64));
+static_assert(sizeof(field_impl<Attrs2, None>{}) == sizeof(Attrs2));
+} // namespace test
 
 } // namespace wire::internal

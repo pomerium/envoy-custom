@@ -10,9 +10,9 @@
 #include "fmt/format.h"
 
 #include "envoy/common/pure.h"
-#include "source/common/common/linked_object.h"
 
 #include "source/extensions/filters/network/ssh/wire/messages.h"
+#include "source/extensions/filters/network/ssh/wire/message_types.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -66,10 +66,18 @@ template <typename T>
 struct message_case_type;
 
 template <typename T>
+struct message_case_type<wire::BasicMessage<T>> : std::type_identity<wire::SshMessageType> {};
+
+template <typename T>
 using message_case_type_t = message_case_type<T>::type;
 
 template <typename T>
-message_case_type_t<T> messageCase(const T& msg);
+constexpr message_case_type_t<T> message_case(const T& msg) = delete;
+
+template <typename T>
+constexpr message_case_type_t<wire::BasicMessage<T>> message_case(const wire::BasicMessage<T>& msg) {
+  return msg.msg_type();
+}
 
 template <typename T>
 class MessageDispatcher {
@@ -125,7 +133,7 @@ protected:
       }
     }
 
-    message_case_type_t<T> mt = messageCase(msg);
+    auto mt = message_case(msg);
     auto&& it = dispatch_.find(mt);
     if (it == dispatch_.end()) [[unlikely]] {
       return absl::InvalidArgumentError(fmt::format("unexpected message received: {}", mt));
@@ -139,13 +147,5 @@ protected:
 using SshMessageDispatcher = MessageDispatcher<wire::Message>;
 using SshMessageHandler = MessageHandler<wire::Message>;
 using SshMessageMiddleware = MessageMiddleware<wire::Message>;
-
-template <>
-struct message_case_type<wire::Message> : std::type_identity<wire::SshMessageType> {};
-
-template <>
-inline wire::SshMessageType messageCase(const wire::Message& msg) {
-  return msg.msg_type();
-}
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

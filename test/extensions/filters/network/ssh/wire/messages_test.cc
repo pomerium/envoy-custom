@@ -609,7 +609,7 @@ TEST(NonstandardMessagesTest, UserAuthInfoPrompt_ReadErrors) {
   Buffer::OwnedImpl buffer;
   EXPECT_THROW_WITH_MESSAGE(read(buffer, prompt, 1),
                             EnvoyException,
-                            "error decoding UserAuthInfoPrompt: short read");
+                            "error decoding wire::UserAuthInfoPrompt: short read");
 }
 
 TEST(NonstandardMessagesTest, UserAuthInfoPrompt_WriteErrors) {
@@ -618,7 +618,7 @@ TEST(NonstandardMessagesTest, UserAuthInfoPrompt_WriteErrors) {
   Buffer::OwnedImpl buffer;
   EXPECT_THROW_WITH_MESSAGE(write(buffer, prompt),
                             EnvoyException,
-                            "error encoding UserAuthInfoPrompt: message size too large");
+                            "error encoding wire::UserAuthInfoPrompt: message size too large");
 }
 
 TEST(NonstandardMessagesTest, Extension_ReadErrors) {

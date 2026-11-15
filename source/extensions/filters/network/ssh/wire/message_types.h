@@ -8,7 +8,7 @@
 namespace wire {
 
 template <SshMessageType MT>
-struct Msg : internal::MsgImplDefaults {
+struct Msg : internal::MsgImplDefaults<Msg<MT>> {
   static constexpr SshMessageType type = MT;
   static constexpr SshMessageType msg_type() { return MT; };
   using submsg_group = internal::TopLevelMessageGroup;
@@ -17,7 +17,7 @@ struct Msg : internal::MsgImplDefaults {
 };
 
 template <SshMessageType MT, static_string Key, EncodingOptions KeyOpts = LengthPrefixed>
-struct SubMsg : internal::MsgImplDefaults {
+struct SubMsg : internal::MsgImplDefaults<SubMsg<MT, Key, KeyOpts>> {
   using submsg_group = internal::SubMsgGroup<MT>;
   static constexpr std::string_view submsg_key = Key;
   static constexpr EncodingOptions submsg_key_encoding = KeyOpts;

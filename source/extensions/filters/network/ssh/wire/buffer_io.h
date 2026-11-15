@@ -82,6 +82,43 @@ size_t write(Envoy::Buffer::Instance& buffer, const fixed_bytes<N>& t) {
   return N;
 }
 
+// read/write POD structs containing only field<> members
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wc++26-extensions"
+
+namespace detail {
+template <typename T>
+  requires (std::is_aggregate_v<T> && std::regular<T>)
+consteval bool is_default_read_write_capable() {
+  auto&& [... fields] = T{};
+  return (is_field_v<std::decay_t<decltype(fields)>> && ...);
+}
+} // namespace detail
+
+template <typename T>
+  requires (detail::is_default_read_write_capable<T>())
+size_t read(Envoy::Buffer::Instance& buffer, T& t, size_t payload_size) {
+  auto& [... fields] = t;
+  auto n = decodeSequence(buffer, payload_size, fields...);
+  if (!n.ok()) {
+    throw Envoy::EnvoyException(fmt::format("error decoding {}: {}", type_name<T>(), n.status().message()));
+  }
+  return *n;
+}
+
+template <typename T>
+  requires (detail::is_default_read_write_capable<T>())
+size_t write(Envoy::Buffer::Instance& buffer, const T& t) {
+  const auto& [... fields] = t;
+  auto n = encodeSequence(buffer, fields...);
+  if (!n.ok()) {
+    throw Envoy::EnvoyException(fmt::format("error encoding {}: {}", type_name<T>(), n.status().message()));
+  }
+  return *n;
+}
+#pragma clang diagnostic pop
+
 // Buffer utils
 
 template <SshStringType T>

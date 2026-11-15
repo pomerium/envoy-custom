@@ -241,3 +241,14 @@ constexpr auto type_name() {
 
 static_assert(type_name<void>() == "void");
 static_assert(type_name<std::string_view>() == "std::string_view");
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wc++26-extensions"
+
+template <typename T>
+constexpr size_t field_count() {
+  T t;
+  const auto& [... fields] = t;
+  return sizeof...(fields);
+}
+#pragma clang diagnostic pop

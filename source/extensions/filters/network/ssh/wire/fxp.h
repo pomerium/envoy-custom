@@ -1,10 +1,7 @@
 #pragma once
 
-#include <concepts>
 #include <cstdint>
-#include <type_traits>
 #include <string>
-#include <utility>
 
 #include "source/common/static_string.h"
 
@@ -47,70 +44,27 @@ using InitExtension = BasicExtension<PosixRenameExtension,
                                      HardlinkExtension,
                                      FsyncExtension>;
 
-#define SSH_FILEXFER_ATTR_SIZE 0x00000001
-#define SSH_FILEXFER_ATTR_UIDGID 0x00000002
-#define SSH_FILEXFER_ATTR_PERMISSIONS 0x00000004
-#define SSH_FILEXFER_ATTR_ACMODTIME 0x00000008
-#define SSH_FILEXFER_ATTR_EXTENDED 0x80000000
+static constexpr uint32_t SSH_FILEXFER_ATTR_SIZE = 0x00000001;
+static constexpr uint32_t SSH_FILEXFER_ATTR_UIDGID = 0x00000002;
+static constexpr uint32_t SSH_FILEXFER_ATTR_PERMISSIONS = 0x00000004;
+static constexpr uint32_t SSH_FILEXFER_ATTR_ACMODTIME = 0x00000008;
+static constexpr uint32_t SSH_FILEXFER_ATTR_EXTENDED = 0x80000000;
 
 struct placeholderExtension final : SubMsg<SshMessageType::FxpAttrs, "-"> {};
 
 using FileAttrExtension = BasicExtension<placeholderExtension>;
 
 struct Attrs {
-  field<uint32_t> flags;
-  field<uint64_t> size;
-  field<uint32_t> uid;
-  field<uint32_t> gid;
-  field<uint32_t> permissions;
-  field<uint32_t> atime;
-  field<uint32_t> mtime;
-  field<std::vector<FileAttrExtension>, EncodingOptions::ListSizePrefixed> extended_data;
+  selector_field<uint32_t> flags;
+  optional_field<uint64_t, SSH_FILEXFER_ATTR_SIZE> size;
+  optional_field<uint32_t, SSH_FILEXFER_ATTR_UIDGID> uid;
+  optional_field<uint32_t, SSH_FILEXFER_ATTR_UIDGID> gid;
+  optional_field<uint32_t, SSH_FILEXFER_ATTR_PERMISSIONS> permissions;
+  optional_field<uint32_t, SSH_FILEXFER_ATTR_ACMODTIME> atime;
+  optional_field<uint32_t, SSH_FILEXFER_ATTR_ACMODTIME> mtime;
+  optional_field<std::vector<FileAttrExtension>, SSH_FILEXFER_ATTR_EXTENDED, EncodingOptions::ListSizePrefixed> extended_data;
 
-  friend size_t read(Envoy::Buffer::Instance& buffer, Attrs& ext, size_t payload_size) {
-    size_t n = 0;
-    auto decodeIf = [&](bool should_decode, auto&... fields) {
-      if (!should_decode) {
-        return;
-      }
-      auto r = decodeSequence(buffer, payload_size - n, fields...);
-      if (!r.ok()) {
-        throw Envoy::EnvoyException(fmt::format("error decoding attrs: {}", statusToString(r.status())));
-      }
-      n += *r;
-    };
-    decodeIf(true, ext.flags);
-    decodeIf((ext.flags & SSH_FILEXFER_ATTR_SIZE) != 0, ext.size);
-    decodeIf((ext.flags & SSH_FILEXFER_ATTR_UIDGID) != 0, ext.uid, ext.gid);
-    decodeIf((ext.flags & SSH_FILEXFER_ATTR_PERMISSIONS) != 0, ext.permissions);
-    decodeIf((ext.flags & SSH_FILEXFER_ATTR_ACMODTIME) != 0, ext.atime, ext.mtime);
-    decodeIf((ext.flags & SSH_FILEXFER_ATTR_EXTENDED) != 0, ext.extended_data);
-    return n;
-  }
-
-  friend size_t write(Envoy::Buffer::Instance& buffer, const Attrs& ext) {
-    size_t n = 0;
-    auto encodeIf = [&](bool should_encode, auto&... fields) {
-      if (!should_encode) {
-        return;
-      }
-      auto r = encodeSequence(buffer, fields...);
-      if (!r.ok()) {
-        throw Envoy::EnvoyException(fmt::format("error encoding attrs: {}", statusToString(r.status())));
-      }
-      n += *r;
-    };
-    encodeIf(true, ext.flags);
-    encodeIf((ext.flags & SSH_FILEXFER_ATTR_SIZE) != 0, ext.size);
-    encodeIf((ext.flags & SSH_FILEXFER_ATTR_UIDGID) != 0, ext.uid, ext.gid);
-    encodeIf((ext.flags & SSH_FILEXFER_ATTR_PERMISSIONS) != 0, ext.permissions);
-    encodeIf((ext.flags & SSH_FILEXFER_ATTR_ACMODTIME) != 0, ext.atime, ext.mtime);
-    encodeIf((ext.flags & SSH_FILEXFER_ATTR_EXTENDED) != 0, ext.extended_data);
-    if (n >= MaxPacketSize) {
-      throw Envoy::EnvoyException("message too large");
-    }
-    return n;
-  }
+  constexpr bool operator==(const Attrs&) const = default;
 };
 
 struct InitMsg : Msg<SshMessageType::FxpInit> {
@@ -257,20 +211,7 @@ struct Name {
   field<std::string, LengthPrefixed> longname;
   field<Attrs> attrs;
 
-  friend size_t read(Envoy::Buffer::Instance& buffer, Name& name, size_t payload_size) {
-    auto n = decodeSequence(buffer, payload_size, name.filename, name.longname, name.attrs);
-    if (!n.ok()) {
-      throw Envoy::EnvoyException(fmt::format("error decoding name: {}", statusToString(n.status())));
-    }
-    return *n;
-  }
-  friend size_t write(Envoy::Buffer::Instance& buffer, const Name& name) {
-    auto n = encodeSequence(buffer, name.filename, name.longname, name.attrs);
-    if (!n.ok()) {
-      throw Envoy::EnvoyException(fmt::format("error encoding name: {}", statusToString(n.status())));
-    }
-    return *n;
-  }
+  constexpr bool operator==(const Name&) const = default;
 };
 
 struct NameMsg final : Msg<SshMessageType::FxpName> {
@@ -284,18 +225,25 @@ struct AttrsMsg final : Msg<SshMessageType::FxpAttrs> {
 };
 
 struct PosixRenameMsg final : SubMsg<SshMessageType::FxpExtended, "posix-rename@openssh.com"> {
+  field<std::string, LengthPrefixed> oldpath;
+  field<std::string, LengthPrefixed> newpath;
 };
 
 struct StatvfsMsg final : SubMsg<SshMessageType::FxpExtended, "statvfs@openssh.com"> {
+  field<std::string, LengthPrefixed> path;
 };
 
 struct FstatvfsMsg final : SubMsg<SshMessageType::FxpExtended, "fstatvfs@openssh.com"> {
+  field<std::string, LengthPrefixed> handle;
 };
 
 struct HardlinkMsg final : SubMsg<SshMessageType::FxpExtended, "hardlink@openssh.com"> {
+  field<std::string, LengthPrefixed> oldpath;
+  field<std::string, LengthPrefixed> newpath;
 };
 
 struct FsyncMsg final : SubMsg<SshMessageType::FxpExtended, "fsync@openssh.com"> {
+  field<std::string, LengthPrefixed> handle;
 };
 
 struct ExtendedMsg final : Msg<SshMessageType::FxpExtended> {
@@ -309,8 +257,65 @@ struct ExtendedMsg final : Msg<SshMessageType::FxpExtended> {
   message_type message;
 };
 
+#define SSH_FXE_STATVFS_ST_RDONLY 0x1 /* read-only */
+#define SSH_FXE_STATVFS_ST_NOSUID 0x2 /* no setuid */
+
+struct StatvfsExtendedReplyMsg final : SubMsg<SshMessageType::FxpExtendedReply, "statvfs", Omit> {
+  field<uint64_t> f_bsize;
+  field<uint64_t> f_frsize;
+  field<uint64_t> f_blocks;
+  field<uint64_t> f_bfree;
+  field<uint64_t> f_bavail;
+  field<uint64_t> f_files;
+  field<uint64_t> f_ffree;
+  field<uint64_t> f_favail;
+  field<uint64_t> f_fsid;
+  field<uint64_t> f_flag;
+  field<uint64_t> f_namemax;
+};
+
 struct ExtendedReplyMsg final : Msg<SshMessageType::FxpExtendedReply> {
   field<uint32_t> id;
+  using reply_type = sub_message<StatvfsExtendedReplyMsg>;
+  [[no_unique_address]] key_field<reply_type> reply_key;
+  reply_type reply;
 };
+
+namespace detail {
+using top_level_message = sub_message< // Message ID
+  InitMsg,                             // 1
+  VersionMsg,                          // 2
+  OpenMsg,                             // 3
+  CloseMsg,                            // 4
+  ReadMsg,                             // 5
+  WriteMsg,                            // 6
+  LstatMsg,                            // 7
+  FstatMsg,                            // 8
+  SetstatMsg,                          // 9
+  FsetstatMsg,                         // 10
+  OpendirMsg,                          // 11
+  ReaddirMsg,                          // 12
+  RemoveMsg,                           // 13
+  MkdirMsg,                            // 14
+  RmdirMsg,                            // 15
+  RealpathMsg,                         // 16
+  StatMsg,                             // 17
+  RenameMsg,                           // 18
+  ReadlinkMsg,                         // 19
+  SymlinkMsg,                          // 20
+  StatusMsg,                           // 101
+  HandleMsg,                           // 102
+  DataMsg,                             // 103
+  NameMsg,                             // 104
+  AttrsMsg,                            // 105
+  ExtendedMsg,                         // 200
+  ExtendedReplyMsg>;                   // 201
+
+static_assert(std::regular<top_level_message>);
+
+} // namespace detail
+
+using Message = BasicMessage<fxp::detail::top_level_message>;
+using MessagePtr = std::unique_ptr<Message>;
 
 } // namespace wire::fxp

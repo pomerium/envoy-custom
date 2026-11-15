@@ -2,6 +2,8 @@
 
 #include "source/extensions/filters/network/ssh/wire/key_field.h"
 #include "source/extensions/filters/network/ssh/wire/field.h"
+#include "source/extensions/filters/network/ssh/wire/optional_field.h"
+#include <algorithm>
 
 namespace wire::internal {
 
@@ -34,6 +36,25 @@ consteval auto sub_message_index() {
     static constexpr ssize_t index = std::distance(list.begin(), submsg_pos);
     static constexpr ssize_t key_entry = key_list.at(index);
     return sub_message_index_t<index, key_entry>{};
+  }
+}
+
+template <typename... Args>
+consteval ssize_t selector_field_index() {
+  static constexpr std::array<bool, sizeof...(Args)> list = {is_selector_field_v<std::decay_t<Args>>...};
+  static constexpr std::array<bool, sizeof...(Args)> opt_list = {is_optional_field_v<std::decay_t<Args>>...};
+  static_assert(std::count(list.begin(), list.end(), true) <= 1, "messages can only have one optional_flags_field field");
+  static constexpr auto flags_field_pos = std::find(list.begin(), list.end(), true);
+  if constexpr (flags_field_pos == list.end()) {
+    return -1;
+  } else {
+    static constexpr auto first_opt_field = std::find(opt_list.begin(), opt_list.end(), true);
+    // Note: it is valid to encode a selector field without also encoding any optional fields
+    if constexpr (first_opt_field != opt_list.end()) {
+      static_assert(std::distance(list.begin(), flags_field_pos) < std::distance(opt_list.begin(), first_opt_field),
+                    "optional flags field must be ordered before any optional fields in the message");
+    }
+    return std::distance(list.begin(), flags_field_pos);
   }
 }
 

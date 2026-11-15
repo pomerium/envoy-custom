@@ -36,6 +36,7 @@ consteval bool has_unkeyed_sub_message() {
   }
 }
 
+template <typename...> // See notes in field_base.h
 struct MsgImplDefaults {
   template <typename T>
     requires is_msg<T> && (!has_override_decode<T>)

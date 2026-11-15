@@ -8,6 +8,7 @@
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/service.h"
 #include "source/extensions/filters/network/ssh/transport.h"
+#include "source/common/common/linked_object.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
