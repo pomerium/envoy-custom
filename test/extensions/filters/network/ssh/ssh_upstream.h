@@ -45,55 +45,12 @@ public:
   FakeUpstreamChannel(uint32_t channel_id,                  // for logs and passing to on_channel_created
                       Envoy::Event::Dispatcher& dispatcher, // for passing to on_channel_created
                       ChannelMsgHandlerFunc msg_handler,
-                      std::shared_ptr<SshFakeUpstreamHandlerOpts> handler_opts)
-      : channel_id_(channel_id),
-        dispatcher_(dispatcher),
-        msg_handler_(std::move(msg_handler)),
-        handler_opts_(handler_opts) {
-  }
+                      std::shared_ptr<SshFakeUpstreamHandlerOpts> handler_opts);
+  ~FakeUpstreamChannel();
 
-  ~FakeUpstreamChannel() {
-    if (on_channel_destroyed_) {
-      ENVOY_LOG(trace, "FakeUpstreamChannel {}: invoking on_channel_destroyed",
-                callbacks_->channelId());
-      on_channel_destroyed_();
-    }
-    ENVOY_LOG(trace, "FakeUpstreamChannel destroyed");
-  }
-
-  void setChannelCallbacks(ChannelCallbacks& callbacks) override {
-    Channel::setChannelCallbacks(callbacks);
-    ENVOY_LOG(trace, "FakeUpstreamChannel {} created", channel_id_);
-    if (handler_opts_->on_channel_created) {
-      ENVOY_LOG(trace, "FakeUpstreamChannel {}: invoking on_channel_created", channel_id_);
-      on_channel_destroyed_ = handler_opts_->on_channel_created(channel_id_, dispatcher_, callbacks);
-    }
-  }
-
-  absl::Status readChannelOpen(wire::ChannelOpenMsg&& msg) override {
-    if (handler_opts_->should_accept_channel(msg.sender_channel)) {
-      ENVOY_LOG(trace, "FakeUpstreamChannel {}: readChannelOpen called, replying with ChannelOpenConfirmation",
-                callbacks_->channelId());
-      callbacks_->sendMessageLocal(wire::ChannelOpenConfirmationMsg{
-        .recipient_channel = msg.sender_channel,
-        .sender_channel = callbacks_->channelId(),
-        .initial_window_size = msg.initial_window_size,
-        .max_packet_size = msg.max_packet_size,
-      });
-    } else {
-      ENVOY_LOG(trace, "FakeUpstreamChannel {}: readChannelOpen called, replying with ChannelOpenFailure",
-                callbacks_->channelId());
-      callbacks_->sendMessageLocal(wire::ChannelOpenFailureMsg{
-        .recipient_channel = msg.sender_channel,
-      });
-    }
-    return absl::OkStatus();
-  }
-
-  absl::Status readMessage(wire::ChannelMessage&& msg) override {
-    ENVOY_LOG(trace, "FakeUpstreamChannel {}: readMessage: {}", callbacks_->channelId(), msg.msg_type());
-    return msg_handler_(std::move(msg), *callbacks_);
-  }
+  void setChannelCallbacks(ChannelCallbacks& callbacks) override;
+  absl::Status readChannelOpen(wire::ChannelOpenMsg&& msg) override;
+  absl::Status readMessage(wire::ChannelMessage&& msg) override;
 
   uint32_t channel_id_;
   Envoy::Event::Dispatcher& dispatcher_;
@@ -112,13 +69,8 @@ public:
   SshFakeUpstreamHandler(Server::Configuration::ServerFactoryContext& context,
                          std::shared_ptr<pomerium::extensions::ssh::CodecConfig> config,
                          std::shared_ptr<SshFakeUpstreamHandlerOpts> opts);
+  ~SshFakeUpstreamHandler();
 
-  ~SshFakeUpstreamHandler() {
-    if (close_callback_ != nullptr && close_callback_->enabled()) {
-      close_callback_->cancel();
-      close_callback_ = nullptr;
-    }
-  }
   class CodecCallbacks : public SshFakeUpstreamHandlerCodecCallbacks {
   public:
     explicit CodecCallbacks(Network::Connection& connection);
@@ -144,48 +96,12 @@ public:
     SshFakeUpstreamHandler& parent_;
   };
 
-  void onNewConnection(Network::Connection& connection) override {
-    connection_ = makeOptRef(connection);
-    connection_->addConnectionCallbacks(*this);
-    dispatcher_ = makeOptRef(connection.dispatcher());
-    codec_callbacks_ = std::make_unique<CodecCallbacks>(connection);
-    setCodecCallbacks(*codec_callbacks_);
-    connection_service_ = std::make_unique<FakeUpstreamConnectionService>(*this);
-    user_auth_service_ = std::make_unique<FakeUpstreamUserAuthService>(*this);
-    read_filter_ = std::make_shared<ReadFilter>(*this);
-    connection.addReadFilter(read_filter_);
-    close_callback_ = connection_->dispatcher().createSchedulableCallback([this] {
-      connection_->close(connection_close_type_);
-    });
-
-    if (opts_->set_upstream_api) {
-      opts_->set_upstream_api(*this);
-    }
-  }
-
-  void onEvent(Envoy::Network::ConnectionEvent event) override {
-    if (event == Envoy::Network::ConnectionEvent::LocalClose ||
-        event == Envoy::Network::ConnectionEvent::RemoteClose) {
-      if (close_callback_ != nullptr && close_callback_->enabled()) {
-        close_callback_->cancel();
-        close_callback_ = nullptr;
-      }
-      connection_->removeReadFilter(read_filter_);
-      // IMPORTANT: do not reset the dispatcher. It is needed during cleanup
-    }
-  }
-
+  void onNewConnection(Network::Connection& connection) override;
+  void onEvent(Envoy::Network::ConnectionEvent event) override;
   void onAboveWriteBufferHighWatermark() override {}
   void onBelowWriteBufferLowWatermark() override {}
-
-  void requestChannelOpen() override {
-    connection_service_->requestChannelOpen();
-  }
-
-  void closeConnection(Network::ConnectionCloseType type) override {
-    connection_close_type_ = type;
-    close_callback_->scheduleCallbackNextIteration();
-  }
+  void requestChannelOpen() override;
+  void closeConnection(Network::ConnectionCloseType type) override;
 
 protected:
   class FakeUpstreamConnectionService : public ConnectionService {
@@ -194,27 +110,8 @@ protected:
     absl::Status handleMessage(wire::Message&& msg) override;
     Envoy::Common::CallbackHandlePtr onServerDraining(std::chrono::milliseconds,
                                                       Envoy::Event::Dispatcher& dispatcher,
-                                                      std::function<void()> complete_cb) override {
-      dispatcher.post(complete_cb);
-      return nullptr;
-    }
-
-    void requestChannelOpen() {
-      parent_.dispatcher_->post([this] {
-        auto internalId = *transport_.channelIdManager()
-                             .allocateNewChannel(Peer::Downstream);
-
-        wire::ChannelOpenMsg open{
-          .sender_channel = internalId,
-          .initial_window_size = wire::ChannelWindowSize,
-          .max_packet_size = wire::ChannelMaxPacketSize,
-          .request = wire::ForwardedTcpipChannelOpenMsg{
-            .originator_address = "127.0.0.1"s,
-          },
-        };
-        THROW_IF_NOT_OK(transport_.sendMessageToConnection(std::move(open)).status());
-      });
-    }
+                                                      std::function<void()> complete_cb) override;
+    void requestChannelOpen();
 
   private:
     SshFakeUpstreamHandler& parent_;
