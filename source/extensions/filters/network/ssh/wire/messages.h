@@ -6,8 +6,7 @@
 #include <string>
 #include <utility>
 
-#include "source/common/fixed_string.h"
-#include "source/common/visit.h"
+#include "source/common/static_string.h"
 
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
@@ -36,10 +35,10 @@ concept ChannelMsg = requires(T t) {
   { std::as_const(t).recipient_channel = std::declval<field<uint32_t>>() };
 };
 
-template <SshMessageType MT, fixed_string Key, EncodingOptions KeyOpts = LengthPrefixed>
+template <SshMessageType MT, static_string Key, EncodingOptions KeyOpts = LengthPrefixed>
 struct SubMsg : detail::MsgImplDefaults {
   using submsg_group = detail::SubMsgGroup<MT>;
-  static constexpr std::string_view submsg_key = Key.to_string();
+  static constexpr std::string_view submsg_key = Key;
   static constexpr EncodingOptions submsg_key_encoding = KeyOpts;
 };
 
@@ -635,9 +634,9 @@ struct BasicMessage final {
   template <typename Self>
   [[nodiscard]] constexpr decltype(auto) visit(this Self&& self, auto... args) {
     if (self.message.oneof.has_value()) {
-      return std::visit(make_overloads<basic_visitor, Self&&>(args...), *std::forward<Self>(self).message.oneof);
+      return std::visit(make_overloads<detail::top_level_visitor, Self&&>(args...), *std::forward<Self>(self).message.oneof);
     }
-    using return_type = decltype(std::visit(make_overloads<basic_visitor, Self&&>(args...), *std::forward<Self>(self).message.oneof));
+    using return_type = decltype(std::visit(make_overloads<detail::top_level_visitor, Self&&>(args...), *std::forward<Self>(self).message.oneof));
     if constexpr (!std::is_void_v<return_type>) {
       return return_type{};
     }

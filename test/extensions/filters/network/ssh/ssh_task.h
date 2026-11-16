@@ -276,13 +276,15 @@ public:
 
 private:
   Task() {
-    auto namespaceName = type_name<UntypedTask>();
-    namespaceName.remove_suffix("UntypedTask"sv.size());
-    auto name = type_name<CRTP>();
-    if (name.starts_with(namespaceName)) {
-      name.remove_prefix(namespaceName.size());
+    const auto namespaceName = type_name<UntypedTask>();
+    std::string_view namespaceNameView{namespaceName};
+    namespaceNameView.remove_suffix("UntypedTask"sv.size());
+    const auto name = type_name<CRTP>();
+    std::string_view nameView{name};
+    if (nameView.starts_with(namespaceNameView)) {
+      nameView.remove_prefix(namespaceNameView.size());
     }
-    setName(std::string(name));
+    setName(std::string(nameView));
   }
 };
 

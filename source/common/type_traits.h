@@ -1,8 +1,12 @@
 #pragma once
 
-#include "source/common/optref.h"
 #include <source_location>
+#include <string>
 #include <type_traits>
+#include <vector>
+#include <array>
+
+#include "source/common/static_string.h"
 
 // Supplemental type traits
 
@@ -213,7 +217,7 @@ static constexpr bool is_vector_v = is_vector<T>::value;
 
 namespace detail {
 #if defined(__clang__)
-static constexpr auto type_name_prefix_str = "std::string_view type_name() [T = ";
+static constexpr auto type_name_prefix_str = "auto type_name() [T = ";
 static constexpr auto type_name_suffix_str = "]";
 #elif defined(__GNUC__)
 static constexpr auto type_name_prefix_str = "constexpr std::string_view type_name() [with T = ";
@@ -225,10 +229,15 @@ static constexpr auto type_name_suffix_str = "; std::string_view = std::basic_st
 
 // Returns the string name of a type T. Used for debug logs and human-readable message formatting.
 template <typename T>
-constexpr std::string_view type_name() {
-  std::string_view fn = std::source_location::current().function_name();
-  fn.remove_prefix(std::char_traits<char>::length(detail::type_name_prefix_str));
-  fn.remove_suffix(std::char_traits<char>::length(detail::type_name_suffix_str));
-  return fn;
+constexpr auto type_name() {
+  constexpr const char* fn = std::source_location::current().function_name();
+  constexpr auto len = std::char_traits<char>::length(fn);
+  constexpr auto prefixLen = std::char_traits<char>::length(detail::type_name_prefix_str);
+  constexpr auto suffixLen = std::char_traits<char>::length(detail::type_name_suffix_str);
+  constexpr std::string_view view{fn, len};
+  constexpr size_t substrLen = len - prefixLen - suffixLen;
+  return static_string<substrLen>{view.substr(prefixLen, substrLen)};
 }
+
 static_assert(type_name<void>() == "void");
+static_assert(type_name<std::string_view>() == "std::string_view");
