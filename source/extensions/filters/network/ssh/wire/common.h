@@ -13,7 +13,7 @@
 namespace wire {
 
 // Top level SSH message types
-enum class SshMessageType : uint8_t {
+enum class [[clang::enum_extensibility(open)]] SshMessageType : uint8_t {
   Invalid = 0,
   // Transport layer protocol
   Disconnect = 1,      // https://datatracker.ietf.org/doc/html/rfc4253#section-11.1
@@ -100,7 +100,7 @@ concept SshStringType =
   std::same_as<T, std::string> ||
   std::same_as<T, std::vector<uint8_t>>;
 
-enum EncodingOptions : uint32_t {
+enum [[clang::flag_enum]] EncodingOptions : uint32_t {
   None = 0,
   LengthPrefixed = 1 << 0,
   CommaDelimited = 1 << 1,
