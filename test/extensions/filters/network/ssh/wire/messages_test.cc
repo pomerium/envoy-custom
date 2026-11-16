@@ -1,6 +1,5 @@
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
 #include "source/extensions/filters/network/ssh/wire/field.h"
-#include "source/extensions/filters/network/ssh/wire/message_traits.h"
 #include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 
@@ -439,10 +438,10 @@ TYPED_TEST(TopLevelMessagesTestSuite, RoundTrip) {
     populateFields(msg);
 
     std::string unkeyed_sub_msg_key{};
-    if constexpr (wire::detail::has_unkeyed_sub_message<TypeParam>()) {
+    if constexpr (wire::internal::has_unkeyed_sub_message<TypeParam>()) {
 
       const auto& [... fields] = msg;
-      constexpr auto subMsgIndex = wire::detail::sub_message_index<decltype(fields)...>();
+      constexpr auto subMsgIndex = wire::internal::sub_message_index<decltype(fields)...>();
       unkeyed_sub_msg_key = fields...[subMsgIndex.index].key_field();
     }
     Envoy::Buffer::OwnedImpl buffer;
@@ -453,9 +452,9 @@ TYPED_TEST(TopLevelMessagesTestSuite, RoundTrip) {
     r = decoded.decode(buffer, buffer.length());
     EXPECT_TRUE(r.ok()) << r.status().ToString();
 
-    if constexpr (wire::detail::has_unkeyed_sub_message<TypeParam>()) {
+    if constexpr (wire::internal::has_unkeyed_sub_message<TypeParam>()) {
       auto& [... fields] = decoded;
-      constexpr auto subMsgIndex = wire::detail::sub_message_index<decltype(fields)...>();
+      constexpr auto subMsgIndex = wire::internal::sub_message_index<decltype(fields)...>();
       fields...[subMsgIndex.index].key_field() = unkeyed_sub_msg_key;
       auto r = fields...[subMsgIndex.index].decodeUnknown();
       EXPECT_TRUE(r.ok()) << r.status().ToString();
@@ -826,23 +825,23 @@ struct TestMessage3 : Msg<SshMessageType(203)> {
   sub_message<TestSubMessage1, TestSubMessage2, TestSubMessage3> c;
 };
 
-static_assert(wire::detail::is_msg<TestMessage1>);
-static_assert(!wire::detail::is_sub_msg<TestMessage1>);
+static_assert(wire::internal::is_msg<TestMessage1>);
+static_assert(!wire::internal::is_sub_msg<TestMessage1>);
 
-static_assert(wire::detail::is_msg<TestMessage2>);
-static_assert(!wire::detail::is_sub_msg<TestMessage2>);
+static_assert(wire::internal::is_msg<TestMessage2>);
+static_assert(!wire::internal::is_sub_msg<TestMessage2>);
 
-static_assert(wire::detail::is_msg<TestMessage3>);
-static_assert(!wire::detail::is_sub_msg<TestMessage3>);
+static_assert(wire::internal::is_msg<TestMessage3>);
+static_assert(!wire::internal::is_sub_msg<TestMessage3>);
 
-static_assert(!wire::detail::is_msg<TestSubMessage1>);
-static_assert(wire::detail::is_sub_msg<TestSubMessage1>);
+static_assert(!wire::internal::is_msg<TestSubMessage1>);
+static_assert(wire::internal::is_sub_msg<TestSubMessage1>);
 
-static_assert(!wire::detail::is_msg<TestSubMessage2>);
-static_assert(wire::detail::is_sub_msg<TestSubMessage2>);
+static_assert(!wire::internal::is_msg<TestSubMessage2>);
+static_assert(wire::internal::is_sub_msg<TestSubMessage2>);
 
-static_assert(!wire::detail::is_msg<TestSubMessage3>);
-static_assert(wire::detail::is_sub_msg<TestSubMessage3>);
+static_assert(!wire::internal::is_msg<TestSubMessage3>);
+static_assert(wire::internal::is_sub_msg<TestSubMessage3>);
 
 static_assert(TestMessage1{} == TestMessage1{});
 static_assert(TestMessage1{.a = 1} != TestMessage1{.a = 2});
@@ -885,17 +884,17 @@ struct TestOverrideEncodeDecode : Msg<SshMessageType(210)> {
   }
 };
 
-static_assert(!wire::detail::has_override_encode<TestMessage1>);
-static_assert(!wire::detail::has_override_decode<TestMessage1>);
+static_assert(!wire::internal::has_override_encode<TestMessage1>);
+static_assert(!wire::internal::has_override_decode<TestMessage1>);
 
-static_assert(wire::detail::has_override_encode<TestOverrideEncode>);
-static_assert(!wire::detail::has_override_decode<TestOverrideEncode>);
+static_assert(wire::internal::has_override_encode<TestOverrideEncode>);
+static_assert(!wire::internal::has_override_decode<TestOverrideEncode>);
 
-static_assert(!wire::detail::has_override_encode<TestOverrideDecode>);
-static_assert(wire::detail::has_override_decode<TestOverrideDecode>);
+static_assert(!wire::internal::has_override_encode<TestOverrideDecode>);
+static_assert(wire::internal::has_override_decode<TestOverrideDecode>);
 
-static_assert(wire::detail::has_override_encode<TestOverrideEncodeDecode>);
-static_assert(wire::detail::has_override_decode<TestOverrideEncodeDecode>);
+static_assert(wire::internal::has_override_encode<TestOverrideEncodeDecode>);
+static_assert(wire::internal::has_override_decode<TestOverrideEncodeDecode>);
 
 TEST(MethodOverridesTest, TestOverrideEncodeDecodeOperators) {
   {
@@ -988,17 +987,17 @@ struct TestOverrideOperatorEqNe : Msg<SshMessageType(214)> {
   constexpr bool operator!=(const TestOverrideOperatorEqNe&) const { return true; }
 };
 
-static_assert(!wire::detail::has_override_operator_eq<TestMessage1>);
-static_assert(!wire::detail::has_override_operator_ne<TestMessage1>);
+static_assert(!wire::internal::has_override_operator_eq<TestMessage1>);
+static_assert(!wire::internal::has_override_operator_ne<TestMessage1>);
 
-static_assert(wire::detail::has_override_operator_eq<TestOverrideOperatorEq>);
-static_assert(!wire::detail::has_override_operator_ne<TestOverrideOperatorEq>);
+static_assert(wire::internal::has_override_operator_eq<TestOverrideOperatorEq>);
+static_assert(!wire::internal::has_override_operator_ne<TestOverrideOperatorEq>);
 
-static_assert(!wire::detail::has_override_operator_eq<TestOverrideOperatorNe>);
-static_assert(wire::detail::has_override_operator_ne<TestOverrideOperatorNe>);
+static_assert(!wire::internal::has_override_operator_eq<TestOverrideOperatorNe>);
+static_assert(wire::internal::has_override_operator_ne<TestOverrideOperatorNe>);
 
-static_assert(wire::detail::has_override_operator_eq<TestOverrideOperatorEqNe>);
-static_assert(wire::detail::has_override_operator_ne<TestOverrideOperatorEqNe>);
+static_assert(wire::internal::has_override_operator_eq<TestOverrideOperatorEqNe>);
+static_assert(wire::internal::has_override_operator_ne<TestOverrideOperatorEqNe>);
 
 TEST(MethodOverridesTest, TestOverrideEqualityOperators) {
   {

@@ -45,7 +45,7 @@ BENCHMARK(BenchmarkEncodeKexInitMsg);
 static void BenchmarkDecodeKexInitMsg(benchmark::State& state) {
   for (auto _ : state) {
     KexInitMsg out;
-    with_buffer_view(init_msg_bytes, [&out](Envoy::Buffer::Instance& buffer) {
+    wire::with_buffer_view(init_msg_bytes, [&out](Envoy::Buffer::Instance& buffer) {
       out.decode(buffer, buffer.length()).IgnoreError();
     });
   }

@@ -103,7 +103,7 @@ void remove(std::vector<T>& v, const T& value) {
 #define EXPECT_SERVER_REPLY_VAR(var, type, ...)                                              \
   EXPECT_CALL(*transport_callbacks_, sendMessageDirect(MSG(type, __VA_ARGS__)))              \
     .WillOnce(Invoke([&]<typename T = type>(wire::Message&& msg) -> absl::StatusOr<size_t> { \
-      if constexpr (wire::detail::has_unkeyed_sub_message<std::decay_t<T>>()) {              \
+      if constexpr (wire::internal::has_unkeyed_sub_message<std::decay_t<T>>()) {            \
         msg.visit([&](T& m) { var = *m.template resolve<std::decay_t<decltype(var)>>(); },   \
                   [](auto&) { FAIL(); });                                                    \
       } else {                                                                               \
