@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "source/common/fixed_string.h"
+#include "source/common/visit.h"
 
 #include "source/extensions/filters/network/ssh/wire/encoding.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
@@ -24,21 +25,6 @@ struct Msg : detail::MsgImplDefaults {
   static constexpr EncodingOptions submsg_key_encoding = None;
 };
 
-template <SshMessageType MT, typename T, size_t Id>
-struct OverloadMsg : T {
-  using inner_type = T;
-  using submsg_group = detail::OverloadGroup<MT>;
-  static constexpr uint64_t submsg_key = Id; // NB: this must be uint64_t; size_t is not an allowed field type
-  static constexpr EncodingOptions submsg_key_encoding = None;
-
-  OverloadMsg() = default;
-
-  OverloadMsg(T&& t) noexcept
-      : T(std::move(t)) {};
-  OverloadMsg(const T& t)
-      : T(t) {};
-};
-
 // A ChannelMsg is any struct with a mutable field 'recipient_channel' of type field<uint32_t>,
 // for example:
 //  struct Foo {
@@ -50,78 +36,11 @@ concept ChannelMsg = requires(T t) {
   { std::as_const(t).recipient_channel = std::declval<field<uint32_t>>() };
 };
 
-template <typename... Ts>
-struct OverloadSet : Msg<first_type_t<Ts...>::type> {
-  static_assert(all_values_equal<Ts::type...>,
-                "all overloaded messages must have the same type");
-  using Msg<first_type_t<Ts...>::type>::type;
-  template <typename T>
-    requires contains_type<T, Ts...>
-  using overload_opt_for = OverloadMsg<type, T, 1 + index_of_type<T, Ts...>::value>;
-  using message_type = sub_message<overload_opt_for<Ts>...>;
-
-private:
-  message_type message_;
-
-  template <typename T>
-    requires contains_type<T, Ts...>
-  static consteval bool has_overload() {
-    return message_type::template has_option<overload_opt_for<T>>();
-  }
-
-public:
-  OverloadSet() = default;
-
-  template <typename T>
-    requires (has_overload<std::decay_t<T>>())
-  explicit OverloadSet(T&& msg) {
-    reset(std::forward<T>(msg));
-  }
-
-  template <typename T>
-    requires (has_overload<std::decay_t<T>>())
-  void reset(T&& msg) {
-    message_.reset(overload_opt_for<std::decay_t<T>>{std::forward<T>(msg)});
-  }
-
-  template <typename T>
-    requires (has_overload<T>())
-  opt_ref<T> resolve() {
-    constexpr auto index = index_of_type<T, Ts...>::value;
-    if (*message_.key_field() == 0) {
-      message_.key_field() = 1 + index;
-      auto stat = message_.decodeUnknown();
-      if (!stat.ok()) {
-        return {};
-      }
-    }
-    return message_.template get<index>();
-  }
-
-  message_type& messageForTest() {
-    return message_;
-  }
-
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept {
-    return message_.decode(buffer, payload_size);
-  }
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept {
-    return message_.encode(buffer);
-  }
-
-  constexpr bool operator==(const OverloadSet& other) const {
-    return message_ == other.message_;
-  }
-  constexpr bool operator!=(const OverloadSet& other) const {
-    return message_ != other.message_;
-  }
-};
-
-template <SshMessageType MT, fixed_string K>
+template <SshMessageType MT, fixed_string Key, EncodingOptions KeyOpts = LengthPrefixed>
 struct SubMsg : detail::MsgImplDefaults {
   using submsg_group = detail::SubMsgGroup<MT>;
-  static constexpr std::string_view submsg_key = K.to_string();
-  static constexpr EncodingOptions submsg_key_encoding = LengthPrefixed;
+  static constexpr std::string_view submsg_key = Key.to_string();
+  static constexpr EncodingOptions submsg_key_encoding = KeyOpts;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4253#section-7.1
@@ -142,27 +61,41 @@ struct KexInitMsg final : Msg<SshMessageType::KexInit> {
 };
 
 // https://datatracker.ietf.org/doc/html/rfc5656#section-4
-struct KexEcdhInitMsg : Msg<SshMessageType::KexECDHInit> {
+struct KexEcdhInitMsg final : SubMsg<SshMessageType::KexECDHInit, "ecdh", EncodingOptions::Omit> {
   field<bytes, LengthPrefixed> client_pub_key;
 };
 
+// https://datatracker.ietf.org/doc/html/draft-ietf-sshm-mlkem-hybrid-kex-03#name-pq-t-hybrid-key-exchange-me
+struct KexHybridInitMsg final : SubMsg<SshMessageType::KexHybridInit, "hybrid", EncodingOptions::Omit> {
+  field<bytes, LengthPrefixed> client_init;
+};
+
+// Synthetic
+struct KexAlgInitMsg final : Msg<SshMessageType(30)> {
+  using message_type = sub_message<KexEcdhInitMsg, KexHybridInitMsg>;
+  [[no_unique_address]] key_field<message_type> key;
+  message_type message;
+};
+
 // https://datatracker.ietf.org/doc/html/rfc5656#section-4
-struct KexEcdhReplyMsg : Msg<SshMessageType::KexECDHReply> {
+struct KexEcdhReplyMsg final : SubMsg<SshMessageType::KexECDHReply, "ecdh", EncodingOptions::Omit> {
   field<bytes, LengthPrefixed> host_key;
   field<bytes, LengthPrefixed> ephemeral_pub_key;
   field<bytes, LengthPrefixed> signature;
 };
 
 // https://datatracker.ietf.org/doc/html/draft-ietf-sshm-mlkem-hybrid-kex-03#name-pq-t-hybrid-key-exchange-me
-struct KexHybridInitMsg : Msg<SshMessageType::KexHybridInit> {
-  field<bytes, LengthPrefixed> client_init;
-};
-
-// https://datatracker.ietf.org/doc/html/draft-ietf-sshm-mlkem-hybrid-kex-03#name-pq-t-hybrid-key-exchange-me
-struct KexHybridReplyMsg : Msg<SshMessageType::KexHybridReply> {
+struct KexHybridReplyMsg final : SubMsg<SshMessageType::KexHybridReply, "hybrid", EncodingOptions::Omit> {
   field<bytes, LengthPrefixed> host_key;
   field<bytes, LengthPrefixed> server_reply;
   field<bytes, LengthPrefixed> signature;
+};
+
+// Synthetic
+struct KexAlgReplyMsg final : Msg<SshMessageType(31)> {
+  using message_type = sub_message<KexEcdhReplyMsg, KexHybridReplyMsg>;
+  [[no_unique_address]] key_field<message_type> key;
+  message_type message;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4253#section-10
@@ -204,17 +137,15 @@ struct DirectTcpipChannelOpenMsg : SubMsg<SshMessageType::ChannelOpen, "direct-t
 // https://datatracker.ietf.org/doc/html/rfc4254#section-5.1
 struct ChannelOpenMsg final : Msg<SshMessageType::ChannelOpen> {
   constexpr auto& channel_type(this auto& self) { return *self.request.key_field(); }
+  using request_type = sub_message<SessionChannelOpenMsg,
+                                   X11ChannelOpenMsg,
+                                   ForwardedTcpipChannelOpenMsg,
+                                   DirectTcpipChannelOpenMsg>;
+  [[no_unique_address]] key_field<request_type> request_key;
   field<uint32_t> sender_channel;
   field<uint32_t> initial_window_size;
   field<uint32_t> max_packet_size;
-  sub_message<SessionChannelOpenMsg,
-              X11ChannelOpenMsg,
-              ForwardedTcpipChannelOpenMsg,
-              DirectTcpipChannelOpenMsg>
-    request;
-
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
+  request_type request;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-6.2
@@ -291,25 +222,23 @@ struct EowChannelRequestMsg final : SubMsg<SshMessageType::ChannelRequest, "eow@
 
 // https://datatracker.ietf.org/doc/html/rfc4254
 struct ChannelRequestMsg final : Msg<SshMessageType::ChannelRequest> {
-  mutable field<uint32_t> recipient_channel;
-  constexpr std::string& request_type() { return *request.key_field(); }
-  field<bool> want_reply;
-  sub_message<PtyReqChannelRequestMsg,
-              ShellChannelRequestMsg,
-              ExecChannelRequestMsg,
-              WindowDimensionChangeChannelRequestMsg,
-              SubsystemChannelRequestMsg,
-              EnvChannelRequestMsg,
-              X11ReqChannelRequestMsg,
-              ExitSignalChannelRequestMsg,
-              ExitStatusChannelRequestMsg,
-              SignalChannelRequestMsg,
-              XOnXOffChannelRequestMsg,
-              EowChannelRequestMsg>
-    request;
+  using request_type = sub_message<PtyReqChannelRequestMsg,
+                                   ShellChannelRequestMsg,
+                                   ExecChannelRequestMsg,
+                                   WindowDimensionChangeChannelRequestMsg,
+                                   SubsystemChannelRequestMsg,
+                                   EnvChannelRequestMsg,
+                                   X11ReqChannelRequestMsg,
+                                   ExitSignalChannelRequestMsg,
+                                   ExitStatusChannelRequestMsg,
+                                   SignalChannelRequestMsg,
+                                   XOnXOffChannelRequestMsg,
+                                   EowChannelRequestMsg>;
 
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
+  mutable field<uint32_t> recipient_channel;
+  [[no_unique_address]] key_field<request_type> request_key;
+  field<bool> want_reply;
+  request_type request;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-5.1
@@ -390,45 +319,33 @@ struct CancelTcpipForwardMsg final : SubMsg<SshMessageType::GlobalRequest, "canc
 
 // https://datatracker.ietf.org/doc/html/rfc4254#section-4
 struct GlobalRequestMsg final : Msg<SshMessageType::GlobalRequest> {
+  using request_type = sub_message<HostKeysProveRequestMsg,
+                                   HostKeysMsg,
+                                   TcpipForwardMsg,
+                                   CancelTcpipForwardMsg>;
   constexpr std::string& request_name() { return *request.key_field(); }
+  [[no_unique_address]] key_field<request_type> request_key;
   field<bool> want_reply;
-  sub_message<HostKeysProveRequestMsg,
-              HostKeysMsg,
-              TcpipForwardMsg,
-              CancelTcpipForwardMsg>
-    request;
-
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
+  request_type request;
 };
 
-struct HostKeysProveResponseMsg final : SubMsg<SshMessageType::RequestSuccess, "hostkeys-prove-00@openssh.com"> {
+struct HostKeysProveResponseMsg final : SubMsg<SshMessageType::RequestSuccess, "hostkeys-prove-00@openssh.com", EncodingOptions::Omit> {
   field<bytes_list, LengthPrefixed> signatures;
 };
 
-struct TcpipForwardResponseMsg final : SubMsg<SshMessageType::RequestSuccess, "tcpip-forward"> {
+struct TcpipForwardResponseMsg final : SubMsg<SshMessageType::RequestSuccess, "tcpip-forward", EncodingOptions::Omit> {
   field<uint32_t> server_port;
 };
 
-// // https://datatracker.ietf.org/doc/html/rfc4254#section-4
+// https://datatracker.ietf.org/doc/html/rfc4254#section-4
 struct GlobalRequestSuccessMsg final : Msg<SshMessageType::RequestSuccess> {
-  sub_message<HostKeysProveResponseMsg,
-              TcpipForwardResponseMsg>
-    response;
-
-  template <typename T>
-    requires (decltype(response)::has_option<T>())
-  absl::Status resolve() {
-    using key_type = decltype(response)::key_type;
-    response.key_field() = key_type{T::submsg_key};
-    return response.decodeUnknown().status();
-  }
-
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
+  using response_type = sub_message<HostKeysProveResponseMsg,
+                                    TcpipForwardResponseMsg>;
+  [[no_unique_address]] key_field<response_type> response_key;
+  response_type response;
 };
 
-// // https://datatracker.ietf.org/doc/html/rfc4254#section-4
+// https://datatracker.ietf.org/doc/html/rfc4254#section-4
 struct GlobalRequestFailureMsg final : Msg<SshMessageType::RequestFailure> {
 };
 
@@ -473,16 +390,14 @@ struct NoneAuthRequestMsg final : SubMsg<SshMessageType::UserAuthRequest, "none"
 
 // https://datatracker.ietf.org/doc/html/rfc4252#section-5
 struct UserAuthRequestMsg final : Msg<SshMessageType::UserAuthRequest> {
+  using request_type = sub_message<PubKeyUserAuthRequestMsg,
+                                   KeyboardInteractiveUserAuthRequestMsg,
+                                   NoneAuthRequestMsg>;
   field<std::string, LengthPrefixed> username;
   field<std::string, LengthPrefixed> service_name;
   constexpr std::string& method_name() { return *request.key_field(); }
-  sub_message<PubKeyUserAuthRequestMsg,
-              KeyboardInteractiveUserAuthRequestMsg,
-              NoneAuthRequestMsg>
-    request;
-
-  absl::StatusOr<size_t> decode(Envoy::Buffer::Instance& buffer, size_t payload_size) noexcept;
-  absl::StatusOr<size_t> encode(Envoy::Buffer::Instance& buffer) const noexcept;
+  [[no_unique_address]] key_field<request_type> request_key;
+  request_type request;
 };
 
 struct UserAuthInfoPrompt {
@@ -499,16 +414,36 @@ struct UserAuthInfoPrompt {
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4256#section-3.2
-struct UserAuthInfoRequestMsg : Msg<SshMessageType::UserAuthInfoRequest> {
+struct UserAuthInfoRequestMsg : SubMsg<SshMessageType::UserAuthInfoRequest, "keyboard-interactive", EncodingOptions::Omit> {
   field<std::string, LengthPrefixed> name;
   field<std::string, LengthPrefixed> instruction;
   field<std::string, LengthPrefixed> language_tag;
   field<std::vector<UserAuthInfoPrompt>, ListSizePrefixed> prompts;
 };
 
+// https://datatracker.ietf.org/doc/html/rfc4252#section-7
+struct UserAuthPubKeyOkMsg : SubMsg<SshMessageType::UserAuthPubKeyOk, "publickey", EncodingOptions::Omit> {
+  field<std::string, LengthPrefixed> public_key_alg;
+  field<bytes, LengthPrefixed> public_key;
+};
+
+// Synthetic
+struct UserAuthMethodSpecificServerMsg : Msg<SshMessageType(60)> {
+  using message_type = sub_message<UserAuthInfoRequestMsg, UserAuthPubKeyOkMsg>;
+  [[no_unique_address]] key_field<message_type> key;
+  message_type message;
+};
+
 // https://datatracker.ietf.org/doc/html/rfc4256#section-3.2
-struct UserAuthInfoResponseMsg : Msg<SshMessageType::UserAuthInfoResponse> {
+struct UserAuthInfoResponseMsg : SubMsg<SshMessageType::UserAuthInfoResponse, "keyboard-interactive", EncodingOptions::Omit> {
   field<string_list, LengthPrefixed | ListSizePrefixed> responses;
+};
+
+// Synthetic
+struct UserAuthMethodSpecificClientMsg : Msg<SshMessageType(61)> {
+  using message_type = sub_message<UserAuthInfoResponseMsg>;
+  [[no_unique_address]] key_field<message_type> key;
+  message_type message;
 };
 
 // https://datatracker.ietf.org/doc/html/rfc4252#section-5.4
@@ -538,12 +473,6 @@ struct UserAuthSuccessMsg final : Msg<SshMessageType::UserAuthSuccess> {
 struct NewKeysMsg final : Msg<SshMessageType::NewKeys> {
 };
 
-// https://datatracker.ietf.org/doc/html/rfc4252#section-7
-struct UserAuthPubKeyOkMsg : Msg<SshMessageType::UserAuthPubKeyOk> {
-  field<std::string, LengthPrefixed> public_key_alg;
-  field<bytes, LengthPrefixed> public_key;
-};
-
 // https://datatracker.ietf.org/doc/html/rfc8308#section-3.1
 struct ServerSigAlgsExtension final : SubMsg<SshMessageType::ExtInfo, "server-sig-algs"> {
   field<string_list, NameListFormat> public_key_algorithms_accepted;
@@ -561,11 +490,12 @@ struct ExtInfoInAuthExtension final : SubMsg<SshMessageType::ExtInfo, "ext-info-
 // Sub-messages can't appear more than once, as they do not encode their own size information.
 // Extension is implemented in terms of a sub_message, but that is only an implementation detail.
 struct Extension {
+  using extension_type = sub_message<ServerSigAlgsExtension,
+                                     PingExtension,
+                                     ExtInfoInAuthExtension>;
   constexpr std::string& extension_name() { return *extension.key_field(); }
-  sub_message<ServerSigAlgsExtension,
-              PingExtension,
-              ExtInfoInAuthExtension>
-    extension;
+  [[no_unique_address]] key_field<extension_type> extension_key;
+  extension_type extension;
 
   Extension() = default;
   template <typename T>
@@ -617,63 +547,42 @@ struct PongMsg final : Msg<SshMessageType::Pong> {
 
 namespace detail {
 
-using top_level_message = sub_message<                      // Message ID
-  DisconnectMsg,                                            // 1
-  IgnoreMsg,                                                // 2
-  UnimplementedMsg,                                         // 3
-  DebugMsg,                                                 // 4
-  ServiceRequestMsg,                                        // 5
-  ServiceAcceptMsg,                                         // 6
-  ExtInfoMsg,                                               // 7
-  KexInitMsg,                                               // 20
-  NewKeysMsg,                                               // 21
-  OverloadSet<KexEcdhInitMsg, KexHybridInitMsg>,            // 30 (3 overloads, 2 supported)
-  OverloadSet<KexEcdhReplyMsg, KexHybridReplyMsg>,          // 31 (4 overloads, 2 supported)
-  UserAuthRequestMsg,                                       // 50
-  UserAuthFailureMsg,                                       // 51
-  UserAuthSuccessMsg,                                       // 52
-  UserAuthBannerMsg,                                        // 53
-  OverloadSet<UserAuthPubKeyOkMsg, UserAuthInfoRequestMsg>, // 60 (4 overloads, 2 supported)
-  OverloadSet<UserAuthInfoResponseMsg>,                     // 61 (2 overloads, 1 supported)
-  GlobalRequestMsg,                                         // 80
-  GlobalRequestSuccessMsg,                                  // 81
-  GlobalRequestFailureMsg,                                  // 82
-  ChannelOpenMsg,                                           // 90
-  ChannelOpenConfirmationMsg,                               // 91
-  ChannelOpenFailureMsg,                                    // 92
-  ChannelWindowAdjustMsg,                                   // 93
-  ChannelDataMsg,                                           // 94
-  ChannelExtendedDataMsg,                                   // 95
-  ChannelEOFMsg,                                            // 96
-  ChannelCloseMsg,                                          // 97
-  ChannelRequestMsg,                                        // 98
-  ChannelSuccessMsg,                                        // 99
-  ChannelFailureMsg,                                        // 100
-  PingMsg,                                                  // 192
-  PongMsg>;                                                 // 193
+using top_level_message = sub_message< // Message ID
+  DisconnectMsg,                       // 1
+  IgnoreMsg,                           // 2
+  UnimplementedMsg,                    // 3
+  DebugMsg,                            // 4
+  ServiceRequestMsg,                   // 5
+  ServiceAcceptMsg,                    // 6
+  ExtInfoMsg,                          // 7
+  KexInitMsg,                          // 20
+  NewKeysMsg,                          // 21
+  KexAlgInitMsg,                       // 30 (synthetic)
+  KexAlgReplyMsg,                      // 31 (synthetic)
+  UserAuthRequestMsg,                  // 50
+  UserAuthFailureMsg,                  // 51
+  UserAuthSuccessMsg,                  // 52
+  UserAuthBannerMsg,                   // 53
+  UserAuthMethodSpecificServerMsg,     // 60 (synthetic)
+  UserAuthMethodSpecificClientMsg,     // 61 (synthetic)
+  GlobalRequestMsg,                    // 80
+  GlobalRequestSuccessMsg,             // 81
+  GlobalRequestFailureMsg,             // 82
+  ChannelOpenMsg,                      // 90
+  ChannelOpenConfirmationMsg,          // 91
+  ChannelOpenFailureMsg,               // 92
+  ChannelWindowAdjustMsg,              // 93
+  ChannelDataMsg,                      // 94
+  ChannelExtendedDataMsg,              // 95
+  ChannelEOFMsg,                       // 96
+  ChannelCloseMsg,                     // 97
+  ChannelRequestMsg,                   // 98
+  ChannelSuccessMsg,                   // 99
+  ChannelFailureMsg,                   // 100
+  PingMsg,                             // 192
+  PongMsg>;                            // 193
 
 static_assert(std::regular<top_level_message>);
-
-// These definitions allow us to look up the matching overload set a particular message is part of.
-// For any of the supported messages that are overloaded, overload_set_for<T> will return the
-// OverloadSet<...> containing T (and possibly other overloads) present in top_level_message.
-//
-// If the types in top_level_message are updated, make sure these definitions are also kept in sync
-// (they could be pulled automatically from top_level_message but it's not worth the complexity).
-template <> struct overload_set_for<KexEcdhInitMsg> : std::type_identity<OverloadSet<KexEcdhInitMsg, KexHybridInitMsg>> {};
-template <> struct overload_set_for<KexEcdhReplyMsg> : std::type_identity<OverloadSet<KexEcdhReplyMsg, KexHybridReplyMsg>> {};
-template <> struct overload_set_for<KexHybridInitMsg> : std::type_identity<OverloadSet<KexEcdhInitMsg, KexHybridInitMsg>> {};
-template <> struct overload_set_for<KexHybridReplyMsg> : std::type_identity<OverloadSet<KexEcdhReplyMsg, KexHybridReplyMsg>> {};
-template <> struct overload_set_for<UserAuthPubKeyOkMsg> : std::type_identity<OverloadSet<UserAuthPubKeyOkMsg, UserAuthInfoRequestMsg>> {};
-template <> struct overload_set_for<UserAuthInfoRequestMsg> : std::type_identity<OverloadSet<UserAuthPubKeyOkMsg, UserAuthInfoRequestMsg>> {};
-template <> struct overload_set_for<UserAuthInfoResponseMsg> : std::type_identity<OverloadSet<UserAuthInfoResponseMsg>> {};
-
-template <DecayedType T>
-  requires (top_level_message::template has_option<overload_set_for_t<T>>())
-struct is_top_level_message<T> : std::true_type {};
-
-template <DecayedType... Args>
-struct is_overload_set<OverloadSet<Args...>> : std::true_type {};
 
 } // namespace detail
 
@@ -710,11 +619,7 @@ struct BasicMessage final {
 
   template <typename T>
   constexpr void reset(T&& msg) {
-    if constexpr (!std::is_same_v<std::decay_t<T>, detail::overload_set_for_t<std::decay_t<T>>>) {
-      message.reset(detail::overload_set_for_t<std::decay_t<T>>{std::forward<T>(msg)});
-    } else {
-      message.reset(std::forward<T>(msg));
-    }
+    message.reset(std::forward<T>(msg));
   }
 
   constexpr void reset() {
@@ -730,9 +635,9 @@ struct BasicMessage final {
   template <typename Self>
   [[nodiscard]] constexpr decltype(auto) visit(this Self&& self, auto... args) {
     if (self.message.oneof.has_value()) {
-      return std::visit(make_overloads<detail::top_level_visitor, Self&&>(args...), *std::forward<Self>(self).message.oneof);
+      return std::visit(make_overloads<basic_visitor, Self&&>(args...), *std::forward<Self>(self).message.oneof);
     }
-    using return_type = decltype(std::visit(make_overloads<detail::top_level_visitor, Self&&>(args...), *std::forward<Self>(self).message.oneof));
+    using return_type = decltype(std::visit(make_overloads<basic_visitor, Self&&>(args...), *std::forward<Self>(self).message.oneof));
     if constexpr (!std::is_void_v<return_type>) {
       return return_type{};
     }

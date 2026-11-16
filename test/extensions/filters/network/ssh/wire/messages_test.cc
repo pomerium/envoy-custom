@@ -13,41 +13,6 @@ namespace wire::test {
 TEST(MessagesTest, Message_Visit) {
   Message msg;
 
-  auto non_overload = [&](const DisconnectMsg& _) {
-    return SshMessageType::Disconnect;
-  };
-  auto overload = [&](opt_ref<const KexEcdhInitMsg> _) {
-    return SshMessageType::KexInit;
-  };
-  auto defaultCase = [&](auto&) {
-    return SshMessageType::KexInit;
-  };
-
-  EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(overload)>::arg_type_with_cv_optref,
-                                      opt_ref<const KexEcdhInitMsg>>);
-  EXPECT_STATIC_ASSERT(std::is_same_v<callable_info_t<decltype(overload)>::arg_type,
-                                      KexEcdhInitMsg>);
-  EXPECT_STATIC_ASSERT(wire::detail::is_top_level_message_v<KexEcdhInitMsg>);
-  EXPECT_STATIC_ASSERT(wire::detail::is_top_level_message_v<DisconnectMsg>);
-
-  EXPECT_STATIC_ASSERT(std::is_same_v<callable_arg_type_t<decltype(overload)>,
-                                      KexEcdhInitMsg>);
-  EXPECT_STATIC_ASSERT(wire::detail::is_overloaded_message<callable_arg_type_t<decltype(overload)>>);
-  EXPECT_STATIC_ASSERT(std::is_same_v<wire::detail::overload_set_for_t<callable_arg_type_t<decltype(overload)>>,
-                                      OverloadSet<KexEcdhInitMsg, KexHybridInitMsg>>);
-  EXPECT_STATIC_ASSERT(!wire::detail::top_level_visitor<false, decltype(overload)>::is_catchall_visitor);
-
-  EXPECT_STATIC_ASSERT(std::is_same_v<callable_arg_type_t<decltype(non_overload)>,
-                                      DisconnectMsg>);
-  EXPECT_STATIC_ASSERT(!wire::detail::is_overloaded_message<callable_arg_type_t<decltype(non_overload)>>);
-  EXPECT_STATIC_ASSERT(std::is_same_v<wire::detail::overload_set_for_t<callable_arg_type_t<decltype(non_overload)>>,
-                                      DisconnectMsg>);
-  EXPECT_STATIC_ASSERT(!wire::detail::top_level_visitor<false, decltype(non_overload)>::is_catchall_visitor);
-
-  EXPECT_STATIC_ASSERT(wire::detail::top_level_visitor<false, decltype(defaultCase)>::is_catchall_visitor);
-  EXPECT_STATIC_ASSERT(std::is_invocable_v<decltype([](any_of<wire::IgnoreMsg, wire::DebugMsg, wire::UnimplementedMsg> auto&) {}), wire::IgnoreMsg&>);
-  EXPECT_STATIC_ASSERT(std::is_invocable_v<decltype([](wire::detail::TopLevelMessage auto&) {}), wire::IgnoreMsg&>);
-
   auto visitor = [&]() {
     return msg.visit(
       [&](const DisconnectMsg& _) {
@@ -71,10 +36,10 @@ TEST(MessagesTest, Message_Visit) {
       [&](const KexInitMsg& _) {
         return SshMessageType::KexInit;
       },
-      [&](opt_ref<const KexEcdhInitMsg> _) {
+      [&](const KexAlgInitMsg& _) {
         return SshMessageType::KexECDHInit;
       },
-      [&](opt_ref<const UserAuthPubKeyOkMsg> _) {
+      [&](const UserAuthMethodSpecificServerMsg& _) {
         return SshMessageType::UserAuthPubKeyOk;
       },
       [&](const auto&) {
@@ -110,11 +75,11 @@ TEST(MessagesTest, Message_Visit) {
   msg = kex_init_msg;
   EXPECT_EQ(SshMessageType::KexInit, visitor());
 
-  KexEcdhInitMsg kex_ecdh_init_msg;
+  KexAlgInitMsg kex_ecdh_init_msg;
   msg = kex_ecdh_init_msg;
   EXPECT_EQ(SshMessageType::KexECDHInit, visitor());
 
-  UserAuthPubKeyOkMsg user_auth_pubkey_ok_msg;
+  UserAuthMethodSpecificServerMsg user_auth_pubkey_ok_msg;
   msg = user_auth_pubkey_ok_msg;
   EXPECT_EQ(SshMessageType::UserAuthPubKeyOk, visitor());
 
@@ -181,20 +146,26 @@ TEST(MessagesTest, Message_Visit_Mutable) {
 }
 
 TEST(MessagesTest, Message_Visit_Overload_Mutable) {
-  wire::Message msg{wire::KexEcdhInitMsg{}};
+  wire::Message msg{wire::KexAlgInitMsg{
+    .message = wire::KexEcdhInitMsg{},
+  }};
   // Modify a field of an overloaded message (which is already resolved) contained within 'msg'
   // by using a visitor.
   // Overloaded messages use a different visitor implementation and are accessed within the lambda
   // via reference_wrapper. The reference_wrapper should hold a reference to the original message.
   msg.visit(
-    [](opt_ref<wire::KexEcdhInitMsg> msg) {
-      msg->get().client_pub_key = {1};
+    [](wire::KexAlgInitMsg& msg) {
+      auto value = msg.resolve<wire::KexEcdhInitMsg>();
+      ASSERT_OK(value);
+      value->client_pub_key = {1};
     },
     [](auto&) {});
   // Verify that the changes persisted by visiting the same message again and checking the field
   msg.visit(
-    [](opt_ref<wire::KexEcdhInitMsg> msg) {
-      ASSERT_EQ(bytes{1}, msg->get().client_pub_key);
+    [](wire::KexAlgInitMsg& msg) {
+      auto value = msg.resolve<wire::KexEcdhInitMsg>();
+      ASSERT_OK(value);
+      ASSERT_EQ(bytes{1}, value->client_pub_key);
     },
     [](auto&) {});
 }
@@ -460,19 +431,19 @@ using topLevelMsgs = typename topLevelMsgsHelper<wire::detail::top_level_message
 
 // TYPED_TEST_SUITE(TopLevelMessagesTestSuite, testing::Types<KexInitMessage>);
 TYPED_TEST_SUITE(TopLevelMessagesTestSuite, topLevelMsgs);
-
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wc++26-extensions"
 TYPED_TEST(TopLevelMessagesTestSuite, RoundTrip) {
   for (auto i = 0; i < 1000; i++) {
     TypeParam msg;
     populateFields(msg);
 
-    uint64_t overload_index{};
-    std::string global_request_success_key{};
-    if constexpr (wire::detail::is_overload_set_v<TypeParam>) {
-      overload_index = msg.messageForTest().key_field();
-    }
-    if constexpr (std::is_same_v<TypeParam, wire::GlobalRequestSuccessMsg>) {
-      global_request_success_key = msg.response.key_field();
+    std::string unkeyed_sub_msg_key{};
+    if constexpr (wire::detail::has_unkeyed_sub_message<TypeParam>()) {
+
+      const auto& [... fields] = msg;
+      constexpr auto subMsgIndex = wire::detail::sub_message_index<decltype(fields)...>();
+      unkeyed_sub_msg_key = fields...[subMsgIndex.index].key_field();
     }
     Envoy::Buffer::OwnedImpl buffer;
     auto r = msg.encode(buffer);
@@ -482,25 +453,54 @@ TYPED_TEST(TopLevelMessagesTestSuite, RoundTrip) {
     r = decoded.decode(buffer, buffer.length());
     EXPECT_TRUE(r.ok()) << r.status().ToString();
 
-    if constexpr (wire::detail::is_overload_set_v<TypeParam>) {
-      decoded.messageForTest().key_field() = overload_index;
-      auto r = decoded.messageForTest().decodeUnknown();
-      EXPECT_TRUE(r.ok()) << r.status().ToString();
-    }
-    if constexpr (std::is_same_v<TypeParam, wire::GlobalRequestSuccessMsg>) {
-      decoded.response.key_field() = global_request_success_key;
-      auto r = decoded.response.decodeUnknown();
+    if constexpr (wire::detail::has_unkeyed_sub_message<TypeParam>()) {
+      auto& [... fields] = decoded;
+      constexpr auto subMsgIndex = wire::detail::sub_message_index<decltype(fields)...>();
+      fields...[subMsgIndex.index].key_field() = unkeyed_sub_msg_key;
+      auto r = fields...[subMsgIndex.index].decodeUnknown();
       EXPECT_TRUE(r.ok()) << r.status().ToString();
     }
 
     EXPECT_EQ(decoded, msg);
   }
 }
+#pragma clang diagnostic pop
 
 TYPED_TEST(TopLevelMessagesTestSuite, MessageType) {
   TypeParam msg;
   EXPECT_EQ(TypeParam::type, msg.msg_type());
 }
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wc++26-extensions"
+TYPED_TEST(TopLevelMessagesTestSuite, TestFieldReflect) {
+  // Sanity check to make sure that all message fields are accounted for
+
+  TypeParam msg;
+  auto& [... fields] = msg;
+
+  std::vector<std::string> actual_field_types;
+
+  [&]<size_t... I>(std::index_sequence<I...>) {
+    ([&] {
+      auto& field = fields...[I];
+      // ignore key field markers
+      if constexpr (!is_key_field_v<std::decay_t<decltype(field)>>) {
+        actual_field_types.push_back(std::string(type_name<std::decay_t<decltype(field)>>()));
+      }
+    }(),
+     ...);
+  }(std::make_index_sequence<sizeof...(fields)>());
+
+  std::vector<std::string> visited_field_types;
+
+  test_field_reflect<TypeParam>::visit_fields(msg, [&](std::string_view, auto& field) -> void {
+    visited_field_types.push_back(std::string(type_name<std::decay_t<decltype(field)>>()));
+  });
+
+  EXPECT_EQ(actual_field_types, visited_field_types);
+}
+#pragma clang diagnostic pop
 
 TEST(NonstandardMessagesTest, GlobalRequestSuccessMsg) {
   GlobalRequestSuccessMsg msg{
@@ -668,46 +668,55 @@ TEST(OverloadedMessageTest, Resolve) {
   Buffer::OwnedImpl buffer;
   UserAuthPubKeyOkMsg overload;
   overload.public_key = random_value<bytes>();
-  auto r = overload.encode(buffer);
+  UserAuthMethodSpecificServerMsg encoded{
+    .message = overload,
+  };
+  auto r = encoded.encode(buffer);
   EXPECT_TRUE(r.ok());
 
-  OverloadSet<UserAuthPubKeyOkMsg, UserAuthInfoRequestMsg> msg;
-  r = msg.decode(buffer, buffer.length());
+  UserAuthMethodSpecificServerMsg decoded;
+  r = decoded.decode(buffer, buffer.length());
   EXPECT_TRUE(r.ok());
 
-  auto ref = msg.resolve<UserAuthPubKeyOkMsg>();
-  EXPECT_TRUE(ref.has_value());
+  auto ref = decoded.resolve<UserAuthPubKeyOkMsg>();
+  EXPECT_OK(ref);
   EXPECT_EQ(overload, ref.value());
 }
 
 TEST(OverloadedMessageTest, Resolve_WrongType) {
   Buffer::OwnedImpl buffer;
   UserAuthPubKeyOkMsg overload;
-  auto r = overload.encode(buffer);
+  UserAuthMethodSpecificServerMsg encoded{
+    .message = overload,
+  };
+  auto r = encoded.encode(buffer);
   EXPECT_TRUE(r.ok());
 
-  OverloadSet<UserAuthPubKeyOkMsg, UserAuthInfoRequestMsg> msg;
-  r = msg.decode(buffer, buffer.length());
+  UserAuthMethodSpecificServerMsg decoded;
+  r = decoded.decode(buffer, buffer.length());
   EXPECT_TRUE(r.ok());
 
   // This won't *necessarily* always fail; it depends on whether one message can be interpreted
   // as a different type without decoding errors.
-  auto ref = msg.resolve<UserAuthInfoRequestMsg>();
-  EXPECT_FALSE(ref.has_value());
+  auto ref = decoded.resolve<UserAuthInfoRequestMsg>();
+  EXPECT_NOT_OK(ref);
 }
 
 TEST(OverloadedMessageTest, Resolve_WrongType2) {
   Buffer::OwnedImpl buffer;
   UserAuthInfoRequestMsg overload;
-  auto r = overload.encode(buffer);
+  UserAuthMethodSpecificServerMsg encoded{
+    .message = overload,
+  };
+  auto r = encoded.encode(buffer);
   EXPECT_TRUE(r.ok());
 
-  OverloadSet<UserAuthPubKeyOkMsg, UserAuthInfoRequestMsg> msg;
-  r = msg.decode(buffer, buffer.length());
+  UserAuthMethodSpecificServerMsg decoded;
+  r = decoded.decode(buffer, buffer.length());
   EXPECT_TRUE(r.ok());
 
-  auto ref = msg.resolve<UserAuthPubKeyOkMsg>();
-  EXPECT_FALSE(ref.has_value());
+  auto ref = decoded.resolve<UserAuthPubKeyOkMsg>();
+  EXPECT_NOT_OK(ref);
 }
 
 TEST(KeyFieldAccessorsTest, KeyFields) {
@@ -723,11 +732,11 @@ TEST(KeyFieldAccessorsTest, KeyFields) {
   {
     ChannelRequestMsg msg;
     msg.request = PtyReqChannelRequestMsg{};
-    EXPECT_EQ(PtyReqChannelRequestMsg::submsg_key, msg.request_type());
+    EXPECT_EQ(PtyReqChannelRequestMsg::submsg_key, *msg.request.key_field());
     msg.request = ShellChannelRequestMsg{};
-    EXPECT_EQ(ShellChannelRequestMsg::submsg_key, msg.request_type());
+    EXPECT_EQ(ShellChannelRequestMsg::submsg_key, *msg.request.key_field());
     msg.request = WindowDimensionChangeChannelRequestMsg{};
-    EXPECT_EQ(WindowDimensionChangeChannelRequestMsg::submsg_key, msg.request_type());
+    EXPECT_EQ(WindowDimensionChangeChannelRequestMsg::submsg_key, *msg.request.key_field());
   }
   {
     GlobalRequestMsg msg;

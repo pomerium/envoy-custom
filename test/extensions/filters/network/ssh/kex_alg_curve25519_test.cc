@@ -1,7 +1,9 @@
 #include "source/extensions/filters/network/ssh/kex_alg_curve25519.h"
+#include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "test/extensions/filters/network/ssh/wire/test_field_reflect.h"
 #include "source/extensions/filters/network/ssh/wire/common.h"
 #include "test/test_common/test_common.h"
+#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
@@ -46,12 +48,16 @@ TEST_F(KexAlgCurve25519TestSuite, ServerReplyMessageTypes) {
 TEST_F(KexAlgCurve25519TestSuite, BuildClientInit) {
   auto init = alg_->buildClientInit();
   init.visit(
-    [](opt_ref<wire::KexEcdhInitMsg> opt_msg) {
-      ASSERT_TRUE(opt_msg.has_value());
-      auto& msg = opt_msg.value().get();
-      EXPECT_EQ(32, msg.client_pub_key->size());
+    [](const wire::KexAlgInitMsg& msg) {
+      msg.message.visit(
+        [&](const wire::KexEcdhInitMsg& msg) {
+          EXPECT_EQ(32, msg.client_pub_key->size());
+        },
+        [&](const auto&) {
+          FAIL() << "unexpected message type";
+        });
     },
-    [](auto&) {
+    [](const auto&) {
       FAIL() << "invalid message type";
     });
 }
@@ -63,12 +69,12 @@ TEST_F(KexAlgCurve25519TestSuite, BuildServerReply) {
   fake_result.signature = randomBytes(32);
   auto msg = alg_->buildServerReply(fake_result);
   msg.visit(
-    [&](opt_ref<wire::KexEcdhReplyMsg> opt_msg) {
-      ASSERT_TRUE(opt_msg.has_value());
-      auto& msg = opt_msg.value().get();
-      EXPECT_EQ(msg.host_key, fake_result.host_key_blob);
-      EXPECT_EQ(msg.ephemeral_pub_key, fake_result.server_ephemeral_pub_key);
-      EXPECT_EQ(msg.signature, fake_result.signature);
+    [&](wire::KexAlgReplyMsg& msg) {
+      auto value = msg.resolve<wire::KexEcdhReplyMsg>();
+      ASSERT_OK(value);
+      EXPECT_EQ(value->host_key, fake_result.host_key_blob);
+      EXPECT_EQ(value->ephemeral_pub_key, fake_result.server_ephemeral_pub_key);
+      EXPECT_EQ(value->signature, fake_result.signature);
     },
     [](auto&) {
       FAIL() << "invalid message type";
@@ -107,13 +113,13 @@ TEST_F(KexAlgCurve25519TestSuite, HandleServerRecv_WrongOverloadedMessageType) {
   ASSERT_OK(msg.decode(buf, buf.length()).status());
 
   auto r = alg_->handleServerRecv(msg);
-  EXPECT_EQ(absl::InvalidArgumentError("invalid key exchange init"), r.status());
+  EXPECT_THAT(r.status().message(), HasSubstr("invalid key exchange init"));
 }
 
 TEST_F(KexAlgCurve25519TestSuite, HandleServerRecv_WrongPublicKeySize) {
   wire::KexEcdhInitMsg init;
   init.client_pub_key->resize(31);
-  auto msg = wire::Message{init};
+  auto msg = wire::Message{wire::KexAlgInitMsg{.message = init}};
   auto r = alg_->handleServerRecv(msg);
   EXPECT_EQ(absl::InvalidArgumentError("invalid peer public key size (expected 32, got 31)"), r.status());
 }
@@ -126,7 +132,7 @@ static constexpr fixed_bytes<32> curve25519_low_order_point{0xe0, 0xeb, 0x7a, 0x
 TEST_F(KexAlgCurve25519TestSuite, HandleServerRecv_LowOrderInput) {
   wire::KexEcdhInitMsg init;
   init.client_pub_key = to_bytes(curve25519_low_order_point);
-  auto msg = wire::Message{init};
+  auto msg = wire::Message{wire::KexAlgInitMsg{.message = init}};
   auto r = alg_->handleServerRecv(msg);
   EXPECT_EQ(absl::InvalidArgumentError("x25519 error"), r.status());
 }
@@ -134,7 +140,7 @@ TEST_F(KexAlgCurve25519TestSuite, HandleServerRecv_LowOrderInput) {
 TEST_F(KexAlgCurve25519TestSuite, HandleServerRecv_ZeroInput) {
   wire::KexEcdhInitMsg init;
   init.client_pub_key->resize(32);
-  auto msg = wire::Message{init};
+  auto msg = wire::Message{wire::KexAlgInitMsg{.message = init}};
   auto r = alg_->handleServerRecv(msg);
   EXPECT_EQ(absl::InvalidArgumentError("x25519 error"), r.status());
 }
@@ -174,13 +180,13 @@ TEST_F(KexAlgCurve25519TestSuite, HandleClientRecv_WrongOverloadedMessageType) {
   ASSERT_OK(msg.decode(buf, buf.length()).status());
 
   auto r = alg_->handleClientRecv(msg);
-  EXPECT_EQ(absl::InvalidArgumentError("invalid key exchange reply"), r.status());
+  EXPECT_THAT(r.status().message(), HasSubstr("invalid key exchange reply"));
 }
 
 TEST_F(KexAlgCurve25519TestSuite, HandleClientRecv_WrongPublicKeySize) {
   wire::KexEcdhReplyMsg reply;
   reply.ephemeral_pub_key->resize(31);
-  auto msg = wire::Message{reply};
+  auto msg = wire::Message{wire::KexAlgReplyMsg{.message = reply}};
   auto r = alg_->handleClientRecv(msg);
   EXPECT_EQ(absl::InvalidArgumentError("invalid peer public key size (expected 32, got 31)"), r.status());
 }
@@ -188,7 +194,7 @@ TEST_F(KexAlgCurve25519TestSuite, HandleClientRecv_WrongPublicKeySize) {
 TEST_F(KexAlgCurve25519TestSuite, HandleClientRecv_LowOrderInput) {
   wire::KexEcdhReplyMsg reply;
   reply.ephemeral_pub_key = to_bytes(curve25519_low_order_point);
-  auto msg = wire::Message{reply};
+  auto msg = wire::Message{wire::KexAlgReplyMsg{.message = reply}};
   auto r = alg_->handleClientRecv(msg);
   EXPECT_EQ(absl::InvalidArgumentError("x25519 error"), r.status());
 }
@@ -196,7 +202,7 @@ TEST_F(KexAlgCurve25519TestSuite, HandleClientRecv_LowOrderInput) {
 TEST_F(KexAlgCurve25519TestSuite, HandleClientRecv_ZeroInput) {
   wire::KexEcdhReplyMsg reply;
   reply.ephemeral_pub_key->resize(32);
-  auto msg = wire::Message{reply};
+  auto msg = wire::Message{wire::KexAlgReplyMsg{.message = reply}};
   auto r = alg_->handleClientRecv(msg);
   EXPECT_EQ(absl::InvalidArgumentError("x25519 error"), r.status());
 }
@@ -208,11 +214,14 @@ TEST_F(KexAlgCurve25519TestSuite, HandleClientRecv_ComputeClientResultError1) {
   ASSERT_TRUE(r1->has_value());
   auto reply = alg_->buildServerReply(***r1);
   reply.visit(
-    [](opt_ref<wire::KexEcdhReplyMsg> opt_msg) {
-      auto& msg = opt_msg.value().get();
-      msg.signature[0] = 0xFF; // modify the signature length
+    [](wire::KexAlgReplyMsg& msg) {
+      auto value = msg.resolve<wire::KexEcdhReplyMsg>();
+      ASSERT_OK(value);
+      value->signature[0] = 0xFF; // modify the signature length
     },
-    [](auto&) { FAIL() << "invalid message type"; });
+    [](auto&) {
+      FAIL() << "invalid message type";
+    });
   auto r = alg_->handleClientRecv(reply);
   EXPECT_EQ(absl::InvalidArgumentError("signature failed verification: string is too large"), r.status());
 }
@@ -224,9 +233,9 @@ TEST_F(KexAlgCurve25519TestSuite, HandleClientRecv_ComputeClientResultError2) {
   ASSERT_TRUE(r1->has_value());
   auto reply = alg_->buildServerReply(***r1);
   reply.visit(
-    [](opt_ref<wire::KexEcdhReplyMsg> opt_msg) {
-      auto& msg = opt_msg.value().get();
-      msg.signature->back() = ~msg.signature->back(); // modify the signature payload
+    [](wire::KexAlgReplyMsg& msg) {
+      auto value = msg.resolve<wire::KexEcdhReplyMsg>();
+      value->signature->back() = ~value->signature->back(); // modify the signature payload
     },
     [](auto&) { FAIL() << "invalid message type"; });
   auto r = alg_->handleClientRecv(reply);
