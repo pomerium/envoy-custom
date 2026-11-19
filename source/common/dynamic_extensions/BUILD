@@ -15,6 +15,9 @@ cc_library(
     srcs = ["metadata.cc"],
     hdrs = ["metadata.h"],
     visibility = ["//visibility:public"],
+    target_compatible_with = [
+        "@platforms//os:linux",
+    ],
     deps = [
         "//source/common:common_lib",
     ],
