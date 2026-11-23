@@ -220,6 +220,7 @@ public:
         }
 
         if (!version_exchanger_->versionWritten()) {
+          ASSERT(handshake_start_time_.has_value());
           version_exchanger_->writeVersion(server_version_);
         }
         version_exchange_done_ = true;
@@ -342,12 +343,12 @@ public:
   }
 
   void onVersionExchangeCompleted(const bytes& server_version, const bytes& client_version, const bytes&) override {
+    ASSERT(handshake_start_time_.has_value());
     // If the handshake timer is running, stop it and record how much time is left
     auto elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>(
-      connectionDispatcher()->approximateMonotonicTime() - handshake_start_time_);
-    if (version_exchange_timer_ != nullptr) {
-      version_exchange_timer_->disableTimer();
-    }
+      connectionDispatcher()->approximateMonotonicTime() - *handshake_start_time_);
+    ASSERT(version_exchange_timer_ != nullptr);
+    version_exchange_timer_->disableTimer();
     handshake_time_budget_ = std::max(0ms, std::chrono::duration_cast<std::chrono::milliseconds>(
                                              handshake_time_budget_ - elapsedTime));
 
@@ -525,7 +526,7 @@ private:
 
   Envoy::Event::TimerPtr version_exchange_timer_;
   Envoy::Event::TimerPtr kex_timer_;
-  MonotonicTime handshake_start_time_;
+  std::optional<MonotonicTime> handshake_start_time_;
   std::chrono::milliseconds handshake_time_budget_{};
 
   void enqueueMessage(wire::Message&& msg) {

@@ -32,6 +32,7 @@ Network::FilterStatus SshFakeUpstreamHandler::ReadFilter::onData(Buffer::Instanc
 }
 
 Network::FilterStatus SshFakeUpstreamHandler::ReadFilter::onNewConnection() {
+  parent_.startHandshakeTimer();
   return Network::FilterStatus::Continue;
 }
 
