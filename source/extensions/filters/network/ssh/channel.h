@@ -58,7 +58,7 @@ public:
   // These callbacks can be invoked using runInterruptCallbacks(). The returned handle can be
   // deleted to remove the callback.
   [[nodiscard]]
-  virtual Common::CallbackHandlePtr addInterruptCallback(std::function<void(absl::Status, TransportCallbacks&)> cb) PURE;
+  virtual Envoy::Common::CallbackHandlePtr addInterruptCallback(std::function<void(absl::Status, TransportCallbacks&)> cb) PURE;
 
   // Invokes all previously added interrupt callbacks, then clears the interrupt callback list.
   // Deleting a callback handle obtained from addInterruptCallbacks after calling this function

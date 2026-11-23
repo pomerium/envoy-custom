@@ -6,6 +6,7 @@
 #include "test/test_common/test_common.h"
 #include "test/test_common/test_time_system.h"
 #include "gtest/gtest.h"
+#include <atomic>
 #include <chrono>
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
@@ -368,6 +369,76 @@ testing::AssertionResult SshConnectionDriver::wait(UntypedTaskCallbacksHandle& h
       if (!testing::Test::HasFailure()) {
         // If everything succeeded, run the dispatcher again to flush any pending events
         connectionDispatcher()->run(Envoy::Event::Dispatcher::RunType::NonBlock);
+      }
+      return AssertionResult(!testing::Test::HasFailure());
+    }
+    if (timed_out) {
+      return AssertionResult(false) << "timed out waiting for tasks to be completed";
+    }
+    // spurious wakeup
+  }
+}
+
+AssertionResult SshConnectionDriver::waitAll(std::vector<std::pair<SshConnectionDriver&, UntypedTaskCallbacksHandle&>> driver_handle_pairs) {
+  if (driver_handle_pairs.empty()) {
+    return AssertionResult(true);
+  }
+  auto dispatcher = driver_handle_pairs[0].first.connectionDispatcher().ptr();
+  auto minTimeout = driver_handle_pairs[0].first.defaultTimeout();
+  for (auto& [driver, _] : driver_handle_pairs) {
+    minTimeout = std::min(minTimeout, driver.defaultTimeout());
+    if (driver.connectionDispatcher().ptr() != dispatcher) {
+      return AssertionResult(false) << "test bug: drivers passed to waitAll do not have the same connection dispatcher";
+    }
+  }
+
+  bool timed_out{};
+  bool completed{};
+  auto timeout = dispatcher->createTimer([dispatcher, &timed_out] {
+    timed_out = true;
+    dispatcher->exit();
+  });
+  // Set the wait timeout higher than the task timeout to prevent the two timeouts racing. The task
+  // should time out first
+  timeout->enableTimer(minTimeout + minTimeout / 2);
+
+  std::atomic<size_t> waitCount{driver_handle_pairs.size()};
+
+  for (auto& [driver, handle] : driver_handle_pairs) {
+    auto& handle_impl = dynamic_cast<TaskCallbacksImpl&>(handle);
+    RELEASE_ASSERT(handle_impl.started_, "test bug: wait() called on unstarted task");
+    RELEASE_ASSERT(!handle_impl.wait_called_, "test bug: wait() called twice on the same task handle");
+    handle_impl.wait_called_ = true;
+
+    auto shared_token = handle_impl.weak_token_.lock();
+    if (shared_token == nullptr) {
+      // task already exited
+      --waitCount;
+      continue;
+    }
+    // Hold a reference to the shared token and only release it while the dispatcher is running.
+    dispatcher->post([dispatcher, &waitCount, &completed, shared_token = std::move(shared_token)] {
+      shared_token->on_destroyed = [dispatcher, &completed, &waitCount] {
+        if (--waitCount == 0) {
+          completed = true;
+          dispatcher->exit();
+        }
+      };
+    });
+  }
+  if (waitCount == 0) {
+    // all tasks already exited
+    return AssertionResult(!testing::Test::HasFailure());
+  }
+
+  // Run the dispatcher and wait until all tasks complete
+  while (true) {
+    dispatcher->run(Envoy::Event::Dispatcher::RunType::RunUntilExit);
+    if (completed) {
+      timeout->disableTimer();
+      if (!testing::Test::HasFailure()) {
+        // If everything succeeded, run the dispatcher again to flush any pending events
+        dispatcher->run(Envoy::Event::Dispatcher::RunType::NonBlock);
       }
       return AssertionResult(!testing::Test::HasFailure());
     }

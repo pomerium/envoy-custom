@@ -125,6 +125,14 @@ def cc_dynamic_extension(
         testonly = testonly,
     )
     cc_library(
+        name = _name + "_deps_lib",
+        visibility = visibility,
+        testonly = testonly,
+        deps = host_deps + builtin_host_deps + header_only_deps,
+        linkstatic = True,
+        alwayslink = True,
+    )
+    cc_library(
         name = _name + "_lib",
         visibility = visibility,
         srcs = srcs,
@@ -136,7 +144,8 @@ def cc_dynamic_extension(
         testonly = testonly,
         features = ["prefer_pic_for_opt_binaries"],
         linkstatic = True,
-        deps = host_deps + builtin_host_deps + header_only_deps + [
+        deps = [
+            _name + "_deps_lib",
             "@pomerium_envoy//source/common/dynamic_extensions:cc_dynamic_extension_lib",
         ],
         alwayslink = True,

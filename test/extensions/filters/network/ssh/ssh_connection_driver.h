@@ -143,6 +143,8 @@ public:
   }
 
   testing::AssertionResult wait(UntypedTaskCallbacksHandle& task);
+  static testing::AssertionResult waitAll(std::vector<std::pair<SshConnectionDriver&, UntypedTaskCallbacksHandle&>> driver_task_pairs);
+
   bool allTasksComplete() const { return active_tasks_.empty(); }
 
   std::optional<stream_id_t> serverStreamId() {
