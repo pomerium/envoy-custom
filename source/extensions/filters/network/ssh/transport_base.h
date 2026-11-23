@@ -325,13 +325,14 @@ public:
     ASSERT(version_exchange_timer_ == nullptr);
     ASSERT(connectionDispatcher().has_value());
 
-    handshake_time_budget_ = getHandshakeTimeoutOrDefault();
+    auto timeoutOrDefault = getHandshakeTimeoutOrDefault();
+    handshake_time_budget_ = timeoutOrDefault;
     handshake_start_time_ = connectionDispatcher()->approximateMonotonicTime();
     version_exchange_timer_ = connectionDispatcher()->createTimer([this] {
       terminate(absl::DeadlineExceededError("version exchange timed out"));
     });
 
-    if (handshake_time_budget_ > 0ms) {
+    if (timeoutOrDefault > 0ms) {
       ENVOY_LOG(trace, "ssh [{}]: handshake timer starting (duration: {})",
                 codec_traits<Codec>::name, handshake_time_budget_);
       version_exchange_timer_->enableTimer(handshake_time_budget_);
@@ -367,10 +368,11 @@ public:
     kex_timer_ = connectionDispatcher()->createTimer([this] {
       terminate(absl::DeadlineExceededError("key exchange timed out"));
     });
-    auto duration = initial_key_exchange_done_
-                      ? getHandshakeTimeoutOrDefault()
-                      : handshake_time_budget_;
-    if (duration > 0ms) {
+    auto timeoutOrDefault = getHandshakeTimeoutOrDefault();
+    if (timeoutOrDefault > 0ms) {
+      auto duration = initial_key_exchange_done_
+                        ? timeoutOrDefault
+                        : handshake_time_budget_;
       ENVOY_LOG(trace, "ssh [{}]: kex timer starting (duration: {})", codec_traits<Codec>::name, duration);
       kex_timer_->enableTimer(duration);
     } else {
