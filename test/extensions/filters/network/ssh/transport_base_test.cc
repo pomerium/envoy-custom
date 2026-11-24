@@ -173,6 +173,7 @@ public:
   size_t InitiateVersionExchange() {
     started_.wait();
     RELEASE_ASSERT(dispatcher_->isThreadSafe(), "test bug: not thread-safe");
+    this->startHandshakeTimer();
     return this->version_exchanger_->writeVersion(this->server_version_);
   }
 

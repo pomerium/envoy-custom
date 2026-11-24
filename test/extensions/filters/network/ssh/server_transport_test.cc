@@ -2476,6 +2476,7 @@ public:
   struct VersionExchangeMockFunctions {
     std::unique_ptr<MockEventFn> before_client_version_sent = std::make_unique<MockEventFn>();
     std::unique_ptr<MockEventFn> on_partial_client_version_sent = std::make_unique<MockEventFn>();
+    std::unique_ptr<MockEventFn> before_client_version_complete = std::make_unique<MockEventFn>();
   };
 
   struct KeyExchangeMockFunctions {
@@ -2502,16 +2503,15 @@ public:
     opts.setup(mocks);
 
     auto timedOut = std::make_shared<bool>(false);
-
+    auto expectedTimeoutMsg = std::make_shared<std::string>("version exchange timed out"s);
     ON_CALL(server_codec_callbacks_, onDecodingFailure)
-      .WillByDefault([timedOut](std::string_view msg) {
-        EXPECT_EQ("version exchange timed out"s, msg);
+      .WillByDefault([timedOut, expectedTimeoutMsg](std::string_view msg) {
+        EXPECT_EQ(*expectedTimeoutMsg, msg);
         *timedOut = true;
       });
 
     RunEventLoopNonBlock();
     mocks.before_client_version_sent->Call("before_client_version_sent");
-    RunEventLoopNonBlock();
     if (*timedOut) {
       EXPECT_TRUE(opts.expect_timeout) << "version exchange timed out unexpectedly";
       return;
@@ -2522,7 +2522,12 @@ public:
 
     RunEventLoopNonBlock();
     mocks.on_partial_client_version_sent->Call("on_partial_client_version_sent");
-    RunEventLoopNonBlock();
+    if (*timedOut) {
+      EXPECT_TRUE(opts.expect_timeout) << "version exchange timed out unexpectedly";
+      return;
+    }
+
+    mocks.before_client_version_complete->Call("before_client_version_complete");
     if (*timedOut) {
       EXPECT_TRUE(opts.expect_timeout) << "version exchange timed out unexpectedly";
       return;
@@ -2530,7 +2535,18 @@ public:
 
     input_buffer_.add("\r\n");
     transport_.decode(input_buffer_, false);
+    // On the previous call to decode, version exchange completes and key exchange starts, so a
+    // future timeout message would now say that key exchange timed out. As an implementation
+    // detail, if the version exchange times out with 0ms remaining it is considered valid, but the
+    // key exchange that follows will start with a 0ms timeout which will fire on the next event
+    // loop cycle.
+    *expectedTimeoutMsg = "key exchange timed out";
+
     RunEventLoopNonBlock();
+    if (*timedOut) {
+      EXPECT_TRUE(opts.expect_timeout) << "version exchange timed out unexpectedly";
+      return;
+    }
     output_buffer_.drain(15);
     RunEventLoopNonBlock();
 
@@ -2580,7 +2596,6 @@ public:
 
     RunEventLoopNonBlock();
     mocks.before_client_kex_init->Call("before_client_kex_init");
-    RunEventLoopNonBlock();
     if (*timedOut) {
       EXPECT_TRUE(opts.expect_timeout != NoTimeout) << "key exchange timed out unexpectedly";
       return;
@@ -2614,7 +2629,6 @@ public:
 
     RunEventLoopNonBlock();
     mocks.before_client_kex_alg_init->Call("before_client_kex_alg_init");
-    RunEventLoopNonBlock();
     if (*timedOut) {
       EXPECT_TRUE(opts.expect_timeout != NoTimeout) << "key exchange timed out unexpectedly";
       return;
@@ -2636,7 +2650,6 @@ public:
     RunEventLoopNonBlock();
 
     mocks.before_client_new_keys->Call("before_client_new_keys");
-    RunEventLoopNonBlock();
     if (*timedOut) {
       EXPECT_TRUE(opts.expect_timeout != NoTimeout) << "key exchange timed out unexpectedly";
       return;
@@ -2697,6 +2710,46 @@ TEST_F(HandshakeTimeoutTest, TestTimeoutBeforeVersionExchangeCompleted) {
   });
 }
 
+TEST_F(HandshakeTimeoutTest, TestExactTimeoutOnVersionExchangeCompleted) {
+  initialize();
+
+  // Test the version exchange completing during the exact event loop cycle in which it times out
+  Handshake({
+    .expect_timeout = true,
+    .setup = [this](MockFunctions& mocks) {
+      EXPECT_CALL(*mocks.before_client_version_sent, Call);
+      EXPECT_CALL(*mocks.on_partial_client_version_sent, Call)
+        .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout - 1s)));
+      EXPECT_CALL(*mocks.before_client_version_complete, Call)
+        .WillOnce(InvokeWithoutArgs([&] {
+          // advance time but dont run the event loop, otherwise the timeout will fire
+          time_system_.advanceTimeAsyncImpl(1s);
+          dispatcher_->updateApproximateMonotonicTime();
+        }));
+    },
+  });
+}
+TEST_F(HandshakeTimeoutTest, TestTimeoutOnVersionExchangeCompleted) {
+  initialize();
+
+  // Test the version exchange completing during the exact event loop cycle in which it times out,
+  // but the elapsed duration is slightly longer than the timeout
+  Handshake({
+    .expect_timeout = true,
+    .setup = [this](MockFunctions& mocks) {
+      EXPECT_CALL(*mocks.before_client_version_sent, Call);
+      EXPECT_CALL(*mocks.on_partial_client_version_sent, Call)
+        .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout - 1s)));
+      EXPECT_CALL(*mocks.before_client_version_complete, Call)
+        .WillOnce(InvokeWithoutArgs([&] {
+          // advance time but dont run the event loop, otherwise the timeout will fire
+          time_system_.advanceTimeAsyncImpl(1001ms);
+          dispatcher_->updateApproximateMonotonicTime();
+        }));
+    },
+  });
+}
+
 TEST_F(HandshakeTimeoutTest, TestTimeoutBeforeClientKexInit) {
   initialize();
 
@@ -2705,6 +2758,7 @@ TEST_F(HandshakeTimeoutTest, TestTimeoutBeforeClientKexInit) {
     .setup = [this](MockFunctions& mocks) {
       EXPECT_CALL(*mocks.before_client_version_sent, Call);
       EXPECT_CALL(*mocks.on_partial_client_version_sent, Call);
+      EXPECT_CALL(*mocks.before_client_version_complete, Call);
       EXPECT_CALL(*mocks.before_client_kex_init, Call)
         .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout + 1s)));
     },
@@ -2719,6 +2773,7 @@ TEST_F(HandshakeTimeoutTest, TestTimeoutBeforeClientKexAlgInit) {
     .setup = [this](MockFunctions& mocks) {
       EXPECT_CALL(*mocks.before_client_version_sent, Call);
       EXPECT_CALL(*mocks.on_partial_client_version_sent, Call);
+      EXPECT_CALL(*mocks.before_client_version_complete, Call);
       EXPECT_CALL(*mocks.before_client_kex_init, Call);
       EXPECT_CALL(*mocks.before_client_kex_alg_init, Call)
         .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout + 1s)));
@@ -2734,6 +2789,7 @@ TEST_F(HandshakeTimeoutTest, TestTimeoutBeforeClientNewKeys) {
     .setup = [this](MockFunctions& mocks) {
       EXPECT_CALL(*mocks.before_client_version_sent, Call);
       EXPECT_CALL(*mocks.on_partial_client_version_sent, Call);
+      EXPECT_CALL(*mocks.before_client_version_complete, Call);
       EXPECT_CALL(*mocks.before_client_kex_init, Call);
       EXPECT_CALL(*mocks.before_client_kex_alg_init, Call);
       EXPECT_CALL(*mocks.before_client_new_keys, Call)
@@ -2751,6 +2807,7 @@ TEST_F(HandshakeTimeoutTest, TestKexCompleteBeforeTimeout) {
     .setup = [](MockFunctions& mocks) {
       EXPECT_CALL(*mocks.before_client_version_sent, Call);
       EXPECT_CALL(*mocks.on_partial_client_version_sent, Call);
+      EXPECT_CALL(*mocks.before_client_version_complete, Call);
       EXPECT_CALL(*mocks.before_client_kex_init, Call);
       EXPECT_CALL(*mocks.before_client_kex_alg_init, Call);
       EXPECT_CALL(*mocks.before_client_new_keys, Call);
@@ -2775,6 +2832,7 @@ TEST_F(HandshakeTimeoutTest, TestSingleDurationForInitialVersionAndKeyExchange) 
         .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout * 3 / 10)));
       EXPECT_CALL(*mocks.on_partial_client_version_sent, Call)
         .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout * 3 / 10)));
+      EXPECT_CALL(*mocks.before_client_version_complete, Call);
       EXPECT_CALL(*mocks.before_client_kex_init, Call)
         .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout * 3 / 10)));
       EXPECT_CALL(*mocks.before_client_kex_alg_init, Call)
@@ -2795,6 +2853,8 @@ TEST_F(HandshakeTimeoutTest, TestHandshakeTimeoutDisabled) {
         .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout + 1s)));
       EXPECT_CALL(*mocks.on_partial_client_version_sent, Call)
         .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout + 1s)));
+      EXPECT_CALL(*mocks.before_client_version_complete, Call)
+        .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout + 1s)));
       EXPECT_CALL(*mocks.before_client_kex_init, Call)
         .WillOnce(InvokeWithoutArgs(AdvanceTimeAction(DefaultHandshakeTimeout + 1s)));
       EXPECT_CALL(*mocks.before_client_kex_alg_init, Call)
@@ -2813,6 +2873,7 @@ TEST_F(HandshakeTimeoutTest, TestAuthTimer) {
     .setup = [](MockFunctions& mocks) {
       EXPECT_CALL(*mocks.before_client_version_sent, Call);
       EXPECT_CALL(*mocks.on_partial_client_version_sent, Call);
+      EXPECT_CALL(*mocks.before_client_version_complete, Call);
       EXPECT_CALL(*mocks.before_client_kex_init, Call);
       EXPECT_CALL(*mocks.before_client_kex_alg_init, Call);
       EXPECT_CALL(*mocks.before_client_new_keys, Call);
@@ -2840,6 +2901,7 @@ TEST_F(HandshakeTimeoutTest, TestKeyReExchangeBeforeAuthUsesAuthTimeout) {
     .setup = [](MockFunctions& mocks) {
       EXPECT_CALL(*mocks.before_client_version_sent, Call);
       EXPECT_CALL(*mocks.on_partial_client_version_sent, Call);
+      EXPECT_CALL(*mocks.before_client_version_complete, Call);
       EXPECT_CALL(*mocks.before_client_kex_init, Call);
       EXPECT_CALL(*mocks.before_client_kex_alg_init, Call);
       EXPECT_CALL(*mocks.before_client_new_keys, Call);
@@ -2889,6 +2951,7 @@ TEST_F(HandshakeTimeoutTest, TestKeyReExchangeTimeout) {
     .setup = [this](MockFunctions& mocks) {
       EXPECT_CALL(*mocks.before_client_version_sent, Call);
       EXPECT_CALL(*mocks.on_partial_client_version_sent, Call);
+      EXPECT_CALL(*mocks.before_client_version_complete, Call);
       EXPECT_CALL(*mocks.before_client_kex_init, Call);
       EXPECT_CALL(*mocks.before_client_kex_alg_init, Call);
       EXPECT_CALL(*mocks.before_client_new_keys, Call)
@@ -2932,6 +2995,7 @@ TEST_F(HandshakeTimeoutTest, TestKeyReExchangeTimeout_BeforeKexAlgInit) {
     .setup = [](MockFunctions& mocks) {
       EXPECT_CALL(*mocks.before_client_version_sent, Call);
       EXPECT_CALL(*mocks.on_partial_client_version_sent, Call);
+      EXPECT_CALL(*mocks.before_client_version_complete, Call);
       EXPECT_CALL(*mocks.before_client_kex_init, Call);
       EXPECT_CALL(*mocks.before_client_kex_alg_init, Call);
       EXPECT_CALL(*mocks.before_client_new_keys, Call);
@@ -2965,6 +3029,7 @@ public:
       .setup = [](MockFunctions& mocks) {
         EXPECT_CALL(*mocks.before_client_version_sent, Call);
         EXPECT_CALL(*mocks.on_partial_client_version_sent, Call);
+        EXPECT_CALL(*mocks.before_client_version_complete, Call);
         EXPECT_CALL(*mocks.before_client_kex_init, Call);
         EXPECT_CALL(*mocks.before_client_kex_alg_init, Call);
         EXPECT_CALL(*mocks.before_client_new_keys, Call);

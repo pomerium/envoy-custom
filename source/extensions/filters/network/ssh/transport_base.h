@@ -220,6 +220,7 @@ public:
         }
 
         if (!version_exchanger_->versionWritten()) {
+          ASSERT(handshake_start_time_.has_value());
           version_exchanger_->writeVersion(server_version_);
         }
         version_exchange_done_ = true;
@@ -325,13 +326,14 @@ public:
     ASSERT(version_exchange_timer_ == nullptr);
     ASSERT(connectionDispatcher().has_value());
 
-    handshake_time_budget_ = getHandshakeTimeoutOrDefault();
+    auto timeoutOrDefault = getHandshakeTimeoutOrDefault();
+    handshake_time_budget_ = timeoutOrDefault;
     handshake_start_time_ = connectionDispatcher()->approximateMonotonicTime();
     version_exchange_timer_ = connectionDispatcher()->createTimer([this] {
       terminate(absl::DeadlineExceededError("version exchange timed out"));
     });
 
-    if (handshake_time_budget_ > 0ms) {
+    if (timeoutOrDefault > 0ms) {
       ENVOY_LOG(trace, "ssh [{}]: handshake timer starting (duration: {})",
                 codec_traits<Codec>::name, handshake_time_budget_);
       version_exchange_timer_->enableTimer(handshake_time_budget_);
@@ -341,12 +343,12 @@ public:
   }
 
   void onVersionExchangeCompleted(const bytes& server_version, const bytes& client_version, const bytes&) override {
+    ASSERT(handshake_start_time_.has_value());
     // If the handshake timer is running, stop it and record how much time is left
     auto elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>(
-      connectionDispatcher()->approximateMonotonicTime() - handshake_start_time_);
-    if (version_exchange_timer_ != nullptr) {
-      version_exchange_timer_->disableTimer();
-    }
+      connectionDispatcher()->approximateMonotonicTime() - *handshake_start_time_);
+    ASSERT(version_exchange_timer_ != nullptr);
+    version_exchange_timer_->disableTimer();
     handshake_time_budget_ = std::max(0ms, std::chrono::duration_cast<std::chrono::milliseconds>(
                                              handshake_time_budget_ - elapsedTime));
 
@@ -367,10 +369,11 @@ public:
     kex_timer_ = connectionDispatcher()->createTimer([this] {
       terminate(absl::DeadlineExceededError("key exchange timed out"));
     });
-    auto duration = initial_key_exchange_done_
-                      ? getHandshakeTimeoutOrDefault()
-                      : handshake_time_budget_;
-    if (duration > 0ms) {
+    auto timeoutOrDefault = getHandshakeTimeoutOrDefault();
+    if (timeoutOrDefault > 0ms) {
+      auto duration = initial_key_exchange_done_
+                        ? timeoutOrDefault
+                        : handshake_time_budget_;
       ENVOY_LOG(trace, "ssh [{}]: kex timer starting (duration: {})", codec_traits<Codec>::name, duration);
       kex_timer_->enableTimer(duration);
     } else {
@@ -523,7 +526,7 @@ private:
 
   Envoy::Event::TimerPtr version_exchange_timer_;
   Envoy::Event::TimerPtr kex_timer_;
-  MonotonicTime handshake_start_time_;
+  std::optional<MonotonicTime> handshake_start_time_;
   std::chrono::milliseconds handshake_time_budget_{};
 
   void enqueueMessage(wire::Message&& msg) {

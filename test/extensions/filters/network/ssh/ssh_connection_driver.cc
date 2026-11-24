@@ -131,6 +131,7 @@ AssertionResult SshConnectionDriver::waitForKex() {
 void SshConnectionDriver::onEvent(Network::ConnectionEvent event) {
   if (event == Network::ConnectionEvent::Connected ||
       event == Network::ConnectionEvent::ConnectedZeroRtt) {
+    startHandshakeTimer();
     version_exchanger_->writeVersion(server_version_);
     return;
   }
@@ -232,7 +233,7 @@ AssertionResult SshConnectionDriver::waitForUserAuth(std::string username, std::
   waitForManagementRequest(clientMsg);
   EXPECT_EQ("publickey", clientMsg.auth_request().auth_method());
 
-  if (hostname == "") {
+  if (hostname.empty()) {
     pomerium::extensions::ssh::FilterMetadata filterMetadata;
     filterMetadata.set_stream_id(streamId());
     // Only the stream id is set here, not channel id.
