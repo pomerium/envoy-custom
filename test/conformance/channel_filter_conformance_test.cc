@@ -176,7 +176,7 @@ private:
 
 class ChannelFilterConformanceTest : public testing::Test,
                                      public SshIntegrationTest,
-                                     public ChannelFilterConformanceTestConfig {
+                                     public ::test::ChannelFilterConformanceTestConfig {
 public:
   ChannelFilterConformanceTest(std::unordered_set<SyncPoint> enabled_sync_points, size_t concurrency, bool sync_once)
       : SshIntegrationTest({"upstream1"}, Envoy::Network::Address::IpVersion::v4),
@@ -208,7 +208,7 @@ public:
         ASSERT_TRUE(genericProxyConfig.codec_config().typed_config().UnpackTo(&sshCodecConfig));
 
         auto* factoryConfig = sshCodecConfig.add_enabled_channel_filter_factories();
-        factoryConfig->set_name(channel_filter_name);
+        factoryConfig->set_name(channelFilterName());
 
         auto factoryConfigMsg = newChannelFilterFactoryConfig();
         ASSERT_TRUE(factoryConfigMsg != nullptr);
@@ -221,20 +221,26 @@ public:
       }
     });
 
+    config_helper_.addConfigModifier([this](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+      addConfigModifier(bootstrap);
+    });
+
     SshIntegrationTest::initialize();
 
     auto status = FetchAdminApiStatus();
     ASSERT_OK(status);
-    ASSERT_TRUE(CheckExtensionLoaded(*status, extension_id));
+    ASSERT_TRUE(CheckExtensionLoaded(*status, extensionId()));
 
-    auto original = Registry::FactoryRegistry<ChannelFilterFactoryConfig>::getFactory(channel_filter_name);
+    auto original = Registry::FactoryRegistry<ChannelFilterFactoryConfig>::getFactory(channelFilterName());
     ASSERT(original != nullptr);
     shim_ = std::make_unique<ShimChannelFilterFactoryConfig>(original, thread_synchronizer_);
     inject_ = std::make_unique<Registry::InjectFactory<ChannelFilterFactoryConfig>>(*shim_);
+
+    onTestInitialize(*this);
   }
 
   void ConfigureExtensionLoader() {
-    auto path = Envoy::TestEnvironment::runfilesPath(extension_path, workspace_name);
+    auto path = Envoy::TestEnvironment::runfilesPath(extensionPath(), workspaceName());
     config_helper_.addConfigModifier([=, this](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
       if (!bootstrap.bootstrap_extensions().empty()) {
         PANIC("test bug: ConfigureExtensionLoader called twice");
@@ -245,7 +251,7 @@ public:
       config.add_paths(path);
       auto filterExtConfig = newExtensionConfig();
       if (filterExtConfig != nullptr) {
-        ASSERT_TRUE((*config.mutable_extension_configs())[extension_id].PackFrom(*filterExtConfig));
+        ASSERT_TRUE((*config.mutable_extension_configs())[extensionId()].PackFrom(*filterExtConfig));
       }
       ASSERT_TRUE(ext->mutable_typed_config()->PackFrom(config));
     });
@@ -279,7 +285,7 @@ public:
     return driver->waitForUserAuth("user", "upstream1", [this](pomerium::extensions::ssh::AllowResponse& allow) {
       ASSERT_TRUE(allow.has_upstream()); // sanity check
       auto* filterConfig = allow.mutable_upstream()->add_channel_filters();
-      filterConfig->set_name(channel_filter_name);
+      filterConfig->set_name(channelFilterName());
       auto channelFilterConfig = newChannelFilterConfig();
       ASSERT_TRUE(filterConfig->mutable_typed_config()->PackFrom(*channelFilterConfig));
     });
@@ -366,6 +372,11 @@ public:
                                       CreateWriteFilter},
                                      std::get<NumClients>(GetParam()), true) {
     concurrency_ = num_clients_;
+  }
+
+  void TearDown() override {
+    onTestCleanup();
+    cleanup();
   }
 
   NumClients num_clients_ = std::get<NumClients>(GetParam());

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "test/extensions/filters/network/ssh/ssh_connection_driver.h"
-#include "test/extensions/filters/network/ssh/ssh_upstream.h"
+#include "test/extensions/filters/network/ssh/ssh_integration_common.h"
 #include "test/integration/http_integration.h"
 #include "gtest/gtest.h"
 
@@ -122,10 +122,14 @@ public:
   testing::AssertionResult listenForSshConnection(std::shared_ptr<SshFakeUpstreamHandlerOpts> opts,
                                                   Server::Configuration::ServerFactoryContext& ctx) override;
 
+  [[nodiscard]]
+  testing::AssertionResult listenForHttpConnection(std::shared_ptr<HttpFakeUpstreamHandlerOpts> opts,
+                                                   Server::Configuration::ServerFactoryContext& ctx) override;
+
   void cleanup(absl::Duration timeout) override;
 
   struct FakeUpstreamConnectionListenCtx {
-    FakeUpstreamConnectionListenCtx(FakeUpstream& fake_upstream, std::unique_ptr<SshFakeUpstreamHandler> handler);
+    FakeUpstreamConnectionListenCtx(FakeUpstream& fake_upstream, std::unique_ptr<FakeUpstreamHandlerCallbacks> handler);
 
     void startTimer();
     void cleanup();
@@ -135,7 +139,7 @@ public:
 
     FakeUpstream& fake_upstream_;
     Envoy::Event::TimerPtr timer_;
-    std::unique_ptr<SshFakeUpstreamHandler> handler_;
+    std::unique_ptr<FakeUpstreamHandlerCallbacks> handler_;
   };
 
 private:
@@ -147,6 +151,7 @@ private:
 using FakeUpstreamShimImplPtr = std::unique_ptr<FakeUpstreamShimImpl>;
 
 class SshIntegrationTest : public SecretsProviderImpl,
+                           public SshIntegrationTestApi,
                            public HttpIntegrationTest {
   // Implementation note:
   // SecretsProviderImpl has to be a separate base class, initialized before HttpIntegrationTest,
@@ -174,7 +179,8 @@ protected:
   std::shared_ptr<SshConnectionDriver> makeSshConnectionDriver();
   IntegrationTcpClientPtr makeTcpConnectionWithServerName(uint32_t port, const std::string& server_name);
 
-  AssertionResult listenForSshConnection(SshFakeUpstreamHandlerOpts&& opts, size_t upstream_index = 0);
+  AssertionResult listenForSshConnection(SshFakeUpstreamHandlerOpts&& opts, size_t upstream_index = 0) override;
+  AssertionResult listenForHttpConnection(HttpFakeUpstreamHandlerOpts&& opts, FakeUpstreamShim& fake_upstream) override;
   void configureUpstreamTunnelCluster(envoy::config::cluster::v3::Cluster& cluster);
 
   struct ClusterLoadOpts {
@@ -192,6 +198,10 @@ protected:
     config.dispatcher_name_ = name;
     fake_upstreams_.emplace_back(std::make_unique<FakeUpstream>(0, version_, config));
     return *fake_upstreams_.back();
+  }
+
+  std::unique_ptr<FakeUpstreamShim> newFakeUpstream(Http::CodecType type, const std::string& name) override {
+    return std::make_unique<FakeUpstreamShimImpl>(&addFakeUpstream(type, name));
   }
 
   int mgmtClusterIndex() const { return 0; }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "envoy/network/filter.h"
 #include "source/extensions/filters/network/ssh/channel_filter_config.h"
 #include "source/extensions/filters/network/ssh/service_connection.h"
 #include "source/extensions/filters/network/ssh/service_userauth.h"
@@ -103,7 +104,7 @@ public:
 };
 
 class SshFakeUpstreamHandler : public SecretsProviderImpl,
-                               public FakeSshUpstreamCallbacks,
+                               public FakeUpstreamHandlerCallbacks,
                                public FakeSshUpstreamHandlerApi,
                                public Envoy::Network::ConnectionCallbacks,
                                public Envoy::Event::DispatcherThreadDeletable,
@@ -273,6 +274,73 @@ private:
   Envoy::OptRef<Envoy::Event::Dispatcher> dispatcher_;
   std::unique_ptr<FakeUpstreamUserAuthService> user_auth_service_;
   std::unique_ptr<FakeUpstreamConnectionService> connection_service_;
+};
+
+class HttpFakeUpstreamHandler : public FakeUpstreamHandlerCallbacks,
+                                public FakeUpstreamHandlerApi,
+                                public Envoy::Network::ConnectionCallbacks,
+                                public Envoy::Event::DispatcherThreadDeletable {
+public:
+  HttpFakeUpstreamHandler(Server::Configuration::ServerFactoryContext& context,
+                          std::shared_ptr<HttpFakeUpstreamHandlerOpts> opts)
+      : context_(context),
+        opts_(opts) {
+    (void)context_;
+  }
+  ~HttpFakeUpstreamHandler() {
+    if (close_callback_ != nullptr && close_callback_->enabled()) {
+      close_callback_->cancel();
+      close_callback_ = nullptr;
+    }
+  }
+
+  void closeConnection(Network::ConnectionCloseType type) override {
+    connection_close_type_ = type;
+    close_callback_->scheduleCallbackNextIteration();
+  }
+
+  void onNewConnection(Network::Connection& connection) override {
+    connection_ = makeOptRef(connection);
+    connection_->addConnectionCallbacks(*this);
+    dispatcher_ = makeOptRef(connection.dispatcher());
+    if (auto filter = opts_->add_read_filter(); filter != nullptr) {
+      read_filter_ = filter;
+      connection.addReadFilter(read_filter_);
+    }
+    close_callback_ = connection_->dispatcher().createSchedulableCallback([this] {
+      connection_->close(connection_close_type_);
+    });
+
+    if (opts_->set_upstream_api) {
+      opts_->set_upstream_api(*this);
+    }
+  }
+
+  void onEvent(Envoy::Network::ConnectionEvent event) override {
+    if (event == Envoy::Network::ConnectionEvent::LocalClose ||
+        event == Envoy::Network::ConnectionEvent::RemoteClose) {
+      if (close_callback_ != nullptr && close_callback_->enabled()) {
+        close_callback_->cancel();
+        close_callback_ = nullptr;
+      }
+      if (read_filter_ != nullptr) {
+        connection_->removeReadFilter(read_filter_);
+      }
+      // IMPORTANT: do not reset the dispatcher. It is needed during cleanup
+    }
+  }
+
+  void onAboveWriteBufferHighWatermark() override {}
+  void onBelowWriteBufferLowWatermark() override {}
+
+private:
+  Server::Configuration::ServerFactoryContext& context_;
+  std::shared_ptr<HttpFakeUpstreamHandlerOpts> opts_;
+  Envoy::Event::SchedulableCallbackPtr close_callback_;
+  Network::ConnectionCloseType connection_close_type_{};
+  std::shared_ptr<Envoy::Network::ReadFilter> read_filter_;
+  Envoy::OptRef<Network::Connection> connection_;
+  Envoy::OptRef<Envoy::Event::Dispatcher> dispatcher_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

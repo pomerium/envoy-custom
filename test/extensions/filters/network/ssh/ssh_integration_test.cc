@@ -106,6 +106,11 @@ AssertionResult SshIntegrationTest::listenForSshConnection(SshFakeUpstreamHandle
     std::make_shared<SshFakeUpstreamHandlerOpts>(std::move(opts)), server_factory_context_);
 }
 
+AssertionResult SshIntegrationTest::listenForHttpConnection(HttpFakeUpstreamHandlerOpts&& opts, FakeUpstreamShim& fake_upstream) {
+  return fake_upstream.listenForHttpConnection(
+    std::make_shared<HttpFakeUpstreamHandlerOpts>(std::move(opts)), server_factory_context_);
+}
+
 void SshIntegrationTest::configureUpstreamTunnelCluster(envoy::config::cluster::v3::Cluster& cluster) {
   cluster.clear_upstream_bind_config();
   cluster.clear_type();
@@ -187,7 +192,21 @@ AssertionResult FakeUpstreamShimImpl::listenForSshConnection(std::shared_ptr<Ssh
   });
 }
 
-FakeUpstreamShimImpl::FakeUpstreamConnectionListenCtx::FakeUpstreamConnectionListenCtx(FakeUpstream& fake_upstream, std::unique_ptr<SshFakeUpstreamHandler> handler)
+AssertionResult FakeUpstreamShimImpl::listenForHttpConnection(std::shared_ptr<HttpFakeUpstreamHandlerOpts> opts,
+                                                              Server::Configuration::ServerFactoryContext& server_factory_context) {
+  return fake_upstream_->runOnDispatcherThreadAndWait([this, opts, ctx = &server_factory_context] {
+    auto listener = std::make_unique<FakeUpstreamConnectionListenCtx>(
+      *fake_upstream_, std::make_unique<HttpFakeUpstreamHandler>(*ctx, opts));
+    listeners_mu_.lock();
+    listeners_.push_back(std::move(listener));
+    listeners_.back()->startTimer();
+    listeners_mu_.unlock();
+
+    return testing::AssertionSuccess();
+  });
+}
+
+FakeUpstreamShimImpl::FakeUpstreamConnectionListenCtx::FakeUpstreamConnectionListenCtx(FakeUpstream& fake_upstream, std::unique_ptr<FakeUpstreamHandlerCallbacks> handler)
     : fake_upstream_(fake_upstream) {
   ASSERT(fake_upstream_.dispatcher()->isThreadSafe());
   timer_ = fake_upstream_.dispatcher()->createTimer([this] {

@@ -41,6 +41,7 @@ envoy_cc_test_library(
 envoy_cc_test_library(
     name = "ssh_test_common_lib",
     srcs = [
+        "ssh_integration_common.h",
         "test_util.h",
     ],
     repository = "@envoy",
@@ -448,7 +449,6 @@ envoy_cc_test_library(
     ],
     hdrs = [
         "ssh_connection_driver.h",
-        "ssh_integration_common.h",
         "ssh_integration_test.h",
         "ssh_task.h",
         "ssh_upstream.h",

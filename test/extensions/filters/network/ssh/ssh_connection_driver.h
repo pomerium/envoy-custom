@@ -45,50 +45,6 @@ struct codec_traits<SshConnectionDriverCodec> {
 
 namespace test {
 
-// These shims allow us to skip including fake_upstream.h in this file, since it is massive
-// and adds like 90 seconds to the compile time of any TU that includes it. Modifications to
-// just the connection driver should be much quicker to build.
-
-class FakeStreamShim {
-public:
-  virtual ~FakeStreamShim() = default;
-  virtual void startGrpcStream() PURE;
-  virtual testing::AssertionResult
-  waitForGrpcMessage(Envoy::Event::Dispatcher& client_dispatcher, Protobuf::Message& message,
-                     std::chrono::milliseconds timeout) PURE;
-
-  virtual void sendGrpcMessage(const Protobuf::Message& message) PURE;
-};
-
-class FakeHttpConnectionShim {
-public:
-  virtual ~FakeHttpConnectionShim() = default;
-  [[nodiscard]]
-  virtual testing::AssertionResult waitForNewStream(
-    Envoy::Event::Dispatcher& client_dispatcher, std::unique_ptr<FakeStreamShim>& stream,
-    std::chrono::milliseconds timeout) PURE;
-  [[nodiscard]]
-  virtual testing::AssertionResult close(Network::ConnectionCloseType close_type, std::chrono::milliseconds timeout) PURE;
-  [[nodiscard]]
-  virtual testing::AssertionResult waitForDisconnect(std::chrono::milliseconds timeout) PURE;
-};
-
-class FakeUpstreamShim {
-public:
-  virtual ~FakeUpstreamShim() = default;
-
-  [[nodiscard]]
-  virtual testing::AssertionResult waitForHttpConnection(Envoy::Event::Dispatcher& client_dispatcher,
-                                                         std::unique_ptr<FakeHttpConnectionShim>& connection,
-                                                         std::chrono::milliseconds timeout) PURE;
-
-  [[nodiscard]]
-  virtual testing::AssertionResult listenForSshConnection(std::shared_ptr<SshFakeUpstreamHandlerOpts> opts,
-                                                          Server::Configuration::ServerFactoryContext& ctx) PURE;
-
-  virtual void cleanup(absl::Duration timeout) PURE;
-};
-
 class SshConnectionDriver : public Envoy::Network::ReadFilter,
                             public Network::ConnectionCallbacks,
                             public SecretsProviderImpl,

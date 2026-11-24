@@ -10,6 +10,7 @@ cc_library(
     hdrs = ["channel_filter_conformance_test_config.h"],
     visibility = ["//visibility:public"],
     deps = [
+        "//test/extensions/filters/network/ssh:ssh_test_common_lib",
         "@envoy//source/common/protobuf",
     ],
 )
