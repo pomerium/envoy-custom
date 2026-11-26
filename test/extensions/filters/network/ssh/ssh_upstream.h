@@ -276,18 +276,22 @@ private:
   std::unique_ptr<FakeUpstreamConnectionService> connection_service_;
 };
 
-class HttpFakeUpstreamHandler : public FakeUpstreamHandlerCallbacks,
+class GrpcFakeUpstreamHandler : public FakeUpstreamHandlerCallbacks,
                                 public FakeUpstreamHandlerApi,
                                 public Envoy::Network::ConnectionCallbacks,
+                                public Envoy::Http::ServerConnectionCallbacks,
                                 public Envoy::Event::DispatcherThreadDeletable {
 public:
-  HttpFakeUpstreamHandler(Server::Configuration::ServerFactoryContext& context,
-                          std::shared_ptr<HttpFakeUpstreamHandlerOpts> opts)
+  GrpcFakeUpstreamHandler(Server::Configuration::ServerFactoryContext& context,
+                          std::shared_ptr<UntypedGrpcFakeUpstreamHandlerOpts> opts,
+                          FakeUpstreamShim& fake_upstream)
       : context_(context),
-        opts_(opts) {
+        opts_(opts),
+        fake_upstream_(fake_upstream) {
+
     (void)context_;
   }
-  ~HttpFakeUpstreamHandler() {
+  ~GrpcFakeUpstreamHandler() {
     if (close_callback_ != nullptr && close_callback_->enabled()) {
       close_callback_->cancel();
       close_callback_ = nullptr;
@@ -299,22 +303,7 @@ public:
     close_callback_->scheduleCallbackNextIteration();
   }
 
-  void onNewConnection(Network::Connection& connection) override {
-    connection_ = makeOptRef(connection);
-    connection_->addConnectionCallbacks(*this);
-    dispatcher_ = makeOptRef(connection.dispatcher());
-    if (auto filter = opts_->add_read_filter(); filter != nullptr) {
-      read_filter_ = filter;
-      connection.addReadFilter(read_filter_);
-    }
-    close_callback_ = connection_->dispatcher().createSchedulableCallback([this] {
-      connection_->close(connection_close_type_);
-    });
-
-    if (opts_->set_upstream_api) {
-      opts_->set_upstream_api(*this);
-    }
-  }
+  void onNewConnection(Network::Connection& connection) override;
 
   void onEvent(Envoy::Network::ConnectionEvent event) override {
     if (event == Envoy::Network::ConnectionEvent::LocalClose ||
@@ -323,9 +312,6 @@ public:
         close_callback_->cancel();
         close_callback_ = nullptr;
       }
-      if (read_filter_ != nullptr) {
-        connection_->removeReadFilter(read_filter_);
-      }
       // IMPORTANT: do not reset the dispatcher. It is needed during cleanup
     }
   }
@@ -333,14 +319,24 @@ public:
   void onAboveWriteBufferHighWatermark() override {}
   void onBelowWriteBufferLowWatermark() override {}
 
+  // ServerConnectionCallbacks
+  Http::RequestDecoder& newStream(Http::ResponseEncoder& response_encoder, bool is_internally_created = false) override;
+
+  void onGoAway(Http::GoAwayErrorCode error_code) override {
+    (void)error_code;
+  }
+
 private:
   Server::Configuration::ServerFactoryContext& context_;
-  std::shared_ptr<HttpFakeUpstreamHandlerOpts> opts_;
+  std::shared_ptr<UntypedGrpcFakeUpstreamHandlerOpts> opts_;
+  FakeUpstreamShim& fake_upstream_;
   Envoy::Event::SchedulableCallbackPtr close_callback_;
   Network::ConnectionCloseType connection_close_type_{};
-  std::shared_ptr<Envoy::Network::ReadFilter> read_filter_;
+  Envoy::Random::RandomGeneratorImpl random_;
   Envoy::OptRef<Network::Connection> connection_;
   Envoy::OptRef<Envoy::Event::Dispatcher> dispatcher_;
+  Envoy::Http::ServerConnectionPtr codec_;
+  std::list<std::unique_ptr<UntypedFakeGrpcStream>> streams_;
 };
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

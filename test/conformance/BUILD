@@ -6,6 +6,7 @@ load("@rules_cc//cc:defs.bzl", "cc_library")
 
 cc_library(
     name = "channel_filter_conformance_test_config_lib",
+    testonly = True,
     srcs = [],
     hdrs = ["channel_filter_conformance_test_config.h"],
     visibility = ["//visibility:public"],

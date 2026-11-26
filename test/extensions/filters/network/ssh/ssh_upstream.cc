@@ -1,6 +1,11 @@
 #include "test/extensions/filters/network/ssh/ssh_upstream.h"
 #include "envoy/common/exception.h"
 #include "source/extensions/filters/network/ssh/id_manager.h"
+#include "test/extensions/filters/network/ssh/ssh_integration_common.h"
+#include "test/integration/utility.h"
+
+#include "source/common/http/http2/codec_impl.h"
+#include "test/test_common/test_random_generator.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 
@@ -160,6 +165,48 @@ absl::Status SshFakeUpstreamHandler::handleMessage(wire::Message&& msg) {
     [&](auto&) {
       return absl::InvalidArgumentError(fmt::format("received unexpected message type: {}", msg.msg_type()));
     });
+}
+
+// GrpcFakeUpstreamHandler
+
+void GrpcFakeUpstreamHandler::onNewConnection(Network::Connection& connection) {
+  connection_ = makeOptRef(connection);
+  connection_->addConnectionCallbacks(*this);
+  dispatcher_ = makeOptRef(connection.dispatcher());
+
+  // connection_cleanup_ = opts_->on_new_connection(connection);
+
+  close_callback_ = connection_->dispatcher().createSchedulableCallback([this] {
+    connection_->close(connection_close_type_);
+  });
+
+  if (opts_->set_upstream_api) {
+    opts_->set_upstream_api(*this);
+  }
+
+  codec_ = std::make_unique<Envoy::Http::Http2::ServerConnectionImpl>(
+    connection,
+    *this,
+    fake_upstream_.http2CodecStats(),
+    random_,
+    fake_upstream_.http2Options(),
+    Envoy::Http::DEFAULT_MAX_REQUEST_HEADERS_KB,         //
+    Envoy::Http::DEFAULT_MAX_HEADERS_COUNT,              // defaults
+    envoy::config::core::v3::HttpProtocolOptions::ALLOW, //
+    context_.overloadManager(),
+    context_.runtime());
+}
+
+Http::RequestDecoder& GrpcFakeUpstreamHandler::newStream(Http::ResponseEncoder& response_encoder, bool is_internally_created) {
+  ASSERT(dispatcher_->isThreadSafe());
+  (void)is_internally_created;
+  auto handler = std::make_unique<UntypedFakeGrpcStream>(response_encoder,
+                                                         opts_->handle_stream,
+                                                         [this](UntypedFakeGrpcStream* self) {
+                                                           self->removeFromList(streams_);
+                                                         });
+  LinkedList::moveIntoList(std::move(handler), streams_);
+  return *streams_.front();
 }
 
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec

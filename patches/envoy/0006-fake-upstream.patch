@@ -1,8 +1,8 @@
 diff --git a/test/integration/fake_upstream.cc b/test/integration/fake_upstream.cc
-index 559484e147..fc2d34f653 100644
+index 72ec3fec08..8bcf9271d2 100644
 --- a/test/integration/fake_upstream.cc
 +++ b/test/integration/fake_upstream.cc
-@@ -681,7 +681,8 @@ FakeUpstream::FakeUpstream(Network::DownstreamTransportSocketFactoryPtr&& transp
+@@ -682,7 +682,8 @@ FakeUpstream::FakeUpstream(Network::DownstreamTransportSocketFactoryPtr&& transp
        http3_options_(config.http3_options_), quic_options_(config.quic_options_),
        socket_(Network::SocketSharedPtr(listen_socket.release())),
        api_(Api::createApiForTest(stats_store_)), time_system_(config.time_system_),
@@ -12,19 +12,34 @@ index 559484e147..fc2d34f653 100644
        handler_(new Server::ConnectionHandlerImpl(*dispatcher_, 0)), config_(config),
        read_disable_on_new_connection_(true), enable_half_close_(config.enable_half_close_),
        listener_(*this, http_type_ == Http::CodecType::HTTP3),
+@@ -757,7 +758,12 @@ bool FakeUpstream::createNetworkFilterChain(Network::Connection& connection,
+   return true;
+ }
+ 
+-bool FakeUpstream::createListenerFilterChain(Network::ListenerFilterManager&) { return true; }
++bool FakeUpstream::createListenerFilterChain(Network::ListenerFilterManager& manager) {
++  if (config_.create_listener_filter_chain_) {
++    config_.create_listener_filter_chain_(manager);
++  }
++  return true;
++}
+ 
+ void FakeUpstream::createUdpListenerFilterChain(Network::UdpListenerFilterManager& udp_listener,
+                                                 Network::UdpReadFilterCallbacks& callbacks) {
 diff --git a/test/integration/fake_upstream.h b/test/integration/fake_upstream.h
-index 42799230cc..382c147ffe 100644
+index 277189bdfc..7cee02f087 100644
 --- a/test/integration/fake_upstream.h
 +++ b/test/integration/fake_upstream.h
-@@ -716,6 +716,7 @@ struct FakeUpstreamConfig {
+@@ -721,6 +721,8 @@ struct FakeUpstreamConfig {
    uint32_t max_request_headers_count_ = Http::DEFAULT_MAX_HEADERS_COUNT;
    envoy::config::core::v3::HttpProtocolOptions::HeadersWithUnderscoresAction
        headers_with_underscores_action_ = envoy::config::core::v3::HttpProtocolOptions::ALLOW;
 +  std::string dispatcher_name_;
++  std::function<void(Network::ListenerFilterManager&)> create_listener_filter_chain_;
  };
  
  /**
-@@ -765,6 +766,10 @@ public:
+@@ -770,6 +772,10 @@ public:
    ABSL_MUST_USE_RESULT
    testing::AssertionResult assertPendingConnectionsEmpty();
  
@@ -35,7 +50,7 @@ index 42799230cc..382c147ffe 100644
    ABSL_MUST_USE_RESULT
    testing::AssertionResult
    waitForRawConnection(FakeRawConnectionPtr& connection,
-@@ -844,9 +849,13 @@ public:
+@@ -850,9 +856,13 @@ public:
    const envoy::config::core::v3::Http3ProtocolOptions& http3Options() { return http3_options_; }
  
    Event::DispatcherPtr& dispatcher() { return dispatcher_; }
@@ -50,7 +65,7 @@ index 42799230cc..382c147ffe 100644
  
  protected:
    const FakeUpstreamConfig& config() const { return config_; }
-@@ -993,11 +1002,7 @@ private:
+@@ -1002,11 +1012,7 @@ private:
    };
  
    void threadRoutine();

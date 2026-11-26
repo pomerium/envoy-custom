@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package pomerium.integration.initial_metadata_reader;
+
+message Config {
+  bytes magic            = 1;
+  bytes expected_payload = 2;
+  bool  strict           = 3;
+}

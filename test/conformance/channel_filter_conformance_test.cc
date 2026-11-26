@@ -175,16 +175,25 @@ private:
 };
 
 class ChannelFilterConformanceTest : public testing::Test,
-                                     public SshIntegrationTest,
-                                     public ::test::ChannelFilterConformanceTestConfig {
+                                     public SshIntegrationTest {
 public:
   ChannelFilterConformanceTest(std::unordered_set<SyncPoint> enabled_sync_points, size_t concurrency, bool sync_once)
       : SshIntegrationTest({"upstream1"}, Envoy::Network::Address::IpVersion::v4),
+        config_(newChannelFilterConformanceTestConfig()),
         thread_synchronizer_(enabled_sync_points, concurrency, sync_once) {
   }
 
   ChannelFilterConformanceTest()
       : ChannelFilterConformanceTest({}, 0, false) {}
+
+  void addExtraClusters(envoy::config::bootstrap::v3::Bootstrap& bootstrap) override {
+    ConfigHelperShimImpl configHelperShim{config_helper_};
+    config_->addExtraClusters(bootstrap, configHelperShim, localhost());
+  }
+
+  void addExtraUpstreams() override {
+    config_->addExtraUpstreams(*this);
+  }
 
   void initialize() override {
     ConfigureExtensionLoader();
@@ -208,9 +217,9 @@ public:
         ASSERT_TRUE(genericProxyConfig.codec_config().typed_config().UnpackTo(&sshCodecConfig));
 
         auto* factoryConfig = sshCodecConfig.add_enabled_channel_filter_factories();
-        factoryConfig->set_name(channelFilterName());
+        factoryConfig->set_name(config_->channelFilterName());
 
-        auto factoryConfigMsg = newChannelFilterFactoryConfig();
+        auto factoryConfigMsg = config_->newChannelFilterFactoryConfig();
         ASSERT_TRUE(factoryConfigMsg != nullptr);
         ASSERT_TRUE(factoryConfig->mutable_typed_config()->PackFrom(*factoryConfigMsg));
 
@@ -221,26 +230,22 @@ public:
       }
     });
 
-    config_helper_.addConfigModifier([this](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
-      addConfigModifier(bootstrap);
-    });
-
     SshIntegrationTest::initialize();
 
     auto status = FetchAdminApiStatus();
     ASSERT_OK(status);
-    ASSERT_TRUE(CheckExtensionLoaded(*status, extensionId()));
+    ASSERT_TRUE(CheckExtensionLoaded(*status, config_->extensionId()));
 
-    auto original = Registry::FactoryRegistry<ChannelFilterFactoryConfig>::getFactory(channelFilterName());
+    auto original = Registry::FactoryRegistry<ChannelFilterFactoryConfig>::getFactory(config_->channelFilterName());
     ASSERT(original != nullptr);
     shim_ = std::make_unique<ShimChannelFilterFactoryConfig>(original, thread_synchronizer_);
     inject_ = std::make_unique<Registry::InjectFactory<ChannelFilterFactoryConfig>>(*shim_);
 
-    onTestInitialize(*this);
+    ASSERT_TRUE(config_->initialize(*this));
   }
 
   void ConfigureExtensionLoader() {
-    auto path = Envoy::TestEnvironment::runfilesPath(extensionPath(), workspaceName());
+    auto path = Envoy::TestEnvironment::runfilesPath(config_->extensionPath(), config_->workspaceName());
     config_helper_.addConfigModifier([=, this](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
       if (!bootstrap.bootstrap_extensions().empty()) {
         PANIC("test bug: ConfigureExtensionLoader called twice");
@@ -249,9 +254,9 @@ public:
       ext->set_name("envoy.bootstrap.dynamic_extension_loader");
       pomerium::extensions::dynamic_extension_loader::Config config;
       config.add_paths(path);
-      auto filterExtConfig = newExtensionConfig();
+      auto filterExtConfig = config_->newExtensionConfig();
       if (filterExtConfig != nullptr) {
-        ASSERT_TRUE((*config.mutable_extension_configs())[extensionId()].PackFrom(*filterExtConfig));
+        ASSERT_TRUE((*config.mutable_extension_configs())[config_->extensionId()].PackFrom(*filterExtConfig));
       }
       ASSERT_TRUE(ext->mutable_typed_config()->PackFrom(config));
     });
@@ -285,18 +290,15 @@ public:
     return driver->waitForUserAuth("user", "upstream1", [this](pomerium::extensions::ssh::AllowResponse& allow) {
       ASSERT_TRUE(allow.has_upstream()); // sanity check
       auto* filterConfig = allow.mutable_upstream()->add_channel_filters();
-      filterConfig->set_name(channelFilterName());
-      auto channelFilterConfig = newChannelFilterConfig();
+      filterConfig->set_name(config_->channelFilterName());
+      auto channelFilterConfig = config_->newChannelFilterConfig();
       ASSERT_TRUE(filterConfig->mutable_typed_config()->PackFrom(*channelFilterConfig));
     });
   }
   absl::StatusOr<std::shared_ptr<SshConnectionDriver>> StartDownstream() {
     auto driver = makeSshConnectionDriver();
     driver->connect();
-    if (auto r = !driver->waitForKex(); !r) {
-      return absl::InternalError(r.message());
-    }
-    if (auto r = !WaitForUserAuthWithFilter(driver); !r) {
+    if (auto r = driver->waitForKex(); !r) {
       return absl::InternalError(r.message());
     }
     return driver;
@@ -330,6 +332,7 @@ public:
     };
   }
 
+  std::unique_ptr<ChannelFilterConformanceTestConfig> config_;
   Synchronizer thread_synchronizer_;
   std::unique_ptr<ShimChannelFilterFactoryConfig> shim_;
   std::unique_ptr<Registry::InjectFactory<ChannelFilterFactoryConfig>> inject_;
@@ -367,15 +370,13 @@ class ChannelFilterConformanceTestNormalSession : public testing::WithParamInter
                                                   public ChannelFilterConformanceTest {
 public:
   ChannelFilterConformanceTestNormalSession()
-      : ChannelFilterConformanceTest({CreateEmptyConfigProto,
-                                      CreateReadFilter,
-                                      CreateWriteFilter},
+      : ChannelFilterConformanceTest({},
                                      std::get<NumClients>(GetParam()), true) {
     concurrency_ = num_clients_;
   }
 
   void TearDown() override {
-    onTestCleanup();
+    config_->cleanup();
     cleanup();
   }
 
@@ -392,10 +393,16 @@ TEST_P(ChannelFilterConformanceTestNormalSession, Test) {
   for (int i = 0; i < num_clients_; i++) {
     ENVOY_LOG_MISC(info, "starting downstream client {}", i + 1);
     auto d = StartDownstream();
-    ASSERT_OK(d);
+    EXPECT_OK(d);
     drivers.push_back(*d);
-    ASSERT_TRUE(listenForSshConnection(NewFakeUpstreamHandlerOpts(), 0));
   }
+
+  for (auto& driver : drivers) {
+    EXPECT_TRUE(listenForSshConnection(NewFakeUpstreamHandlerOpts(), 0));
+    EXPECT_TRUE(WaitForUserAuthWithFilter(driver));
+  }
+
+  ASSERT_FALSE(HasFailure());
 
   std::vector<std::pair<SshConnectionDriver&, UntypedTaskCallbacksHandle&>> handles;
   uint64_t i = 0;

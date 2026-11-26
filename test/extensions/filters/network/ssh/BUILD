@@ -41,6 +41,9 @@ envoy_cc_test_library(
 envoy_cc_test_library(
     name = "ssh_test_common_lib",
     srcs = [
+        "ssh_integration_common.cc",
+    ],
+    hdrs = [
         "ssh_integration_common.h",
         "test_util.h",
     ],

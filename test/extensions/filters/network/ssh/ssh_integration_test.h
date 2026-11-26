@@ -123,8 +123,12 @@ public:
                                                   Server::Configuration::ServerFactoryContext& ctx) override;
 
   [[nodiscard]]
-  testing::AssertionResult listenForHttpConnection(std::shared_ptr<HttpFakeUpstreamHandlerOpts> opts,
+  testing::AssertionResult listenForGrpcConnection(std::shared_ptr<UntypedGrpcFakeUpstreamHandlerOpts> opts,
                                                    Server::Configuration::ServerFactoryContext& ctx) override;
+
+  Http::Http2::CodecStats& http2CodecStats() override;
+  const envoy::config::core::v3::Http2ProtocolOptions& http2Options() override;
+  Network::Address::InstanceConstSharedPtr localAddress() const override;
 
   void cleanup(absl::Duration timeout) override;
 
@@ -152,6 +156,7 @@ using FakeUpstreamShimImplPtr = std::unique_ptr<FakeUpstreamShimImpl>;
 
 class SshIntegrationTest : public SecretsProviderImpl,
                            public SshIntegrationTestApi,
+                           public AddExtraFakeUpstreamApi,
                            public HttpIntegrationTest {
   // Implementation note:
   // SecretsProviderImpl has to be a separate base class, initialized before HttpIntegrationTest,
@@ -167,7 +172,12 @@ protected:
   void initialize() override;
   void cleanup();
 
-  std::string localhost() const { return localhost(version_); }
+  // Override this to add extra dynamic clusters. Each cluster added here should correspond to a
+  // fake upstream added in addExtraUpstreams in order.
+  virtual void addExtraClusters(envoy::config::bootstrap::v3::Bootstrap&) {}
+  virtual void addExtraUpstreams() {}
+
+  std::string localhost() const override { return localhost(version_); }
   static std::string localhost(Network::Address::IpVersion version) {
     return (version == Network::Address::IpVersion::v4)
              ? "127.0.0.1"
@@ -180,7 +190,7 @@ protected:
   IntegrationTcpClientPtr makeTcpConnectionWithServerName(uint32_t port, const std::string& server_name);
 
   AssertionResult listenForSshConnection(SshFakeUpstreamHandlerOpts&& opts, size_t upstream_index = 0) override;
-  AssertionResult listenForHttpConnection(HttpFakeUpstreamHandlerOpts&& opts, FakeUpstreamShim& fake_upstream) override;
+  AssertionResult listenForGrpcConnection(UntypedGrpcFakeUpstreamHandlerOpts&& opts, FakeUpstreamShim& fake_upstream) override;
   void configureUpstreamTunnelCluster(envoy::config::cluster::v3::Cluster& cluster);
 
   struct ClusterLoadOpts {
@@ -193,24 +203,29 @@ protected:
 
   void setClusterLoad(const std::string& cluster_name, std::vector<ClusterLoadOpts> endpoint_opts);
 
-  FakeUpstream& addFakeUpstream(Http::CodecType type, const std::string& name) {
+  FakeUpstream& addFakeUpstream(Http::CodecType type, const std::string& name, AddFakeUpstreamOpts opts = {}) {
     auto config = configWithType(type);
     config.dispatcher_name_ = name;
+    if (opts.create_listener_filter_chain) {
+      config.create_listener_filter_chain_ = opts.create_listener_filter_chain;
+    }
     fake_upstreams_.emplace_back(std::make_unique<FakeUpstream>(0, version_, config));
     return *fake_upstreams_.back();
   }
 
-  std::unique_ptr<FakeUpstreamShim> newFakeUpstream(Http::CodecType type, const std::string& name) override {
-    return std::make_unique<FakeUpstreamShimImpl>(&addFakeUpstream(type, name));
+  std::unique_ptr<FakeUpstreamShim> addExtraFakeUpstream(Http::CodecType type, const std::string& name, AddFakeUpstreamOpts opts = {}) override {
+    return std::make_unique<FakeUpstreamShimImpl>(&addFakeUpstream(type, name, opts));
   }
 
   int mgmtClusterIndex() const { return 0; }
-  int httpUpstreamClusterIndex() const { return 1 + static_cast<int>(ssh_upstreams_.size()); }
-  int grpcUpstreamClusterIndex() const { return 1 + static_cast<int>(ssh_upstreams_.size()) + 1; }
-  int tcpUpstreamClusterIndex() const { return 1 + static_cast<int>(ssh_upstreams_.size()) + 2; }
+  int httpUpstreamClusterIndex() const { return 1 + static_cast<int>(ssh_upstreams_.size()) + extra_upstreams_count_; }
+  int grpcUpstreamClusterIndex() const { return 1 + static_cast<int>(ssh_upstreams_.size()) + extra_upstreams_count_ + 1; }
+  int tcpUpstreamClusterIndex() const { return 1 + static_cast<int>(ssh_upstreams_.size()) + extra_upstreams_count_ + 2; }
 
+  const std::vector<std::string> ssh_routes_;
   FakeUpstreamShimImplPtr mgmt_upstream_;
   std::vector<FakeUpstreamShimImplPtr> ssh_upstreams_;
+  int extra_upstreams_count_{};
   FakeUpstreamShimImplPtr http_upstream_1_;
   FakeUpstreamShimImplPtr http_upstream_2_;
   FakeUpstreamShimImplPtr tcp_upstream_;
@@ -229,6 +244,23 @@ protected:
   };
   static inline const absl::Duration default_timeout_ =
     isDebuggerAttached() ? absl::Hours(10) : absl::Seconds(10);
+};
+
+class ConfigHelperShimImpl : public ConfigHelperShim {
+public:
+  ConfigHelperShimImpl(ConfigHelper& real)
+      : real_config_helper_(real) {}
+
+  envoy::config::cluster::v3::Cluster buildStaticCluster(
+    const std::string& name, int port, const std::string& address,
+    const envoy::config::cluster::v3::Cluster::LbPolicy lb_policy = envoy::config::cluster::v3::Cluster::ROUND_ROBIN) override;
+  void setHttp2(envoy::config::cluster::v3::Cluster& cluster) override;
+  void setHttp2WithMaxConcurrentStreams(envoy::config::cluster::v3::Cluster& cluster, uint32_t max_concurrent_streams) override;
+  bool loadHttpConnectionManager(envoy::extensions::filters::network::http_connection_manager::v3::HttpConnectionManager& hcm) override;
+  void storeHttpConnectionManager(const envoy::extensions::filters::network::http_connection_manager::v3::HttpConnectionManager& hcm) override;
+
+private:
+  ConfigHelper& real_config_helper_;
 };
 
 } // namespace test

@@ -9,7 +9,8 @@ namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 namespace test {
 
 SshIntegrationTest::SshIntegrationTest(std::vector<std::string> ssh_routes, Network::Address::IpVersion version)
-    : HttpIntegrationTest(Http::CodecType::HTTP1, version, defaultConfig(ssh_routes, version)) {
+    : HttpIntegrationTest(Http::CodecType::HTTP1, version, defaultConfig(ssh_routes, version)),
+      ssh_routes_(ssh_routes) {
   fake_upstreams_count_ = 0; // add our upstreams manually
   config_helper_.addConfigModifier([this, localhost = localhost(), ssh_routes](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
     RELEASE_ASSERT(bootstrap.mutable_static_resources()->clusters_size() == 0, "");
@@ -32,6 +33,15 @@ SshIntegrationTest::SshIntegrationTest(std::vector<std::string> ssh_routes, Netw
       bootstrap.mutable_static_resources()->add_clusters()->CopyFrom(c);
     }
 
+    {
+      auto initialCount = bootstrap.static_resources().clusters_size();
+      addExtraClusters(bootstrap);
+      auto added = bootstrap.static_resources().clusters_size() - initialCount;
+      RELEASE_ASSERT(added == extra_upstreams_count_,
+                     fmt::format("test bug: the number of upstreams added in addExtraUpstreams() ({}) is not equal to "
+                                 "the number of clusters added in addExtraClusters() ({})",
+                                 extra_upstreams_count_, added));
+    }
     ConfigHelper::HttpProtocolOptions http1_protocol_options;
     http1_protocol_options.mutable_explicit_http_config()->clear_http2_protocol_options();
     http1_protocol_options.mutable_explicit_http_config()->mutable_http_protocol_options();
@@ -52,13 +62,6 @@ SshIntegrationTest::SshIntegrationTest(std::vector<std::string> ssh_routes, Netw
     configureUpstreamTunnelCluster(tcpCluster);
     bootstrap.mutable_static_resources()->add_clusters()->CopyFrom(tcpCluster);
   });
-  mgmt_upstream_ = std::make_unique<FakeUpstreamShimImpl>(&addFakeUpstream(Http::CodecType::HTTP2, "mgmt_upstream"));
-  for (size_t i = 0; i < ssh_routes.size(); i++) {
-    ssh_upstreams_.push_back(std::make_unique<FakeUpstreamShimImpl>(&addFakeUpstream(Http::CodecType::HTTP1, "ssh_upstream_" + ssh_routes[i]))); // codec type is unused here
-  }
-  http_upstream_1_ = std::make_unique<FakeUpstreamShimImpl>(&addFakeUpstream(Http::CodecType::HTTP1, "http_upstream_1"));
-  http_upstream_2_ = std::make_unique<FakeUpstreamShimImpl>(&addFakeUpstream(Http::CodecType::HTTP1, "http_upstream_2"));
-  tcp_upstream_ = std::make_unique<FakeUpstreamShimImpl>(&addFakeUpstream(Http::CodecType::HTTP1, "tcp_upstream")); // codec type is unused here
 }
 
 SshIntegrationTest::~SshIntegrationTest() = default;
@@ -88,6 +91,19 @@ void FakeUpstreamShimImpl::cleanup(absl::Duration timeout) {
 }
 
 void SshIntegrationTest::initialize() {
+  mgmt_upstream_ = std::make_unique<FakeUpstreamShimImpl>(&addFakeUpstream(Http::CodecType::HTTP2, "mgmt_upstream"));
+  for (size_t i = 0; i < ssh_routes_.size(); i++) {
+    ssh_upstreams_.push_back(std::make_unique<FakeUpstreamShimImpl>(&addFakeUpstream(Http::CodecType::HTTP1, "ssh_upstream_" + ssh_routes_[i]))); // codec type is unused here
+  }
+  {
+    auto initialCount = static_cast<int>(fake_upstreams_.size());
+    addExtraUpstreams();
+    extra_upstreams_count_ = static_cast<int>(fake_upstreams_.size()) - initialCount;
+  }
+  http_upstream_1_ = std::make_unique<FakeUpstreamShimImpl>(&addFakeUpstream(Http::CodecType::HTTP1, "http_upstream_1"));
+  http_upstream_2_ = std::make_unique<FakeUpstreamShimImpl>(&addFakeUpstream(Http::CodecType::HTTP1, "http_upstream_2"));
+  tcp_upstream_ = std::make_unique<FakeUpstreamShimImpl>(&addFakeUpstream(Http::CodecType::HTTP1, "tcp_upstream")); // codec type is unused here
+
   HttpIntegrationTest::initialize();
   registerTestServerPorts({"http", "ssh", "tcp"});
 }
@@ -106,9 +122,9 @@ AssertionResult SshIntegrationTest::listenForSshConnection(SshFakeUpstreamHandle
     std::make_shared<SshFakeUpstreamHandlerOpts>(std::move(opts)), server_factory_context_);
 }
 
-AssertionResult SshIntegrationTest::listenForHttpConnection(HttpFakeUpstreamHandlerOpts&& opts, FakeUpstreamShim& fake_upstream) {
-  return fake_upstream.listenForHttpConnection(
-    std::make_shared<HttpFakeUpstreamHandlerOpts>(std::move(opts)), server_factory_context_);
+AssertionResult SshIntegrationTest::listenForGrpcConnection(UntypedGrpcFakeUpstreamHandlerOpts&& opts, FakeUpstreamShim& fake_upstream) {
+  return fake_upstream.listenForGrpcConnection(
+    std::make_shared<UntypedGrpcFakeUpstreamHandlerOpts>(std::move(opts)), server_factory_context_);
 }
 
 void SshIntegrationTest::configureUpstreamTunnelCluster(envoy::config::cluster::v3::Cluster& cluster) {
@@ -168,6 +184,10 @@ AssertionResult FakeUpstreamShimImpl::waitForHttpConnection(Envoy::Event::Dispat
   return ret;
 }
 
+Network::Address::InstanceConstSharedPtr FakeUpstreamShimImpl::localAddress() const {
+  return fake_upstream_->localAddress();
+}
+
 AssertionResult FakeUpstreamShimImpl::listenForSshConnection(std::shared_ptr<SshFakeUpstreamHandlerOpts> opts,
                                                              Server::Configuration::ServerFactoryContext& server_factory_context) {
   // FakeUpstream isn't really built to do what we need here, which is to have it pre-configured
@@ -192,11 +212,11 @@ AssertionResult FakeUpstreamShimImpl::listenForSshConnection(std::shared_ptr<Ssh
   });
 }
 
-AssertionResult FakeUpstreamShimImpl::listenForHttpConnection(std::shared_ptr<HttpFakeUpstreamHandlerOpts> opts,
+AssertionResult FakeUpstreamShimImpl::listenForGrpcConnection(std::shared_ptr<UntypedGrpcFakeUpstreamHandlerOpts> opts,
                                                               Server::Configuration::ServerFactoryContext& server_factory_context) {
   return fake_upstream_->runOnDispatcherThreadAndWait([this, opts, ctx = &server_factory_context] {
     auto listener = std::make_unique<FakeUpstreamConnectionListenCtx>(
-      *fake_upstream_, std::make_unique<HttpFakeUpstreamHandler>(*ctx, opts));
+      *fake_upstream_, std::make_unique<GrpcFakeUpstreamHandler>(*ctx, opts, *this));
     listeners_mu_.lock();
     listeners_.push_back(std::move(listener));
     listeners_.back()->startTimer();
@@ -204,6 +224,14 @@ AssertionResult FakeUpstreamShimImpl::listenForHttpConnection(std::shared_ptr<Ht
 
     return testing::AssertionSuccess();
   });
+}
+
+Http::Http2::CodecStats& FakeUpstreamShimImpl::http2CodecStats() {
+  return fake_upstream_->http2CodecStats();
+}
+
+const envoy::config::core::v3::Http2ProtocolOptions& FakeUpstreamShimImpl::http2Options() {
+  return fake_upstream_->http2Options();
 }
 
 FakeUpstreamShimImpl::FakeUpstreamConnectionListenCtx::FakeUpstreamConnectionListenCtx(FakeUpstream& fake_upstream, std::unique_ptr<FakeUpstreamHandlerCallbacks> handler)
@@ -526,6 +554,27 @@ public:
 
 REGISTER_FACTORY(ServerNameInjectorConfigFactory,
                  Server::Configuration::NamedListenerFilterConfigFactory);
+
+envoy::config::cluster::v3::Cluster
+ConfigHelperShimImpl::buildStaticCluster(const std::string& name, int port, const std::string& address, const envoy::config::cluster::v3::Cluster::LbPolicy lb_policy) {
+  return ConfigHelper::buildStaticCluster(name, port, address, lb_policy);
+}
+
+void ConfigHelperShimImpl::setHttp2(envoy::config::cluster::v3::Cluster& cluster) {
+  ConfigHelper::setHttp2(cluster);
+}
+
+void ConfigHelperShimImpl::setHttp2WithMaxConcurrentStreams(envoy::config::cluster::v3::Cluster& cluster, uint32_t max_concurrent_streams) {
+  ConfigHelper::setHttp2WithMaxConcurrentStreams(cluster, max_concurrent_streams);
+}
+
+bool ConfigHelperShimImpl::loadHttpConnectionManager(envoy::extensions::filters::network::http_connection_manager::v3::HttpConnectionManager& hcm) {
+  return real_config_helper_.loadHttpConnectionManager(hcm);
+}
+
+void ConfigHelperShimImpl::storeHttpConnectionManager(const envoy::extensions::filters::network::http_connection_manager::v3::HttpConnectionManager& hcm) {
+  real_config_helper_.storeHttpConnectionManager(hcm);
+}
 
 } // namespace test
 } // namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec
