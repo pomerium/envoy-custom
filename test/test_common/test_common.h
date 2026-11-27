@@ -3,6 +3,9 @@
 #include "source/common/optref.h"
 #include "source/common/types.h"
 #include "source/common/type_traits.h"
+#include <algorithm>
+#include <limits>
+#include <ranges>
 #pragma clang unsafe_buffer_usage begin
 #include "source/common/buffer/buffer_impl.h" // IWYU pragma: keep
 #include "absl/random/random.h"
@@ -75,15 +78,35 @@ constexpr absl::Status to_status(S&& statusor) {
 #define ASSERT_NOT_OK(v) ASSERT_THAT((v), ::testing::Not(::Envoy::StatusHelpers::IsOk()))
 #endif // ASSERT_OK
 
-static absl::BitGen rng;
+static thread_local absl::BitGen rng;
 
-inline bytes randomBytes(size_t size) {
+inline bytes randomBytes(size_t size, uint8_t min = 0, uint8_t max = 255) {
   bytes b;
   b.resize(size);
   for (size_t i = 0; i < b.size(); i++) {
-    b[i] = absl::Uniform<uint8_t>(rng);
+    b[i] = absl::Uniform<uint8_t>(rng, min, max);
   }
   return b;
+}
+
+inline std::vector<bytes> randomChunks(const bytes& src, size_t num_chunks) {
+  RELEASE_ASSERT(num_chunks <= src.size(), fmt::format("num_chunks ({}) must be <= src.size() ({})", num_chunks, src.size()));
+  std::unordered_set<size_t> indexes;
+
+  while (indexes.size() < num_chunks - 1) {
+    indexes.insert(absl::Uniform<size_t>(rng, 0, src.size() - 1));
+  }
+
+  size_t idx = 0;
+  return src | std::views::chunk_by([&idx, &indexes](auto, auto) {
+           return indexes.contains(idx++);
+         }) |
+         std::ranges::to<std::vector<bytes>>();
+}
+
+template <std::integral T>
+inline T randomInt(T min = std::numeric_limits<T>::min(), T max = std::numeric_limits<T>::max()) {
+  return absl::Uniform<T>(absl::IntervalClosedClosed, rng, min, max);
 }
 
 using testing::_; // NOLINT(bugprone-reserved-identifier)

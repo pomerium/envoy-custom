@@ -44,7 +44,14 @@ public:
   // Starts a timer that will invoke the given callback after the timeout, unless taskSuccess() or
   // taskFailure() have been called before the timer elapses.
   virtual void setTimeout(std::chrono::milliseconds timeout, std::function<void()> cb) PURE;
+  // Repeatedly invokes a callback at the given interval until taskSuccess or taskFailure is called,
+  // or the task times out. If taskSuccess or taskFailure is called from within the loop callback,
+  // it will end the task. If it is called outside the loop, the loop will also be stopped.
   virtual void loop(std::chrono::milliseconds interval, std::function<void()> cb) PURE;
+  // Same as loop(), but the callback returns a bool indicating whether to continue. If the callback
+  // returns false, the loop is ended but the task is not marked as completed or failed. The
+  // callback is always invoked at least once.
+  virtual void loopWhile(std::chrono::milliseconds interval, std::function<bool()> cb) PURE;
 
 private:
   virtual void taskSuccess(std::any output, std::function<void(const std::any&, void*)> apply_fn) PURE;

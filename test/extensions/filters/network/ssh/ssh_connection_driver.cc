@@ -314,6 +314,13 @@ AssertionResult SshConnectionDriver::waitForStatsEvent(pomerium::extensions::ssh
 }
 
 void SshConnectionDriver::TaskCallbacksImpl::loop(std::chrono::milliseconds interval, std::function<void()> cb) {
+  return loopWhile(interval, [cb = std::move(cb)] {
+    cb();
+    return true;
+  });
+}
+
+void SshConnectionDriver::TaskCallbacksImpl::loopWhile(std::chrono::milliseconds interval, std::function<bool()> cb) {
   loop_ = parent_.connectionDispatcher()->createTimer([this, interval, cb] mutable {
     if (testing::Test::HasFailure()) {
       return;
@@ -322,12 +329,15 @@ void SshConnectionDriver::TaskCallbacksImpl::loop(std::chrono::milliseconds inte
     // taskFailure will be called from inside the callback, and those functions will cancel the
     // next scheduled invocation.
     loop_->enableTimer(interval);
-    cb();
+    auto cont = cb();
     // If the task completed, uninstall the message middleware. This otherwise only happens
     // after onMessageReceived().
     if (!loop_->enabled()) {
       ENVOY_LOG_MISC(debug, "task completed in loop, uninstalling middleware");
       parent_.uninstallMiddleware(task_.get());
+    } else if (!cont) {
+      ENVOY_LOG_MISC(debug, "callback returned false, ending loop");
+      loop_->disableTimer();
     }
   });
   loop_->enableTimer({}); // start right away

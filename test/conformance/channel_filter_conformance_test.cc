@@ -1,7 +1,8 @@
 #include "api/extensions/bootstrap/dynamic_extension_loader/dynamic_extension_loader.pb.h"
+#include "source/extensions/filters/network/ssh/channel_filter.h"
+#include "source/extensions/filters/network/ssh/wire/messages.h"
 #include "test/extensions/filters/network/ssh/ssh_connection_driver.h"
 #include "test/extensions/filters/network/ssh/ssh_task.h"
-#include "test/integration/base_integration_test.h"
 #include "test/test_common/status_utility.h"
 #include "gtest/gtest.h"
 #include <barrier>
@@ -11,6 +12,7 @@
 #include "envoy/extensions/filters/network/generic_proxy/v3/generic_proxy.pb.h"
 
 #include "test/conformance/channel_filter_conformance_test_config.h"
+#include "test/test_common/test_common.h"
 
 namespace Envoy::Extensions::NetworkFilters::GenericProxy::Codec {
 namespace test {
@@ -53,8 +55,9 @@ private:
 
 class ShimChannelFilterCallbacks : public ChannelFilterCallbacks {
 public:
-  ShimChannelFilterCallbacks(ChannelFilterCallbacks& base)
-      : base_(base) {}
+  ShimChannelFilterCallbacks(ChannelFilterCallbacks& base, ChannelFilterType type)
+      : base_(base),
+        type_(type) {}
 
   bool interruptChannel(absl::Status err) override {
     return base_.interruptChannel(std::move(err));
@@ -88,29 +91,56 @@ public:
     return base_.scope();
   }
 
+  ChannelFilterType getFilterType() const { return type_; }
+
 private:
   ChannelFilterCallbacks& base_;
+  ChannelFilterType type_;
 };
 
-class ShimChannelFilter : private std::unique_ptr<ShimChannelFilterCallbacks>, // storage only, destroyed after ChannelFilter
-                          public ChannelFilter {
+class ShimChannelFilter : private std::unique_ptr<ShimChannelFilterCallbacks>, // destroyed after ChannelFilter
+                          public ChannelFilter,
+                          public TestChannelFilter {
 public:
-  ShimChannelFilter(ChannelFilterPtr base, std::unique_ptr<ShimChannelFilterCallbacks> shim_callbacks)
+  ShimChannelFilter(ChannelFilterPtr base, std::unique_ptr<ShimChannelFilterCallbacks> shim_callbacks,
+                    ChannelFilterConformanceTestEventCallbacks& event_callbacks)
       : std::unique_ptr<ShimChannelFilterCallbacks>(std::move(shim_callbacks)),
-        base_(std::move(base)) {}
+        base_(std::move(base)),
+        event_callbacks_(event_callbacks) {
+    EXPECT_TRUE(event_callbacks_.onChannelFilterCreated(
+      *std::unique_ptr<ShimChannelFilterCallbacks>::get(), filterType()));
+  }
+
+  ~ShimChannelFilter() {
+    EXPECT_TRUE(event_callbacks_.onChannelFilterDestroyed(
+      *std::unique_ptr<ShimChannelFilterCallbacks>::get(), *this));
+  }
 
   absl::Status onMessageForward(const wire::Message& msg) override {
+    transcript_.push_back(msg);
     return base_->onMessageForward(msg);
+  }
+
+  ChannelFilterType filterType() override {
+    return std::unique_ptr<ShimChannelFilterCallbacks>::get()->getFilterType();
+  }
+
+  std::vector<wire::Message>& transcript() override {
+    return transcript_;
   }
 
 private:
   ChannelFilterPtr base_;
+  ChannelFilterConformanceTestEventCallbacks& event_callbacks_;
+  std::vector<wire::Message> transcript_;
 };
 
 class ShimChannelFilterFactory : public ChannelFilterFactory {
 public:
-  ShimChannelFilterFactory(std::unique_ptr<ChannelFilterFactory> base, Synchronizer& sync)
+  ShimChannelFilterFactory(std::unique_ptr<ChannelFilterFactory> base, Synchronizer& sync,
+                           ChannelFilterConformanceTestEventCallbacks& event_callbacks)
       : base_(std::move(base)),
+        event_callbacks_(event_callbacks),
         sync_(sync) {
   }
 
@@ -122,36 +152,40 @@ public:
   absl::StatusOr<ChannelFilterPtr> createReadFilter(const google::protobuf::Message& config,
                                                     ChannelFilterCallbacks& channel_callbacks) override {
     sync_.syncPoint<CreateReadFilter>();
-    auto shimCallbacks = std::make_unique<ShimChannelFilterCallbacks>(channel_callbacks);
+    auto shimCallbacks = std::make_unique<ShimChannelFilterCallbacks>(channel_callbacks, ReadFilter);
     auto filter = base_->createReadFilter(config, *shimCallbacks);
     if (!filter.ok()) {
       return filter.status();
     }
-    auto shimFilter = std::make_unique<ShimChannelFilter>(std::move(filter).value(), std::move(shimCallbacks));
+    auto shimFilter = std::make_unique<ShimChannelFilter>(std::move(filter).value(), std::move(shimCallbacks), event_callbacks_);
     return shimFilter;
   }
 
   absl::StatusOr<ChannelFilterPtr> createWriteFilter(const google::protobuf::Message& config,
                                                      ChannelFilterCallbacks& channel_callbacks) override {
     sync_.syncPoint<CreateWriteFilter>();
-    auto shimCallbacks = std::make_unique<ShimChannelFilterCallbacks>(channel_callbacks);
+    auto shimCallbacks = std::make_unique<ShimChannelFilterCallbacks>(channel_callbacks, WriteFilter);
     auto filter = base_->createWriteFilter(config, *shimCallbacks);
     if (!filter.ok()) {
       return filter.status();
     }
-    auto shimFilter = std::make_unique<ShimChannelFilter>(std::move(filter).value(), std::move(shimCallbacks));
+    auto shimFilter = std::make_unique<ShimChannelFilter>(std::move(filter).value(), std::move(shimCallbacks), event_callbacks_);
     return shimFilter;
   }
 
 private:
   std::unique_ptr<ChannelFilterFactory> base_;
+  ChannelFilterConformanceTestEventCallbacks& event_callbacks_;
+
   Synchronizer& sync_;
 };
 
 class ShimChannelFilterFactoryConfig : public ChannelFilterFactoryConfig {
 public:
-  ShimChannelFilterFactoryConfig(ChannelFilterFactoryConfig* original, Synchronizer& sync)
-      : sync_(sync),
+  ShimChannelFilterFactoryConfig(ChannelFilterFactoryConfig* original, Synchronizer& sync,
+                                 ChannelFilterConformanceTestEventCallbacks& event_callbacks)
+      : event_callbacks_(event_callbacks),
+        sync_(sync),
         original_(original) {
   }
 
@@ -166,10 +200,11 @@ public:
   virtual ChannelFilterFactoryPtr createChannelFilterFactory(const google::protobuf::Message& config,
                                                              Envoy::Server::Configuration::ServerFactoryContext& context) override {
     auto base = original_->createChannelFilterFactory(config, context);
-    return std::make_unique<ShimChannelFilterFactory>(std::move(base), sync_);
+    return std::make_unique<ShimChannelFilterFactory>(std::move(base), sync_, event_callbacks_);
   }
 
 private:
+  ChannelFilterConformanceTestEventCallbacks& event_callbacks_;
   Synchronizer& sync_;
   ChannelFilterFactoryConfig* original_;
 };
@@ -186,9 +221,10 @@ public:
   ChannelFilterConformanceTest()
       : ChannelFilterConformanceTest({}, 0, false) {}
 
+protected:
   void addExtraClusters(envoy::config::bootstrap::v3::Bootstrap& bootstrap) override {
     ConfigHelperShimImpl configHelperShim{config_helper_};
-    config_->addExtraClusters(bootstrap, configHelperShim, localhost());
+    config_->addExtraClusters(bootstrap, configHelperShim, localhost(), concurrency_);
   }
 
   void addExtraUpstreams() override {
@@ -196,6 +232,9 @@ public:
   }
 
   void initialize() override {
+    if ((config_->properties() & ChannelFilterConformanceTestConfig::RequiresTestParams) != 0) {
+      ASSERT_TRUE(config_->testParams().has_value());
+    }
     ConfigureExtensionLoader();
     // TODO: this part is copied from filter_manager_test.cc, it should be moved into the base integration test
     config_helper_.addConfigModifier([this](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
@@ -238,7 +277,7 @@ public:
 
     auto original = Registry::FactoryRegistry<ChannelFilterFactoryConfig>::getFactory(config_->channelFilterName());
     ASSERT(original != nullptr);
-    shim_ = std::make_unique<ShimChannelFilterFactoryConfig>(original, thread_synchronizer_);
+    shim_ = std::make_unique<ShimChannelFilterFactoryConfig>(original, thread_synchronizer_, *config_);
     inject_ = std::make_unique<Registry::InjectFactory<ChannelFilterFactoryConfig>>(*shim_);
 
     ASSERT_TRUE(config_->initialize(*this));
@@ -352,27 +391,14 @@ TEST_F(ChannelFilterConformanceTest, BasicStartup) {
 // Filter test options:
 // - whether or not the filter allows multiple sessions
 
-enum NumClients : int {};
-enum NumChannels : int {};
-enum ChannelDataMode {
-  DownstreamToUpstreamOnly,
-  UpstreamToDownstreamOnly,
-  Bidirectional,
-};
-enum CloseMethod {
-  ChannelCloseByDownstream,
-  ChannelCloseByUpstream,
-  ServerShutdown,
-  // InterruptByPriorFilter
-};
-
 class ChannelFilterConformanceTestNormalSession : public testing::WithParamInterface<std::tuple<NumClients, NumChannels, ChannelDataMode, CloseMethod>>,
                                                   public ChannelFilterConformanceTest {
 public:
   ChannelFilterConformanceTestNormalSession()
       : ChannelFilterConformanceTest({},
                                      std::get<NumClients>(GetParam()), true) {
-    concurrency_ = num_clients_;
+    concurrency_ = params_.num_downstream_clients;
+    config_->setTestParams(params_);
   }
 
   void TearDown() override {
@@ -380,17 +406,80 @@ public:
     cleanup();
   }
 
-  NumClients num_clients_ = std::get<NumClients>(GetParam());
-  NumChannels num_channels_ = std::get<NumChannels>(GetParam());
-  ChannelDataMode channel_data_mode_ = std::get<ChannelDataMode>(GetParam());
-  CloseMethod close_method_ = std::get<CloseMethod>(GetParam());
+  TestParams params_{
+    .num_downstream_clients = std::get<NumClients>(GetParam()),
+    .num_channel_open_requests_per_client = std::get<NumChannels>(GetParam()),
+    .channel_data_mode = std::get<ChannelDataMode>(GetParam()),
+    .close_method = std::get<CloseMethod>(GetParam()),
+  };
+};
+
+class SendAndReceiveChannelData : public Task<SendAndReceiveChannelData, Tasks::Channel, Tasks::Channel> {
+public:
+  explicit SendAndReceiveChannelData(const bytes& expected, size_t num_chunks)
+      : expected_data_(to_string(expected)) {
+    chunks_ = randomChunks(expected, num_chunks);
+  }
+  void start(Tasks::Channel channel) override {
+    channel_ = channel;
+    setChannelFilter(channel);
+    callbacks_->setTimeout(default_timeout_);
+
+    if (!chunks_.empty()) {
+      callbacks_->loopWhile(std::chrono::milliseconds{0}, [this] -> bool {
+        callbacks_->sendMessage(wire::ChannelDataMsg{
+          .recipient_channel = channel_.remote_id,
+          .data = chunks_[chunks_index_++],
+        });
+        return chunks_index_ < chunks_.size();
+      });
+    }
+  }
+  MiddlewareResult onMessageReceived(wire::Message& msg) override {
+    return msg.visit(
+      [&](const wire::ChannelDataMsg& data) {
+        recv_buffer_.add(data.data->data(), data.data->size());
+        if (recv_buffer_.length() >= expected_data_.length()) {
+          checkBuffers();
+        }
+        return Break;
+      },
+      [&](const wire::ChannelCloseMsg&) {
+        taskFailure(absl::InternalError("channel closed before all data was received"));
+        return Break;
+      },
+      [&](const wire::ChannelEOFMsg&) {
+        taskFailure(absl::InternalError("got channel EOF before all data was received"));
+        return Break;
+      },
+      [&](const auto&) {
+        return Continue;
+      });
+  }
+
+  void checkBuffers() {
+    auto actual = recv_buffer_.toString();
+    for (size_t i = 0; i < actual.size(); i++) {
+      if (expected_data_[i] != actual[i]) {
+        taskFailure(absl::InvalidArgumentError(fmt::format(
+          "actual data does not match expected data. mismatch occurred at index {} (expected={}, actual={})", i, expected_data_[i], actual[i])));
+        return;
+      }
+    }
+    taskSuccess(channel_);
+  }
+  const std::string expected_data_;
+  std::vector<bytes> chunks_;
+  size_t chunks_index_{0};
+  Tasks::Channel channel_;
+  Envoy::Buffer::OwnedImpl recv_buffer_;
 };
 
 TEST_P(ChannelFilterConformanceTestNormalSession, Test) {
   initialize();
 
   std::vector<std::shared_ptr<SshConnectionDriver>> drivers;
-  for (int i = 0; i < num_clients_; i++) {
+  for (int i = 0; i < params_.num_downstream_clients; i++) {
     ENVOY_LOG_MISC(info, "starting downstream client {}", i + 1);
     auto d = StartDownstream();
     EXPECT_OK(d);
@@ -405,11 +494,13 @@ TEST_P(ChannelFilterConformanceTestNormalSession, Test) {
   ASSERT_FALSE(HasFailure());
 
   std::vector<std::pair<SshConnectionDriver&, UntypedTaskCallbacksHandle&>> handles;
-  uint64_t i = 0;
   for (auto& driver : drivers) {
-    handles.push_back({*driver, driver->createTask<Tasks::OpenSessionChannel>(i++)
-                                  .then(driver->createTask<Tasks::SendChannelCloseAndWait>())
-                                  .start()});
+    for (int i = 0; i < params_.num_channel_open_requests_per_client; i++)
+      handles.push_back({*driver, driver->createTask<Tasks::OpenSessionChannel>(i++)
+                                    .then(driver->createTask<SendAndReceiveChannelData>(randomBytes(randomInt<size_t>(4096, 16384), 'A', 'z'),
+                                                                                        randomInt<size_t>(100, 200))
+                                            .then(driver->createTask<Tasks::SendChannelCloseAndWait>()))
+                                    .start()});
   }
   ASSERT_TRUE(SshConnectionDriver::waitAll(std::move(handles)));
   for (auto& driver : drivers) {

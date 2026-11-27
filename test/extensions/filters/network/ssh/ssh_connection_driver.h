@@ -170,7 +170,9 @@ protected:
     void setTimeout(std::chrono::milliseconds timeout, std::function<void()> cb) override;
 
     void sendMessage(wire::Message&& msg) override;
+
     void loop(std::chrono::milliseconds interval, std::function<void()> cb) override;
+    void loopWhile(std::chrono::milliseconds interval, std::function<bool()> cb) override;
 
     // TaskCallbacksHandle
     UntypedTaskCallbacksHandle& start(std::any input) override;
